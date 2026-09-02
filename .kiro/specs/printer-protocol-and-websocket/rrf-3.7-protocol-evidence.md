@@ -2,9 +2,9 @@
 
 登记日期：2026-09-02
 
-状态：已完成官方资料核对；尚未连接本项目的真实 RRF 3.7 设备。
+状态：已完成官方资料核对和可复现 HTTP 协议测试；尚未连接本项目的真实 RRF 3.7 设备。
 
-本文只登记已经从 RepRapFirmware 官方资料确认的协议事实。没有真实设备响应证据的字段，不在本文中标记为“已完成实现”。
+本文只登记已经从 RepRapFirmware 官方资料确认的协议事实。可复现 Mock 只证明调用边界和解析逻辑，不代表真实设备响应、副作用或部署模式已经验收。
 
 ## 1. 证据来源
 
@@ -20,11 +20,11 @@
 
 | 能力 | 方法和路径 | 已确认事实 | Farm 实现状态 |
 |---|---|---|---|
-| 建立会话 | `GET /rr_connect?password=<password>&sessionKey=yes` | 返回 `err`；成功时可返回 `sessionKey` 和 `sessionTimeout`。后续请求使用 `X-Session-Key`。 | 协议证据已确认，客户端待实现 |
-| 查询状态 | `GET /rr_model` | RRF 3.x 支持；通过 `key`、`flags` 查询对象模型，响应为 `{ key, flags, result }`。 | 协议证据已确认，字段解析待实现 |
-| 执行 G-code | `GET /rr_gcode?gcode=<encoded-gcode>` | 用于发送 G/M/T-code，返回 `buff`。 | 可作为控制客户端的调用边界，待实现 |
-| 上传文件 | `POST /rr_upload?name=<path>` | 请求体是原始文件内容；建议发送 `Content-Length`，可选 `time`、`crc32`；结果包含 `err`。 | 协议证据已确认，客户端待实现 |
-| 文件上传结果 | `GET /rr_upload` | 返回最近一次上传的 `err`，`0` 表示成功。 | 待实现 |
+| 建立会话 | `GET /rr_connect?password=<password>&sessionKey=yes` | 返回 `err`；成功时可返回 `sessionKey` 和 `sessionTimeout`。后续请求使用 `X-Session-Key`。 | 已实现；Mock 验证通过，实机未验证 |
+| 查询状态 | `GET /rr_model?key=state`、`GET /rr_model?key=job` | RRF 3.x 支持；通过 `key` 查询对象模型，响应为 `{ key, flags, result }`。 | 已实现状态、文件名、文件大小/位置和任务字段解析；设备字段差异待验证 |
+| 执行 G-code | `GET /rr_gcode?gcode=<encoded-gcode>` | 用于发送 G/M/T-code，返回 `buff`。 | 已实现并由暂停/恢复/取消/急停适配器调用；实机响应待验证 |
+| 上传文件 | `POST /rr_upload?name=<path>` | 请求体是原始文件内容；发送 `Content-Length`，结果包含 `err`。 | 已实现原始流上传到 `0:/gcodes`；路径和实机可见性待验证 |
+| 文件上传结果 | 上传响应中的 `err` | `0` 表示成功。 | 已集成上传结果校验；未单独依赖 `GET /rr_upload` |
 
 `rr_status` 在官方文档中已经标记为废弃，并且在 3.6 计划移除；不作为 RRF 3.7 的状态接口。
 
@@ -84,4 +84,4 @@ simulating/changingTool           -> PREPARING
 - RRF 设备是否支持本项目需要的全部暂停、恢复、取消和急停操作。
 - 工具温度、热床温度、进度百分比在具体设备配置下的精确字段映射。
 
-在上述事项获得官方版本资料或真实设备响应前，`RrfAdapter` 对未确认能力必须返回统一的 unsupported/protocol error，不能返回假成功或调用 Moonraker。
+在上述事项获得真实设备响应前，已实现的调用只表示符合官方协议边界并通过 Mock；设备特有字段、副作用和路径失败必须归类为统一的 protocol/offline/rejected 错误，不能返回假成功或调用 Moonraker。

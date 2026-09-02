@@ -190,14 +190,14 @@ public PrinterProtocolAdapter getAdapter(String firmwareType) {
 
 ## 7. RRF Adapter 设计
 
-新增 `RrfAdapter` 和独立 `RrfApiClient`。RRF 3.7 的 URL、认证头、状态字段和上传流程在实现前必须从官方文档或真实设备响应确认，并记录在 `API_HANDOFF.md` 的协议附录中。
+新增 `RrfAdapter` 和独立 `RrfApiClient`。RRF 3.7 的 URL、认证头、状态字段和上传流程必须从官方文档或真实设备响应确认，并记录在 `API_HANDOFF.md` 的协议附录中。当前已按官方资料实现已确认的 HTTP 调用，并用可复现 Mock 验证；真实设备差异仍单独保留为联调事项。
 
-在资料确认前可先完成：
+在真实设备联调前已完成：
 
 - `protocolType() == RRF`。
 - 状态响应解析器与 Mock 响应。
 - RRF 私有状态到 `PrinterStatus` 的纯函数映射。
-- 对未确认能力抛出 `UNSUPPORTED`。
+- 对未确认字段按 `null/UNKNOWN` 处理，对协议失败按统一 `PrinterProtocolException` 分类。
 
 禁止：
 
@@ -387,7 +387,7 @@ farm:
 2. 将 Moonraker 调用封装进 Klipper Adapter，并保持旧行为。
 3. 改造控制、任务和监控调用链。
 4. 增加恢复操作及 Klipper Mock 测试。
-5. 实现 RRF Adapter 骨架和状态映射，不写未经确认的真实 API。
+5. 根据官方证据实现 RRF Adapter 和 HTTP 客户端，并保留真实设备联调边界。
 6. 增加 WebSocket 消息对象、事件发布器和快照。
 7. 补齐 WebSocket 事件、离线去重和端到端测试。
 8. 更新 `API_HANDOFF.md`、`TODO.md`，运行测试并提交。

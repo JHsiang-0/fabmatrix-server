@@ -69,9 +69,10 @@
   - 目标：独立于 Moonraker，完成协议选择和统一状态映射。
   - 验收：`RRF` 永不调用 Moonraker，未支持能力返回稳定 `UNSUPPORTED` 错误；Factory 已可选择 RRF Adapter。
   - 测试：`RrfAdapterTest`、`PrinterProtocolAdapterFactoryTest`，6 个针对性测试通过；全量 `mvn test` 共 42 个通过。
-- [ ] T2.3 根据证据逐项实现 RRF 真实能力。
+- [x] T2.3 根据证据逐项实现 RRF 真实能力。
   - 目标：只实现已确认的 HTTP 调用。
-  - 验收：真实设备或可复现协议测试通过；API_HANDOFF 标注实际状态。
+  - 验收：已实现 `rr_connect` 会话、`rr_model` 状态、`rr_gcode` 控制和 `rr_upload` 文件上传；可复现协议测试通过，API_HANDOFF 已标注实机限制。
+  - 测试：`RrfApiClientTest` 4 个协议测试通过；全量 `mvn test` 共 46 个通过。尚未宣称真实 RRF 3.7 设备联调完成。
 
 ## 3. P0 WebSocket 实时状态
 

@@ -458,7 +458,7 @@ JOB_STATUS        任务状态变化
 
 ## 8. 打印机协议适配约定
 
-HTTP API 不因为 Klipper 或 RRF 改变。当前已完成协议领域模型、Adapter 接口、Factory、Klipper Adapter、RRF Adapter 骨架、打印机控制 Service、任务服务和监控任务迁移；后端内部根据 `firmwareType` 选择适配器：
+HTTP API 不因为 Klipper 或 RRF 改变。当前已完成协议领域模型、Adapter 接口、Factory、Klipper Adapter、RRF Adapter、打印机控制 Service、任务服务和监控任务迁移；后端内部根据 `firmwareType` 选择适配器：
 
 ```text
 PrinterProtocolAdapter
@@ -480,7 +480,9 @@ startPrint()
 
 Controller -> Service -> `PrinterProtocolAdapter` -> 具体协议客户端。
 
-当前 `RrfApiClient` 只提供独立调用边界并对真实 HTTP 能力返回 `UNSUPPORTED`；RRF 状态映射已可通过 Mock 验证，不能据此宣称已完成 RRF 3.7 实机接入。
+`RrfApiClient` 已按官方资料实现独立的 HTTP 调用链：使用 `rr_connect?password=...&sessionKey=yes` 建立短会话，使用 `X-Session-Key` 调用 `rr_model`、`rr_gcode` 和 `rr_upload`，操作结束后调用 `rr_disconnect`。状态读取 `state.status`、`job.file.fileName`、文件大小/位置和已确认的任务字段；控制动作使用 `M25`、`M24`、`M0`、`M112`，上传后启动使用 `M32`。
+
+`RrfApiClientTest` 已通过可复现 HTTP Mock 测试，覆盖会话、状态/进度、G-code、原始文件上传和密码错误分类。这里的测试证明协议调用边界和解析逻辑，不等同于真实 RRF 3.7 设备验收。`apiKey` 在 RRF 适配中作为设备密码使用，不能当作长期 session key；真实设备仍需确认固件构建、standalone/SBC 模式、`0:/gcodes` 路径可见性、会话限制以及 `M0/M112/M32` 的现场副作用。
 
 禁止在 Controller 中直接注入 `MoonrakerApiClient`，也禁止仅通过修改 URL 假装支持 RRF 3.7。
 
@@ -550,9 +552,9 @@ farm.tasks.enabled=false
 10. 新建文件夹已正确设置用户归属并校验父目录。
 11. WebSocket 已完成握手鉴权；`type`、初始快照、离线消息仍待补充。
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
-13. Klipper 和 RRF 都通过协议适配器接入。
+13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，尚待真实设备联调。
 
-RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。目前只确认官方 HTTP/G-code 边界，尚未宣称 Farm 已具备 RRF 实机通信能力；具体设备响应、存储路径、会话重连和宏副作用确认前，RRF Adapter 不返回假成功。
+RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。当前实现只覆盖已确认的官方 HTTP/G-code 边界；具体设备响应、存储路径、会话重连和宏副作用仍需真实设备确认，不能把 Mock 测试结果当作实机验收。
 
 ## 11. 前端开发优先顺序
 

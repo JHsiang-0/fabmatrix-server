@@ -143,7 +143,7 @@ startPrint()
 - [x] 将 `PrintJobServiceImpl` 中的上传、启动、取消设备调用改为 Adapter。
 - [x] 将 `PrinterMonitorTask` 的状态查询改为 Adapter，并将适配器异常纳入离线处理。
 - [x] `firmwareType` 入库值统一为大写 `KLIPPER`、`RRF`，兼容旧数据 `Klipper`；新增迁移脚本 `05-normalize-printer-firmware-type.sql`。
-- [x] RRF 适配器已完成独立骨架和状态映射；真实 RRF 3.7 HTTP 调用仍待实机参数确认。
+- [x] 已根据官方协议实现 RRF HTTP 会话、状态、G-code 控制和文件上传；仍需真实设备联调确认具体版本、运行模式、存储路径和宏副作用。
 - [x] 不在 Moonraker 客户端中通过替换 URL 假装支持 RRF。
 
 ## P0：WebSocket 实时状态
@@ -285,7 +285,7 @@ startPrint()
 - [ ] RustFS 测试：上传、预签名 URL、删除失败。
 - [ ] Redis 测试：锁、状态缓存、登录失败保护。
 - [ ] WebSocket 测试：连接、快照、状态推送、离线、断开清理。
-- [ ] 适配器测试：Klipper 模拟响应、RRF 模拟响应、统一状态映射。
+- [x] 适配器测试：Klipper 模拟响应、RRF 模拟响应、统一状态映射；RRF HTTP 会话/状态/G-code/上传 Mock 测试已补充。
 - [ ] 端到端测试：上传文件 -> 创建任务 -> 派发 -> 安全确认 -> 启动 -> 完成。
 
 ### P2.2 数据库和迁移

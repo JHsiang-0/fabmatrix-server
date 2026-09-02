@@ -172,8 +172,8 @@ startPrint()
 
 ### P1.1 打印机管理
 
-- [ ] 实现 `GET /api/v1/printers/{id}` 打印机详情。
-  - 返回配置、统一状态、当前任务摘要和协议类型。
+- [x] 实现 `GET /api/v1/printers/{id}` 打印机详情。
+  - 返回安全配置、实时状态缓存、当前任务摘要和协议类型；不返回 `apiKey`。
 - [ ] 实现 `GET /api/v1/printers/{id}/history` 状态历史分页。
 - [ ] 实现 `GET /api/v1/printers/{id}/statistics` 打印统计。
 - [ ] 实现 `POST /api/v1/control/{id}/resume` 恢复打印。

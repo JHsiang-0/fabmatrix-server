@@ -10,7 +10,9 @@ import com.example.farm.entity.dto.PrinterUpdateDTO;
 import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.vo.PrinterVO;
+import com.example.farm.entity.vo.PrinterDetailVO;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.PrinterDetailService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +35,7 @@ import java.util.List;
 public class PrinterController {
 
     private final PrinterService printerService;
+    private final PrinterDetailService printerDetailService;
 
     /**
      * 分页查询打印机列表。
@@ -44,6 +47,12 @@ public class PrinterController {
     @GetMapping("/page")
     public Result<PageResult<PrinterVO>> getPrinterPage(@Valid PrinterQueryDTO queryDTO) {
         return Result.success(PageResult.from(printerService.pagePrinters(queryDTO), PrinterVO::from));
+    }
+
+    @Operation(summary = "获取打印机详情", description = "返回打印机安全配置、实时状态缓存和当前任务摘要")
+    @GetMapping("/{id}")
+    public Result<PrinterDetailVO> getPrinterDetail(@PathVariable Long id) {
+        return Result.success(printerDetailService.getDetail(id));
     }
 
     /**

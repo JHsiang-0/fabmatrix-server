@@ -99,7 +99,9 @@
 
 ## 4. P1 打印机管理
 
-- [ ] T4.1 实现 `GET /api/v1/printers/{id}` 和 `PrinterDetailVO`。
+- [x] T4.1 实现 `GET /api/v1/printers/{id}` 和 `PrinterDetailVO`。
+  - 验收：返回安全打印机配置、实时状态缓存和当前任务摘要；不存在设备返回 404，未命中状态缓存或未绑定任务返回 `null`，不暴露 `apiKey`。
+  - 测试：`PrinterDetailServiceTest` 3 个测试通过。
 - [ ] T4.2 实现打印机状态历史分页和迁移/持久化方案。
 - [ ] T4.3 实现打印机统计接口。
 - [ ] T4.4 实现恢复、取消当前设备任务接口。

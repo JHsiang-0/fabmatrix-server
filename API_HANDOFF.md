@@ -178,6 +178,7 @@ POST /api/v1/auth/login
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
 | GET | `/printers/page` | ADMIN/OPERATOR | Query：`pageNum,pageSize,name,status` | `PageResult<PrinterVO>`，不含 apiKey |
+| GET | `/printers/{id}` | ADMIN/OPERATOR | Path：打印机 ID | `PrinterDetailVO`：安全配置、缓存实时状态和当前任务摘要 |
 | POST | `/printers/add` | ADMIN | 打印机配置 | `Result<null>` |
 | PUT | `/printers/update` | ADMIN | 包含 `id` 的打印机配置 | `Result<null>` |
 | DELETE | `/printers/delete/{id}` | ADMIN | Path ID | `Result<null>` |
@@ -233,6 +234,18 @@ POST /api/v1/auth/login
 ## 5. 未完成接口与冻结后的目标规范
 
 ### 5.1 打印机详情和控制
+
+`GET /api/v1/printers/{id}` 返回：
+
+```json
+{
+  "printer": { "id": 403, "name": "Printer_C0DA", "firmwareType": "KLIPPER", "status": "IDLE" },
+  "realtimeStatus": null,
+  "currentJob": null
+}
+```
+
+`printer` 使用 `PrinterVO`，不含 `apiKey`；`realtimeStatus` 使用当前状态缓存对象，未命中时为 `null`；`currentJob` 使用 `PrintJobVO`，没有绑定任务时为 `null`。打印机是本地农场共享资源，ADMIN/OPERATOR 均可查询；不存在的打印机返回 404 业务错误。
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
 |---|---|---|---|---|---|

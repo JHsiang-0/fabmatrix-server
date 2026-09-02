@@ -646,7 +646,7 @@ src/main/resources/db/migration/06-add-printer-status-history.sql
 mvn test
 ```
 
-测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。2026-09-03 已使用真实 Docker MySQL、Redis、RustFS 启动 dev 应用完成一次冒烟验证：`/actuator/health` 返回 `UP`，管理员登录、`/auth/me`、打印机分页、文件分页和任务队列均返回 200，分页总数与数据库记录一致。该验证未连接真实 Klipper/RRF 打印机，也未完成上传到打印完成的完整链路。
+测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。2026-09-03 已使用真实 Docker MySQL、Redis、RustFS 启动 dev 应用完成一次冒烟验证：`/actuator/health` 返回 `UP`，管理员登录、`/auth/me`、打印机分页、文件分页和任务队列均返回 200，分页总数与数据库记录一致；临时 G-code 的上传、预览、预签名下载 URL 和删除也均返回 200，清理后文件记录数量恢复。该验证未连接真实 Klipper/RRF 打印机，也未完成上传到打印完成的完整链路。
 
 ### 9.4 真实打印机
 

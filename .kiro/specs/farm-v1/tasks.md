@@ -211,7 +211,7 @@
   - 测试：`RedisProtectionTest`、`PrinterCacheRedisTest`；全量 `mvn test` 通过。
 - [x] T9.4 补齐 RustFS 上传、预签名 URL、删除失败测试。
   - 验收：客户端成功委托和 `StorageException` 转换有测试；文件 Service 继续校验归属、预签名 URL 上限和任务引用删除保护；不连接真实 RustFS。
-  - 测试：`RustFsClientTest`、`PrintFileOwnershipTest`；全量 `mvn test` 通过。
+  - 测试：`RustFsClientTest`、`PrintFileOwnershipTest`；全量 `mvn test` 通过。2026-09-03 使用临时 G-code 通过真实 RustFS 容器完成上传、预览、预签名下载 URL 和删除，清理后文件记录数量恢复为 1。
 - [x] T9.5 补齐 Klipper/RRF Adapter 和 Mock 测试。
   - 验收：统一 Factory、Klipper/RRF Adapter、状态映射、RRF HTTP 会话/状态/G-code/上传 Mock 均有测试；真实设备联调保留现场验收。
   - 测试：`KlipperMoonrakerAdapterTest`、`RrfAdapterTest`、`RrfApiClientTest`、协议 Factory/Detector/Type 测试；全量 `mvn test` 通过。

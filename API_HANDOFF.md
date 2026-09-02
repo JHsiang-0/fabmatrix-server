@@ -251,7 +251,7 @@ POST /api/v1/auth/login
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | 分页参数 | 任务分页 | 规划 |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | 安全预览信息 | 规划 |
 
-文件接口必须按当前登录用户隔离资源。管理员是否查看全部文件，后续只通过明确的管理员查询参数开放，不能默认泄露全部用户数据。
+文件接口按当前登录用户隔离资源；`OPERATOR` 只能访问本人文件，`ADMIN` 可查看和管理全部文件。管理员分页查询可通过 `userId` 筛选指定用户，不传时查询全部。
 
 ## 6. 数据模型
 
@@ -405,7 +405,7 @@ ws://<server-host>:8080/ws/farm-status
 ws://<server-host>:8080/ws/farm-status?token=<JWT>
 ```
 
-在鉴权改造完成前，当前服务端仍允许匿名握手。生产环境不得依赖匿名 WebSocket。
+WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用查询参数传递：`/ws/farm-status?token=<JWT>`；缺少、无效或过期 Token 的连接会被服务端拒绝。当前连接仍是农场级广播，后续如需按打印机订阅再增加细粒度隔离。
 
 ### 7.2 消息格式
 
@@ -441,7 +441,7 @@ PRINTER_OFFLINE   打印机离线
 JOB_STATUS        任务状态变化
 ```
 
-当前代码没有 `type`、初始快照和离线事件，这些属于 WebSocket 待完成内容。
+当前消息类型、初始快照和离线事件仍属于后续 WebSocket 功能；本阶段已完成握手鉴权，生产环境不再允许匿名广播。
 
 ## 8. 打印机协议适配约定
 
@@ -506,7 +506,7 @@ src/main/resources/db/migration/04-normalize-print-job-status.sql
 mvn test
 ```
 
-测试使用 H2 随机端口，关闭定时任务和 WebSocket。当前没有自动生成的测试用户，也没有真实接口权限测试。
+测试使用 H2 随机端口，关闭定时任务和 WebSocket。当前没有自动生成的测试用户，也没有真实数据库 HTTP 权限测试；已增加文件/任务服务层归属测试，以及未携带 Token 的 WebSocket 握手测试。
 
 ### 9.4 真实打印机
 
@@ -520,7 +520,7 @@ farm.tasks.enabled=false
 
 ## 10. 当前已知差异和验收条件
 
-后端完成规划接口前，必须解决：
+当前规划接口的状态：
 
 1. `PENDING/QUEUED` 统一为 `QUEUED`。
 2. `CANCELED/CANCELLED` 统一为 `CANCELLED`。
@@ -528,11 +528,11 @@ farm.tasks.enabled=false
 4. 统一分页返回字段。
 5. 已修复 `BusinessException` 错误码被丢失的问题。
 6. 已统一 HTTP 401、403 和 JSON 错误格式；仍需补充更多端到端错误场景测试。
-7. 增加任务、文件和打印机的服务层资源归属校验。
+7. 已增加文件和任务的服务层资源归属校验；打印机仍是农场共享资源。
 8. 返回 VO，禁止直接暴露 `apiKey` 和 `rustfsKey`。
-9. 文件分页真正支持名称、材质筛选。
-10. 新建文件夹正确设置用户归属。
-11. WebSocket 增加 `type`、初始快照、离线消息和鉴权。
+9. 文件分页已支持名称、材质筛选。
+10. 新建文件夹已正确设置用户归属并校验父目录。
+11. WebSocket 已完成握手鉴权；`type`、初始快照、离线消息仍待补充。
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入。
 
@@ -617,17 +617,20 @@ Swagger 反映的是当前 Controller，不会自动包含本文的规划接口�
 
 ### 12.4 测试状态
 
-当前只存在：
+当前测试包括：
 
 ```text
 src/test/java/com/example/farm/FarmApplicationTests.java
+src/test/java/com/example/farm/service/PrintJobOwnershipTest.java
+src/test/java/com/example/farm/service/PrintFileOwnershipTest.java
+src/test/java/com/example/farm/controller/WebSocketSecurityTest.java
 ```
 
-它只验证 Spring 上下文可以启动，使用 `test` Profile，关闭任务和 WebSocket。当前没有：
+上下文测试使用 `test` Profile，关闭任务和 WebSocket；归属测试使用服务层单元测试，WebSocket 测试覆盖无 Token 拒绝。当前没有：
 
 - Controller HTTP 接口测试；
 - ADMIN/OPERATOR 的 401/403 测试；
-- 文件、任务、打印机资源归属测试；
+- 打印机资源归属测试；
 - MySQL/RustFS/真实 Redis 联调测试；
 - Klipper 或 RRF 设备测试；
 - WebSocket 消息格式和断线测试。

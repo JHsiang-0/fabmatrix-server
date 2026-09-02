@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -46,6 +47,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long submitJob(Long fileId, Long userId, Integer priority) {
+        validateUsableFile(fileId, userId);
         PrintJob job = new PrintJob();
         job.setFileId(fileId);
         job.setUserId(userId);
@@ -73,6 +75,30 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
+    public List<PrintJob> getQueuedJobsForCurrentUser() {
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        if (SecurityContextUtil.isAdmin()) {
+            return getQueuedJobs();
+        }
+        return getQueuedJobs().stream()
+                .filter(job -> Objects.equals(job.getUserId(), currentUserId))
+                .toList();
+    }
+
+    @Override
+    public PrintJob getAccessibleJob(Long jobId) {
+        PrintJob job = this.getById(jobId);
+        if (job == null) {
+            throw new BusinessException(404, "任务不存在");
+        }
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        if (!SecurityContextUtil.isAdmin() && !Objects.equals(job.getUserId(), currentUserId)) {
+            throw new BusinessException(404, "任务不存在");
+        }
+        return job;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createJob(PrintJobCreateDTO req) {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
@@ -86,16 +112,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("用户未登录，无法创建任务");
         }
 
-        PrintFile fileRecord = printFileMapper.selectById(req.getFileId());
-        if (fileRecord == null) {
-            log.warn("创建打印任务失败：切片文件不存在，fileId={}, userId={}", req.getFileId(), userId);
-            throw new BusinessException("所选的切片文件不存在");
-        }
-
-        // 校验：切片文件不能是文件夹
-        if (Boolean.TRUE.equals(fileRecord.getIsFolder())) {
-            throw new BusinessException("不能对文件夹创建打印任务");
-        }
+        validateUsableFile(req.getFileId(), userId);
 
         PrintJob job = new PrintJob();
         job.setUserId(userId);
@@ -113,10 +130,25 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         return job.getId();
     }
 
+    private PrintFile validateUsableFile(Long fileId, Long userId) {
+        PrintFile fileRecord = printFileMapper.selectById(fileId);
+        if (fileRecord == null) {
+            log.warn("创建打印任务失败：切片文件不存在，fileId={}, userId={}", fileId, userId);
+            throw new BusinessException(404, "所选的切片文件不存在");
+        }
+        if (Boolean.TRUE.equals(fileRecord.getIsFolder())) {
+            throw new BusinessException(422, "不能对文件夹创建打印任务");
+        }
+        if (!SecurityContextUtil.isAdmin() && !Objects.equals(fileRecord.getUserId(), userId)) {
+            throw new BusinessException(404, "所选的切片文件不存在");
+        }
+        return fileRecord;
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean assignAndStartPrint(Long jobId, Long printerId) {
-        PrintJob job = this.getById(jobId);
+        PrintJob job = getAccessibleJob(jobId);
         Printer printer = printerService.getById(printerId);
 
         if (job == null || printer == null) {
@@ -187,7 +219,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignJob(Long jobId, Long printerId) {
-        PrintJob job = this.getById(jobId);
+        PrintJob job = getAccessibleJob(jobId);
         Printer printer = printerService.getById(printerId);
 
         if (job == null) {
@@ -225,6 +257,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirmPrinterSafe(Long printerId, Long operatorId) {
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        if (!Objects.equals(currentUserId, operatorId)) {
+            throw new BusinessException(403, "操作员身份必须来自当前登录用户");
+        }
         Printer printer = printerService.getById(printerId);
 
         if (printer == null) {
@@ -247,11 +283,15 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (operatorId == null) {
             throw new BusinessException("启动打印必须记录操作员ID");
         }
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        if (!Objects.equals(currentUserId, operatorId)) {
+            throw new BusinessException(403, "操作员身份必须来自当前登录用户");
+        }
 
         // 解析 action，默认 START_PRINT
         boolean startPrint = !"UPLOAD_ONLY".equalsIgnoreCase(action);
 
-        PrintJob job = this.getById(jobId);
+        PrintJob job = getAccessibleJob(jobId);
         if (job == null) {
             log.warn("启动打印失败：任务不存在，jobId={}", jobId);
             throw new BusinessException("任务不存在");
@@ -353,8 +393,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 PrintJob::getPrinterId, queryDTO.getPrinterId());
 
         // 用户ID精确匹配
-        wrapper.eq(queryDTO.getUserId() != null,
-                PrintJob::getUserId, queryDTO.getUserId());
+        if (SecurityContextUtil.isAdmin()) {
+            wrapper.eq(queryDTO.getUserId() != null,
+                    PrintJob::getUserId, queryDTO.getUserId());
+        } else {
+            wrapper.eq(PrintJob::getUserId, SecurityContextUtil.getCurrentUserId());
+        }
 
         // 创建时间范围查询
         wrapper.ge(queryDTO.getStartTime() != null,

@@ -187,6 +187,8 @@ MySQL 初始化脚本按挂载顺序执行：
 
 `SecurityConfig` 是当前主要的路由授权入口。不要只在前端隐藏按钮；新增敏感接口必须同时在后端限制角色，并在服务层检查资源归属或业务状态。
 
+P0.4 资源边界已经在服务层落实：打印机是本地农场共享资源；ADMIN 可查看和管理全部文件、任务，OPERATOR 只能访问自己创建的文件和任务。操作员身份以当前 JWT 为准，不能由前端提交的 `operatorId` 指定。文件夹的父级也必须属于当前用户（ADMIN 除外）。
+
 ## 9. 主要 API
 
 公共业务前缀为 `/api/v1`，成功响应统一使用 `Result`，认证请求携带：
@@ -233,7 +235,7 @@ SpringDoc 默认可访问：`http://localhost:8080/swagger-ui.html`。Swagger �
 - `JobSchedulerTask` 每 10 秒扫描任务，使用 Redis 分布式锁避免多实例重复调度。
 - 两个任务都受 `farm.tasks.enabled` 控制。
 - Redis 停止、连接工厂已停止或打印机不可达时，可能出现 Lettuce 或 Moonraker 异常；没有真实打印机时保持 dev 任务关闭。
-- WebSocket 地址为 `/ws/farm-status`，当前 `SecurityConfig` 允许匿名握手，服务端将状态广播给所有连接；它不应被当作已完成的用户级权限隔离通道。
+- WebSocket 地址为 `/ws/farm-status`，握手必须携带 `/ws/farm-status?token=<JWT>`（兼容 `access_token` 参数）；缺少、无效或过期 Token 的连接会被拒绝。认证通过后当前仍是农场级状态广播，不是按用户或打印机细分的订阅通道。
 - `WebSocketConfig` 受 `farm.websocket.enabled` 控制，测试环境已关闭。
 
 ## 12. Moonraker 模拟接口

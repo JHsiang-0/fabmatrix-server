@@ -33,6 +33,16 @@ public interface PrintJobService extends IService<PrintJob> {
     List<PrintJob> getQueuedJobs();
 
     /**
+     * 获取当前登录用户可见的排队任务。管理员可查看全部队列，操作员只能查看自己的任务。
+     */
+    List<PrintJob> getQueuedJobsForCurrentUser();
+
+    /**
+     * 获取当前登录用户可访问的任务，不存在或无权限时统一返回 404。
+     */
+    PrintJob getAccessibleJob(Long jobId);
+
+    /**
      * 创建打印任务（用户从上下文中获取）。
      *
      * @param req 创建请求

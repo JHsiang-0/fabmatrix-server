@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -42,11 +43,16 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Override
     public List<PrintFile> getFolderContent(Long parentId) {
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
         // parentId 为 NULL 时查询根目录（parent_id IS NULL）
         LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
+        if (!SecurityContextUtil.isAdmin()) {
+            wrapper.eq(PrintFile::getUserId, currentUserId);
+        }
         if (parentId == null) {
             wrapper.isNull(PrintFile::getParentId);
         } else {
+            requireAccessibleFolder(parentId);
             wrapper.eq(PrintFile::getParentId, parentId);
         }
         // 文件夹排在前面，文件按创建时间倒序
@@ -58,8 +64,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PrintFile createFolder(Long parentId, String folderName) {
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
         if (folderName == null || folderName.isBlank()) {
             throw new BusinessException("文件夹名称不能为空");
+        }
+
+        if (parentId != null) {
+            requireAccessibleFolder(parentId);
         }
 
         // 检查同名文件夹是否已存在（复用 originalName 字段存储文件夹名称）
@@ -72,6 +83,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         } else {
             wrapper.eq(PrintFile::getParentId, parentId);
         }
+        if (!SecurityContextUtil.isAdmin()) {
+            wrapper.eq(PrintFile::getUserId, currentUserId);
+        }
 
         PrintFile existing = this.getOne(wrapper, false);
         if (existing != null) {
@@ -83,6 +97,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         folder.setIsFolder(true);
         folder.setOriginalName(folderName); // 复用 originalName 字段存储文件夹名称
         folder.setSafeName("folder_" + System.currentTimeMillis()); // 文件夹占位符
+        folder.setUserId(currentUserId);
         folder.setCreatedAt(LocalDateTime.now());
 
         this.save(folder);
@@ -97,7 +112,15 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         // 分页查询当前用户文件列表
         LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(PrintFile::getUserId, userId)
+        if (SecurityContextUtil.isAdmin()) {
+            wrapper.eq(queryDTO.getUserId() != null, PrintFile::getUserId, queryDTO.getUserId());
+        } else {
+            wrapper.eq(PrintFile::getUserId, userId);
+        }
+        wrapper.like(queryDTO.getFileName() != null && !queryDTO.getFileName().isBlank(),
+                        PrintFile::getOriginalName, queryDTO.getFileName())
+                .eq(queryDTO.getMaterialType() != null && !queryDTO.getMaterialType().isBlank(),
+                        PrintFile::getMaterialType, queryDTO.getMaterialType())
                 .orderByDesc(PrintFile::getCreatedAt);
         Page<PrintFile> resultPage = this.page(page, wrapper);
 
@@ -126,7 +149,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         jobWrapper.in(PrintJob::getStatus, PrintJobStatus.COMPLETED.name(),
                 PrintJobStatus.FAILED.name(), PrintJobStatus.CANCELLED.name());
 
-        Long userId = SecurityContextUtil.getCurrentUserId();
+        Long userId = SecurityContextUtil.isAdmin() ? null : SecurityContextUtil.getCurrentUserId();
         Long fileId = printFile.getId();
 
         // 使用原生 SQL 进行统计查询
@@ -265,14 +288,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Transactional(rollbackFor = Exception.class)
     public void deleteFile(Long id) {
         Long userId = SecurityContextUtil.getCurrentUserId();
-        LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(PrintFile::getId, id)
-                .eq(PrintFile::getUserId, userId);
-        PrintFile target = this.getOne(wrapper, false);
-        if (target == null) {
-            log.warn("delete print file ignored: not found or no permission, fileId={}, userId={}", id, userId);
-            return;
-        }
+        PrintFile target = getAccessibleFile(id);
 
         String objectKey = target.getSafeName();
         rustFsClient.deleteFile(objectKey);
@@ -282,11 +298,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Override
     public String getPresignedDownloadUrl(Long id, Integer expirationMinutes) {
-        Long userId = SecurityContextUtil.getCurrentUserId();
-        PrintFile file = this.getById(id);
-        if (file == null || !file.getUserId().equals(userId)) {
-            throw new BusinessException("文件不存在或无权限访问");
-        }
+        PrintFile file = getAccessibleFile(id);
 
         Duration expiration = expirationMinutes != null && expirationMinutes > 0
                 ? Duration.ofMinutes(expirationMinutes)
@@ -297,11 +309,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Override
     public org.springframework.core.io.InputStreamResource downloadFile(Long id) {
-        Long userId = SecurityContextUtil.getCurrentUserId();
-        PrintFile file = this.getById(id);
-        if (file == null || !file.getUserId().equals(userId)) {
-            throw new BusinessException("文件不存在或无权限访问");
-        }
+        PrintFile file = getAccessibleFile(id);
         return rustFsClient.getFileStream(file.getSafeName());
     }
 
@@ -315,12 +323,18 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         // 查询用户拥有的文件
         LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
-        wrapper.in(PrintFile::getId, ids)
-                .eq(PrintFile::getUserId, userId);
+        List<Long> distinctIds = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinctIds.isEmpty()) {
+            throw new BusinessException("请选择有效的文件");
+        }
+        wrapper.in(PrintFile::getId, distinctIds);
+        if (!SecurityContextUtil.isAdmin()) {
+            wrapper.eq(PrintFile::getUserId, userId);
+        }
         List<PrintFile> files = this.list(wrapper);
 
-        if (files.isEmpty()) {
-            return;
+        if (files.size() != distinctIds.size()) {
+            throw new BusinessException(404, "部分文件不存在或无权限访问");
         }
 
         // 删除 RustFS 中的文件
@@ -336,6 +350,25 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         List<Long> idsToDelete = files.stream().map(PrintFile::getId).toList();
         this.removeByIds(idsToDelete);
         log.info("批量删除文件完成: userId={}, deletedCount={}", userId, idsToDelete.size());
+    }
+
+    private PrintFile getAccessibleFile(Long id) {
+        PrintFile file = this.getById(id);
+        if (file == null) {
+            throw new BusinessException(404, "文件不存在");
+        }
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        if (!SecurityContextUtil.isAdmin() && !Objects.equals(file.getUserId(), currentUserId)) {
+            throw new BusinessException(404, "文件不存在");
+        }
+        return file;
+    }
+
+    private void requireAccessibleFolder(Long folderId) {
+        PrintFile folder = getAccessibleFile(folderId);
+        if (!Boolean.TRUE.equals(folder.getIsFolder())) {
+            throw new BusinessException(422, "父级资源不是文件夹");
+        }
     }
 
     private String extractHeadAndTail(MultipartFile file) {

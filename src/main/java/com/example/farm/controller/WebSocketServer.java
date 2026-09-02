@@ -1,5 +1,8 @@
 package com.example.farm.controller;
 
+import com.auth0.jwt.exceptions.JWTVerificationException;
+import com.auth0.jwt.interfaces.DecodedJWT;
+import com.example.farm.common.utils.JwtUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
@@ -16,6 +19,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
 @ServerEndpoint("/ws/farm-status") // 前端大屏连接的 WebSocket 地址
 public class WebSocketServer {
 
+    private static final int MAX_CONNECTIONS = 100;
+
     // 存放所有当前在线的前端大屏客户端
     private static final CopyOnWriteArraySet<Session> sessions = new CopyOnWriteArraySet<>();
     
@@ -26,6 +31,34 @@ public class WebSocketServer {
 
     @OnOpen
     public void onOpen(Session session) {
+        String token = firstText(session.getRequestParameterMap().get("token"));
+        if (token == null) {
+            token = firstText(session.getRequestParameterMap().get("access_token"));
+        }
+        if (token == null) {
+            closeForPolicy(session, "缺少 WebSocket Token");
+            return;
+        }
+
+        try {
+            DecodedJWT jwt = JwtUtils.verifyToken(token);
+            Long userId = jwt.getClaim("userId").asLong();
+            String role = jwt.getClaim("role").asString();
+            if (userId == null || role == null || role.isBlank()) {
+                closeForPolicy(session, "Token 缺少用户身份");
+                return;
+            }
+            if (sessions.size() >= MAX_CONNECTIONS) {
+                closeForPolicy(session, "WebSocket 连接数已达上限");
+                return;
+            }
+            session.getUserProperties().put("userId", userId);
+            session.getUserProperties().put("role", role);
+        } catch (JWTVerificationException | IllegalArgumentException e) {
+            closeForPolicy(session, "WebSocket Token 无效或已过期");
+            return;
+        }
+
         sessions.add(session);
         // 为每个新会话创建锁对象
         sessionLocks.put(session, new Object());
@@ -121,5 +154,21 @@ public class WebSocketServer {
      */
     public static int getOnlineCount() {
         return sessions.size();
+    }
+
+    private static String firstText(java.util.List<String> values) {
+        if (values == null || values.isEmpty() || values.get(0) == null || values.get(0).isBlank()) {
+            return null;
+        }
+        return values.get(0);
+    }
+
+    private static void closeForPolicy(Session session, String message) {
+        try {
+            session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, message));
+        } catch (IOException e) {
+            log.debug("关闭未通过鉴权的 WebSocket 连接失败: sessionId={}", session.getId(), e);
+        }
+        log.warn("拒绝未授权 WebSocket 连接: sessionId={}, reason={}", session.getId(), message);
     }
 }

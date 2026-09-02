@@ -13,6 +13,6 @@ public class ConfirmSafeRequest {
     @Schema(description = "打印机ID", requiredMode = Schema.RequiredMode.REQUIRED)
     private Long printerId;
 
-    @Schema(description = "操作员ID（从安全上下文获取，可选）")
+    @Schema(description = "已废弃，后端始终使用当前 JWT 用户 ID")
     private Long operatorId;
 }

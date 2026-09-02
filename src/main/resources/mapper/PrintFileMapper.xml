@@ -7,7 +7,9 @@
         SELECT COUNT(*)
         FROM farm_print_job
         WHERE file_id = #{fileId}
+        <if test="userId != null">
           AND user_id = #{userId}
+        </if>
         <if test="status != null">
             AND status = #{status}
         </if>

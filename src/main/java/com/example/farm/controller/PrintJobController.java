@@ -46,7 +46,7 @@ public class PrintJobController {
     @Operation(summary = "获取排队中的任务队列")
     @GetMapping("/queue")
     public Result<List<PrintJob>> getQueue() {
-        return Result.success(printJobService.getQueuedJobs());
+        return Result.success(printJobService.getQueuedJobsForCurrentUser());
     }
 
     /**
@@ -70,10 +70,7 @@ public class PrintJobController {
     @Operation(summary = "获取打印任务详情")
     @GetMapping("/{id}")
     public Result<PrintJob> getById(@PathVariable Long id) {
-        PrintJob job = printJobService.getById(id);
-        if (job == null) {
-            throw new BusinessException("任务不存在");
-        }
+        PrintJob job = printJobService.getAccessibleJob(id);
         return Result.success(job);
     }
 
@@ -104,10 +101,7 @@ public class PrintJobController {
     @Operation(summary = "取消任务")
     @DeleteMapping("/{id}")
     public Result<String> cancelJob(@PathVariable Long id) {
-        PrintJob job = printJobService.getById(id);
-        if (job == null) {
-            throw new BusinessException("任务不存在");
-        }
+        PrintJob job = printJobService.getAccessibleJob(id);
 
         String status = job.getStatus();
         Long printerId = job.getPrinterId();
@@ -192,10 +186,7 @@ public class PrintJobController {
     @Operation(summary = "现场确认机器安全（安全模式-第二步之一）")
     @PostMapping("/safe/confirm")
     public Result<String> confirmPrinterSafe(@RequestBody ConfirmSafeRequest req) {
-        Long operatorId = req.getOperatorId();
-        if (operatorId == null) {
-            operatorId = SecurityContextUtil.getCurrentUserId();
-        }
+        Long operatorId = SecurityContextUtil.getCurrentUserId();
         printJobService.confirmPrinterSafe(req.getPrinterId(), operatorId);
         log.info("现场确认打印机安全: printerId={}, operatorId={}", req.getPrinterId(), operatorId);
         return Result.success(null, "热床已确认安全，可以启动打印");
@@ -213,10 +204,7 @@ public class PrintJobController {
     @Operation(summary = "现场启动打印（安全模式-第二步之二）")
     @PostMapping("/safe/start")
     public Result<String> startPrint(@RequestBody StartPrintJobRequest req) {
-        Long operatorId = req.getOperatorId();
-        if (operatorId == null) {
-            operatorId = SecurityContextUtil.getCurrentUserId();
-        }
+        Long operatorId = SecurityContextUtil.getCurrentUserId();
         String action = req.getAction();
         printJobService.startPrint(req.getJobId(), operatorId, action);
         String msg = "START_PRINT".equalsIgnoreCase(action) ? "打印任务已启动" : "文件已上传到机器";

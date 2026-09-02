@@ -206,7 +206,9 @@
 - [x] T9.3 补齐 Redis 锁、缓存和登录保护测试。
   - 验收：登录失败计数、15 分钟锁定、禁用标记、打印机状态缓存 10 秒 TTL、状态锁 5 秒 TTL 和锁竞争路径均有测试；不连接或清空真实 Redis。
   - 测试：`RedisProtectionTest`、`PrinterCacheRedisTest`；全量 `mvn test` 通过。
-- [ ] T9.4 补齐 RustFS 上传、预签名 URL、删除失败测试。
+- [x] T9.4 补齐 RustFS 上传、预签名 URL、删除失败测试。
+  - 验收：客户端成功委托和 `StorageException` 转换有测试；文件 Service 继续校验归属、预签名 URL 上限和任务引用删除保护；不连接真实 RustFS。
+  - 测试：`RustFsClientTest`、`PrintFileOwnershipTest`；全量 `mvn test` 通过。
 - [ ] T9.5 补齐 Klipper/RRF Adapter 和 Mock 测试。
 - [ ] T9.6 完成上传文件到打印完成的端到端测试。
 - [ ] T9.7 核对实体、Mapper、`farm.sql` 和增量 SQL 字段一致性。

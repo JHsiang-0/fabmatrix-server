@@ -332,6 +332,8 @@ T9.1 已完成：核心认证路由集成测试覆盖打印机、文件、任务
 
 T9.3 已完成：登录失败计数使用 `farm:login:fail:{username}`、首次写入 15 分钟过期；5 次及以上视为锁定；禁用标记使用 `farm:user:disabled:{userId}`；打印机状态缓存 TTL 为 10 秒，状态锁 TTL 为 5 秒。Redis 单元测试覆盖 key、TTL、锁未获取时不写库和禁用标记生命周期；真实 Redis 容器联调仍待现场环境。
 
+T9.4 已完成：RustFS 客户端上传、预签名 URL、删除失败均统一转换为 `StorageException`；文件 Service 额外执行资源归属、过期时间上限和删除前任务引用校验。`RustFsClientTest` 与 `PrintFileOwnershipTest` 使用 mock 覆盖成功委托、异常转换和安全边界，不连接真实 RustFS。
+
 ### 5.3 文件
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |

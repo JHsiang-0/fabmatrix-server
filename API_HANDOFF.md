@@ -334,6 +334,8 @@ T9.3 已完成：登录失败计数使用 `farm:login:fail:{username}`、首次�
 
 T9.4 已完成：RustFS 客户端上传、预签名 URL、删除失败均统一转换为 `StorageException`；文件 Service 额外执行资源归属、过期时间上限和删除前任务引用校验。`RustFsClientTest` 与 `PrintFileOwnershipTest` 使用 mock 覆盖成功委托、异常转换和安全边界，不连接真实 RustFS。
 
+T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选择；适配器测试覆盖协议状态映射、暂停/恢复/取消/急停、上传和不支持能力，RRF HTTP 客户端测试覆盖会话、状态、G-code 与上传请求。真实设备响应和副作用仍需现场验收。
+
 ### 5.3 文件
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |

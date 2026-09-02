@@ -214,7 +214,8 @@ startPrint()
   - 两条地址共用同一 Controller 创建逻辑，旧地址已标记 Java/OpenAPI deprecated。
 - [x] 创建任务支持可选 `printerId`；不指定时进入 `QUEUED`。
   - 已指定设备时复用安全派发逻辑，校验设备存在且 IDLE，成功进入 `ASSIGNED` 并绑定设备但不直接打印；失败事务回滚。
-- [ ] 实现 `POST /api/v1/print-jobs/{id}/retry`。
+- [x] 实现 `POST /api/v1/print-jobs/{id}/retry`。
+  - 已仅允许 `FAILED` 重试；保留文件/用户/优先级，清除设备、操作员、时间和错误信息，进度归零后回到 `QUEUED` 并推送事件，不调用设备。
 - [ ] 实现 `POST /api/v1/print-jobs/{id}/requeue`。
 - [ ] 实现 `PUT /api/v1/print-jobs/{id}/priority`。
 - [ ] 将取消逻辑从 Controller 移到 Service，统一权限、状态和设备调用。

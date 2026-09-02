@@ -415,6 +415,24 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         log.info("取消打印任务成功: jobId={}, 原状态={}", jobId, status);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void retryJob(Long jobId) {
+        PrintJob job = getAccessibleJob(jobId);
+        String status = PrintJobStatus.normalize(job.getStatus());
+        PrintJobStatus.requireTransition(status, PrintJobStatus.QUEUED);
+
+        job.setPrinterId(null);
+        job.setOperatorId(null);
+        job.setStartedAt(null);
+        job.setCompletedAt(null);
+        job.setErrorReason(null);
+        job.setProgress(BigDecimal.ZERO);
+        job.setStatus(PrintJobStatus.QUEUED.name());
+        updateJobAndPublish(job);
+        log.info("重试打印任务成功: jobId={}, 原状态={}", jobId, status);
+    }
+
     private void updateJobAndPublish(PrintJob job) {
         if (this.updateById(job)) {
             eventPublisher.publishJobStatus(job);

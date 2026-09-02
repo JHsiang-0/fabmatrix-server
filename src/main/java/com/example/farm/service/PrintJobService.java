@@ -119,6 +119,13 @@ public interface PrintJobService extends IService<PrintJob> {
     void cancelJob(Long jobId);
 
     /**
+     * 将失败任务重置为排队状态。
+     *
+     * @param jobId 任务 ID
+     */
+    void retryJob(Long jobId);
+
+    /**
      * 分页查询打印任务列表（支持多条件过滤）
      *
      * @param queryDTO 查询条件

@@ -117,6 +117,45 @@ class PrintJobOwnershipTest {
         verify(printJobMapper, never()).selectPageByFileId(any(Page.class), eq(20L), eq(2L), eq(false));
     }
 
+    @Test
+    void retriesOwnFailedJobAndClearsRuntimeFields() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setFileId(20L);
+        job.setPrinterId(403L);
+        job.setOperatorId(8L);
+        job.setStatus("FAILED");
+        job.setProgress(new java.math.BigDecimal("42.50"));
+        job.setStartedAt(java.time.LocalDateTime.now().minusMinutes(5));
+        job.setCompletedAt(java.time.LocalDateTime.now());
+        job.setErrorReason("设备异常");
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+
+        printJobService.retryJob(100L);
+
+        assertThat(job.getStatus()).isEqualTo("QUEUED");
+        assertThat(job.getProgress()).isEqualByComparingTo("0");
+        assertThat(job.getPrinterId()).isNull();
+        assertThat(job.getOperatorId()).isNull();
+        assertThat(job.getStartedAt()).isNull();
+        assertThat(job.getCompletedAt()).isNull();
+        assertThat(job.getErrorReason()).isNull();
+        verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
+    void cannotRetryCompletedJob() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setStatus("COMPLETED");
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+
+        assertThatThrownBy(() -> printJobService.retryJob(100L))
+                .hasMessage("任务状态不允许从 [COMPLETED] 转换为 [QUEUED]");
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+    }
+
     private PrintJob job(Long id, Long userId) {
         PrintJob job = new PrintJob();
         job.setId(id);

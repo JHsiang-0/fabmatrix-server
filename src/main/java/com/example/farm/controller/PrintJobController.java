@@ -118,6 +118,16 @@ public class PrintJobController {
     }
 
     /**
+     * 将失败任务重新放回队列，不直接操作打印机。
+     */
+    @Operation(summary = "重试打印任务")
+    @PostMapping("/{id}/retry")
+    public Result<Void> retryJob(@PathVariable Long id) {
+        printJobService.retryJob(id);
+        return Result.success(null, "任务已重新加入队列");
+    }
+
+    /**
      * 手动派发任务并立即启动打印（兼容旧接口）。
      *
      * @param jobId 任务 ID

@@ -37,9 +37,9 @@ Application Service
 - 恢复打印在同一事务中保存任务和打印机状态，两个更新都成功后才发布任务事件。
 - `WebSocketServer` 已完成鉴权、统一事件对象、快照、协议级 Ping 保活和失败清理。
 
-## 2. 包和类规划
+## 2. 当前包和类
 
-建议新增以下包，具体命名以现有项目风格为准：
+以下是当前源码实际使用的包和类；后续修改应优先复用这些边界：
 
 ```text
 com.example.farm.protocol
@@ -53,19 +53,20 @@ com.example.farm.protocol
 ├── PrinterProtocolException
 ├── KlipperMoonrakerAdapter
 ├── RrfAdapter
-└── client
-    └── RrfApiClient
+├── RrfApiClient
+└── RrfStatusResponse
 
 com.example.farm.service
 ├── PrinterControlService
-├── PrinterStatusService
+├── PrinterStatusHistoryService
 └── WebSocketEventPublisher
 
-com.example.farm.entity.websocket
-└── FarmStatusMessage
+com.example.farm.controller
+├── FarmStatusMessage
+└── WebSocketServer
 ```
 
-不强制新建所有类：若现有 Service 已承担同一职责，可在不扩大耦合的前提下复用；但具体协议客户端不得回流到 Controller。
+具体协议客户端不得回流到 Controller；新增能力必须继续通过 Adapter 和 Service 边界进入业务流程。
 
 ## 3. 统一领域对象
 
@@ -154,7 +155,7 @@ public interface PrinterProtocolAdapter {
 
 ### 4.2 RRF
 
-`RrfAdapter` 只依赖 `RrfApiClient`。RRF 3.7 的 URL、请求方法、鉴权和字段必须在官方文档或真实设备响应确认后实现。确认前只实现协议选择、状态映射、Mock 和未支持能力异常。
+`RrfAdapter` 只依赖 `RrfApiClient`。当前已经依据登记的 RRF 3.7 协议证据实现会话建立/释放、状态模型读取、G-code 控制和文件上传/启动，并将协议失败映射为统一异常。真实 RRF 3.7 设备的字段兼容性、认证配置和物理副作用仍必须现场验证；没有现场证据的能力不能在验收中宣称为真实设备已完成。
 
 ## 5. Service 改造
 
@@ -226,7 +227,7 @@ P1 新接口先在 API_HANDOFF 中冻结，再实现 Controller/Service：
 
 ## 8. 数据库和迁移
 
-协议适配和 WebSocket 第一阶段不新增表。若实现状态历史、统计或操作审计需要新增表：
+协议适配本身不新增业务表；当前状态历史功能已经新增 `farm_printer_status_history` 表及 `06-add-printer-status-history.sql`。后续若实现操作审计等功能需要新增表：
 
 1. 先补充需求和设计。
 2. 提供增量、可重复执行或明确一次性执行的 SQL。

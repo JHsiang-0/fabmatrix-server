@@ -6,14 +6,22 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MissingPathVariableException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import javax.sql.DataSource;
 import java.net.ConnectException;
@@ -64,16 +72,18 @@ public class GlobalExceptionHandler {
      * 处理业务异常
      */
     @ExceptionHandler(BusinessException.class)
-    public Result<Object> handleBusinessException(BusinessException e) {
+    public ResponseEntity<Result<Object>> handleBusinessException(BusinessException e) {
         log.warn("业务异常提示: {}", e.getMessage());
-        return Result.failed(e.getMessage());
+        return failed(resolveHttpStatus(e.getCode()), e.getCode(), e.getMessage());
     }
 
     /**
      * 处理参数校验异常
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public Result<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException e,
+            HttpServletRequest request) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
         for (FieldError fieldError : e.getBindingResult().getFieldErrors()) {
             fieldErrors.putIfAbsent(fieldError.getField(), fieldError.getDefaultMessage());
@@ -84,19 +94,52 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
 
         log.warn("参数校验失败: method={}, uri={}, errors={}", request.getMethod(), request.getRequestURI(), fieldErrors);
-        return Result.failed("参数校验失败: " + message);
+        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败: " + message);
     }
 
     /**
      * 处理请求方法不支持异常
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public Result<Object> handleMethodNotSupported(HttpRequestMethodNotSupportedException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException e,
+            HttpServletRequest request) {
         String[] supportedMethods = e.getSupportedMethods();
         String supported = supportedMethods == null ? "N/A" : String.join(",", supportedMethods);
         log.warn("请求方法不支持: method={}, uri={}, supported={}, detail={}",
                 e.getMethod(), request.getRequestURI(), supported, e.getMessage());
-        return Result.failed("请求方法不支持，当前方法=" + e.getMethod() + "，支持方法=" + supported);
+        return failed(HttpStatus.METHOD_NOT_ALLOWED, HttpStatus.METHOD_NOT_ALLOWED.value(),
+                "请求方法不支持，当前方法=" + e.getMethod() + "，支持方法=" + supported);
+    }
+
+    /**
+     * 处理请求参数缺失、类型错误和 malformed JSON。
+     */
+    @ExceptionHandler({
+            MissingServletRequestParameterException.class,
+            MissingPathVariableException.class,
+            MethodArgumentTypeMismatchException.class,
+            HttpMessageNotReadableException.class,
+            MaxUploadSizeExceededException.class
+    })
+    public ResponseEntity<Result<Object>> handleBadRequest(Exception e, HttpServletRequest request) {
+        log.warn("请求参数无效: method={}, uri={}, detail={}",
+                request.getMethod(), request.getRequestURI(), e.getMessage());
+        String message = getEnvironmentMessage("请求参数无效: " + e.getMessage());
+        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), message);
+    }
+
+    /**
+     * 处理数据库唯一键等约束冲突，避免前端收到无意义的 500。
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Result<Object>> handleDataIntegrityViolation(
+            DataIntegrityViolationException e,
+            HttpServletRequest request) {
+        log.warn("数据约束冲突: method={}, uri={}, detail={}",
+                request.getMethod(), request.getRequestURI(), e.getMessage());
+        String message = getEnvironmentMessage("数据已存在或违反业务约束");
+        return failed(HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message);
     }
 
     /**
@@ -119,7 +162,7 @@ public class GlobalExceptionHandler {
      * 通常由 Druid/HikariCP 连接池获取连接失败时抛出
      */
     @ExceptionHandler(org.springframework.dao.DataAccessResourceFailureException.class)
-    public Result<Object> handleDataAccessResourceFailure(
+    public ResponseEntity<Result<Object>> handleDataAccessResourceFailure(
             org.springframework.dao.DataAccessResourceFailureException e,
             HttpServletRequest request) {
         String devMessage = "MySQL连接异常: " + e.getMessage();
@@ -127,7 +170,7 @@ public class GlobalExceptionHandler {
 
         log.error("MySQL连接异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return Result.failed(ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), message);
     }
 
     /**
@@ -135,7 +178,7 @@ public class GlobalExceptionHandler {
      * MySQL 服务器主动拒绝连接
      */
     @ExceptionHandler(SQLNonTransientConnectionException.class)
-    public Result<Object> handleSQLNonTransientConnectionException(
+    public ResponseEntity<Result<Object>> handleSQLNonTransientConnectionException(
             SQLNonTransientConnectionException e,
             HttpServletRequest request) {
         String devMessage = "MySQL连接被拒绝: " + e.getMessage();
@@ -143,40 +186,40 @@ public class GlobalExceptionHandler {
 
         log.error("MySQL连接被拒绝: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return Result.failed(ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), message);
     }
 
     /**
      * 处理数据库查询超时异常
      */
     @ExceptionHandler(QueryTimeoutException.class)
-    public Result<Object> handleQueryTimeoutException(QueryTimeoutException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleQueryTimeoutException(QueryTimeoutException e, HttpServletRequest request) {
         String devMessage = "数据库查询超时: " + e.getMessage();
         String message = getEnvironmentMessage(devMessage);
 
         log.error("数据库查询超时: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return Result.failed(ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), message);
     }
 
     /**
      * 处理通用 SQLException（未明确捕获的数据库异常）
      */
     @ExceptionHandler(SQLException.class)
-    public Result<Object> handleSQLException(SQLException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleSQLException(SQLException e, HttpServletRequest request) {
         String devMessage = "数据库异常: " + e.getMessage();
         String message = getEnvironmentMessage(devMessage);
 
         log.error("数据库异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return Result.failed(ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(HttpStatus.INTERNAL_SERVER_ERROR, ResultCode.MYSQL_ERROR.getCode(), message);
     }
 
     /**
      * 处理 Redis 连接失败异常
      */
     @ExceptionHandler(RedisConnectionFailureException.class)
-    public Result<Object> handleRedisConnectionFailureException(
+    public ResponseEntity<Result<Object>> handleRedisConnectionFailureException(
             RedisConnectionFailureException e,
             HttpServletRequest request) {
         String devMessage = "Redis连接失败: " + e.getMessage();
@@ -184,20 +227,20 @@ public class GlobalExceptionHandler {
 
         log.error("Redis连接失败: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return Result.failed(ResultCode.REDIS_ERROR.getCode(), message);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.REDIS_ERROR.getCode(), message);
     }
 
     /**
      * 处理网络连接异常 - java.net.ConnectException
      */
     @ExceptionHandler(ConnectException.class)
-    public Result<Object> handleConnectException(ConnectException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleConnectException(ConnectException e, HttpServletRequest request) {
         String devMessage = "网络连接失败: " + e.getMessage();
         String message = getEnvironmentMessage(devMessage);
 
         log.error("网络连接失败: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return Result.failed(ResultCode.NETWORK_ERROR.getCode(), message);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), message);
     }
 
     /**
@@ -205,7 +248,7 @@ public class GlobalExceptionHandler {
      * 通常用于 RestTemplate/Feign 访问外部服务（如 RustFS）超时或连接失败
      */
     @ExceptionHandler(ResourceAccessException.class)
-    public Result<Object> handleResourceAccessException(ResourceAccessException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleResourceAccessException(ResourceAccessException e, HttpServletRequest request) {
         String devMessage = "外部服务访问异常: " + e.getMessage();
         String message = getEnvironmentMessage(devMessage);
 
@@ -214,21 +257,42 @@ public class GlobalExceptionHandler {
         // 判断是否为存储服务超时（基于异常消息判断）
         String errorMsg = e.getMessage();
         if (errorMsg != null && (errorMsg.contains("timeout") || errorMsg.contains("Timeout"))) {
-            return Result.failed(ResultCode.STORAGE_ERROR.getCode(), message);
+            return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(), message);
         }
 
-        return Result.failed(ResultCode.NETWORK_ERROR.getCode(), message);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), message);
     }
 
     /**
      * 处理未知异常
      */
     @ExceptionHandler(Exception.class)
-    public Result<Object> handleException(Exception e, HttpServletRequest request) {
+    public ResponseEntity<Result<Object>> handleException(Exception e, HttpServletRequest request) {
         // 统一处理未被明确捕获的异常，确保生产环境不泄露敏感信息
         log.error("系统内部异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
         String message = getEnvironmentMessage("系统内部异常: " + e.getMessage());
-        return Result.failed(ResultCode.FAILED.getCode(), message);
+        return failed(HttpStatus.INTERNAL_SERVER_ERROR, ResultCode.FAILED.getCode(), message);
+    }
+
+    /**
+     * 将业务错误码映射为 HTTP 状态码。
+     * 业务码用于前端识别具体原因，HTTP 状态用于通用客户端和网关处理。
+     */
+    private HttpStatus resolveHttpStatus(long code) {
+        return switch ((int) code) {
+            case 400 -> HttpStatus.BAD_REQUEST;
+            case 401 -> HttpStatus.UNAUTHORIZED;
+            case 403 -> HttpStatus.FORBIDDEN;
+            case 404 -> HttpStatus.NOT_FOUND;
+            case 409, 10002 -> HttpStatus.CONFLICT;
+            case 422 -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case 10001, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;
+            default -> HttpStatus.INTERNAL_SERVER_ERROR;
+        };
+    }
+
+    private ResponseEntity<Result<Object>> failed(HttpStatus status, long code, String message) {
+        return ResponseEntity.status(status).body(Result.failed(code, message));
     }
 }

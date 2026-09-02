@@ -26,7 +26,7 @@ import java.util.Collections;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private final LoginProtectUtil loginProtectUtil;
 
     @Override
@@ -47,7 +47,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                     if (userId != null && loginProtectUtil.isUserDisabled(userId)) {
                         logger.warn("访问被拒绝：用户已被禁用，userId=" + userId);
-                        renderJson(response, HttpServletResponse.SC_FORBIDDEN, "用户已被禁用，请联系管理员");
+                        renderJson(response, HttpServletResponse.SC_FORBIDDEN, 403, "用户已被禁用，请联系管理员");
                         return;
                     }
 
@@ -61,11 +61,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             } catch (TokenExpiredException e) {
                 logger.warn("访问被拒绝：Token 已过期");
-                renderJson(response, HttpServletResponse.SC_UNAUTHORIZED, "登录已过期，请重新登录");
+                renderJson(response, HttpServletResponse.SC_UNAUTHORIZED, 401, "登录已过期，请重新登录");
                 return;
             } catch (JWTVerificationException e) {
                 logger.warn("访问被拒绝：无效 Token");
-                renderJson(response, HttpServletResponse.SC_UNAUTHORIZED, "无效的访问凭证，请重新登录");
+                renderJson(response, HttpServletResponse.SC_UNAUTHORIZED, 401, "无效的访问凭证，请重新登录");
                 return;
             }
         }
@@ -73,10 +73,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private void renderJson(HttpServletResponse response, int statusCode, String message) throws IOException {
+    private void renderJson(HttpServletResponse response, int statusCode, long code, String message) throws IOException {
         response.setStatus(statusCode);
-        response.setContentType("application/json;charset=UTF-8");
-        Result<Object> result = Result.failed(message);
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+        response.setHeader("Cache-Control", "no-store");
+        Result<Object> result = Result.failed(code, message);
         response.getWriter().write(objectMapper.writeValueAsString(result));
     }
 }

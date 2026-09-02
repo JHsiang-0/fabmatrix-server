@@ -1,5 +1,8 @@
 package com.example.farm.config;
 
+import com.example.farm.common.api.Result;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,12 +30,22 @@ public class SecurityConfig {
     @Autowired
     private RequestTraceLogFilter requestTraceLogFilter;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, exception) ->
+                                renderSecurityError(response, HttpServletResponse.SC_UNAUTHORIZED,
+                                        401, "未登录或登录已过期"))
+                        .accessDeniedHandler((request, response, exception) ->
+                                renderSecurityError(response, HttpServletResponse.SC_FORBIDDEN,
+                                        403, "没有相关权限")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         // 本地农场不开放匿名注册，操作员账号由管理员创建
@@ -77,6 +90,15 @@ public class SecurityConfig {
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    private void renderSecurityError(HttpServletResponse response, int statusCode,
+                                     long code, String message) throws java.io.IOException {
+        response.setStatus(statusCode);
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json");
+        response.setHeader("Cache-Control", "no-store");
+        response.getWriter().write(objectMapper.writeValueAsString(Result.failed(code, message)));
     }
 
     @Bean

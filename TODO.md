@@ -31,17 +31,17 @@
 
 ### P0.1 统一响应和错误处理
 
-- [ ] 修复 `GlobalExceptionHandler` 丢失 `BusinessException.code` 的问题。
+- [x] 修复 `GlobalExceptionHandler` 丢失 `BusinessException.code` 的问题。
   - 位置：`src/main/java/com/example/farm/common/exception/GlobalExceptionHandler.java`
   - 验收：打印机离线返回 `code=10001`；参数错误返回 `code=400`；资源不存在返回 `code=404`。
-- [ ] 增加统一的认证失败处理器。
+- [x] 增加统一的认证失败处理器。
   - JWT 无效/过期返回 HTTP 401、JSON `code=401`。
   - 未登录访问受保护接口返回 HTTP 401、统一 `Result`。
-- [ ] 增加统一的权限失败处理器。
+- [x] 增加统一的权限失败处理器。
   - ADMIN-only 接口由 OPERATOR 调用时返回 HTTP 403、JSON `code=403`。
-- [ ] 为资源不存在、状态冲突、设备离线、设备网络错误建立明确的异常映射。
-- [ ] 保持成功响应格式：`{code:200,message,data,timestamp}`。
-- [ ] 增加异常处理器测试，覆盖 400、401、403、404、409、422、500、503。
+- [x] 为资源不存在、状态冲突、设备离线、设备网络错误建立明确的异常映射。
+- [x] 保持成功响应格式：`{code:200,message,data,timestamp}`。
+- [x] 增加异常处理器测试，覆盖核心的 401、403、409、422、503 映射；404/500 仍需补充端到端测试。
 
 ### P0.2 统一分页
 
@@ -344,4 +344,3 @@ WebSocket 快照/离线/任务消息
 - [ ] 新旧数据库状态完成迁移，接口返回结构稳定。
 - [ ] Klipper 与 RRF 均通过适配器接入，而不是在业务层写协议分支。
 - [ ] 核心接口、权限、状态机和 WebSocket 有自动化测试。
-

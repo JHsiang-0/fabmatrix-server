@@ -1,6 +1,6 @@
 package com.example.farm.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
@@ -16,6 +16,7 @@ import com.example.farm.service.PrinterService;
 import com.example.farm.common.utils.MoonrakerApiClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -55,8 +56,8 @@ public class PrintJobController {
      */
     @Operation(summary = "分页查询打印任务列表")
     @PostMapping("/page")
-    public Result<Page<PrintJob>> queryJobs(@RequestBody PrintJobQueryDTO queryDTO) {
-        return Result.success(printJobService.queryJobs(queryDTO));
+    public Result<PageResult<PrintJob>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
+        return Result.success(PageResult.from(printJobService.queryJobs(queryDTO)));
     }
 
     /**

@@ -1,6 +1,6 @@
 package com.example.farm.controller;
 
-import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
@@ -91,8 +91,8 @@ public class UserController {
 
     @Operation(summary = "管理员查询用户列表")
     @GetMapping("/admin/users")
-    public Result<IPage<User>> pageUsers(UserQueryDTO queryDTO) {
-        return Result.success(userService.pageUsers(queryDTO));
+    public Result<PageResult<User>> pageUsers(@Valid UserQueryDTO queryDTO) {
+        return Result.success(PageResult.from(userService.pageUsers(queryDTO)));
     }
 
     @Operation(summary = "管理员更新用户信息")

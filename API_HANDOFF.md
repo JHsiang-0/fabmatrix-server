@@ -96,7 +96,7 @@ WebSocket: ws://<server-host>:8080/ws/farm-status
 }
 ```
 
-目标返回统一为：
+当前四类分页 Controller 已统一返回：
 
 ```json
 {
@@ -108,7 +108,7 @@ WebSocket: ws://<server-host>:8080/ws/farm-status
 }
 ```
 
-当前代码直接返回 MyBatis-Plus `Page/IPage`，字段通常是 `records、total、current、size、pages`。前端在后端完成统一分页 DTO 前，按实际响应兼容 `current/size`；新接口使用本文的 `pageNum/pageSize`。
+Service 层仍使用 MyBatis-Plus `Page/IPage`，Controller 已通过 `PageResult` 转换为本文结构。分页参数要求 `pageNum>=1`、`1<=pageSize<=100`，非法参数返回 HTTP 400、`code=400`。
 
 ## 3. 认证接口
 

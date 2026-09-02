@@ -35,4 +35,14 @@ class SecurityResponseTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(403));
     }
+
+    @Test
+    void rejectsInvalidPrinterPaginationParameters() throws Exception {
+        mockMvc.perform(get("/api/v1/printers/page")
+                        .param("pageNum", "0")
+                        .param("pageSize", "101")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
 }

@@ -1,7 +1,7 @@
 package com.example.farm.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.common.api.Result;
+import com.example.farm.common.api.PageResult;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrinterAddDTO;
@@ -14,6 +14,7 @@ import com.example.farm.service.PrinterService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -41,8 +42,8 @@ public class PrinterController {
      */
     @Operation(summary = "分页查询打印机列表", description = "支持按名称和状态筛选的分页查询")
     @GetMapping("/page")
-    public Result<Page<Printer>> getPrinterPage(PrinterQueryDTO queryDTO) {
-        return Result.success(printerService.pagePrinters(queryDTO));
+    public Result<PageResult<Printer>> getPrinterPage(@Valid PrinterQueryDTO queryDTO) {
+        return Result.success(PageResult.from(printerService.pagePrinters(queryDTO)));
     }
 
     /**

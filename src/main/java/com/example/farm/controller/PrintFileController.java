@@ -1,6 +1,6 @@
 package com.example.farm.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.PrintFile;
@@ -9,6 +9,7 @@ import com.example.farm.entity.dto.request.CreateFolderRequest;
 import com.example.farm.service.PrintFileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,8 +53,8 @@ public class PrintFileController {
      */
     @Operation(summary = "分页查询打印文件列表")
     @PostMapping("/page")
-    public Result<Page<PrintFile>> pageFiles(@RequestBody PrintFileQueryDTO queryDTO) {
-        return Result.success(farmPrintFileService.pageFiles(queryDTO));
+    public Result<PageResult<PrintFile>> pageFiles(@Valid @RequestBody PrintFileQueryDTO queryDTO) {
+        return Result.success(PageResult.from(farmPrintFileService.pageFiles(queryDTO)));
     }
 
     /**

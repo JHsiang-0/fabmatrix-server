@@ -45,7 +45,7 @@
 
 ### P0.2 统一分页
 
-- [ ] 增加统一分页返回 DTO：
+- [x] 增加统一分页返回 DTO：
 
 ```json
 {
@@ -57,9 +57,9 @@
 }
 ```
 
-- [ ] 统一打印机、文件、任务、用户分页接口的返回结构。
-- [ ] 后端兼容当前 MyBatis-Plus 的 `current/size`，迁移完成后前端只使用 `pageNum/pageSize`。
-- [ ] 为 `pageNum`、`pageSize` 增加正数和最大值限制，建议 `pageSize <= 100`。
+- [x] 统一打印机、文件、任务、用户分页接口的返回结构。
+- [x] Service 层继续使用 MyBatis-Plus，Controller 对外统一为 `PageResult`，前端使用 `pageNum/pageSize`。
+- [x] 为 `pageNum`、`pageSize` 增加正数和最大值限制，`pageSize <= 100`。
 
 ### P0.3 统一状态机
 

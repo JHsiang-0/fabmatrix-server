@@ -3,6 +3,9 @@ package com.example.farm.service;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.entity.User;
+import com.example.farm.entity.dto.ChangePasswordDTO;
+import com.example.farm.entity.dto.UserRegisterDTO;
+import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.dto.UserLoginDTO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.service.impl.UserServiceImpl;
@@ -77,6 +80,52 @@ class UserAuthenticationTest {
         assertThat(error.getCode()).isEqualTo(403);
         assertThat(error).hasMessage("用户已被禁用，请联系管理员");
         verify(loginProtectUtil, never()).recordLoginFail("admin");
+    }
+
+    @Test
+    void changingPasswordFailsWhenDatabaseUpdateAffectsNoRows() {
+        User user = user(1L, "operator", "$2a$10$stored-hash");
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(passwordEncoder.matches("OldPass1", "$2a$10$stored-hash")).thenReturn(true);
+        when(passwordEncoder.matches("NewPass1", "$2a$10$stored-hash")).thenReturn(false);
+        when(passwordEncoder.encode("NewPass1")).thenReturn("new-hash");
+        when(userMapper.updateById(any(User.class))).thenReturn(0);
+
+        ChangePasswordDTO request = new ChangePasswordDTO();
+        request.setOldPassword("OldPass1");
+        request.setNewPassword("NewPass1");
+        request.setConfirmPassword("NewPass1");
+
+        assertThatThrownBy(() -> userService.changePassword(1L, request))
+                .hasMessage("用户修改密码失败");
+    }
+
+    @Test
+    void updatingUserInfoFailsWhenDatabaseUpdateAffectsNoRows() {
+        User user = user(1L, "operator", "stored-hash");
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(userMapper.updateById(any(User.class))).thenReturn(0);
+
+        UserUpdateDTO request = new UserUpdateDTO();
+        request.setId(1L);
+        request.setPhone("13800138000");
+
+        assertThatThrownBy(() -> userService.updateUserInfo(request))
+                .hasMessage("用户信息更新失败");
+    }
+
+    @Test
+    void creatingUserFailsWhenDatabaseInsertAffectsNoRows() {
+        when(passwordEncoder.encode("Admin123")).thenReturn("encoded");
+        when(userMapper.insert(any(User.class))).thenReturn(0);
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("operator");
+        request.setPassword("Admin123");
+        request.setConfirmPassword("Admin123");
+
+        assertThatThrownBy(() -> userService.register(request))
+                .hasMessage("用户创建失败");
     }
 
     private UserLoginDTO login(String username, String password) {

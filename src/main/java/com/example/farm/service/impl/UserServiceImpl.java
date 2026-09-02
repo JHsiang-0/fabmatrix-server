@@ -121,7 +121,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         newUser.setPhone(registerDTO.getPhone());
         newUser.setRole(ROLE_OPERATOR);
 
-        save(newUser);
+        if (!save(newUser)) {
+            throw new BusinessException("用户创建失败");
+        }
         log.info("用户注册成功: username={}, id={}", newUser.getUsername(), newUser.getId());
         return newUser.getId();
     }
@@ -153,7 +155,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         user.setPasswordHash(passwordEncoder.encode(changePasswordDTO.getNewPassword()));
-        updateById(user);
+        updateUserOrThrow(user, "用户修改密码失败");
         log.info("用户修改密码成功: username={}", user.getUsername());
     }
 
@@ -180,7 +182,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             user.setRole(normalizeRole(updateDTO.getRole()));
         }
 
-        updateById(user);
+        updateUserOrThrow(user, "用户信息更新失败");
         log.info("用户信息更新成功: username={}", user.getUsername());
     }
 
@@ -277,7 +279,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
             if (currentHash != null && !currentHash.isEmpty()) {
                 user.setPasswordHash(passwordEncoder.encode(currentHash));
-                updateById(user);
+                updateUserOrThrow(user, "用户密码迁移失败");
                 migratedCount++;
                 log.info("用户密码已迁移: username={}", user.getUsername());
             }
@@ -310,6 +312,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private BusinessException authenticationFailure(String message) {
         return new BusinessException(ResultCode.UNAUTHORIZED.getCode(), message);
+    }
+
+    private void updateUserOrThrow(User user, String operation) {
+        if (!updateById(user)) {
+            throw new BusinessException(operation);
+        }
     }
 
     private void assertAdmin(Long adminId) {

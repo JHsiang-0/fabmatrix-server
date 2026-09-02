@@ -1,6 +1,8 @@
 package com.example.farm.service;
 
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.service.impl.PrintJobServiceImpl;
@@ -19,8 +21,14 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -77,6 +85,36 @@ class PrintJobOwnershipTest {
         when(printJobMapper.selectById(100L)).thenReturn(job);
 
         assertThat(printJobService.getAccessibleJob(100L)).isSameAs(job);
+    }
+
+    @Test
+    void operatorCanQueryOnlyOwnFileJobs() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = new PrintFile();
+        file.setId(20L);
+        file.setUserId(1L);
+        Page<PrintJob> page = new Page<>(1, 10);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(printJobMapper.selectPageByFileId(any(Page.class), eq(20L), eq(1L), eq(false)))
+                .thenReturn(page);
+
+        Page<PrintJob> actual = printJobService.queryJobsByFileId(20L, new FileJobsQueryDTO());
+
+        assertThat(actual).isSameAs(page);
+        verify(printJobMapper).selectPageByFileId(any(Page.class), eq(20L), eq(1L), eq(false));
+    }
+
+    @Test
+    void operatorCannotQueryAnotherUsersFileJobs() {
+        mockUser(2L, "OPERATOR");
+        PrintFile file = new PrintFile();
+        file.setId(20L);
+        file.setUserId(1L);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+
+        assertThatThrownBy(() -> printJobService.queryJobsByFileId(20L, new FileJobsQueryDTO()))
+                .hasMessage("文件不存在");
+        verify(printJobMapper, never()).selectPageByFileId(any(Page.class), eq(20L), eq(2L), eq(false));
     }
 
     private PrintJob job(Long id, Long userId) {

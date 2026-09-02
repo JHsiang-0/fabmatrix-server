@@ -4,12 +4,15 @@ import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
+import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.dto.request.CreateFolderRequest;
 import com.example.farm.entity.dto.request.BatchDeleteFilesRequest;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFileVO;
 import com.example.farm.entity.vo.FileNodeVO;
+import com.example.farm.entity.vo.PrintJobVO;
 import com.example.farm.service.PrintFileService;
+import com.example.farm.service.PrintJobService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -36,6 +39,7 @@ import java.util.List;
 public class PrintFileController {
 
     private final PrintFileService farmPrintFileService;
+    private final PrintJobService printJobService;
 
     /**
      * 上传并解析切片文件。
@@ -66,6 +70,17 @@ public class PrintFileController {
     @GetMapping("/tree")
     public Result<List<FileNodeVO>> getFileTree() {
         return Result.success(farmPrintFileService.getFileTree(), "获取文件目录树成功");
+    }
+
+    /**
+     * 分页查询指定文件关联的打印任务。
+     */
+    @Operation(summary = "查询文件关联任务", description = "按文件 ID 分页查询任务，并按当前用户权限隔离")
+    @GetMapping("/{id}/jobs")
+    public Result<PageResult<PrintJobVO>> getFileJobs(
+            @PathVariable Long id, @Valid FileJobsQueryDTO queryDTO) {
+        return Result.success(PageResult.from(
+                printJobService.queryJobsByFileId(id, queryDTO), PrintJobVO::from));
     }
 
     /**

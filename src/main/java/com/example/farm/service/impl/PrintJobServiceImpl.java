@@ -12,6 +12,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
+import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
@@ -459,5 +460,20 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         wrapper.orderByDesc(PrintJob::getCreatedAt);
 
         return this.page(new Page<>(pageNum, pageSize), wrapper);
+    }
+
+    @Override
+    public Page<PrintJob> queryJobsByFileId(Long fileId, FileJobsQueryDTO query) {
+        PrintFile file = printFileMapper.selectById(fileId);
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        boolean admin = SecurityContextUtil.isAdmin();
+        if (file == null || (!admin && !Objects.equals(file.getUserId(), currentUserId))) {
+            throw new BusinessException(404, "文件不存在");
+        }
+
+        int pageNum = query != null && query.getPageNum() != null ? query.getPageNum() : 1;
+        int pageSize = query != null && query.getPageSize() != null ? query.getPageSize() : 10;
+        return farmPrintJobMapper.selectPageByFileId(
+                new Page<>(pageNum, pageSize), fileId, currentUserId, admin);
     }
 }

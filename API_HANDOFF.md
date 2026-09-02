@@ -303,12 +303,14 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
 |---|---|---|---|---|---|
 | GET | `/print-files/tree` | ADMIN/OPERATOR | 无或 `parentId` | `FileNodeVO[]` | 规划 |
-| GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | 分页参数 | 任务分页 | 规划 |
+| GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` | 已完成 |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | 安全预览信息 | 规划 |
 
 文件接口按当前登录用户隔离资源；`OPERATOR` 只能访问本人文件，`ADMIN` 可查看和管理全部文件。管理员分页查询可通过 `userId` 筛选指定用户，不传时查询全部。
 
 `GET /print-files/tree` 当前冻结为返回完整树，不分页、不接受必填参数；若以后传入 `parentId`，只作为从指定目录开始的兼容扩展。`FileNodeVO` 字段为：`id`、`parentId`、`folder`、`name`、`fileSize`、`materialType`、`createdAt`、`children`。目录和文件均返回 `children` 数组，文件节点数组为空；`name` 为目录名或文件原始名。节点按目录优先、同级创建时间倒序排列。操作员只获得本人节点，管理员获得全部节点；孤立节点按根节点返回，避免前端丢失数据。
+
+`GET /print-files/{id}/jobs` 先校验文件对当前用户可见，再按 `file_id` 分页查询关联任务；操作员只能看到自己发起的任务，管理员可看到该文件的全部任务。`pageNum` 范围为 `1-Long.MAX_VALUE`，`pageSize` 范围为 `1-100`；文件不存在或无权访问均返回 HTTP 404，成功返回统一 `PageResult<PrintJobVO>`。
 
 ## 6. 数据模型
 

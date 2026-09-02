@@ -6,6 +6,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
+import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 
 import java.util.List;
 
@@ -124,4 +125,13 @@ public interface PrintJobService extends IService<PrintJob> {
      * @return 分页结果
      */
     Page<PrintJob> queryJobs(PrintJobQueryDTO queryDTO);
+
+    /**
+     * 分页查询文件关联任务。
+     *
+     * @param fileId 文件 ID
+     * @param query 分页参数
+     * @return 文件关联任务
+     */
+    Page<PrintJob> queryJobsByFileId(Long fileId, FileJobsQueryDTO query);
 }

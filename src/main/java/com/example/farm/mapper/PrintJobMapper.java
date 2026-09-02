@@ -1,6 +1,7 @@
 package com.example.farm.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.vo.PrinterStatisticsVO;
 import org.apache.ibatis.annotations.Mapper;
@@ -18,6 +19,14 @@ import java.time.LocalDateTime;
  */
 @Mapper
 public interface PrintJobMapper extends BaseMapper<PrintJob> {
+
+    /**
+     * 按文件分页查询任务，权限条件在 SQL 层固定。
+     */
+    Page<PrintJob> selectPageByFileId(Page<PrintJob> page,
+                                      @Param("fileId") Long fileId,
+                                      @Param("userId") Long userId,
+                                      @Param("admin") boolean admin);
 
     /**
      * 聚合指定打印机的任务统计。

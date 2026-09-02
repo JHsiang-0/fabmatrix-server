@@ -2,6 +2,17 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.PrintJobMapper">
 
+    <!-- 文件关联任务分页：操作员只能看到本人发起的任务。 -->
+    <select id="selectPageByFileId" resultType="com.example.farm.entity.PrintJob">
+        SELECT *
+        FROM farm_print_job
+        WHERE file_id = #{fileId}
+        <if test="!admin">
+            AND user_id = #{userId}
+        </if>
+        ORDER BY created_at DESC, id DESC
+    </select>
+
     <!-- 按任务创建时间统计指定打印机的任务；时长仅统计有开始和完成时间的已结束任务。 -->
     <select id="selectPrinterStatistics" resultType="com.example.farm.entity.vo.PrinterStatisticsVO">
         SELECT

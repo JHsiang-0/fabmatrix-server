@@ -134,6 +134,9 @@
 - [x] T4.10 修复打印机编辑时凭据字段的部分更新语义。
   - 验收：`PrinterUpdateDTO.apiKey` 未传或为空白时保留数据库原值；响应仍不返回明文凭据，避免正常编辑清除设备认证。
   - 测试：`PrinterServiceFirmwareTypeTest` 覆盖凭据保留路径；全量测试通过。
+- [x] T4.11 收紧打印机扫描网段参数校验。
+  - 验收：扫描只接受三段 IPv4 网段前缀（每段 0-255），非法值返回 `400/400`，不创建设备探测任务。
+  - 测试：`PrinterServiceFirmwareTypeTest` 覆盖非法网段路径；全量测试通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

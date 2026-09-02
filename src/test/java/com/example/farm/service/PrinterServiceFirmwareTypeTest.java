@@ -135,4 +135,10 @@ class PrinterServiceFirmwareTypeTest {
         verify(printerMapper).upsertByMacAddress(printer.capture());
         assertThat(printer.getValue().getStatus()).isEqualTo("UNKNOWN");
     }
+
+    @Test
+    void rejectsInvalidSubnetBeforeStartingDeviceScan() {
+        assertThatThrownBy(() -> printerService.scanDevices("192.168.1.999"))
+                .hasMessage("网段前缀必须是三段 IPv4 地址，例如 192.168.1");
+    }
 }

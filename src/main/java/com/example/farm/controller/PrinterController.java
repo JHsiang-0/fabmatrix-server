@@ -152,7 +152,7 @@ public class PrinterController {
     @GetMapping("/scan")
     public Result<List<PrinterScanResultDTO>> scanDevices(@RequestParam String subnet) {
         if (!StringUtils.hasText(subnet)) {
-            throw new BusinessException("必须提供网段前缀，例如 192.168.1");
+            throw new BusinessException(400, "必须提供三段 IPv4 网段前缀，例如 192.168.1");
         }
 
         List<PrinterScanResultDTO> results = printerService.scanDevices(subnet);

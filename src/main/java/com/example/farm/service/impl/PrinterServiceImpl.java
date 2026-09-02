@@ -298,7 +298,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
      */
     @Override
     public List<PrinterScanResultDTO> scanDevices(String subnet) {
-        log.info("开始扫描局域网 Klipper/RRF 设备：subnet={}", subnet);
+        String subnetPrefix = validateSubnetPrefix(subnet);
+        log.info("开始扫描局域网 Klipper/RRF 设备：subnet={}", subnetPrefix);
 
         // 获取数据库中所有已存在的 MAC 地址（用于判断新旧设备）
         Set<String> existingMacs = this.list().stream()
@@ -312,7 +313,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
         try {
             for (int i = 1; i <= 254; i++) {
-                final String targetIp = subnet + "." + i;
+                    final String targetIp = subnetPrefix + "." + i;
 
                 CompletableFuture<PrinterScanResultDTO> future = CompletableFuture.supplyAsync(() -> {
                     try {
@@ -372,6 +373,31 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         } finally {
             executor.shutdown();
         }
+    }
+
+    private String validateSubnetPrefix(String subnet) {
+        if (!StringUtils.hasText(subnet)) {
+            throw new BusinessException(400, "必须提供三段 IPv4 网段前缀，例如 192.168.1");
+        }
+        String normalized = subnet.trim();
+        String[] octets = normalized.split("\\.", -1);
+        if (octets.length != 3) {
+            throw new BusinessException(400, "网段前缀必须是三段 IPv4 地址，例如 192.168.1");
+        }
+        for (String octet : octets) {
+            try {
+                if (octet.isEmpty() || (octet.length() > 1 && octet.startsWith("0"))) {
+                    throw new NumberFormatException();
+                }
+                int value = Integer.parseInt(octet);
+                if (value < 0 || value > 255) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException exception) {
+                throw new BusinessException(400, "网段前缀必须是三段 IPv4 地址，例如 192.168.1");
+            }
+        }
+        return normalized;
     }
 
     /**

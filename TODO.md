@@ -231,7 +231,8 @@ startPrint()
 
 ### P1.4 认证与用户
 
-- [ ] 增加当前用户接口，例如 `GET /api/v1/auth/me`，减少前端依赖路径参数。
+- [x] 增加当前用户接口 `GET /api/v1/auth/me`，减少前端依赖路径参数。
+  - 从 JWT 当前用户 ID 查询资料，响应不包含 `passwordHash`；未认证统一返回 HTTP 401、业务码 `401`。旧 `/auth/{userId}/profile` 保留兼容。
 - [ ] 可选增加 `POST /api/v1/auth/logout`；第一版可通过前端删除 Token 实现退出。
 - [ ] 用户分页响应脱敏，禁止返回 `passwordHash`。
 - [ ] 增加管理员创建操作员、禁用、启用、修改角色的接口测试。

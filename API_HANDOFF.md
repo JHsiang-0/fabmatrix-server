@@ -163,11 +163,14 @@ POST /api/v1/auth/login
 | PUT | `/auth/admin/users/{userId}` | ADMIN | 用户更新 DTO | `Result<null>` |
 | POST | `/auth/admin/users/{userId}/disable` | ADMIN | Path ID | `Result<null>` |
 | POST | `/auth/admin/users/{userId}/enable` | ADMIN | Path ID | `Result<null>` |
+| GET | `/auth/me` | ADMIN/OPERATOR | 无 | `Result<User>`，不包含 `passwordHash` |
 | GET | `/auth/{userId}/profile` | 本人 | 无 | 用户资料 |
 | PUT | `/auth/{userId}/profile` | 本人 | 邮箱、手机号 | `Result<null>` |
 | POST | `/auth/{userId}/change-password` | 本人 | 旧密码、新密码、确认密码 | `Result<null>` |
 
 密码规则由后端强制校验：6-20 位，必须包含大写字母、小写字母和数字。`CUSTOMER` 不再使用。
+
+`GET /auth/me` 从 Bearer JWT 的当前用户 ID 读取用户资料，不需要也不接受路径参数；前端登录成功后可直接调用该接口初始化用户状态。响应中的 `passwordHash` 不会序列化。
 
 ## 4. 当前已有业务接口
 
@@ -312,6 +315,8 @@ T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不
 T6.7 任务摘要采用前端组合查询方案：`PrintJobVO` 保留 `fileId` 和 `printerId`，不在任务分页中嵌套重复对象；前端需要文件摘要时调用 `/print-files/{fileId}/preview`，需要打印机摘要时调用 `/printers/{printerId}`。`printerId=null` 的排队任务不发起打印机查询，文件/打印机详情接口各自执行资源权限校验。
 
 T6.8 当前已完成任务 Service 的状态/归属/设备调用测试、任务路由认证测试，以及持久化成功后绑定设备任务的 `JOB_STATUS` 事件测试。由于队列任务没有设备 ID，重试、重新排队和优先级修改不发送 `JOB_STATUS`；真实 MySQL/Redis/RustFS/打印机的端到端链路仍需在现场环境验收。
+
+T7.1 已完成：`GET /auth/me` 要求登录，从 JWT 当前用户读取资料并返回脱敏 `User`；未携带或无效 Token 返回 HTTP 401、业务码 `401`。原 `/auth/{userId}/profile` 保留用于兼容，前端新代码优先使用 `/auth/me`。
 
 ### 5.3 文件
 

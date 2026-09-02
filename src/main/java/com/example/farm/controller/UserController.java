@@ -72,6 +72,13 @@ public class UserController {
     }
 
     @Operation(summary = "获取当前用户信息")
+    @GetMapping("/me")
+    public Result<User> getCurrentUser() {
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        return Result.success(userService.getCurrentUser(userId));
+    }
+
+    @Operation(summary = "获取当前用户信息")
     @GetMapping("/{userId}/profile")
     public Result<User> getCurrentUser(@PathVariable Long userId) {
         ensureCurrentUser(userId);

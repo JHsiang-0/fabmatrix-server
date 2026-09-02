@@ -168,7 +168,9 @@
 
 ## 7. P1 认证与用户
 
-- [ ] T7.1 实现 `GET /api/v1/auth/me`。
+- [x] T7.1 实现 `GET /api/v1/auth/me`。
+  - 验收：从 JWT 当前用户 ID 查询脱敏资料，不接收路径用户 ID；未认证返回 HTTP 401、业务码 `401`，旧 profile 地址继续兼容。
+  - 测试：`SecurityResponseTest` 覆盖未认证访问；全量 `mvn test` 通过。
 - [ ] T7.2 用户分页、资料和管理响应脱敏复核。
 - [ ] T7.3 补充管理员创建、启用、禁用、角色修改的 Controller 集成测试。
 - [ ] T7.4 统一登录失败次数、Redis 锁定、禁用用户和 Token 错误响应。

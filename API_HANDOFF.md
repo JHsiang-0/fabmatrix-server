@@ -752,9 +752,10 @@ src/test/java/com/example/farm/FarmApplicationTests.java
 src/test/java/com/example/farm/service/PrintJobOwnershipTest.java
 src/test/java/com/example/farm/service/PrintFileOwnershipTest.java
 src/test/java/com/example/farm/controller/WebSocketSecurityTest.java
+src/test/java/com/example/farm/mapper/PrintFileMapperTest.java
 ```
 
-上下文测试使用 `test` Profile，关闭任务和 WebSocket；归属测试使用服务层单元测试，WebSocket 测试覆盖生命周期、业务事件和协议级 Ping。当前没有：
+上下文测试使用 `test` Profile，关闭任务和 WebSocket；归属测试使用服务层单元测试；`PrintFileMapperTest` 使用 H2 的 MySQL 模式覆盖关键 Mapper SQL；WebSocket 测试覆盖生命周期、业务事件和协议级 Ping。当前没有：
 
 - MySQL/RustFS/真实 Redis 联调测试；
 - Klipper 或 RRF 设备测试；

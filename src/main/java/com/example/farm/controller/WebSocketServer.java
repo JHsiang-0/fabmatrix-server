@@ -22,7 +22,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
 @ServerEndpoint("/ws/farm-status") // 前端大屏连接的 WebSocket 地址
 public class WebSocketServer {
 
-    private static final int MAX_CONNECTIONS = 100;
+    private static final int DEFAULT_MAX_CONNECTIONS = 100;
+    private static volatile int maxConnections = DEFAULT_MAX_CONNECTIONS;
 
     // 存放所有当前在线的前端大屏客户端
     private static final CopyOnWriteArraySet<Session> sessions = new CopyOnWriteArraySet<>();
@@ -60,22 +61,33 @@ public class WebSocketServer {
                 closeForPolicy(session, "Token 缺少用户身份");
                 return;
             }
-            if (sessions.size() >= MAX_CONNECTIONS) {
-                closeForPolicy(session, "WebSocket 连接数已达上限");
-                return;
+            synchronized (sessions) {
+                if (sessions.size() >= maxConnections) {
+                    closeForPolicy(session, "WebSocket 连接数已达上限");
+                    return;
+                }
+                session.getUserProperties().put("userId", userId);
+                session.getUserProperties().put("role", role);
+                sessions.add(session);
+                sessionLocks.put(session, new Object());
             }
-            session.getUserProperties().put("userId", userId);
-            session.getUserProperties().put("role", role);
         } catch (JWTVerificationException | IllegalArgumentException e) {
             closeForPolicy(session, "WebSocket Token 无效或已过期");
             return;
         }
 
-        sessions.add(session);
-        // 为每个新会话创建锁对象
-        sessionLocks.put(session, new Object());
         log.info("WebSocket 客户端接入，当前在线连接数: {}", sessions.size());
         sendInitialSnapshot(session);
+    }
+
+    /**
+     * 由 Spring 配置桥接组件设置连接上限；测试和运行时配置必须使用正数。
+     */
+    public static void configureMaxConnections(int configuredMaxConnections) {
+        if (configuredMaxConnections <= 0) {
+            throw new IllegalArgumentException("WebSocket 连接上限必须为正数");
+        }
+        maxConnections = configuredMaxConnections;
     }
 
     @OnClose

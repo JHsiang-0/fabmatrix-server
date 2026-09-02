@@ -35,6 +35,7 @@ class WebSocketSecurityTest {
     @BeforeEach
     void setJwtSecret() {
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "websocket-test-secret");
+        WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(snapshotService);
     }
 
@@ -42,6 +43,7 @@ class WebSocketSecurityTest {
     void closeAllSessions() {
         // 本测试不会将未授权 Session 加入广播集合，确保静态集合不影响其他测试。
         assertThat(WebSocketServer.getOnlineCount()).isZero();
+        WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(null);
     }
 
@@ -168,6 +170,24 @@ class WebSocketSecurityTest {
 
         verify(session).close();
         assertThat(WebSocketServer.getOnlineCount()).isZero();
+    }
+
+    @Test
+    void enforcesConfiguredConnectionLimit() throws Exception {
+        WebSocketServer.configureMaxConnections(1);
+        Session first = authorizedSession();
+        RemoteEndpoint.Basic firstBasic = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        when(first.getBasicRemote()).thenReturn(firstBasic);
+        when(first.isOpen()).thenReturn(true);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
+
+        Session second = authorizedSession();
+        new WebSocketServer().onOpen(first);
+        new WebSocketServer().onOpen(second);
+
+        verify(second).close(any());
+        assertThat(WebSocketServer.getOnlineCount()).isEqualTo(1);
+        new WebSocketServer().onClose(first);
     }
 
     private Session authorizedSession() {

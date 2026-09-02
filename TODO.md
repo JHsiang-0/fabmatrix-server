@@ -50,7 +50,7 @@
   - ADMIN-only 接口由 OPERATOR 调用时返回 HTTP 403、JSON `code=403`。
 - [x] 为资源不存在、状态冲突、设备离线、设备网络错误建立明确的异常映射。
 - [x] 保持成功响应格式：`{code:200,message,data,timestamp}`。
-- [x] 增加异常处理器测试，覆盖核心的 401、403、404、409、422、500、503 映射；`SecurityResponseTest` 当前 31 项通过。
+- [x] 增加异常处理器测试，覆盖核心的 401、403、404、409、422、500、503 映射；`SecurityResponseTest` 当前 36 项通过。
 
 ### P0.2 统一分页
 

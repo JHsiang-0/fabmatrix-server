@@ -32,10 +32,13 @@
   - 测试：Controller 请求体校验回归测试；全量测试通过。
 - [x] T0.4 收敛 WebSocket 与 HTTP 一致的用户禁用校验。
   - 验收：WebSocket 握手在 JWT 校验后检查用户禁用标记；禁用用户或禁用状态查询异常时拒绝连接，不加入在线 Session；非禁用用户仍可收到首帧快照。
-  - 测试：`WebSocketSecurityTest` 11 项覆盖禁用用户拒绝和鉴权依赖异常拒绝；全量 `mvn test` 197 项通过。
+  - 测试：`WebSocketSecurityTest` 11 项覆盖禁用用户拒绝和鉴权依赖异常拒绝；当前全量 `mvn test` 210 项通过。
 - [x] T0.5 收敛剩余客户端输入错误码。
   - 验收：空文件上传、打印机录入缺失 IP、打印机更新缺失 ID、空文件夹名和缺失状态历史查询体返回 HTTP 400、业务码 `400`；任务状态失败和数据库写入失败保持原有业务错误语义。
   - 测试：新增参数边界回归测试；全量 `mvn test` 通过。
+- [x] T0.6 校正 Kiro 文档中的测试证据计数。
+  - 验收：任务记录中的当前基线计数与 `target/surefire-reports/TEST-*.xml` 汇总一致；历史阶段描述不改写为当前结果。
+  - 证据：全量 `mvn test` 汇总为 210 项，0 errors、0 failures、0 skipped；`SecurityResponseTest` 36 项，`WebSocketSecurityTest` 11 项。
 
 ## 1. P0 协议适配基础
 
@@ -148,10 +151,10 @@
   - 测试：`PrinterServiceFirmwareTypeTest` 覆盖非法网段路径；全量测试通过。
 - [x] T4.12 收敛打印机详情、历史和统计的参数错误码。
   - 验收：非正打印机 ID、状态历史反向时间范围和统计反向时间范围返回 HTTP 400、业务码 `400`；不存在的打印机仍返回 404。
-  - 测试：`PrinterDetailServiceTest`、`PrinterStatusHistoryServiceTest`、`PrinterStatisticsServiceTest` 覆盖参数边界；全量 `mvn test` 202 项通过。
+  - 测试：`PrinterDetailServiceTest`、`PrinterStatusHistoryServiceTest`、`PrinterStatisticsServiceTest` 覆盖参数边界；当前全量 `mvn test` 210 项通过。
 - [x] T4.13 修复状态历史写入失败后的重试语义。
   - 验收：历史 Mapper 插入影响 0 行或抛异常时返回失败但不打断监控；监控不更新已持久化时间，下一次符合采样条件时可以重试；成功插入后才更新时间。
-  - 测试：`PrinterStatusHistoryServiceTest` 7 项、`PrinterCacheRedisTest` 5 项覆盖成功/失败写入和重试边界；全量 `mvn test` 204 项通过。
+  - 测试：`PrinterStatusHistoryServiceTest` 8 项、`PrinterCacheRedisTest` 5 项覆盖成功/失败写入和重试边界；当前全量 `mvn test` 210 项通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 
@@ -245,7 +248,7 @@
   - 测试：分页 Service 针对空参数和任务反向时间范围增加回归测试；全量测试通过。
 - [x] T6.13 收敛任务创建的数据库插入成功判定。
   - 验收：标准任务创建和 Moonraker 兼容提交路径检查 `save` 实际结果；插入影响 0 行时抛出业务异常，不返回任务 ID、不继续派发或记录成功日志。
-  - 测试：`PrintJobCreateTest` 8 项覆盖标准创建和兼容提交插入失败；全量 `mvn test` 199 项通过。
+  - 测试：`PrintJobCreateTest` 8 项覆盖标准创建和兼容提交插入失败；当前全量 `mvn test` 210 项通过。
 - [x] T7.7 收敛用户写操作的持久化成功判定。
   - 验收：用户创建、修改密码、资料更新和密码迁移检查实际数据库写入结果；影响 0 行时抛出业务异常，不返回成功。
   - 测试：`UserAuthenticationTest` 覆盖创建用户、修改密码、资料更新和登录时旧密码自动迁移的数据库 0 行路径；全量测试通过。
@@ -285,7 +288,7 @@
 
 - [x] T9.1 补齐核心 Controller 和权限集成测试。
   - 验收：认证、打印机、文件、任务、用户管理核心入口覆盖匿名 401；ADMIN-only 的打印机/用户管理操作覆盖 OPERATOR 403；管理员用户管理成功委托路径已覆盖。
-  - 测试：`SecurityResponseTest` 当前 31 个测试通过，覆盖 401、403、404、500 等 HTTP 响应；真实数据库成功链路仍需容器联调。
+  - 测试：`SecurityResponseTest` 当前 36 个测试通过，覆盖 401、403、404、500 等 HTTP 响应；真实数据库成功链路仍需容器联调。
 - [x] T9.2 补齐 Mapper/MySQL 查询、分页和迁移验证。
   - 验收：`farm.sql` 与当前实体/Mapper 字段已核对；02 增量脚本按列/索引存在性重复执行安全；04 状态迁移、05 协议规范化和 06 历史表脚本可重复执行。
   - 测试：`PrintFileMapperTest` 3 项通过，覆盖文件筛选/分页、目录权限、任务关联分页和任务计数条件；2026-09-03 已备份现有 Docker 数据卷并执行 02–06 迁移，真实 MySQL 查询冒烟通过（46 台打印机、1 个文件、3 个任务）；完整索引执行计划仍待现场验收。
@@ -306,10 +309,10 @@
   - 结论：新字段 `operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表由增量脚本补齐；状态值、固件类型由 `04`、`05` 规范化。2026-09-03 已在现有 Docker 数据卷完成备份后执行 02–06，并核对记录数量未变化、任务状态已无 `MANUAL`、协议类型已无旧值；完整端到端链路仍待真实设备。
 - [x] T9.8 增加健康检查、启动依赖和生产运维说明。
   - 验收：`/actuator/health` 免认证且不公开详情；Compose 依赖、生产密钥、备份、迁移和无设备运行要求已记录在 `OPERATIONS.md`。
-  - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 31 项）；`ProductionSafetyValidatorTest` 覆盖生产必填密钥、默认密钥、CORS 和 Swagger 开关；全量 `mvn test` 通过。
+  - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 36 项）；`ProductionSafetyValidatorTest` 覆盖生产必填密钥、默认密钥、CORS 和 Swagger 开关；全量 `mvn test` 通过。
 - [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
   - 后端完成：离线/恢复事件抑制与发布、失败任务 `JOB_STATUS.errorReason`、连接失败清理均已有实现和测试。
-  - 本 Task 补充：服务端按 30 秒可配置间隔发送协议级 Ping 保活，发送失败清理会话；修复独立 WebSocket `ObjectMapper` 未注册 Java 时间模块导致 `SNAPSHOT` 发送失败的问题，并增加 `LocalDateTime` 回归测试；`WebSocketSecurityTest` 当前 9 项通过，业务消息仍只保留四种冻结类型。
+  - 本 Task 补充：服务端按 30 秒可配置间隔发送协议级 Ping 保活，发送失败清理会话；修复独立 WebSocket `ObjectMapper` 未注册 Java 时间模块导致 `SNAPSHOT` 发送失败的问题，并增加 `LocalDateTime` 回归测试；`WebSocketSecurityTest` 当前 11 项通过，业务消息仍只保留四种冻结类型。
   - 真实容器验收：2026-09-03 使用 Node WebSocket 客户端完成 JWT 握手，收到 `SNAPSHOT`（46 台打印机，时间戳有效，无 `apiKey/rustfsKey`）；前端自动重连和告警展示仍待真实前端仓库。
   - 待前端：自动重连和指数退避；当前仓库没有真实前端工程，不能在此完成前端文件改动。
 

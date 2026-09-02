@@ -4,18 +4,15 @@ import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
-import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.AssignJobRequest;
 import com.example.farm.entity.dto.request.ConfirmSafeRequest;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
-import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.vo.PrintJobVO;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
-import com.example.farm.common.utils.MoonrakerApiClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -37,7 +34,6 @@ public class PrintJobController {
 
     private final PrintJobService printJobService;
     private final PrinterService printerService;
-    private final MoonrakerApiClient moonrakerApiClient;
 
     /**
      * 查询排队中的任务。
@@ -94,7 +90,7 @@ public class PrintJobController {
     /**
      * 取消任务
      * - QUEUED: 未分配打印机，直接取消
-     * - ASSIGNED/READY/PAUSED: 已分配打印机，需调用 Moonraker 接口取消打印，并解绑机器
+     * - ASSIGNED/READY/PAUSED: 已分配打印机，需通过协议适配器取消打印，并解绑机器
      *
      * @param id 任务 ID
      * @return 取消结果
@@ -102,39 +98,8 @@ public class PrintJobController {
      */
     @Operation(summary = "取消任务")
     @DeleteMapping("/{id}")
-    public Result<String> cancelJob(@PathVariable Long id) {
-        PrintJob job = printJobService.getAccessibleJob(id);
-
-        String status = job.getStatus();
-        Long printerId = job.getPrinterId();
-
-        // 检查状态机：非法转换统一返回 HTTP 422/code=422。
-        PrintJobStatus.requireTransition(status, PrintJobStatus.CANCELLED);
-
-        // 如果任务已分配到打印机，需要先取消打印并解绑机器
-        if (printerId != null) {
-            Printer printer = printerService.getById(printerId);
-            if (printer != null && printer.getIpAddress() != null) {
-                // 调用 Moonraker 接口取消打印
-                boolean cancelled = moonrakerApiClient.cancelPrint(printer.getIpAddress());
-                if (!cancelled) {
-                    log.warn("取消打印机上的打印任务失败: jobId={}, printerId={}, ip={}",
-                            id, printerId, printer.getIpAddress());
-                }
-            }
-
-            // 解绑机器：清除 currentJobId，重置 isSafeToPrint
-            printer.setCurrentJobId(null);
-            printer.setIsSafeToPrint(false);
-            printerService.updateById(printer);
-            log.info("已解绑打印机: jobId={}, printerId={}", id, printerId);
-        }
-
-        // 更新任务状态为 CANCELLED
-        job.setStatus(PrintJobStatus.CANCELLED.name());
-        printJobService.updateById(job);
-
-        log.info("取消打印任务成功: jobId={}, 原状态={}", id, status);
+    public Result<Void> cancelJob(@PathVariable Long id) {
+        printJobService.cancelJob(id);
         return Result.success(null, "任务已取消");
     }
 

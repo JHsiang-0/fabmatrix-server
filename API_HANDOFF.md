@@ -457,7 +457,7 @@ JOB_STATUS        任务状态变化
 
 ## 8. 打印机协议适配约定
 
-HTTP API 不因为 Klipper 或 RRF 改变。后端内部根据 `firmwareType` 选择适配器：
+HTTP API 不因为 Klipper 或 RRF 改变。当前已完成协议领域模型、Adapter 接口、Factory、Klipper Adapter 和打印机控制 Service；任务服务与监控任务仍在后续 Task 中继续迁移。后端内部根据 `firmwareType` 选择适配器：
 
 ```text
 PrinterProtocolAdapter

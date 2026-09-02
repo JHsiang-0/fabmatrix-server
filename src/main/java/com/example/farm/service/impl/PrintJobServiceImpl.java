@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.LogUtil;
-import com.example.farm.common.utils.MoonrakerApiClient;
 import com.example.farm.common.utils.RustFsClient;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.PrintFile;
@@ -16,6 +15,10 @@ import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
+import com.example.farm.protocol.PrinterEndpoint;
+import com.example.farm.protocol.PrinterOperation;
+import com.example.farm.protocol.PrinterProtocolAdapterFactory;
+import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +40,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private final PrintFileMapper printFileMapper;
     private final PrinterService printerService;
     private final RustFsClient rustFsClient;
-    private final MoonrakerApiClient moonrakerApiClient;
+    private final PrinterProtocolAdapterFactory adapterFactory;
 
     @Override
     public PrintJobMapper getBaseMapper() {
@@ -194,11 +197,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("无法从对象存储中读取切片文件");
         }
 
-        boolean isSuccess = moonrakerApiClient.uploadAndPrint(printer.getIpAddress(), fileStream, filename);
-        if (!isSuccess) {
-            log.warn("派发打印任务失败：下发到打印机失败，jobId={}, printerId={}", jobId, printerId);
-            throw new BusinessException("物理机接收文件超时或失败，请检查打印机网络连接");
-        }
+        adapterFactory.getAdapter(printer.getFirmwareType())
+                .uploadFile(endpointOf(printer, PrinterOperation.START_PRINT), fileStream, filename, true);
 
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
         job.setStatus(PrintJobStatus.PRINTING.name());
@@ -330,17 +330,22 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 ? fileRecord.getSafeName()
                 : filename;
 
-        // 调用 Moonraker 接口上传文件
-        try {
-            org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
-            if (fileStream == null) {
-                throw new BusinessException("无法从对象存储中读取切片文件");
-            }
+            // 通过协议适配器上传文件
+            try {
+                org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
+                if (fileStream == null) {
+                    throw new BusinessException("无法从对象存储中读取切片文件");
+                }
 
-            // 使用新的 uploadFile 方法，支持 API Key 和控制是否立即打印
-            moonrakerApiClient.uploadFile(printer.getIpAddress(), printer.getApiKey(), fileStream, filename, startPrint);
+                adapterFactory.getAdapter(printer.getFirmwareType())
+                        .uploadFile(endpointOf(printer, startPrint
+                                ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE),
+                                fileStream, filename, startPrint);
+            } catch (com.example.farm.protocol.PrinterProtocolException exception) {
+                throw exception;
         } catch (Exception e) {
-            log.error("文件上传失败：Moonraker 调用异常，jobId={}, printerId={}, ip={}", jobId, printerId, printer.getIpAddress(), e);
+            log.error("文件上传失败：设备调用异常，jobId={}, printerId={}, ip={}",
+                    jobId, printerId, printer.getIpAddress(), e);
             throw new BusinessException("机器连接失败，请检查网络：" + e.getMessage());
         }
 
@@ -374,6 +379,42 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             LogUtil.bizInfo("文件上传到机器（待机）", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
             log.info("文件已上传到机器（待机）: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelJob(Long jobId) {
+        PrintJob job = getAccessibleJob(jobId);
+        String status = PrintJobStatus.normalize(job.getStatus());
+        PrintJobStatus.requireTransition(status, PrintJobStatus.CANCELLED);
+
+        Long printerId = job.getPrinterId();
+        if (printerId != null) {
+            Printer printer = printerService.getById(printerId);
+            if (printer == null) {
+                throw new BusinessException(404, "关联打印机不存在");
+            }
+            if (printer.getIpAddress() == null || printer.getIpAddress().isBlank()) {
+                throw new BusinessException(10001, "打印机没有可用的网络地址");
+            }
+            adapterFactory.getAdapter(printer.getFirmwareType())
+                    .cancel(endpointOf(printer, PrinterOperation.CANCEL));
+            printer.setCurrentJobId(null);
+            printer.setIsSafeToPrint(false);
+            printerService.updateById(printer);
+        }
+
+        job.setStatus(PrintJobStatus.CANCELLED.name());
+        updateById(job);
+        log.info("取消打印任务成功: jobId={}, 原状态={}", jobId, status);
+    }
+
+    private PrinterEndpoint endpointOf(Printer printer, PrinterOperation operation) {
+        PrinterProtocolType protocolType = PrinterProtocolType.normalize(printer.getFirmwareType());
+        if (printer.getIpAddress() == null || printer.getIpAddress().isBlank()) {
+            throw new BusinessException(10001, "打印机没有可用的网络地址");
+        }
+        return new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(), protocolType);
     }
 
     @Override

@@ -113,6 +113,11 @@ public interface PrintJobService extends IService<PrintJob> {
     void startPrint(Long jobId, Long operatorId, String action);
 
     /**
+     * 取消任务，并在任务已绑定设备时通过协议适配器取消设备上的打印。
+     */
+    void cancelJob(Long jobId);
+
+    /**
      * 分页查询打印任务列表（支持多条件过滤）
      *
      * @param queryDTO 查询条件

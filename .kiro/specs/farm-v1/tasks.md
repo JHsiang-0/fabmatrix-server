@@ -46,10 +46,10 @@
   - 目标：移除 `PrinterControlController` 对 Moonraker 的直接依赖。
   - 验收：暂停、急停和后续恢复/取消接口经过统一权限、状态和协议选择。
   - 测试：`PrinterControlServiceTest`、`GlobalExceptionHandlerTest`，7 个针对性测试通过；协议异常已映射为 10001/5004/10003。
-- [ ] T1.5 将任务服务改为 Adapter 调用。
+- [x] T1.5 将任务服务改为 Adapter 调用。
   - 目标：替换 `PrintJobServiceImpl` 的上传、启动、取消等直接 Moonraker 调用。
   - 验收：设备成功后才更新任务/打印机状态，失败不会伪造 `PRINTING`。
-  - 测试：安全打印流程、设备失败、非法状态和资源归属。
+  - 测试：`PrintJobAdapterTest`、`PrintJobOwnershipTest`，5 个针对性测试通过；全量 `mvn test` 共 35 个通过；Adapter 调用已从 `PrintJobController` 和 `PrintJobServiceImpl` 移除。
 - [ ] T1.6 将监控任务改为 Adapter 调用。
   - 目标：替换 `PrinterMonitorTask` 的直接 Moonraker 查询。
   - 验收：按打印机隔离异常，统一状态写入缓存/数据库。

@@ -125,8 +125,8 @@ FAILED -> QUEUED（重试）
 
 ## P0：打印机协议适配基础
 
-- [ ] 新增统一内部接口 `PrinterProtocolAdapter`。
-- [ ] 定义统一方法：
+- [x] 新增统一内部接口 `PrinterProtocolAdapter`。
+- [x] 定义统一方法：
 
 ```text
 getStatus()
@@ -138,13 +138,13 @@ uploadFile()
 startPrint()
 ```
 
-- [ ] 新增 `KlipperMoonrakerAdapter`，封装当前 `MoonrakerApiClient`。
-- [ ] 将 `PrinterControlController` 中直接调用 `MoonrakerApiClient` 的代码改为调用 Service/Adapter。
-- [ ] 将 `PrintJobServiceImpl` 中的上传、启动、取消设备调用改为 Adapter。
+- [x] 新增 `KlipperMoonrakerAdapter`，封装当前 `MoonrakerApiClient`。
+- [x] 将 `PrinterControlController` 中直接调用 `MoonrakerApiClient` 的代码改为调用 Service/Adapter。
+- [x] 将 `PrintJobServiceImpl` 中的上传、启动、取消设备调用改为 Adapter。
 - [ ] 将 `PrinterMonitorTask` 的状态查询改为 Adapter。
 - [ ] `firmwareType` 入库值统一为大写 `KLIPPER`、`RRF`，兼容旧数据 `Klipper`。
 - [ ] RRF 适配器先完成接口和状态映射，再根据真实 RRF 3.7 API 实现 HTTP 调用。
-- [ ] 不在 Moonraker 客户端中通过替换 URL 假装支持 RRF。
+- [x] 不在 Moonraker 客户端中通过替换 URL 假装支持 RRF。
 
 ## P0：WebSocket 实时状态
 

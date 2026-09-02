@@ -11,6 +11,8 @@
 - `P0`：阻塞前后端联调或存在安全/数据风险，优先完成。
 - `P1`：第一版农场管理功能需要完成。
 - `P2`：稳定性、体验和生产环境加固。
+- Kiro 执行入口：[PROJECT.md](./PROJECT.md)。执行顺序为 `requirements.md` → `design.md` → `tasks.md` → 单个 Task 实现 → 测试/验收 → 更新任务状态 → 下一个 Task。
+- 项目级规格位于 `.kiro/specs/farm-v1/`；协议适配和 WebSocket 的详细规格位于 `.kiro/specs/printer-protocol-and-websocket/`。
 
 当前仓库只有 Java 后端，没有 Vue、React 或其他前端工程。前端部分记录页面和联调任务，不填写不存在的前端文件路径。
 

@@ -1,0 +1,168 @@
+# Farm v1 可执行任务清单
+
+版本：v1.0
+
+状态：待执行
+
+目标：[PROJECT.md](../../../PROJECT.md)
+
+需求：[requirements.md](./requirements.md)
+
+设计：[design.md](./design.md)
+
+## 使用规则
+
+- 一次只实现一个最小 Task，完成后再进入下一个 Task。
+- `[x]` 只有在代码、测试和验收均完成后才允许勾选。
+- `[~]` 表示正在执行；实现中断时必须在备注中说明原因。
+- 每个 Task 完成后同步 `TODO.md`、`API_HANDOFF.md`，执行 `git diff --check` 和 `mvn test`，再创建本地提交。
+- 前端任务不填写当前后端仓库不存在的文件路径；接入时在真实前端仓库记录路径。
+- RRF 真实能力必须有官方资料或真实设备证据，Mock 只能证明解析和调用边界。
+
+## 0. 当前基线核对
+
+- [x] T0.1 核对当前仓库、`TODO.md`、`API_HANDOFF.md` 和工作区状态。
+  - 验收：确认 P0.1–P0.6 已完成，确认协议适配和 WebSocket 消息仍未完成。
+  - 证据：提交 `54dbe14`、当前源码和测试结果。
+- [x] T0.2 生成项目级 Kiro 文档入口。
+  - 产物：`PROJECT.md`、`requirements.md`、`design.md`、`tasks.md`。
+  - 本次只完成文档，不代表后续代码 Task 已完成。
+
+## 1. P0 协议适配基础
+
+- [ ] T1.1 新增协议领域基础模型。
+  - 目标：`PrinterProtocolType`、统一设备状态、端点、操作和失败分类。
+  - 验收：大小写/历史值规范化、未知协议拒绝、无敏感字段序列化。
+  - 测试：协议枚举和领域对象单元测试。
+- [ ] T1.2 新增 `PrinterProtocolAdapter` 和 Factory。
+  - 目标：统一 `getStatus/pause/resume/cancel/emergencyStop/uploadFile` 能力。
+  - 验收：按协议返回唯一 Adapter，未知协议不回退，重复实现有明确检查。
+  - 测试：Factory 选择和错误测试。
+- [ ] T1.3 实现 `KlipperMoonrakerAdapter`。
+  - 目标：封装现有 `MoonrakerApiClient`，转换 Moonraker 状态，分类设备异常。
+  - 验收：现有 Klipper 行为不回退，凭据不进入日志/响应。
+  - 测试：Mock Moonraker 状态、暂停、取消、急停、上传和失败。
+- [ ] T1.4 将打印机控制改为 Service → Adapter。
+  - 目标：移除 `PrinterControlController` 对 Moonraker 的直接依赖。
+  - 验收：暂停、急停和后续恢复/取消接口经过统一权限、状态和协议选择。
+  - 测试：Controller 401/403/404/设备失败。
+- [ ] T1.5 将任务服务改为 Adapter 调用。
+  - 目标：替换 `PrintJobServiceImpl` 的上传、启动、取消等直接 Moonraker 调用。
+  - 验收：设备成功后才更新任务/打印机状态，失败不会伪造 `PRINTING`。
+  - 测试：安全打印流程、设备失败、非法状态和资源归属。
+- [ ] T1.6 将监控任务改为 Adapter 调用。
+  - 目标：替换 `PrinterMonitorTask` 的直接 Moonraker 查询。
+  - 验收：按打印机隔离异常，统一状态写入缓存/数据库。
+  - 测试：在线、离线、超时、多设备并发和状态映射。
+- [ ] T1.7 统一固件类型写入和旧数据兼容。
+  - 目标：新写入只使用 `KLIPPER/RRF`，兼容历史 `Klipper`。
+  - 验收：新增、更新、批量添加和扫描结果均规范化。
+  - 测试：DTO、Service、Mapper 写入路径。
+
+## 2. P0 RRF 3.7 适配边界
+
+- [ ] T2.1 收集并登记 RRF 3.7 协议证据。
+  - 目标：确认状态、认证、暂停/恢复/取消/急停、上传和启动的实际 API。
+  - 验收：每个已支持能力记录官方资料或真实设备响应；未确认能力列为 unsupported。
+- [ ] T2.2 实现 `RrfApiClient` 和 `RrfAdapter` 骨架。
+  - 目标：独立于 Moonraker，完成协议选择和统一状态映射。
+  - 验收：`RRF` 永不调用 Moonraker，未支持能力返回稳定错误。
+  - 测试：RRF Mock 响应和错误分类。
+- [ ] T2.3 根据证据逐项实现 RRF 真实能力。
+  - 目标：只实现已确认的 HTTP 调用。
+  - 验收：真实设备或可复现协议测试通过；API_HANDOFF 标注实际状态。
+
+## 3. P0 WebSocket 实时状态
+
+- [ ] T3.1 新增统一消息对象和消息类型校验。
+  - 目标：`FarmStatusMessage`、`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
+  - 验收：顶层字段、时间戳、状态枚举和敏感字段符合 API_HANDOFF。
+- [ ] T3.2 新增快照服务和连接成功快照。
+  - 目标：连接鉴权成功后发送 `data.printers` 全量快照。
+  - 验收：不依赖单台设备在线，不返回 Entity 敏感字段。
+- [ ] T3.3 接入打印机状态和离线事件。
+  - 目标：监控任务发布状态变化和离线事件，避免高频重复离线消息。
+  - 验收：REST 状态与事件一致，单台设备故障不影响其他设备。
+- [ ] T3.4 接入任务状态事件。
+  - 目标：任务暂停、启动、完成、失败、取消后发布 `JOB_STATUS`。
+  - 验收：事务成功后发布，事务失败不发布成功事件。
+- [ ] T3.5 补齐 WebSocket 生命周期测试。
+  - 目标：Token、连接上限、快照、四类消息、发送失败和断线清理。
+  - 验收：自动化测试覆盖并更新 `WEBSOCKET_GUIDE.md` 或 API_HANDOFF。
+
+## 4. P1 打印机管理
+
+- [ ] T4.1 实现 `GET /api/v1/printers/{id}` 和 `PrinterDetailVO`。
+- [ ] T4.2 实现打印机状态历史分页和迁移/持久化方案。
+- [ ] T4.3 实现打印机统计接口。
+- [ ] T4.4 实现恢复、取消当前设备任务接口。
+- [ ] T4.5 扩展扫描和批量添加的协议识别及逐项结果。
+- [ ] T4.6 补齐打印机 Controller/权限/设备异常测试。
+
+每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
+
+## 5. P1 文件库
+
+- [ ] T5.1 修复文件分页名称和材质筛选，并增加查询测试。
+- [ ] T5.2 实现文件目录树 `GET /api/v1/print-files/tree`。
+- [ ] T5.3 实现文件关联任务 `GET /api/v1/print-files/{id}/jobs`。
+- [ ] T5.4 实现安全预览 `GET /api/v1/print-files/{id}/preview`。
+- [ ] T5.5 统一 `folder/isFolder` 对外字段并更新 VO、Swagger 和前端契约。
+- [ ] T5.6 明确已关联任务文件删除策略，补充权限和 RustFS 失败测试。
+- [ ] T5.7 增加下载 URL 有效期上限和文件存储异常测试。
+
+## 6. P1 打印任务
+
+- [ ] T6.1 实现标准创建接口 `POST /api/v1/print-jobs`，旧 `/create` 标记 deprecated。
+- [ ] T6.2 支持可选 `printerId`，不指定时进入 `QUEUED`。
+- [ ] T6.3 实现重试接口并复用状态机、归属和设备规则。
+- [ ] T6.4 实现重新排队接口。
+- [ ] T6.5 实现优先级修改接口。
+- [ ] T6.6 将取消逻辑从 Controller 迁移到 Service。
+- [ ] T6.7 增加文件摘要、打印机摘要或冻结前端组合查询方案。
+- [ ] T6.8 补齐任务状态事件、权限和端到端测试。
+
+## 7. P1 认证与用户
+
+- [ ] T7.1 实现 `GET /api/v1/auth/me`。
+- [ ] T7.2 用户分页、资料和管理响应脱敏复核。
+- [ ] T7.3 补充管理员创建、启用、禁用、角色修改的 Controller 集成测试。
+- [ ] T7.4 统一登录失败次数、Redis 锁定、禁用用户和 Token 错误响应。
+- [ ] T7.5 评估是否实现 logout；若不实现，记录前端删除 Token 的产品决定。
+
+## 8. P1 前端接入与联调
+
+- [ ] T8.1 在真实前端仓库配置 API/WS 地址和环境变量。
+- [ ] T8.2 封装 HTTP 客户端、Bearer Token、统一响应和错误处理。
+- [ ] T8.3 完成登录、角色菜单、用户管理和个人资料。
+- [ ] T8.4 完成打印机看板、设备管理和 WebSocket 增量更新。
+- [ ] T8.5 完成文件库、上传、目录、下载、删除和预览。
+- [ ] T8.6 完成任务队列、安全打印、控制、重试和状态展示。
+- [ ] T8.7 记录每个真实联调接口、请求样例、响应样例和前端文件路径。
+
+当前后端仓库没有前端工程；在找到实际前端目录前，不修改不存在的前端文件。
+
+## 9. P2 测试、迁移和运维
+
+- [ ] T9.1 补齐核心 Controller 和权限集成测试。
+- [ ] T9.2 补齐 Mapper/MySQL 查询、分页和迁移验证。
+- [ ] T9.3 补齐 Redis 锁、缓存和登录保护测试。
+- [ ] T9.4 补齐 RustFS 上传、预签名 URL、删除失败测试。
+- [ ] T9.5 补齐 Klipper/RRF Adapter 和 Mock 测试。
+- [ ] T9.6 完成上传文件到打印完成的端到端测试。
+- [ ] T9.7 核对实体、Mapper、`farm.sql` 和增量 SQL 字段一致性。
+- [ ] T9.8 增加健康检查、启动依赖和生产运维说明。
+- [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
+
+## 10. 第一版最终验收
+
+- [ ] T10.1 ADMIN 可创建和管理 OPERATOR。
+- [ ] T10.2 ADMIN 可添加 Klipper 或 RRF 打印机。
+- [ ] T10.3 ADMIN/OPERATOR 可查看设备状态和文件库。
+- [ ] T10.4 用户可上传文件、创建任务、派发、安全确认并启动。
+- [ ] T10.5 支持暂停、恢复、取消和急停。
+- [ ] T10.6 REST 与 WebSocket 状态正确同步。
+- [ ] T10.7 设备离线不会持续刷异常日志或拖垮监控。
+- [ ] T10.8 文件、任务、用户和设备权限由后端校验。
+- [ ] T10.9 数据库状态和接口返回结构完成迁移/冻结。
+- [ ] T10.10 Klipper/RRF 均通过适配器接入，核心链路有自动化测试。

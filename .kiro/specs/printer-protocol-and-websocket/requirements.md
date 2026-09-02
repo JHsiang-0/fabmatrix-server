@@ -2,7 +2,7 @@
 
 版本：v1.0
 
-状态：需求规格阶段
+状态：需求已冻结，后端实现已完成；真实设备与前端联调待验收
 
 依据：
 
@@ -23,23 +23,19 @@ Farm 是局域网单农场服务端。当前业务代码直接调用 `MoonrakerA
 ### 2.1 已存在的行为
 
 - `MoonrakerApiClient` 当前提供状态查询、暂停、取消、急停、上传文件和上传后打印能力。
-- `PrinterControlController` 直接注入并调用 `MoonrakerApiClient`。
-- `PrintJobServiceImpl` 直接调用 Moonraker 完成上传、启动和取消相关操作。
-- `PrinterMonitorTask` 直接调用 Moonraker 查询设备状态，并更新打印机、任务和 Redis 缓存。
+- `PrinterControlService`、`PrintJobService` 和 `PrinterMonitorTask` 通过 `PrinterProtocolAdapterFactory` 选择协议适配器。
+- `KlipperMoonrakerAdapter` 封装 Moonraker 调用，`RrfAdapter` 封装 RRF HTTP 会话、状态、G-code 和文件上传边界。
+- 业务 Service 负责权限、状态、事务和持久化；Adapter 负责设备通信和统一状态转换。
 - 当前 Moonraker 状态来源包含 `webhooks`、`print_stats`、`extruder`、`heater_bed`、`display_status`，已有 Klipper 状态到业务状态的转换逻辑。
 - WebSocket 地址为 `/ws/farm-status`，握手需要查询参数 `token` 或 `access_token`，当前最多允许 100 个连接。
-- WebSocket 当前可以广播任意可序列化对象，但尚未统一消息类型、初始快照和离线事件。
-- 开发环境默认关闭定时任务和 WebSocket；没有真实打印机时不应打开设备监控任务。
+- WebSocket 已固定为 `/ws/farm-status`，完成 Token 鉴权、快照、四类业务消息、断线清理和协议级 Ping 保活。
+- 开发环境关闭打印机监控任务但开启 WebSocket；没有真实打印机时不应打开设备监控任务。
 
 ### 2.2 当前明确缺口
 
-- Controller、任务 Service 和监控任务与 Moonraker 实现耦合。
-- 目前没有统一的 `PrinterProtocolAdapter` 和协议选择机制。
-- 当前 Moonraker 客户端没有独立的 `resume` 方法。
-- RRF 适配器尚未实现，不能仅修改 URL 或 `firmwareType` 假装支持 RRF。
-- WebSocket 没有向新连接发送 `SNAPSHOT`，状态广播对象也不保证符合交接文档格式。
-- WebSocket 没有稳定区分 `PRINTER_STATUS`、`PRINTER_OFFLINE` 和 `JOB_STATUS`。
-- 当前没有适配器测试、WebSocket 消息格式测试和离线推送测试。
+- 尚未完成真实 Klipper/RRF 设备联调，RRF 的具体设备响应、存储路径、会话重连和宏副作用仍需现场确认。
+- 尚未完成真实容器级 WebSocket 网络测试；当前测试覆盖消息、生命周期、事件和 Ping 失败清理。
+- 前端自动重连、指数退避和告警展示不在当前后端仓库，需要真实前端工程接入。
 
 ## 3. 用户角色与边界
 

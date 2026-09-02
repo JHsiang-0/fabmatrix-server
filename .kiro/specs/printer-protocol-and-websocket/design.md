@@ -2,7 +2,7 @@
 
 版本：v1.0
 
-状态：技术设计阶段
+状态：设计已冻结，后端实现已完成；真实设备与前端联调待验收
 
 对应需求：`.kiro/specs/printer-protocol-and-websocket/requirements.md`
 

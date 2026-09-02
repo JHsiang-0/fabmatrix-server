@@ -82,7 +82,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         if (verifyResult.needMigration()) {
             user.setPasswordHash(verifyResult.getNewHash());
-            updateById(user);
+            updateUserOrThrow(user, "用户密码自动迁移失败");
             log.info("用户密码已自动迁移为加密存储: username={}", user.getUsername());
         }
 

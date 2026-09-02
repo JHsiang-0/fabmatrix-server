@@ -70,6 +70,18 @@ class UserAuthenticationTest {
     }
 
     @Test
+    void loginFailsWhenLegacyPasswordMigrationAffectsNoRows() {
+        User user = user(1L, "admin", "Admin123");
+        when(userMapper.selectOne(any(), eq(true))).thenReturn(user);
+        when(loginProtectUtil.isUserDisabled(1L)).thenReturn(false);
+        when(userMapper.updateById(any(User.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> userService.login(login("admin", "Admin123")))
+                .hasMessage("用户密码自动迁移失败");
+        verify(userMapper).updateById(user);
+    }
+
+    @Test
     void disabledAccountReturnsForbiddenBusinessCode() {
         User user = user(1L, "admin", "$2a$10$hash");
         when(userMapper.selectOne(any(), eq(true))).thenReturn(user);

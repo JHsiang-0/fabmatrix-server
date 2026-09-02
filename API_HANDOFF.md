@@ -340,6 +340,8 @@ T9.8 已完成后端基础部分：`GET /actuator/health` 为免认证探活端�
 
 T9.9 后端事件部分已完成：`PRINTER_OFFLINE` 使用稳定的 `printerId/status/reason` 数据，连续离线由监控逻辑抑制重复事件；设备恢复时重新发布 `PRINTER_STATUS`。失败任务通过 `JOB_STATUS` 携带 `jobId/status/progress/errorReason`。前端断线重连、指数退避和告警展示必须在真实前端仓库完成，当前后端仓库无前端代码。
 
+Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更新、文件和任务资源归属、文件删除保护、打印机控制前置校验、协议异常和监控离线处理；Mapper 的真实 MySQL 查询分页、完整设备链路和端到端流程仍需现场环境。
+
 ### 5.3 文件
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |

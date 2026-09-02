@@ -4,6 +4,8 @@ import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.Printer;
+import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.service.FarmStatusSnapshotService;
 import jakarta.websocket.RemoteEndpoint;
@@ -18,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Date;
+import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -73,6 +76,31 @@ class WebSocketSecurityTest {
                 message.contains("\"type\":\"SNAPSHOT\"")
                         && message.contains("\"printers\":[]")));
         assertThat(WebSocketServer.getOnlineCount()).isEqualTo(1);
+        new WebSocketServer().onClose(session);
+    }
+
+    @Test
+    void serializesSnapshotWithJavaTimeFields() throws Exception {
+        Session session = authorizedSession();
+        RemoteEndpoint.Basic remote = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        when(session.getBasicRemote()).thenReturn(remote);
+        when(session.isOpen()).thenReturn(true);
+
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setName("Printer_C0DA");
+        printer.setFirmwareType("KLIPPER");
+        printer.setStatus("IDLE");
+        printer.setCreatedAt(LocalDateTime.of(2026, 9, 3, 0, 0, 0));
+        printer.setUpdatedAt(LocalDateTime.of(2026, 9, 3, 0, 0, 0));
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of(
+                "printers", List.of(PrinterVO.from(printer))));
+
+        new WebSocketServer().onOpen(session);
+
+        verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
+                message.contains("\"type\":\"SNAPSHOT\"")
+                        && message.contains("\"createdAt\":\"2026-09-03T00:00:00\"")));
         new WebSocketServer().onClose(session);
     }
 

@@ -225,7 +225,8 @@
   - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 31 项）；`ProductionSafetyValidatorTest` 覆盖生产必填密钥、默认密钥、CORS 和 Swagger 开关；全量 `mvn test` 通过。
 - [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
   - 后端完成：离线/恢复事件抑制与发布、失败任务 `JOB_STATUS.errorReason`、连接失败清理均已有实现和测试。
-  - 本 Task 补充：服务端按 30 秒可配置间隔发送协议级 Ping 保活，发送失败清理会话；`WebSocketSecurityTest` 当前 8 项通过，业务消息仍只保留四种冻结类型。
+  - 本 Task 补充：服务端按 30 秒可配置间隔发送协议级 Ping 保活，发送失败清理会话；修复独立 WebSocket `ObjectMapper` 未注册 Java 时间模块导致 `SNAPSHOT` 发送失败的问题，并增加 `LocalDateTime` 回归测试；`WebSocketSecurityTest` 当前 9 项通过，业务消息仍只保留四种冻结类型。
+  - 真实容器验收：2026-09-03 使用 Node WebSocket 客户端完成 JWT 握手，收到 `SNAPSHOT`（46 台打印机，时间戳有效，无 `apiKey/rustfsKey`）；前端自动重连和告警展示仍待真实前端仓库。
   - 待前端：自动重连和指数退避；当前仓库没有真实前端工程，不能在此完成前端文件改动。
 
 ## 10. 第一版最终验收

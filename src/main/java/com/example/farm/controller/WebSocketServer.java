@@ -5,6 +5,8 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.service.FarmStatusSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +33,9 @@ public class WebSocketServer {
     // 为每个 Session 创建一个独立的锁对象，用于解决并发写入冲突
     private static final Map<Session, Object> sessionLocks = new ConcurrentHashMap<>();
     
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     private static volatile FarmStatusSnapshotService snapshotService;
 
     /**

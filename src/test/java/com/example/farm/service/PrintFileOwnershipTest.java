@@ -194,6 +194,20 @@ class PrintFileOwnershipTest {
     }
 
     @Test
+    void databaseDeleteFailureDoesNotReturnSuccess() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(0);
+        when(printFileMapper.deleteById(20L)).thenReturn(0);
+
+        assertThatThrownBy(() -> printFileService.deleteFile(20L))
+                .hasMessage("文件记录删除失败");
+
+        verify(rustFsClient).deleteFile("20_demo.gcode");
+    }
+
+    @Test
     void deletingFileAlsoRemovesStoredThumbnail() {
         mockUser(1L, "OPERATOR");
         PrintFile file = file(20L, 1L);
@@ -201,6 +215,7 @@ class PrintFileOwnershipTest {
         file.setThumbnailUrl(thumbnailUrl);
         when(printFileMapper.selectById(20L)).thenReturn(file);
         when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(0);
+        when(printFileMapper.deleteById(20L)).thenReturn(1);
 
         printFileService.deleteFile(20L);
 

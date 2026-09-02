@@ -181,6 +181,9 @@
 - [x] T5.15 修复文件列表打印统计的未完成任务污染。
   - 验收：`printCount` 只统计 `COMPLETED/FAILED/CANCELLED`；`successRate` 按 `COMPLETED/(COMPLETED+FAILED)` 计算，取消、排队和执行中任务不进入分母。
   - 测试：`PrintFileQueryTest` 覆盖结束任务统计和取消任务排除；全量测试通过。
+- [x] T5.16 收敛文件夹和单文件删除的持久化成功判定。
+  - 验收：文件夹创建和单文件删除检查实际数据库写入结果；影响 0 行时返回业务错误，不向前端返回成功。
+  - 测试：`PrintFileOwnershipTest` 覆盖单文件数据库删除失败路径；全量测试通过。
 ## 6. P1 打印任务
 
 - [x] T6.1 实现标准创建接口 `POST /api/v1/print-jobs`，旧 `/create` 标记 deprecated。

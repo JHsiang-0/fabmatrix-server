@@ -172,7 +172,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         folder.setUserId(currentUserId);
         folder.setCreatedAt(LocalDateTime.now());
 
-        this.save(folder);
+        if (!this.save(folder)) {
+            throw new BusinessException("创建文件夹失败");
+        }
         log.info("创建虚拟文件夹成功: folderId={}, parentId={}, name={}", folder.getId(), parentId, folderName);
         return folder;
     }
@@ -398,7 +400,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         deleteThumbnailIfPresent(target);
         String objectKey = target.getSafeName();
         rustFsClient.deleteFile(objectKey);
-        this.removeById(target.getId());
+        if (!this.removeById(target.getId())) {
+            throw new BusinessException("文件记录删除失败");
+        }
         log.info("print file deleted from rustfs and db: fileId={}, userId={}", id, userId);
     }
 

@@ -22,7 +22,7 @@ public class PrinterDetailService {
 
     public PrinterDetailVO getDetail(Long printerId) {
         if (printerId == null || printerId <= 0) {
-            throw new BusinessException("打印机 ID 必须为正数");
+            throw new BusinessException(400, "打印机 ID 必须为正数");
         }
         Printer printer = printerService.getById(printerId);
         if (printer == null) {

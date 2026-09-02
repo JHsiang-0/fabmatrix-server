@@ -163,6 +163,8 @@ public interface PrinterProtocolAdapter {
 
 控制 Service 执行：查询打印机、资源/角色校验、状态校验、构造端点、Factory 选择、Adapter 调用、缓存/数据库更新和事件发布。Controller 只负责参数接收与统一响应。
 
+打印机详情、状态历史和统计 Service 对路径 ID 和时间范围执行防御性校验：非正 ID 以及开始时间晚于结束时间统一抛出业务码 `400`，由全局异常处理器转换为 HTTP 400；不存在的打印机仍返回 404。
+
 ### 5.2 PrintJobService
 
 保留现有任务归属、安全确认和状态机，替换以下具体调用：

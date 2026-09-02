@@ -57,7 +57,7 @@ public class PrinterStatusHistoryServiceImpl implements PrinterStatusHistoryServ
     @Override
     public Page<PrinterStatusHistory> page(Long printerId, PrinterHistoryQueryDTO query) {
         if (printerId == null || printerId <= 0) {
-            throw new BusinessException("打印机 ID 必须为正数");
+            throw new BusinessException(400, "打印机 ID 必须为正数");
         }
         Printer printer = printerMapper.selectById(printerId);
         if (printer == null) {
@@ -68,7 +68,7 @@ public class PrinterStatusHistoryServiceImpl implements PrinterStatusHistoryServ
         }
         if (query.getFrom() != null && query.getTo() != null
                 && query.getFrom().isAfter(query.getTo())) {
-            throw new BusinessException("开始时间不能晚于结束时间");
+            throw new BusinessException(400, "开始时间不能晚于结束时间");
         }
 
         LambdaQueryWrapper<PrinterStatusHistory> wrapper = new LambdaQueryWrapper<>();

@@ -90,6 +90,16 @@ class PrinterStatusHistoryServiceTest {
     }
 
     @Test
+    void rejectsNonPositivePrinterIdAsValidationError() {
+        PrinterStatusHistoryService service = new PrinterStatusHistoryServiceImpl(
+                mock(PrinterStatusHistoryMapper.class), mock(PrinterMapper.class));
+
+        assertThatThrownBy(() -> service.page(0L, new PrinterHistoryQueryDTO()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(400));
+    }
+
+    @Test
     void persistsFirstSampleAndStateChangesWithoutWritingEveryPoll() {
         RedisUtil redisUtil = mock(RedisUtil.class);
         PrinterMapper printerMapper = mock(PrinterMapper.class);

@@ -72,4 +72,13 @@ class PrinterDetailServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("打印机不存在");
     }
+
+    @Test
+    void rejectsNonPositivePrinterIdAsValidationError() {
+        assertThatThrownBy(() -> new PrinterDetailService(
+                mock(PrinterService.class), mock(PrinterCacheService.class), mock(PrintJobService.class))
+                .getDetail(0L))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(400));
+    }
 }

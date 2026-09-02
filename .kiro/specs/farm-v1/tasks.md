@@ -143,6 +143,9 @@
 - [x] T4.11 收紧打印机扫描网段参数校验。
   - 验收：扫描只接受三段 IPv4 网段前缀（每段 0-255），非法值返回 `400/400`，不创建设备探测任务。
   - 测试：`PrinterServiceFirmwareTypeTest` 覆盖非法网段路径；全量测试通过。
+- [x] T4.12 收敛打印机详情、历史和统计的参数错误码。
+  - 验收：非正打印机 ID、状态历史反向时间范围和统计反向时间范围返回 HTTP 400、业务码 `400`；不存在的打印机仍返回 404。
+  - 测试：`PrinterDetailServiceTest`、`PrinterStatusHistoryServiceTest`、`PrinterStatisticsServiceTest` 覆盖参数边界；全量 `mvn test` 202 项通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

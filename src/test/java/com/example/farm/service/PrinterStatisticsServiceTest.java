@@ -72,4 +72,14 @@ class PrinterStatisticsServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("开始时间不能晚于结束时间");
     }
+
+    @Test
+    void rejectsNonPositivePrinterIdAsValidationError() {
+        PrinterStatisticsService service = new PrinterStatisticsServiceImpl(
+                mock(PrintJobMapper.class), mock(PrinterMapper.class));
+
+        assertThatThrownBy(() -> service.getStatistics(0L, new PrinterStatisticsQueryDTO()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(400));
+    }
 }

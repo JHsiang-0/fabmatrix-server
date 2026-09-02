@@ -304,6 +304,8 @@ Authorization: Bearer <token>
 耗材/时长数据和 `recordedAt`。时间参数使用不带时区的 ISO-8601 本地时间；`pageNum` 从1开始，
 `pageSize` 范围为1-100；`from` 晚于 `to` 返回 HTTP 400。不存在打印机返回 HTTP 404。
 
+状态历史和统计的路径 `id` 必须为正数；`from`/`to` 同时提供时，`from` 不得晚于 `to`。违反这些参数约束返回 HTTP 400、业务码 `400`；打印机不存在仍返回 HTTP 404。
+
 状态历史的存储边界已经冻结：Redis List 仍用于最近高频状态（最多2880条、24小时过期），
 MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本和每分钟采样样本，支持服务重启后分页查询。
 新增数据库卷会自动执行 `06-add-printer-status-history.sql`；已有 Docker 数据卷不会自动执行，升级前备份后手工执行该脚本。

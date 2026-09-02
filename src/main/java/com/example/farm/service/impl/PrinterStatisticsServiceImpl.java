@@ -23,7 +23,7 @@ public class PrinterStatisticsServiceImpl implements PrinterStatisticsService {
     @Override
     public PrinterStatisticsVO getStatistics(Long printerId, PrinterStatisticsQueryDTO query) {
         if (printerId == null || printerId <= 0) {
-            throw new BusinessException("打印机 ID 必须为正数");
+            throw new BusinessException(400, "打印机 ID 必须为正数");
         }
         Printer printer = printerMapper.selectById(printerId);
         if (printer == null) {
@@ -33,7 +33,7 @@ public class PrinterStatisticsServiceImpl implements PrinterStatisticsService {
                 ? new PrinterStatisticsQueryDTO() : query;
         if (actualQuery.getFrom() != null && actualQuery.getTo() != null
                 && actualQuery.getFrom().isAfter(actualQuery.getTo())) {
-            throw new BusinessException("开始时间不能晚于结束时间");
+            throw new BusinessException(400, "开始时间不能晚于结束时间");
         }
 
         PrinterStatisticsVO statistics = printJobMapper.selectPrinterStatistics(

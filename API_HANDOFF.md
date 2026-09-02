@@ -314,6 +314,8 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 
 `GET /print-files/{id}/preview` 先校验文件归属，只返回已入库的安全预览元数据：`id`、`originalName`、`fileSize`、`materialType`、`estTime`、`nozzleSize`、`thumbnailUrl`、耗材用量、温度和层高字段。该接口不读取或返回 G-code 原文，不返回 `safeName`、`rustfsKey`、`fileUrl` 或下载 URL；文件不存在、目录资源或无权访问均返回 HTTP 404/422 的明确业务错误。
 
+文件删除策略固定为“禁止删除已关联任务的文件”：只要 `farm_print_job.file_id` 存在关联记录（包括已取消、失败和已完成任务），单个删除返回 HTTP 409、业务码 `409`，批量删除在对应 item 中返回失败原因，不影响其他可删除项。目录资源不能通过文件删除接口删除，返回 HTTP 422；对象存储删除失败返回 HTTP 503、业务码 `5003`，数据库记录不会先行删除。
+
 ## 6. 数据模型
 
 ### 6.1 PrinterVO / PrinterDetailVO

@@ -21,6 +21,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -103,6 +104,55 @@ class PrintFileOwnershipTest {
 
         assertThatThrownBy(() -> printFileService.getPreview(20L))
                 .hasMessage("目录不支持文件预览");
+    }
+
+    @Test
+    void cannotDeleteFileAlreadyReferencedByPrintJob() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(1);
+
+        assertThatThrownBy(() -> printFileService.deleteFile(20L))
+                .hasMessage("文件已关联打印任务，禁止删除");
+        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(printFileMapper, never()).deleteById(20L);
+    }
+
+    @Test
+    void storageDeleteFailureDoesNotRemoveDatabaseRecord() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(0);
+        doThrow(new com.example.farm.common.exception.StorageException("对象存储删除失败"))
+                .when(rustFsClient).deleteFile("20_demo.gcode");
+
+        assertThatThrownBy(() -> printFileService.deleteFile(20L))
+                .isInstanceOf(com.example.farm.common.exception.StorageException.class);
+        verify(printFileMapper, never()).deleteById(20L);
+    }
+
+    @Test
+    void batchDeleteReportsReferencedFileWithoutBlockingOtherFiles() {
+        mockUser(1L, "OPERATOR");
+        PrintFile referenced = file(20L, 1L);
+        PrintFile removable = file(21L, 1L);
+        removable.setSafeName("21_demo.gcode");
+        when(printFileMapper.selectById(20L)).thenReturn(referenced);
+        when(printFileMapper.selectById(21L)).thenReturn(removable);
+        when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(1);
+        when(printFileMapper.countPrintJobsByFileId(21L, null, null)).thenReturn(0);
+        when(printFileMapper.deleteById(21L)).thenReturn(1);
+
+        PrintFileService.BatchDeleteResult result = printFileService.batchDeleteFiles(List.of(20L, 21L));
+
+        assertThat(result.getDeletedCount()).isEqualTo(1);
+        assertThat(result.getFailedCount()).isEqualTo(1);
+        assertThat(result.getItems()).extracting(PrintFileService.BatchDeleteItemResult::getId)
+                .containsExactly(20L, 21L);
+        verify(rustFsClient, never()).deleteFile("20_demo.gcode");
+        verify(rustFsClient).deleteFile("21_demo.gcode");
     }
 
     private PrintFile file(Long id, Long userId) {

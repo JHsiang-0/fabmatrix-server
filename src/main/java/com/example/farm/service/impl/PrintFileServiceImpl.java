@@ -368,6 +368,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     public void deleteFile(Long id) {
         Long userId = SecurityContextUtil.getCurrentUserId();
         PrintFile target = getAccessibleFile(id);
+        ensureDeletable(target);
 
         String objectKey = target.getSafeName();
         rustFsClient.deleteFile(objectKey);
@@ -415,6 +416,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         for (Long id : distinctIds) {
             try {
                 PrintFile target = getAccessibleFile(id);
+                ensureDeletable(target);
                 rustFsClient.deleteFile(target.getSafeName());
                 if (!this.removeById(target.getId())) {
                     throw new BusinessException("数据库记录删除失败");
@@ -503,6 +505,16 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             throw new BusinessException(404, "文件不存在");
         }
         return file;
+    }
+
+    private void ensureDeletable(PrintFile file) {
+        if (Boolean.TRUE.equals(file.getIsFolder())) {
+            throw new BusinessException(422, "目录不能通过文件删除接口删除");
+        }
+        Integer jobCount = baseMapper.countPrintJobsByFileId(file.getId(), null, null);
+        if (jobCount != null && jobCount > 0) {
+            throw new BusinessException(409, "文件已关联打印任务，禁止删除");
+        }
     }
 
     private void requireAccessibleFolder(Long folderId) {

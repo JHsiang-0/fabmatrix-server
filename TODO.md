@@ -43,7 +43,7 @@
   - ADMIN-only 接口由 OPERATOR 调用时返回 HTTP 403、JSON `code=403`。
 - [x] 为资源不存在、状态冲突、设备离线、设备网络错误建立明确的异常映射。
 - [x] 保持成功响应格式：`{code:200,message,data,timestamp}`。
-- [x] 增加异常处理器测试，覆盖核心的 401、403、404、409、422、500、503 映射；`SecurityResponseTest` 当前 27 项通过。
+- [x] 增加异常处理器测试，覆盖核心的 401、403、404、409、422、500、503 映射；`SecurityResponseTest` 当前 31 项通过。
 
 ### P0.2 统一分页
 
@@ -212,7 +212,7 @@ startPrint()
 ### P1.3 打印任务
 
 - [x] 实现标准创建接口 `POST /api/v1/print-jobs`。
-  - 已复用现有创建 Service，接收 `fileId,priority`，创建 `QUEUED` 任务；`printerId` 留给后续 T6.2。
+  - 已复用现有创建 Service，接收 `fileId,priority,printerId?`；不指定设备创建 `QUEUED`，指定设备按 T6.2 规则进入 `ASSIGNED`。
 - [x] 保留 `/api/v1/print-jobs/create` 作为兼容接口，并在 Swagger 标记 deprecated。
   - 两条地址共用同一 Controller 创建逻辑，旧地址已标记 Java/OpenAPI deprecated。
 - [x] 创建任务支持可选 `printerId`；不指定时进入 `QUEUED`。

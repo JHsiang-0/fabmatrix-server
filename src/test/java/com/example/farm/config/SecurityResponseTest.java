@@ -246,6 +246,24 @@ class SecurityResponseTest {
     }
 
     @Test
+    void operatorCannotCheckUsernameAvailability() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/check-username")
+                        .with(user("operator").roles("OPERATOR"))
+                        .param("username", "operator1"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void operatorCannotCheckEmailAvailability() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/check-email")
+                        .with(user("operator").roles("OPERATOR"))
+                        .param("email", "operator@example.com"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
     void operatorCannotCreateOperator() throws Exception {
         mockMvc.perform(post("/api/v1/auth/admin/users")
                         .with(user("2").roles("OPERATOR"))

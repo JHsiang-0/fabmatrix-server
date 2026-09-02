@@ -76,9 +76,10 @@
 
 ## 3. P0 WebSocket 实时状态
 
-- [ ] T3.1 新增统一消息对象和消息类型校验。
+- [x] T3.1 新增统一消息对象和消息类型校验。
   - 目标：`FarmStatusMessage`、`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
-  - 验收：顶层字段、时间戳、状态枚举和敏感字段符合 API_HANDOFF。
+  - 验收：`FarmStatusMessage` 固定顶层字段，校验消息类型、时间戳、打印机 ID 和敏感字段；监控任务已改用类型化打印机状态消息。快照、离线和任务事件留到后续 Task。
+  - 测试：`FarmStatusMessageTest`、`WebSocketSecurityTest` 共 4 个针对性测试通过。
 - [ ] T3.2 新增快照服务和连接成功快照。
   - 目标：连接鉴权成功后发送 `data.printers` 全量快照。
   - 验收：不依赖单台设备在线，不返回 Entity 敏感字段。

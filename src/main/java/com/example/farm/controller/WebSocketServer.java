@@ -83,7 +83,7 @@ public class WebSocketServer {
      * 向所有在线的大屏广播打印机最新状态 (JSON 格式)
      * 使用同步锁解决并发写入冲突问题
      */
-    public static void broadcastPrinterStatus(Object data) {
+    public static void broadcastPrinterStatus(FarmStatusMessage data) {
         if (sessions.isEmpty()) return;
 
         String jsonMessage;

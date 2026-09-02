@@ -148,10 +148,10 @@ startPrint()
 
 ## P0：WebSocket 实时状态
 
-- [ ] 正式地址统一为 `/ws/farm-status`；必要时短期兼容 `/ws`。
+- [x] 正式地址统一为 `/ws/farm-status`；必要时短期兼容 `/ws`。
 - [x] 增加连接 Token 校验。
 - [x] 增加连接上限、异常断开和清理机制；心跳机制仍待补充。
-- [ ] 统一消息结构：
+- [x] 统一消息结构：
 
 ```json
 {
@@ -162,7 +162,7 @@ startPrint()
 }
 ```
 
-- [ ] 支持消息类型：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
+- [x] 冻结消息类型并增加服务端校验：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
 - [ ] 客户端连接后发送一次全量 `SNAPSHOT`。
 - [ ] 打印机离线时发送 `PRINTER_OFFLINE`，不能只更新数据库而不通知前端。
 - [ ] 明确是否需要按打印机订阅；第一版可先广播全部设备，但必须通过权限校验。

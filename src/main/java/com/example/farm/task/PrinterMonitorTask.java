@@ -1,6 +1,7 @@
 package com.example.farm.task;
 
 import com.example.farm.common.utils.LogUtil;
+import com.example.farm.controller.FarmStatusMessage;
 import com.example.farm.controller.WebSocketServer;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
@@ -23,9 +24,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -391,11 +390,7 @@ public class PrinterMonitorTask {
     }
 
     private void pushToFrontend(Long printerId, PrinterDeviceStatus status) {
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("printerId", printerId);
-        payload.put("data", status);
-        payload.put("timestamp", System.currentTimeMillis());
-        WebSocketServer.broadcastPrinterStatus(payload);
+        WebSocketServer.broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, status));
     }
 
     private MoonrakerStatusDTO toLegacyStatus(PrinterDeviceStatus status) {

@@ -252,7 +252,7 @@ public record FarmStatusMessage(
 ) {}
 ```
 
-生产代码不直接向 `WebSocketServer.broadcastPrinterStatus` 传任意 Map；统一由 `WebSocketEventPublisher` 创建消息并校验类型。
+生产代码不直接向 `WebSocketServer.broadcastPrinterStatus` 传任意 Map；当前打印机状态已使用 `FarmStatusMessage`，后续由 `WebSocketEventPublisher` 统一创建快照、离线和任务消息。
 
 ### 9.2 消息类型和数据
 

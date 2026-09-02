@@ -39,7 +39,7 @@ public class GCodeParser {
     private static final Pattern FILAMENT_WEIGHT_PATTERN = Pattern.compile(
             "(?im)^\\s*;?\\s*(?:filament used|filament_used|total filament used|filament weight)\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(?:g|gram|grams)?");
     private static final Pattern FILAMENT_LENGTH_PATTERN = Pattern.compile(
-            "(?im)^\\s*;?\\s*(?:filament used|filament_used|total filament used)\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(?:mm|meter|m)?");
+            "(?im)^\\s*;?\\s*(?:filament used|filament_used|total filament used)\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(mm|millimeters?|meters?|m)?\\s*$");
 
     // ==================== 材料解析 ====================
     private static final Pattern MATERIAL_TOKEN_PATTERN = Pattern.compile("(?i)^[a-z][a-z0-9+\\-_.]*$");
@@ -221,16 +221,35 @@ public class GCodeParser {
         }
 
         if (meta.getFilamentUsedMM() == null) {
-            BigDecimal lengthMm = parseDecimal(content, FILAMENT_LENGTH_PATTERN);
-            if (lengthMm != null && lengthMm.compareTo(new BigDecimal("1000")) > 0) {
-                // 转换为米
-                lengthMm = lengthMm.divide(new BigDecimal("1000"), 2, java.math.RoundingMode.HALF_UP);
+            FilamentLengthValue legacyLength = parseLegacyFilamentLength(content);
+            if (legacyLength != null) {
+                meta.setFilamentLength(legacyLength.meters());
+                meta.setFilamentUsedMM(legacyLength.millimeters());
             }
-            meta.setFilamentLength(lengthMm);
-            meta.setFilamentUsedMM(lengthMm);
         }
-
         return meta;
+    }
+    /**
+     * 解析没有明确方括号单位的旧版耗材长度字段。
+     * 未声明单位的旧格式沿用历史约定按 mm 处理；显式 m/meter 则直接按米处理。
+     */
+    private static FilamentLengthValue parseLegacyFilamentLength(String content) {
+        Matcher matcher = FILAMENT_LENGTH_PATTERN.matcher(content);
+        if (!matcher.find()) {
+            return null;
+        }
+        BigDecimal value = new BigDecimal(matcher.group(1));
+        String unit = matcher.group(2);
+        if (unit == null || !unit.toLowerCase(java.util.Locale.ROOT).startsWith("m")
+                || "mm".equalsIgnoreCase(unit) || "millimeter".equalsIgnoreCase(unit)
+                || "millimeters".equalsIgnoreCase(unit)) {
+            return new FilamentLengthValue(value,
+                    value.divide(new BigDecimal("1000"), 2, java.math.RoundingMode.HALF_UP));
+        }
+        return new FilamentLengthValue(null, value);
+    }
+
+    private record FilamentLengthValue(BigDecimal millimeters, BigDecimal meters) {
     }
 
     /**

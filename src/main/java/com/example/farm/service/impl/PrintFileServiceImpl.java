@@ -322,11 +322,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         printFile.setFilamentWeight(filamentWeight);
 
         BigDecimal filamentLength = meta.getFilamentUsedMM();
-        if (filamentLength != null && filamentLength.compareTo(BigDecimal.ZERO) > 0) {
-            // 转换为米（原始数据是 mm）
-            if (filamentLength.compareTo(new BigDecimal("1000")) > 0) {
-                filamentLength = filamentLength.divide(new BigDecimal("1000"), 2, java.math.RoundingMode.HALF_UP);
-            }
+        if (filamentLength != null) {
+            // filamentUsedMM 的单位固定为 mm，无论长度大小都转换为数据库约定的米。
+            filamentLength = filamentLength.divide(new BigDecimal("1000"), 2, java.math.RoundingMode.HALF_UP);
         }
         if (filamentLength == null && meta.getFilamentLength() != null) {
             filamentLength = meta.getFilamentLength();

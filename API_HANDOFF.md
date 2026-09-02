@@ -513,6 +513,7 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 - `estTime`：Integer，单位秒；字段名以当前 VO 实际 JSON 为准，不使用 `estimatedSeconds`。
 - `filamentWeight`：BigDecimal，单位克。
 - `filamentLength`：BigDecimal，单位米。
+- G-code 中 `filament used [mm]` 或兼容的毫米字段，无论数值大小都会在入库时除以1000转换为米；显式以 `m/meter` 给出的兼容字段按米保存。
 - 温度：Double，单位摄氏度。
 - `successRate`：Double，范围 0-100，表示百分比。
 - `folder` 是文件对象唯一的目录布尔字段，禁止依赖或发送旧字段 `isFolder`；实体内部仍使用数据库列 `is_folder`。

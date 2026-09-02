@@ -148,8 +148,11 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         long now = System.currentTimeMillis();
         if (previous == null || now - previous.recordedAt() >= PERSIST_HISTORY_INTERVAL_MILLIS
                 || !current.sameState(previous)) {
-            printerStatusHistoryService.record(printerId, status);
-            lastPersistedStatuses.put(printerId, current.withRecordedAt(now));
+            if (printerStatusHistoryService.record(printerId, status)) {
+                lastPersistedStatuses.put(printerId, current.withRecordedAt(now));
+            } else {
+                log.warn("打印机状态历史持久化未成功，将在后续采样重试: printerId={}", printerId);
+            }
         }
     }
 

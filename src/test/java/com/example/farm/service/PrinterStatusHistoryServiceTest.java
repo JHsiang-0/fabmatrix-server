@@ -35,8 +35,9 @@ class PrinterStatusHistoryServiceTest {
         status.setState("printing");
         status.setProgress(42.5);
         status.setToolTemperature(210.0);
+        when(mapper.insert(any(PrinterStatusHistory.class))).thenReturn(1);
 
-        service.record(403L, status);
+        assertThat(service.record(403L, status)).isTrue();
 
         var captor = org.mockito.ArgumentCaptor.forClass(PrinterStatusHistory.class);
         verify(mapper).insert(captor.capture());
@@ -47,6 +48,17 @@ class PrinterStatusHistoryServiceTest {
         assertThat(saved.getProgress()).isEqualByComparingTo(new BigDecimal("42.5"));
         assertThat(saved.getToolTemperature()).isEqualByComparingTo(new BigDecimal("210.0"));
         assertThat(saved.getRecordedAt()).isNotNull();
+    }
+
+    @Test
+    void reportsFailedInsertWithoutThrowing() {
+        PrinterStatusHistoryMapper mapper = mock(PrinterStatusHistoryMapper.class);
+        when(mapper.insert(any(PrinterStatusHistory.class))).thenReturn(0);
+
+        boolean persisted = new PrinterStatusHistoryServiceImpl(
+                mapper, mock(PrinterMapper.class)).record(403L, new MoonrakerStatusDTO());
+
+        assertThat(persisted).isFalse();
     }
 
     @Test
@@ -109,11 +121,30 @@ class PrinterStatusHistoryServiceTest {
         MoonrakerStatusDTO status = new MoonrakerStatusDTO();
         status.setUnifiedState("IDLE");
         status.setState("standby");
+        when(historyService.record(403L, status)).thenReturn(true);
 
         cacheService.recordStatusHistory(403L, status);
         cacheService.recordStatusHistory(403L, status);
         status.setUnifiedState("PRINTING");
         status.setState("printing");
+        cacheService.recordStatusHistory(403L, status);
+
+        verify(historyService, times(2)).record(403L, status);
+    }
+
+    @Test
+    void retriesHistoryWhenPreviousInsertWasNotPersisted() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        PrinterMapper printerMapper = mock(PrinterMapper.class);
+        PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
+        PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
+                redisUtil, printerMapper, historyService);
+        MoonrakerStatusDTO status = new MoonrakerStatusDTO();
+        status.setUnifiedState("IDLE");
+        status.setState("standby");
+        when(historyService.record(403L, status)).thenReturn(false, true);
+
+        cacheService.recordStatusHistory(403L, status);
         cacheService.recordStatusHistory(403L, status);
 
         verify(historyService, times(2)).record(403L, status);

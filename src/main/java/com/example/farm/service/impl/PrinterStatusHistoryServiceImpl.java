@@ -28,9 +28,9 @@ public class PrinterStatusHistoryServiceImpl implements PrinterStatusHistoryServ
     private final PrinterMapper printerMapper;
 
     @Override
-    public void record(Long printerId, MoonrakerStatusDTO status) {
+    public boolean record(Long printerId, MoonrakerStatusDTO status) {
         if (printerId == null || status == null) {
-            return;
+            return false;
         }
         try {
             PrinterStatusHistory history = new PrinterStatusHistory();
@@ -48,9 +48,14 @@ public class PrinterStatusHistoryServiceImpl implements PrinterStatusHistoryServ
             history.setTotalDuration(decimal(status.getTotalDuration()));
             history.setFilamentUsed(decimal(status.getFilamentUsed()));
             history.setRecordedAt(LocalDateTime.now());
-            historyMapper.insert(history);
+            if (historyMapper.insert(history) <= 0) {
+                log.warn("打印机状态历史未写入数据库: printerId={}", printerId);
+                return false;
+            }
+            return true;
         } catch (Exception e) {
             log.error("写入打印机持久化状态历史失败: printerId={}", printerId, e);
+            return false;
         }
     }
 

@@ -178,7 +178,7 @@ public interface PrinterProtocolAdapter {
 
 ### 5.3 PrinterMonitorTask
 
-每台打印机独立获取 Adapter 并查询状态；一台设备异常只影响该设备。监控服务负责把统一状态写入缓存/数据库、同步关联任务，并通过事件发布器推送 WebSocket。
+每台打印机独立获取 Adapter 并查询状态；一台设备异常只影响该设备。监控服务负责把统一状态写入缓存/数据库、同步关联任务，并通过事件发布器推送 WebSocket。状态历史服务返回本次样本是否实际写入 MySQL；写入失败不阻塞监控，但监控缓存只有在返回成功时才更新“已持久化”时间，从而保留后续重试机会。
 
 ## 6. WebSocket 设计
 

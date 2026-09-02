@@ -13,7 +13,7 @@ public interface PrinterStatusHistoryService {
     /**
      * 写入一个状态历史样本。写入失败不应中断设备监控主流程。
      */
-    void record(Long printerId, MoonrakerStatusDTO status);
+    boolean record(Long printerId, MoonrakerStatusDTO status);
 
     /**
      * 按设备和时间范围分页查询历史样本。

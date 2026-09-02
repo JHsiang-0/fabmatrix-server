@@ -146,6 +146,9 @@
 - [x] T4.12 收敛打印机详情、历史和统计的参数错误码。
   - 验收：非正打印机 ID、状态历史反向时间范围和统计反向时间范围返回 HTTP 400、业务码 `400`；不存在的打印机仍返回 404。
   - 测试：`PrinterDetailServiceTest`、`PrinterStatusHistoryServiceTest`、`PrinterStatisticsServiceTest` 覆盖参数边界；全量 `mvn test` 202 项通过。
+- [x] T4.13 修复状态历史写入失败后的重试语义。
+  - 验收：历史 Mapper 插入影响 0 行或抛异常时返回失败但不打断监控；监控不更新已持久化时间，下一次符合采样条件时可以重试；成功插入后才更新时间。
+  - 测试：`PrinterStatusHistoryServiceTest` 7 项、`PrinterCacheRedisTest` 5 项覆盖成功/失败写入和重试边界；全量 `mvn test` 204 项通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

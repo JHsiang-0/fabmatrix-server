@@ -310,6 +310,8 @@ Authorization: Bearer <token>
 MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本和每分钟采样样本，支持服务重启后分页查询。
 新增数据库卷会自动执行 `06-add-printer-status-history.sql`；已有 Docker 数据卷不会自动执行，升级前备份后手工执行该脚本。
 
+状态历史写入属于监控旁路：MySQL 插入失败不会阻塞当前设备状态监控，但只有 Mapper 实际影响行数大于 0 时才算样本已持久化；失败样本不会更新时间游标，后续采样会继续尝试写入。
+
 打印机状态写入只有在数据库更新实际影响目标记录后才视为成功；若数据库更新影响 0 行，监控任务不会据此更新本地状态或发布成功状态事件。
 
 统计接口契约：`GET /api/v1/printers/{id}/statistics?from=...&to=...`。时间范围按任务

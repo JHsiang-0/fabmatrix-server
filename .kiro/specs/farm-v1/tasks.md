@@ -161,7 +161,8 @@
   - 测试：`PrintJobOwnershipTest` 覆盖排队任务修改和已派发任务拒绝，全量测试通过。
 - [x] T6.6 将取消逻辑从 Controller 迁移到 Service。
   - 验收：Controller 仅委托 `PrintJobService.cancelJob`；Service 统一处理归属、状态、适配器取消、解绑、持久化和事件；现有 `PrintJobAdapterTest`、`PrinterControlServiceTest` 已覆盖设备调用路径。
-- [ ] T6.7 增加文件摘要、打印机摘要或冻结前端组合查询方案。
+- [x] T6.7 增加文件摘要、打印机摘要或冻结前端组合查询方案。
+  - 验收：冻结前端组合查询方案；`PrintJobVO` 使用 `fileId/printerId`，文件调用 `/print-files/{fileId}/preview`，打印机调用 `/printers/{printerId}`，排队任务不查询空 `printerId`。
 - [ ] T6.8 补齐任务状态事件、权限和端到端测试。
 
 ## 7. P1 认证与用户

@@ -309,6 +309,8 @@ T6.5 优先级规则：`PUT /print-jobs/{id}/priority` 接收 `{ "priority": 0 }
 
 T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不直接访问设备协议；Service 负责当前用户归属、状态转换、打印机适配器取消、设备解绑、数据库持久化和 `JOB_STATUS` 事件。队列任务直接取消，已绑定任务先成功调用设备取消后再解绑；设备异常时不伪造取消成功。
 
+T6.7 任务摘要采用前端组合查询方案：`PrintJobVO` 保留 `fileId` 和 `printerId`，不在任务分页中嵌套重复对象；前端需要文件摘要时调用 `/print-files/{fileId}/preview`，需要打印机摘要时调用 `/printers/{printerId}`。`printerId=null` 的排队任务不发起打印机查询，文件/打印机详情接口各自执行资源权限校验。
+
 ### 5.3 文件
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |

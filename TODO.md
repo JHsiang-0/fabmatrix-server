@@ -176,7 +176,8 @@ startPrint()
   - 返回安全配置、实时状态缓存、当前任务摘要和协议类型；不返回 `apiKey`。
 - [x] 实现 `GET /api/v1/printers/{id}/history` 状态历史分页。
   - Redis 保留高频短期历史，MySQL 增量保存状态变化和每分钟样本；迁移脚本为 `06-add-printer-status-history.sql`。
-- [ ] 实现 `GET /api/v1/printers/{id}/statistics` 打印统计。
+- [x] 实现 `GET /api/v1/printers/{id}/statistics` 打印统计。
+  - 按任务创建时间聚合任务数量、成功率和已结束任务时长；暂不虚构耗材成本等数据库未记录指标。
 - [ ] 实现 `POST /api/v1/control/{id}/resume` 恢复打印。
 - [ ] 实现 `POST /api/v1/control/{id}/cancel` 取消当前设备任务。
 - [ ] 明确设备离线、忙碌、错误时的 HTTP 和业务错误码。

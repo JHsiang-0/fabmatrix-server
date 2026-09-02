@@ -251,7 +251,7 @@ POST /api/v1/auth/login
 |---|---|---|---|---|---|
 | GET | `/printers/{id}` | ADMIN/OPERATOR | Path ID | `PrinterDetailVO` | 已完成 |
 | GET | `/printers/{id}/history` | ADMIN/OPERATOR | `from,to,pageNum,pageSize` | `PageResult<PrinterStatusHistoryVO>` | 已完成 |
-| GET | `/printers/{id}/statistics` | ADMIN/OPERATOR | `from,to` | 统计 DTO | 规划 |
+| GET | `/printers/{id}/statistics` | ADMIN/OPERATOR | `from,to` | `PrinterStatisticsVO` | 已完成 |
 | POST | `/control/{id}/resume` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
 | POST | `/control/{id}/cancel` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
 
@@ -272,6 +272,13 @@ Authorization: Bearer <token>
 状态历史的存储边界已经冻结：Redis List 仍用于最近高频状态（最多2880条、24小时过期），
 MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本和每分钟采样样本，支持服务重启后分页查询。
 新增数据库卷会自动执行 `06-add-printer-status-history.sql`；已有 Docker 数据卷不会自动执行，升级前备份后手工执行该脚本。
+
+统计接口契约：`GET /api/v1/printers/{id}/statistics?from=...&to=...`。时间范围按任务
+`createdAt` 筛选，省略时间表示查询全部任务；返回 `printerId`、`from`、`to`、`totalJobs`、
+`completedJobs`、`failedJobs`、`cancelledJobs`、`activeJobs`、`successRate`、
+`totalPrintSeconds` 和 `averagePrintSeconds`。成功率为“已完成 /（已完成 + 失败）”百分比，
+取消任务不计入分母；时长单位为秒，无完整开始/完成时间的任务不计入时长。不存在打印机返回 HTTP 404，
+`from` 晚于 `to` 返回 HTTP 400。
 
 ### 5.2 任务
 

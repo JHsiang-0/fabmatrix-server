@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.farm.mapper.PrintJobMapper">
+
+    <!-- 按任务创建时间统计指定打印机的任务；时长仅统计有开始和完成时间的已结束任务。 -->
+    <select id="selectPrinterStatistics" resultType="com.example.farm.entity.vo.PrinterStatisticsVO">
+        SELECT
+            #{printerId} AS printer_id,
+            COUNT(*) AS total_jobs,
+            COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS completed_jobs,
+            COALESCE(SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END), 0) AS failed_jobs,
+            COALESCE(SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelled_jobs,
+            COALESCE(SUM(CASE WHEN status IN ('ASSIGNED', 'READY', 'PRINTING', 'PAUSED') THEN 1 ELSE 0 END), 0) AS active_jobs,
+            COALESCE(ROUND(
+                100.0 * SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)
+                / NULLIF(SUM(CASE WHEN status IN ('COMPLETED', 'FAILED') THEN 1 ELSE 0 END), 0), 2
+            ), 0.00) AS success_rate,
+            COALESCE(SUM(CASE
+                WHEN status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                     AND started_at IS NOT NULL AND completed_at IS NOT NULL
+                THEN TIMESTAMPDIFF(SECOND, started_at, completed_at)
+                ELSE 0
+            END), 0) AS total_print_seconds,
+            COALESCE(ROUND(AVG(CASE
+                WHEN status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                     AND started_at IS NOT NULL AND completed_at IS NOT NULL
+                THEN TIMESTAMPDIFF(SECOND, started_at, completed_at)
+                ELSE NULL
+            END), 2), 0.00) AS average_print_seconds
+        FROM farm_print_job
+        WHERE printer_id = #{printerId}
+        <if test="from != null">
+            AND created_at <![CDATA[>=]]> #{from}
+        </if>
+        <if test="to != null">
+            AND created_at <![CDATA[<=]]> #{to}
+        </if>
+    </select>
+
+</mapper>

@@ -10,12 +10,15 @@ import com.example.farm.entity.dto.PrinterUpdateDTO;
 import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.dto.PrinterHistoryQueryDTO;
+import com.example.farm.entity.dto.PrinterStatisticsQueryDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.entity.vo.PrinterDetailVO;
 import com.example.farm.entity.vo.PrinterStatusHistoryVO;
+import com.example.farm.entity.vo.PrinterStatisticsVO;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterDetailService;
 import com.example.farm.service.PrinterStatusHistoryService;
+import com.example.farm.service.PrinterStatisticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,6 +43,7 @@ public class PrinterController {
     private final PrinterService printerService;
     private final PrinterDetailService printerDetailService;
     private final PrinterStatusHistoryService printerStatusHistoryService;
+    private final PrinterStatisticsService printerStatisticsService;
 
     /**
      * 分页查询打印机列表。
@@ -65,6 +69,13 @@ public class PrinterController {
             @PathVariable Long id, @Valid PrinterHistoryQueryDTO queryDTO) {
         return Result.success(PageResult.from(
                 printerStatusHistoryService.page(id, queryDTO), PrinterStatusHistoryVO::from));
+    }
+
+    @Operation(summary = "获取打印机任务统计", description = "按任务创建时间统计指定打印机的任务数量和时长")
+    @GetMapping("/{id}/statistics")
+    public Result<PrinterStatisticsVO> getPrinterStatistics(
+            @PathVariable Long id, PrinterStatisticsQueryDTO queryDTO) {
+        return Result.success(printerStatisticsService.getStatistics(id, queryDTO));
     }
 
     /**

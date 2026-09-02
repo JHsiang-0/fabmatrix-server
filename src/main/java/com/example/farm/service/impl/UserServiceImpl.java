@@ -197,6 +197,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public IPage<UserVO> pageUsers(UserQueryDTO queryDTO) {
+        if (queryDTO == null) {
+            throw new BusinessException(400, "用户查询参数不能为空");
+        }
         Page<User> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
 

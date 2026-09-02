@@ -141,4 +141,12 @@ class PrinterServiceFirmwareTypeTest {
         assertThatThrownBy(() -> printerService.scanDevices("192.168.1.999"))
                 .hasMessage("网段前缀必须是三段 IPv4 地址，例如 192.168.1");
     }
+
+    @Test
+    void rejectsMissingPrinterQuery() {
+        assertThatThrownBy(() -> printerService.pagePrinters(null))
+                .hasMessage("打印机查询参数不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
+    }
 }

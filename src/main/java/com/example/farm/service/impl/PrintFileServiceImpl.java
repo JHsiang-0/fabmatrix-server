@@ -181,6 +181,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Override
     public Page<PrintFile> pageFiles(PrintFileQueryDTO queryDTO) {
+        if (queryDTO == null) {
+            throw new BusinessException(400, "文件查询参数不能为空");
+        }
         Long userId = SecurityContextUtil.getCurrentUserId();
         Page<PrintFile> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
 

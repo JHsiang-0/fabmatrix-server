@@ -54,6 +54,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
     @Override
     public Page<Printer> pagePrinters(PrinterQueryDTO queryDTO) {
+        if (queryDTO == null) {
+            throw new BusinessException(400, "打印机查询参数不能为空");
+        }
         Page<Printer> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
         LambdaQueryWrapper<Printer> wrapper = new LambdaQueryWrapper<>();
 

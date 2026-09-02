@@ -4,6 +4,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
+import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
@@ -22,6 +23,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
@@ -69,6 +71,26 @@ class PrintJobOwnershipTest {
 
         assertThatThrownBy(() -> printJobService.getAccessibleJob(100L))
                 .hasMessage("任务不存在");
+    }
+
+    @Test
+    void rejectsMissingJobQuery() {
+        assertThatThrownBy(() -> printJobService.queryJobs(null))
+                .hasMessage("任务查询参数不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
+    }
+
+    @Test
+    void rejectsReversedJobQueryTimeRange() {
+        PrintJobQueryDTO query = new PrintJobQueryDTO();
+        query.setStartTime(LocalDateTime.of(2026, 9, 3, 12, 0));
+        query.setEndTime(LocalDateTime.of(2026, 9, 3, 11, 0));
+
+        assertThatThrownBy(() -> printJobService.queryJobs(query))
+                .hasMessage("开始时间不能晚于结束时间")
+                .extracting("code")
+                .isEqualTo(400L);
     }
 
     @Test

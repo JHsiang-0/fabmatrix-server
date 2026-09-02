@@ -128,6 +128,14 @@ class UserAuthenticationTest {
                 .hasMessage("用户创建失败");
     }
 
+    @Test
+    void rejectsMissingUserQuery() {
+        assertThatThrownBy(() -> userService.pageUsers(null))
+                .hasMessage("用户查询参数不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
+    }
+
     private UserLoginDTO login(String username, String password) {
         UserLoginDTO dto = new UserLoginDTO();
         dto.setUsername(username);

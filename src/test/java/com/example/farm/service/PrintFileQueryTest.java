@@ -21,6 +21,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -102,6 +103,14 @@ class PrintFileQueryTest {
         verify(printFileMapper).countPrintJobsByFileId(20L, 1L, "COMPLETED");
         verify(printFileMapper).countPrintJobsByFileId(20L, 1L, "FAILED");
         verify(printFileMapper).countPrintJobsByFileId(20L, 1L, "CANCELLED");
+    }
+
+    @Test
+    void rejectsMissingFileQuery() {
+        assertThatThrownBy(() -> printFileService.pageFiles(null))
+                .hasMessage("文件查询参数不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
     }
 
     private void mockUser(Long userId, String role) {

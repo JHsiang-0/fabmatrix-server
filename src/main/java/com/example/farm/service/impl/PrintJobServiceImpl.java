@@ -565,6 +565,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
     @Override
     public Page<PrintJob> queryJobs(PrintJobQueryDTO queryDTO) {
+        if (queryDTO == null) {
+            throw new BusinessException(400, "任务查询参数不能为空");
+        }
+        if (queryDTO.getStartTime() != null && queryDTO.getEndTime() != null
+                && queryDTO.getStartTime().isAfter(queryDTO.getEndTime())) {
+            throw new BusinessException(400, "开始时间不能晚于结束时间");
+        }
         int pageNum = queryDTO.getPageNum() != null ? queryDTO.getPageNum() : 1;
         int pageSize = queryDTO.getPageSize() != null ? queryDTO.getPageSize() : 10;
 

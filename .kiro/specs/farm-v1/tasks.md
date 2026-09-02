@@ -50,10 +50,10 @@
   - 目标：替换 `PrintJobServiceImpl` 的上传、启动、取消等直接 Moonraker 调用。
   - 验收：设备成功后才更新任务/打印机状态，失败不会伪造 `PRINTING`。
   - 测试：`PrintJobAdapterTest`、`PrintJobOwnershipTest`，5 个针对性测试通过；全量 `mvn test` 共 35 个通过；Adapter 调用已从 `PrintJobController` 和 `PrintJobServiceImpl` 移除。
-- [ ] T1.6 将监控任务改为 Adapter 调用。
+- [x] T1.6 将监控任务改为 Adapter 调用。
   - 目标：替换 `PrinterMonitorTask` 的直接 Moonraker 查询。
-  - 验收：按打印机隔离异常，统一状态写入缓存/数据库。
-  - 测试：在线、离线、超时、多设备并发和状态映射。
+  - 验收：按打印机隔离异常，统一状态写入缓存/数据库；适配器异常会进入离线处理。
+  - 测试：`PrinterMonitorAdapterTest` 覆盖适配器查询和异常离线清理；编译及针对性测试通过。
 - [ ] T1.7 统一固件类型写入和旧数据兼容。
   - 目标：新写入只使用 `KLIPPER/RRF`，兼容历史 `Klipper`。
   - 验收：新增、更新、批量添加和扫描结果均规范化。

@@ -6,10 +6,14 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.enums.PrintJobStatus;
+import com.example.farm.protocol.PrinterDeviceStatus;
+import com.example.farm.protocol.PrinterEndpoint;
+import com.example.farm.protocol.PrinterProtocolAdapterFactory;
+import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
-import com.example.farm.common.utils.MoonrakerApiClient;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +43,7 @@ public class PrinterMonitorTask {
 
     private final PrinterService printerService;
     private final PrinterCacheService printerCacheService;
-    private final MoonrakerApiClient moonrakerApiClient;
+    private final PrinterProtocolAdapterFactory adapterFactory;
     private final PrintJobService printJobService;
 
     // 并发线程池，用于并行查询多个打印机状态
@@ -142,7 +146,8 @@ public class PrinterMonitorTask {
         long startTime = System.currentTimeMillis();
 
         try {
-            MoonrakerStatusDTO status = moonrakerApiClient.getPrinterStatus(printer.getIpAddress());
+            PrinterDeviceStatus status = adapterFactory.getAdapter(printer.getFirmwareType())
+                    .getStatus(endpointOf(printer));
             long duration = System.currentTimeMillis() - startTime;
 
             if (status != null) {
@@ -153,24 +158,26 @@ public class PrinterMonitorTask {
                 return new PrinterStatusResult(printerId, null, false);
             }
         } catch (Exception e) {
-            log.error("获取打印机状态失败: printerId={}, name={}", 
+            log.error("获取打印机状态失败: printerId={}, name={}",
                     printerId, printerName, e);
+            handlePrinterOffline(printer);
             return new PrinterStatusResult(printerId, null, false);
         }
     }
 
     private void handlePrinterOnline(Long printerId, String printerName,
-                                     MoonrakerStatusDTO status, Printer printer, long duration) {
+                                     PrinterDeviceStatus status, Printer printer, long duration) {
+        MoonrakerStatusDTO legacyStatus = toLegacyStatus(status);
         // 缓存状态
-        printerCacheService.cachePrinterStatus(printerId, status);
-        printerCacheService.recordStatusHistory(printerId, status);
+        printerCacheService.cachePrinterStatus(printerId, legacyStatus);
+        printerCacheService.recordStatusHistory(printerId, legacyStatus);
         printerCacheService.markPrinterOnline(printerId);
 
-        // 获取 Moonraker 状态（已降维）
-        String moonrakerState = status.getState().toLowerCase();
+        // 使用适配器输出的原始任务状态驱动现有农场业务逻辑。
+        String deviceState = normalizeRawState(status.rawState());
 
         // ========== 核心业务逻辑：农场任务 vs 野生任务 ==========
-        if ("printing".equals(moonrakerState)) {
+        if ("printing".equals(deviceState)) {
             if (printer.getCurrentJobId() != null) {
                 // 农场任务：同步打印进度
                 syncPrintJobStatus(printer, status);
@@ -181,7 +188,7 @@ public class PrinterMonitorTask {
                     log.info("发现单机直连打印任务，锁定机器: {}", printer.getName());
                 }
             }
-        } else if (("complete".equals(moonrakerState) || "standby".equals(moonrakerState) || "ready".equals(moonrakerState))
+        } else if (("complete".equals(deviceState) || "standby".equals(deviceState) || "ready".equals(deviceState))
                 && printer.getCurrentJobId() == null && "PRINTING".equals(printer.getStatus())) {
             // 野生任务结束：释放机器
             updatePrinterStatus(printer, "IDLE");
@@ -192,7 +199,7 @@ public class PrinterMonitorTask {
         }
 
         // 检查状态变更（保留原有逻辑，更新数据库状态）
-        String newDbStatus = determineDbStatus(status.getState());
+        String newDbStatus = determineDbStatus(status);
         if (!newDbStatus.equals(printer.getStatus())) {
             updatePrinterStatus(printer, newDbStatus);
         }
@@ -205,7 +212,7 @@ public class PrinterMonitorTask {
      * 同步打印任务状态（农场任务专用）
      * 根据 Moonraker 状态更新 PrintJob 表，并在任务结束时解绑机器
      */
-    private void syncPrintJobStatus(Printer printer, MoonrakerStatusDTO status) {
+    private void syncPrintJobStatus(Printer printer, PrinterDeviceStatus status) {
         Long jobId = printer.getCurrentJobId();
         if (jobId == null) {
             return;
@@ -217,15 +224,15 @@ public class PrinterMonitorTask {
             return;
         }
 
-        String state = status.getState().toLowerCase();
-        Double progress = status.getProgress();
+        String state = normalizeRawState(status.rawState());
+        BigDecimal progress = status.progress();
         boolean jobChanged = false;
 
         switch (state) {
             case "printing":
                 // 更新进度（差值大于 1.0% 时才更新）
                 if (progress != null) {
-                    BigDecimal newProgress = BigDecimal.valueOf(progress);
+                    BigDecimal newProgress = progress;
                     BigDecimal oldProgress = job.getProgress() != null ? job.getProgress() : BigDecimal.ZERO;
                     if (newProgress.subtract(oldProgress).doubleValue() > 1.0) {
                         job.setProgress(newProgress);
@@ -359,10 +366,11 @@ public class PrinterMonitorTask {
      * 注意：此处的 moonrakerState 已经是经过 calculateUnifiedState 处理后的统一状态
      * 可能包含系统级状态：shutdown, startup, error, ready 以及任务级状态：printing, paused 等
      */
-    private String determineDbStatus(String moonrakerState) {
-        if (moonrakerState == null) return "OFFLINE";
+    private String determineDbStatus(PrinterDeviceStatus status) {
+        if (status == null || status.status() == null) return "OFFLINE";
 
-        return switch (moonrakerState.toLowerCase()) {
+        String rawState = normalizeRawState(status.rawState());
+        return switch (rawState) {
             // 任务级状态
             case "printing", "paused" -> "PRINTING";
             case "standby", "complete" -> "IDLE";
@@ -372,11 +380,17 @@ public class PrinterMonitorTask {
             case "error" -> "ERROR";     // 系统错误
             case "ready" -> "IDLE";      // 就绪但无任务
             case "offline", "unknown" -> "OFFLINE";
-            default -> "IDLE";
+            default -> switch (status.status()) {
+                case OFFLINE, UNKNOWN -> "OFFLINE";
+                case PREPARING -> "PREPARING";
+                case PRINTING, PAUSED -> "PRINTING";
+                case ERROR -> "ERROR";
+                case IDLE -> "IDLE";
+            };
         };
     }
 
-    private void pushToFrontend(Long printerId, MoonrakerStatusDTO status) {
+    private void pushToFrontend(Long printerId, PrinterDeviceStatus status) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("printerId", printerId);
         payload.put("data", status);
@@ -384,6 +398,41 @@ public class PrinterMonitorTask {
         WebSocketServer.broadcastPrinterStatus(payload);
     }
 
-    private record PrinterStatusResult(Long printerId, MoonrakerStatusDTO status, boolean online) {
+    private MoonrakerStatusDTO toLegacyStatus(PrinterDeviceStatus status) {
+        MoonrakerStatusDTO legacy = new MoonrakerStatusDTO();
+        legacy.setState(status.rawState());
+        legacy.setSystemMessage(status.systemMessage());
+        legacy.setFilename(status.filename());
+        legacy.setProgress(status.progress() == null ? null : status.progress().doubleValue());
+        legacy.setToolTemperature(doubleValue(status.toolTemperature()));
+        legacy.setToolTarget(doubleValue(status.toolTarget()));
+        legacy.setBedTemperature(doubleValue(status.bedTemperature()));
+        legacy.setBedTarget(doubleValue(status.bedTarget()));
+        legacy.setPrintDuration(doubleValue(status.printDuration()));
+        legacy.setTotalDuration(doubleValue(status.totalDuration()));
+        legacy.setFilamentUsed(doubleValue(status.filamentUsed()));
+        legacy.setUnifiedState(status.status() == null ? PrinterStatus.UNKNOWN.name() : status.status().name());
+        return legacy;
+    }
+
+    private Double doubleValue(BigDecimal value) {
+        return value == null ? null : value.doubleValue();
+    }
+
+    private PrinterEndpoint endpointOf(Printer printer) {
+        PrinterProtocolType protocolType = PrinterProtocolType.normalize(printer.getFirmwareType());
+        if (printer.getIpAddress() == null || printer.getIpAddress().isBlank()) {
+            throw new IllegalArgumentException("打印机没有可用的网络地址");
+        }
+        return new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(), protocolType);
+    }
+
+    private String normalizeRawState(String rawState) {
+        return rawState == null || rawState.isBlank()
+                ? "unknown"
+                : rawState.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private record PrinterStatusResult(Long printerId, PrinterDeviceStatus status, boolean online) {
     }
 }

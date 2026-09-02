@@ -141,7 +141,7 @@ startPrint()
 - [x] 新增 `KlipperMoonrakerAdapter`，封装当前 `MoonrakerApiClient`。
 - [x] 将 `PrinterControlController` 中直接调用 `MoonrakerApiClient` 的代码改为调用 Service/Adapter。
 - [x] 将 `PrintJobServiceImpl` 中的上传、启动、取消设备调用改为 Adapter。
-- [ ] 将 `PrinterMonitorTask` 的状态查询改为 Adapter。
+- [x] 将 `PrinterMonitorTask` 的状态查询改为 Adapter，并将适配器异常纳入离线处理。
 - [ ] `firmwareType` 入库值统一为大写 `KLIPPER`、`RRF`，兼容旧数据 `Klipper`。
 - [ ] RRF 适配器先完成接口和状态映射，再根据真实 RRF 3.7 API 实现 HTTP 调用。
 - [x] 不在 Moonraker 客户端中通过替换 URL 假装支持 RRF。

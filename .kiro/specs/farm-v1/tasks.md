@@ -153,6 +153,9 @@
 - [x] T5.10 修复 G-code 耗材长度的毫米到米转换。
   - 验收：标准 `filament used [mm]` 和兼容毫米字段不依赖数值阈值，统一转换为数据库及 VO 约定的米；显式米单位按米保存。
   - 测试：`GCodeParserTest`、`PrintFileMetadataTest` 覆盖短毫米值、兼容字段和显式米单位。
+- [x] T5.11 冻结文件和任务 VO 的数值字段类型。
+  - 验收：`PrintFileVO/PrintFilePreviewVO` 的切片温度为 Integer，`successRate` 为 BigDecimal，`PrintJobVO.progress` 为 BigDecimal；实时设备状态 DTO 的 Double 温度不与文件元数据混用，API_HANDOFF 示例单位和值一致。
+  - 测试：`PrintFileVOContractTest`、`PrintJobVOContractTest` 验证实际 JSON 数值类型。
 
 ## 6. P1 打印任务
 

@@ -500,7 +500,7 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
   "materialType": "PLA",
   "nozzleSize": 0.4,
   "filamentWeight": 12.5,
-  "filamentLength": 3000,
+  "filamentLength": 3.00,
   "nozzleTemp": 210,
   "bedTemp": 60,
   "layerHeight": 0.2,
@@ -514,8 +514,8 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 - `filamentWeight`：BigDecimal，单位克。
 - `filamentLength`：BigDecimal，单位米。
 - G-code 中 `filament used [mm]` 或兼容的毫米字段，无论数值大小都会在入库时除以1000转换为米；显式以 `m/meter` 给出的兼容字段按米保存。
-- 温度：Double，单位摄氏度。
-- `successRate`：Double，范围 0-100，表示百分比。
+- `PrintFileVO`/`PrintFilePreviewVO` 的切片温度字段（`nozzleTemp`、`bedTemp` 及首层温度）为 Integer，单位摄氏度；实时设备状态 DTO 的温度字段仍为 Double。
+- `successRate`：BigDecimal，范围 0-100，表示百分比。
 - `folder` 是文件对象唯一的目录布尔字段，禁止依赖或发送旧字段 `isFolder`；实体内部仍使用数据库列 `is_folder`。
 - 文件对象无论来自上传、分页还是目录查询，`folder` 始终为 JSON 布尔值；实体目录标记为空时按普通文件输出 `false`，不会返回 `null`。
 - `rustfsKey`、`safeName`、`fileUrl`、内部存储路径和 API Key 不属于前端 DTO；下载必须调用独立的 `/download` 接口获取短期预签名 URL。
@@ -526,7 +526,7 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 - 当前系统默认时区为服务端本地时区，现阶段按 Asia/Shanghai 使用。
 - WebSocket `timestamp` 使用 Unix epoch 毫秒。
 - ID 使用 Long，前端 JavaScript 建议按字符串安全处理超大 ID。
-- 进度使用 Double，范围 0-100。
+- REST `PrintJobVO.progress` 使用 BigDecimal，范围 0-100；WebSocket 消息中的 `progress` 保持 JSON 数值，前端按 0-100 的小数处理。
 - 金额字段当前不存在；如果以后增加，使用整数分或 Decimal 字符串，禁止使用 Double 表示金额。
 
 ## 7. WebSocket 契约

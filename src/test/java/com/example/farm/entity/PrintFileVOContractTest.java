@@ -4,6 +4,8 @@ import com.example.farm.entity.vo.PrintFileVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PrintFileVOContractTest {
@@ -33,5 +35,21 @@ class PrintFileVOContractTest {
         file.setOriginalName("demo.gcode");
 
         assertThat(PrintFileVO.from(file).getFolder()).isFalse();
+    }
+
+    @Test
+    void keepsFileMetadataNumericTypesStable() throws Exception {
+        PrintFile file = new PrintFile();
+        file.setNozzleTemp(210);
+        file.setBedTemp(60);
+        file.setFilamentLength(new BigDecimal("3.00"));
+        file.setSuccessRate(new BigDecimal("98.50"));
+
+        var json = objectMapper.readTree(objectMapper.writeValueAsString(PrintFileVO.from(file)));
+
+        assertThat(json.get("nozzleTemp").isInt()).isTrue();
+        assertThat(json.get("bedTemp").isInt()).isTrue();
+        assertThat(json.get("filamentLength").decimalValue()).isEqualByComparingTo("3.00");
+        assertThat(json.get("successRate").decimalValue()).isEqualByComparingTo("98.50");
     }
 }

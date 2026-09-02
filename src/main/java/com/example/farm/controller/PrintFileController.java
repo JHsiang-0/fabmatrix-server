@@ -11,6 +11,7 @@ import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFileVO;
 import com.example.farm.entity.vo.FileNodeVO;
 import com.example.farm.entity.vo.PrintJobVO;
+import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.service.PrintFileService;
 import com.example.farm.service.PrintJobService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -81,6 +82,15 @@ public class PrintFileController {
             @PathVariable Long id, @Valid FileJobsQueryDTO queryDTO) {
         return Result.success(PageResult.from(
                 printJobService.queryJobsByFileId(id, queryDTO), PrintJobVO::from));
+    }
+
+    /**
+     * 获取文件的安全预览元数据，不返回 G-code 原文或存储内部字段。
+     */
+    @Operation(summary = "获取文件安全预览", description = "返回已解析元数据和缩略图，不返回文件内容、存储 key 或下载地址")
+    @GetMapping("/{id}/preview")
+    public Result<PrintFilePreviewVO> getPreview(@PathVariable Long id) {
+        return Result.success(farmPrintFileService.getPreview(id), "获取文件预览成功");
     }
 
     /**

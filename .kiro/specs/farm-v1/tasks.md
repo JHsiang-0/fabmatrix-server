@@ -129,7 +129,9 @@
 - [x] T5.3 实现文件关联任务 `GET /api/v1/print-files/{id}/jobs`。
   - 验收：先校验文件归属，再按 `file_id` 分页返回 `PageResult<PrintJobVO>`；操作员仅本人任务，管理员全部；无文件或无权统一 404。
   - 测试：`PrintJobOwnershipTest` 新增 2 个文件关联任务归属测试，全量测试通过。
-- [ ] T5.4 实现安全预览 `GET /api/v1/print-files/{id}/preview`。
+- [x] T5.4 实现安全预览 `GET /api/v1/print-files/{id}/preview`。
+  - 验收：返回已解析元数据和缩略图，不读/返回 G-code 原文、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；复用文件归属校验，目录返回 422。
+  - 测试：`PrintFileOwnershipTest` 新增本人预览和目录拒绝测试，全量测试通过。
 - [ ] T5.5 统一 `folder/isFolder` 对外字段并更新 VO、Swagger 和前端契约。
 - [ ] T5.6 明确已关联任务文件删除策略，补充权限和 RustFS 失败测试。
 - [ ] T5.7 增加下载 URL 有效期上限和文件存储异常测试。

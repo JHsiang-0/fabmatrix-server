@@ -2,6 +2,7 @@ package com.example.farm.service;
 
 import com.example.farm.common.utils.RustFsClient;
 import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.impl.PrintFileServiceImpl;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +18,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -68,6 +70,39 @@ class PrintFileOwnershipTest {
         printFileService.getPresignedDownloadUrl(20L, 60);
 
         verify(rustFsClient).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60));
+    }
+
+    @Test
+    void operatorCanPreviewOwnFileMetadataWithoutStorageFields() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        file.setOriginalName("demo.gcode");
+        file.setFileSize(123L);
+        file.setMaterialType("PLA");
+        file.setSafeName("internal-name");
+        file.setRustfsKey("internal/key");
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+
+        PrintFilePreviewVO preview = printFileService.getPreview(20L);
+
+        assertThat(preview.getId()).isEqualTo(20L);
+        assertThat(preview.getOriginalName()).isEqualTo("demo.gcode");
+        assertThat(preview.getFileSize()).isEqualTo(123L);
+        assertThat(preview).hasNoNullFieldsOrPropertiesExcept(
+                "estTime", "nozzleSize", "thumbnailUrl", "filamentWeight", "filamentLength",
+                "nozzleTemp", "bedTemp", "layerHeight", "firstLayerNozzleTemp",
+                "firstLayerBedTemp", "firstLayerHeight");
+    }
+
+    @Test
+    void folderCannotBePreviewedAsFile() {
+        mockUser(1L, "OPERATOR");
+        PrintFile folder = file(20L, 1L);
+        folder.setIsFolder(true);
+        when(printFileMapper.selectById(20L)).thenReturn(folder);
+
+        assertThatThrownBy(() -> printFileService.getPreview(20L))
+                .hasMessage("目录不支持文件预览");
     }
 
     private PrintFile file(Long id, Long userId) {

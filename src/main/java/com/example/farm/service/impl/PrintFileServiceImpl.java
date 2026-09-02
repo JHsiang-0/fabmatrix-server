@@ -14,6 +14,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.entity.vo.FileNodeVO;
+import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.PrintFileService;
 import lombok.RequiredArgsConstructor;
@@ -107,6 +108,15 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             nodes.get(file.getParentId()).getChildren().add(node);
         }
         return roots;
+    }
+
+    @Override
+    public PrintFilePreviewVO getPreview(Long id) {
+        PrintFile file = getAccessibleFile(id);
+        if (Boolean.TRUE.equals(file.getIsFolder())) {
+            throw new BusinessException(422, "目录不支持文件预览");
+        }
+        return PrintFilePreviewVO.from(file);
     }
 
     private boolean createsCycle(PrintFile file, Map<Long, PrintFile> filesById) {

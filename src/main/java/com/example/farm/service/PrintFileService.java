@@ -6,6 +6,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.entity.vo.FileNodeVO;
+import com.example.farm.entity.vo.PrintFilePreviewVO;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -29,6 +30,14 @@ public interface PrintFileService extends IService<PrintFile> {
      * @return 根节点列表
      */
     List<FileNodeVO> getFileTree();
+
+    /**
+     * 获取文件的安全预览元数据。
+     *
+     * @param id 文件 ID
+     * @return 预览信息
+     */
+    PrintFilePreviewVO getPreview(Long id);
 
     /**
      * 在指定目录下创建一个虚拟文件夹

@@ -220,6 +220,41 @@ class SecurityResponseTest {
                 .andExpect(jsonPath("$.code").value(403));
     }
 
+    @Test
+    void unauthenticatedCannotAccessPrintFilePage() throws Exception {
+        mockMvc.perform(post("/api/v1/print-files/page")
+                        .contentType("application/json")
+                        .content("{\"pageNum\":1,\"pageSize\":20}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void unauthenticatedCannotAccessPrintJobQueue() throws Exception {
+        mockMvc.perform(get("/api/v1/print-jobs/queue"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void operatorCannotAddPrinter() throws Exception {
+        mockMvc.perform(post("/api/v1/printers/add")
+                        .with(user("2").roles("OPERATOR"))
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void operatorCannotDeletePrinter() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/v1/printers/delete/403")
+                        .with(user("2").roles("OPERATOR")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
     private UsernamePasswordAuthenticationToken adminAuthentication() {
         return new UsernamePasswordAuthenticationToken(
                 1L,

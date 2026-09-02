@@ -220,7 +220,8 @@ startPrint()
   - 已仅允许 `ASSIGNED/READY` 重新排队；解除设备绑定并清理运行字段后回 `QUEUED`，不调用设备；`PRINTING/PAUSED/FAILED` 等状态拒绝。
 - [x] 实现 `PUT /api/v1/print-jobs/{id}/priority`。
   - 已接收 JSON `{priority:0-100}`，仅 `QUEUED` 且当前用户可见的任务可修改；其他状态 422，不调用设备。
-- [ ] 将取消逻辑从 Controller 移到 Service，统一权限、状态和设备调用。
+- [x] 将取消逻辑从 Controller 移到 Service，统一权限、状态和设备调用。
+  - 当前 Controller 仅委托 `PrintJobService.cancelJob`；Service 统一处理归属、状态、适配器取消、解绑、持久化和事件。
 - [ ] 安全打印流程固定为：派发 -> 安全确认 -> 启动。
 - [ ] 启动时由后端记录真实操作员，不接受任意前端 `operatorId`。
 - [ ] 增加任务详情中的文件摘要和打印机摘要，或明确由前端分别查询。

@@ -159,7 +159,8 @@
 - [x] T6.5 实现优先级修改接口。
   - 验收：接收 JSON `{priority:0-100}`，仅 `QUEUED` 且当前用户可见的任务可修改；其他状态 422，不调用设备。
   - 测试：`PrintJobOwnershipTest` 覆盖排队任务修改和已派发任务拒绝，全量测试通过。
-- [ ] T6.6 将取消逻辑从 Controller 迁移到 Service。
+- [x] T6.6 将取消逻辑从 Controller 迁移到 Service。
+  - 验收：Controller 仅委托 `PrintJobService.cancelJob`；Service 统一处理归属、状态、适配器取消、解绑、持久化和事件；现有 `PrintJobAdapterTest`、`PrinterControlServiceTest` 已覆盖设备调用路径。
 - [ ] T6.7 增加文件摘要、打印机摘要或冻结前端组合查询方案。
 - [ ] T6.8 补齐任务状态事件、权限和端到端测试。
 

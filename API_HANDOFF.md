@@ -212,7 +212,7 @@ POST /api/v1/auth/login
 | GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | `PrintJobVO` |
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID |
 | POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID（兼容，deprecated） |
-| DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务 |
+| DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务（Service 统一校验、设备控制和解绑） |
 | POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | 分配并启动 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
@@ -306,6 +306,8 @@ T6.3 重试规则：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且
 T6.4 重新排队规则：`POST /print-jobs/{id}/requeue` 仅允许 `ASSIGNED` 或 `READY` 任务；成功后解除打印机绑定、清除运行字段、进度归零，状态变为 `QUEUED` 并推送 `JOB_STATUS`。关联设备存在时清除其 `currentJobId` 和安全确认，`PREPARING` 设备恢复为 `IDLE`；不调用设备协议。`PRINTING`、`PAUSED`、`FAILED`、`COMPLETED`、`CANCELLED` 均返回 HTTP 422，任务或设备不存在/无权访问返回 HTTP 404。
 
 T6.5 优先级规则：`PUT /print-jobs/{id}/priority` 接收 `{ "priority": 0 }`，范围为 `0-100`，仅允许当前用户可见且状态为 `QUEUED` 的任务修改。成功后只更新优先级；已派发、打印中或已结束任务返回 HTTP 422，任务不存在或无权访问返回 HTTP 404。该操作不调用设备，也不发送无打印机目标的 `JOB_STATUS`，调度器下一轮按新优先级取队列。
+
+T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不直接访问设备协议；Service 负责当前用户归属、状态转换、打印机适配器取消、设备解绑、数据库持久化和 `JOB_STATUS` 事件。队列任务直接取消，已绑定任务先成功调用设备取消后再解绑；设备异常时不伪造取消成功。
 
 ### 5.3 文件
 

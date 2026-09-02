@@ -2,6 +2,7 @@ package com.example.farm.config;
 
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.service.UserService;
@@ -53,6 +54,25 @@ class SecurityResponseTest {
         mockMvc.perform(get("/api/v1/auth/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void currentUserMissingUsesUnified404Response() throws Exception {
+        when(userService.getCurrentUser(1L)).thenThrow(new BusinessException(404, "用户不存在"));
+
+        mockMvc.perform(get("/api/v1/auth/me").with(authentication(adminAuthentication())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("用户不存在"));
+    }
+
+    @Test
+    void unexpectedControllerFailureUsesUnified500Response() throws Exception {
+        when(userService.getCurrentUser(1L)).thenThrow(new IllegalStateException("unexpected failure"));
+
+        mockMvc.perform(get("/api/v1/auth/me").with(authentication(adminAuthentication())))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value(500));
     }
 
     @Test

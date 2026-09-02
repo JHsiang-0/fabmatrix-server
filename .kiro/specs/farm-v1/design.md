@@ -2,7 +2,7 @@
 
 版本：v1.0
 
-状态：技术设计阶段
+状态：设计已冻结，后端 P0/P1 已实现；前端与真实环境待验收
 
 需求来源：[requirements.md](./requirements.md)
 
@@ -28,10 +28,10 @@ Application Service
 
 当前代码中的主要改造点：
 
-- `PrinterControlController` 当前直接注入 `MoonrakerApiClient`，改为调用控制 Service。
-- `PrintJobServiceImpl` 当前直接注入并调用 Moonraker，改为通过 Factory 获取 Adapter。
-- `PrinterMonitorTask` 当前直接调用 Moonraker，改为通过 Adapter 获取统一状态。
-- `WebSocketServer` 当前能鉴权和广播任意对象，改为统一事件对象和快照服务。
+- `PrinterControlController` 通过控制 Service 调用协议 Adapter。
+- `PrintJobServiceImpl` 通过 Factory 获取 Adapter，负责安全打印、任务状态和事务。
+- `PrinterMonitorTask` 通过 Adapter 获取统一状态，再同步缓存、数据库和 WebSocket 事件。
+- `WebSocketServer` 已完成鉴权、统一事件对象、快照、协议级 Ping 保活和失败清理。
 
 ## 2. 包和类规划
 

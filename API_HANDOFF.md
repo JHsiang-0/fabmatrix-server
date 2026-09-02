@@ -557,7 +557,7 @@ PRINTER_OFFLINE   打印机离线
 JOB_STATUS        任务状态变化
 ```
 
-当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；没有绑定打印机的排队任务不发送任务事件。基础生命周期测试已覆盖有效/无效 Token、首帧快照、发送失败清理和断开清理；真实容器级网络测试仍待补充。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
+当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；没有绑定打印机的排队任务不发送任务事件。服务端每 30 秒发送协议级 Ping，失败连接会清理；真实容器级网络测试仍待补充。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
 
 ## 8. 打印机协议适配约定
 
@@ -628,7 +628,7 @@ src/main/resources/db/migration/06-add-printer-status-history.sql
 mvn test
 ```
 
-测试使用 H2 随机端口，关闭定时任务和 WebSocket。当前没有自动生成的测试用户，也没有真实数据库 HTTP 权限测试；已增加打印机路由的 401/403/400 测试、文件/任务服务层归属测试，以及未携带 Token 的 WebSocket 握手测试。
+测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。真实 MySQL 查询和容器网络联调仍待现场环境。
 
 ### 9.4 真实打印机
 
@@ -750,13 +750,11 @@ src/test/java/com/example/farm/service/PrintFileOwnershipTest.java
 src/test/java/com/example/farm/controller/WebSocketSecurityTest.java
 ```
 
-上下文测试使用 `test` Profile，关闭任务和 WebSocket；归属测试使用服务层单元测试，WebSocket 测试覆盖无 Token 拒绝。当前没有：
+上下文测试使用 `test` Profile，关闭任务和 WebSocket；归属测试使用服务层单元测试，WebSocket 测试覆盖生命周期、业务事件和协议级 Ping。当前没有：
 
-- Controller HTTP 接口测试；
-- ADMIN/OPERATOR 的 401/403 测试；
-- 打印机资源归属测试；
 - MySQL/RustFS/真实 Redis 联调测试；
 - Klipper 或 RRF 设备测试；
-- WebSocket 消息格式和断线测试。
+- 真实前端仓库中的自动重连、指数退避和告警展示测试；
+- 上传文件到设备完成打印的完整端到端测试。
 
 因此本文中的“现有接口”表示源码中存在，不表示已经完成真实环境验收。

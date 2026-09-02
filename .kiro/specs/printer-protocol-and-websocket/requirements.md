@@ -12,7 +12,7 @@
 
 ## 1. 背景与目标
 
-Farm 是局域网单农场服务端。当前业务代码直接调用 `MoonrakerApiClient`，只能稳定支持 Klipper/Moonraker；打印机类型字段虽然已经允许 `KLIPPER` 和 `RRF`，但修改字段值本身并不会产生 RRF 3.7 通信能力。
+Farm 是局域网单农场服务端。协议改造前业务代码直接调用 `MoonrakerApiClient`；当前实现已将协议差异收敛到 Klipper/RRF Adapter，但真实 RRF 3.7 设备行为仍需现场验收。
 
 本需求的目标是建立协议无关的内部设备能力层，使 HTTP API、任务服务、监控任务和 WebSocket 不再依赖具体打印机协议，并为 RRF 3.7 接入提供可测试的边界。
 
@@ -267,13 +267,13 @@ REST 返回的 `PrinterVO`、`PrintJobVO` 与 WebSocket 消息中的状态字段
 6. `API_HANDOFF.md`、`TODO.md` 与实际 Controller、Service、Adapter、WebSocket 行为一致。
 7. 每个实现阶段运行 `mvn test`、`git diff --check`，并创建本地 Git 提交。
 
-## 8. 待设计阶段确认的问题
+## 8. 已冻结的设计决策
 
-以下问题不能在需求阶段凭空决定，将在 `design.md` 中给出选择和理由：
+以下决策已在 `design.md` 和当前实现中固定：
 
-1. Adapter 方法返回统一结果对象，还是使用领域异常表达失败。
-2. `uploadFile` 与 `startPrint` 是两个独立能力，还是由 Service 组合调用。
-3. `SNAPSHOT` 使用 `printerId=null` 的多设备结构，还是每台设备一条消息。
-4. RRF 3.7 的具体 API 路径、认证头和状态字段。
-5. WebSocket 事件由状态服务发布，还是由监控任务直接组装。
-6. 设备状态历史和统计是否属于本次协议适配范围，还是留在 P1.1。
+1. Adapter 设备失败使用领域异常；HTTP 层映射为稳定业务错误码。
+2. 第一版由 `uploadFile(..., startPrint)` 表达上传/上传并开始，Service 决定任务状态。
+3. `SNAPSHOT` 使用 `printerId=null` 的农场级多设备结构。
+4. RRF 仅实现已有官方资料和 Mock 测试证明的 HTTP/G-code 边界，未知能力返回不支持错误。
+5. 状态/任务 Service 或监控任务产生事件，由 `WebSocketEventPublisher` 统一构造消息。
+6. 状态历史和统计属于 P1.1 独立能力，使用增量 SQL 持久化。

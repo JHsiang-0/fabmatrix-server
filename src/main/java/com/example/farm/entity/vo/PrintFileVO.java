@@ -17,7 +17,8 @@ public class PrintFileVO implements Serializable {
 
     private Long id;
     private Long parentId;
-    private Boolean isFolder;
+    @Schema(description = "是否为目录")
+    private Boolean folder;
     private String originalName;
     private String fileUrl;
     private Long fileSize;
@@ -45,7 +46,7 @@ public class PrintFileVO implements Serializable {
         PrintFileVO vo = new PrintFileVO();
         vo.id = file.getId();
         vo.parentId = file.getParentId();
-        vo.isFolder = file.getIsFolder();
+        vo.folder = file.getIsFolder();
         vo.originalName = file.getOriginalName();
         vo.fileUrl = file.getFileUrl();
         vo.fileSize = file.getFileSize();

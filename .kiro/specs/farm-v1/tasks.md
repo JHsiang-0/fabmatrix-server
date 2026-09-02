@@ -132,7 +132,9 @@
 - [x] T5.4 实现安全预览 `GET /api/v1/print-files/{id}/preview`。
   - 验收：返回已解析元数据和缩略图，不读/返回 G-code 原文、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；复用文件归属校验，目录返回 422。
   - 测试：`PrintFileOwnershipTest` 新增本人预览和目录拒绝测试，全量测试通过。
-- [ ] T5.5 统一 `folder/isFolder` 对外字段并更新 VO、Swagger 和前端契约。
+- [x] T5.5 统一 `folder/isFolder` 对外字段并更新 VO、Swagger 和前端契约。
+  - 验收：`PrintFileVO` 和 `FileNodeVO` 对外只输出 `folder`；`isFolder` 仅保留在实体/数据库内部，不兼容输出旧字段。
+  - 测试：`PrintFileVOContractTest` 验证序列化字段，全量测试通过。
 - [ ] T5.6 明确已关联任务文件删除策略，补充权限和 RustFS 失败测试。
 - [ ] T5.7 增加下载 URL 有效期上限和文件存储异常测试。
 

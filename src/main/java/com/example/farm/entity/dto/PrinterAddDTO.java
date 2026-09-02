@@ -35,9 +35,9 @@ public class PrinterAddDTO {
     @Pattern(regexp = "(?i)^(?:$|(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2})$", message = "MAC 地址格式不正确")
     private String macAddress;
 
-    @Schema(description = "固件类型 (默认 Klipper)")
+    @Schema(description = "固件类型 (默认 KLIPPER)")
     @Pattern(regexp = "(?i)^(KLIPPER|RRF)$", message = "固件类型只能是 KLIPPER 或 RRF")
-    private String firmwareType = "Klipper";
+    private String firmwareType = "KLIPPER";
 
     @Schema(description = "上位机 API 通信密钥")
     private String apiKey;

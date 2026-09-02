@@ -36,7 +36,7 @@ CREATE TABLE `farm_printer` (
     `name` VARCHAR(100) NOT NULL COMMENT '打印机名称（如：Voron-2.4-01）',
     `ip_address` VARCHAR(50) NOT NULL COMMENT '局域网 IP 地址',
     `mac_address` VARCHAR(50) DEFAULT NULL COMMENT 'MAC 地址（用于网络唤醒等）',
-    `firmware_type` VARCHAR(50) DEFAULT 'Klipper' COMMENT '固件类型（Klipper, OctoPrint 等）',
+    `firmware_type` VARCHAR(50) DEFAULT 'KLIPPER' COMMENT '固件类型（KLIPPER, RRF）',
     `api_key` VARCHAR(255) DEFAULT NULL COMMENT '上位机 API 通信密钥',
     `status` VARCHAR(20) DEFAULT 'OFFLINE' COMMENT '业务状态：IDLE, PRINTING, OFFLINE, ERROR, MAINTENANCE',
     `current_job_id` BIGINT DEFAULT NULL COMMENT '当前正在执行的打印任务 ID',

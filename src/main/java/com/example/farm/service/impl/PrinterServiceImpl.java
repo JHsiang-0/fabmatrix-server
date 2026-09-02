@@ -13,6 +13,7 @@ import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.mapper.PrinterMapper;
+import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import lombok.RequiredArgsConstructor;
@@ -132,9 +133,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             if (StringUtils.hasText(dto.getName())) {
                 existingPrinter.setName(dto.getName());
             }
-            if (StringUtils.hasText(dto.getFirmwareType())) {
-                existingPrinter.setFirmwareType(dto.getFirmwareType());
-            }
+            existingPrinter.setFirmwareType(normalizeFirmwareType(
+                    StringUtils.hasText(dto.getFirmwareType())
+                            ? dto.getFirmwareType() : existingPrinter.getFirmwareType()));
             if (StringUtils.hasText(dto.getApiKey())) {
                 existingPrinter.setApiKey(dto.getApiKey());
             }
@@ -157,8 +158,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                     : macAddressUtil.generateDefaultPrinterName(macAddress));
             newPrinter.setIpAddress(ipAddress);
             newPrinter.setMacAddress(macAddress);
-            newPrinter.setFirmwareType(StringUtils.hasText(dto.getFirmwareType())
-                    ? dto.getFirmwareType() : "Klipper");
+            newPrinter.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
             newPrinter.setApiKey(dto.getApiKey());
             newPrinter.setStatus("ONLINE");
 
@@ -199,7 +199,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         Printer printer = new Printer();
         printer.setName(dto.getName());
         printer.setIpAddress(dto.getIpAddress());
-        printer.setFirmwareType(dto.getFirmwareType());
+        printer.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
         printer.setApiKey(dto.getApiKey());
         printer.setStatus("OFFLINE");
         printer.setCreatedAt(LocalDateTime.now());
@@ -228,7 +228,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         existingPrinter.setName(dto.getName());
         existingPrinter.setIpAddress(dto.getIpAddress());
         existingPrinter.setMacAddress(dto.getMacAddress());
-        existingPrinter.setFirmwareType(dto.getFirmwareType());
+        existingPrinter.setFirmwareType(normalizeFirmwareType(
+                StringUtils.hasText(dto.getFirmwareType())
+                        ? dto.getFirmwareType() : existingPrinter.getFirmwareType()));
         existingPrinter.setApiKey(dto.getApiKey());
         existingPrinter.setCurrentMaterial(dto.getCurrentMaterial());
         existingPrinter.setNozzleSize(dto.getNozzleSize());
@@ -311,7 +313,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                         PrinterScanResultDTO result = new PrinterScanResultDTO();
                         result.setIpAddress(targetIp);
                         result.setMacAddress(macAddress);
-                        result.setFirmwareType("Klipper");
+                        result.setFirmwareType(PrinterProtocolType.KLIPPER.name());
 
                         if (StringUtils.hasText(macAddress)) {
                             String normalizedMac = macAddressUtil.normalizeMacAddress(macAddress);
@@ -485,8 +487,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
         printer.setIpAddress(result.getIpAddress());
         printer.setMacAddress(macAddressUtil.normalizeMacAddress(result.getMacAddress()));
-        printer.setFirmwareType(StringUtils.hasText(result.getFirmwareType())
-                ? result.getFirmwareType() : "Klipper");
+        printer.setFirmwareType(normalizeFirmwareType(result.getFirmwareType()));
         printer.setApiKey(result.getApiKey());
         printer.setStatus("ONLINE");
         printer.setCurrentMaterial("ABS");
@@ -495,6 +496,14 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setUpdatedAt(LocalDateTime.now());
 
         return printer;
+    }
+
+    /**
+     * 将协议类型规范化为数据库统一值，同时兼容历史的 Klipper 大小写写法。
+     */
+    private String normalizeFirmwareType(String firmwareType) {
+        return PrinterProtocolType.normalize(StringUtils.hasText(firmwareType)
+                ? firmwareType : PrinterProtocolType.KLIPPER.name()).name();
     }
 
 

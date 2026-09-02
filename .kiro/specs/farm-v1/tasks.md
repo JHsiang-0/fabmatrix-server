@@ -54,10 +54,10 @@
   - 目标：替换 `PrinterMonitorTask` 的直接 Moonraker 查询。
   - 验收：按打印机隔离异常，统一状态写入缓存/数据库；适配器异常会进入离线处理。
   - 测试：`PrinterMonitorAdapterTest` 覆盖适配器查询和异常离线清理；编译及针对性测试通过。
-- [ ] T1.7 统一固件类型写入和旧数据兼容。
+- [x] T1.7 统一固件类型写入和旧数据兼容。
   - 目标：新写入只使用 `KLIPPER/RRF`，兼容历史 `Klipper`。
-  - 验收：新增、更新、批量添加和扫描结果均规范化。
-  - 测试：DTO、Service、Mapper 写入路径。
+  - 验收：新增、更新、批量添加和扫描结果均规范化；不支持的协议不会静默回退。
+  - 测试：`PrinterServiceFirmwareTypeTest` 覆盖新增和更新写入路径；全量 `mvn test` 共 39 个通过。
 
 ## 2. P0 RRF 3.7 适配边界
 

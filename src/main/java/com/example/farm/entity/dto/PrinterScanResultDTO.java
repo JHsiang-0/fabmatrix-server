@@ -24,7 +24,7 @@ public class PrinterScanResultDTO {
     @Pattern(regexp = "(?i)^(?:$|(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2})$", message = "扫描结果中的 MAC 地址格式不正确")
     private String macAddress;
 
-    @Schema(description = "固件类型", example = "Klipper")
+    @Schema(description = "固件类型", example = "KLIPPER")
     @Pattern(regexp = "(?i)^(KLIPPER|RRF)$", message = "固件类型只能是 KLIPPER 或 RRF")
     private String firmwareType;
 
@@ -50,7 +50,7 @@ public class PrinterScanResultDTO {
         dto.setMacAddress(mac);
         dto.setIsNewDevice(isNew);
         dto.setStatus(isNew ? "ONLINE" : "EXISTING");
-        dto.setFirmwareType("Klipper");
+        dto.setFirmwareType("KLIPPER");
         return dto;
     }
 }

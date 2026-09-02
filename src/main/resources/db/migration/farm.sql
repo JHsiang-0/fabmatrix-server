@@ -97,7 +97,7 @@ CREATE TABLE `farm_printer`  (
   `name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '打印机名称（如：Voron-2.4-01）',
   `ip_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '局域网 IP 地址（NULL 表示设备当前未分配 IP 或已下线）',
   `mac_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'MAC 地址（用于网络唤醒等）',
-  `firmware_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'Klipper' COMMENT '固件类型（Klipper, OctoPrint 等）',
+  `firmware_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'KLIPPER' COMMENT '固件类型（KLIPPER, RRF）',
   `api_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '上位机 API 通信密钥',
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'OFFLINE' COMMENT '业务状态：IDLE, PRINTING, OFFLINE, ERROR, MAINTENANCE',
   `current_job_id` bigint NULL DEFAULT NULL COMMENT '当前正在执行的打印任务 ID',

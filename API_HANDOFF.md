@@ -360,6 +360,7 @@ FAILED -> QUEUED（重试）
 
 ```bash
 mysql -u root -p farm < src/main/resources/db/migration/04-normalize-print-job-status.sql
+mysql -u root -p farm < src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
 ```
 
 ### 6.3 PrintFileVO
@@ -508,6 +509,7 @@ src/main/resources/db/migration/farm.sql
 src/main/resources/db/migration/02-current-schema.sql
 src/main/resources/db/migration/03-remove-customer-role.sql
 src/main/resources/db/migration/04-normalize-print-job-status.sql
+src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
 ```
 
 已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。

@@ -53,18 +53,21 @@ public class UserController {
     @Operation(summary = "用户登录")
     @PostMapping("/login")
     public Result<LoginResultDTO> login(@Valid @RequestBody UserLoginDTO loginDTO) {
+        loginDTO = requireBody(loginDTO);
         return Result.success(userService.login(loginDTO), "登录成功");
     }
 
     @Operation(summary = "管理员创建操作员")
     @PostMapping("/register")
     public Result<Long> register(@Valid @RequestBody UserRegisterDTO registerDTO) {
+        registerDTO = requireBody(registerDTO);
         return Result.success(userService.register(registerDTO), "注册成功");
     }
 
     @Operation(summary = "管理员创建操作员账号")
     @PostMapping("/admin/users")
     public Result<Long> createOperator(@Valid @RequestBody UserRegisterDTO registerDTO) {
+        registerDTO = requireBody(registerDTO);
         return Result.success(userService.register(registerDTO), "操作员创建成功");
     }
 
@@ -72,6 +75,7 @@ public class UserController {
     @PostMapping("/{userId}/change-password")
     public Result<String> changePassword(@PathVariable Long userId,
                                          @Valid @RequestBody ChangePasswordDTO changePasswordDTO) {
+        changePasswordDTO = requireBody(changePasswordDTO);
         ensureCurrentUser(userId);
         userService.changePassword(userId, changePasswordDTO);
         return Result.success(null, "密码修改成功");
@@ -95,6 +99,7 @@ public class UserController {
     @PutMapping("/{userId}/profile")
     public Result<String> updateUserInfo(@PathVariable Long userId,
                                          @Valid @RequestBody UserUpdateDTO updateDTO) {
+        updateDTO = requireBody(updateDTO);
         ensureCurrentUser(userId);
         updateDTO.setId(userId);
         updateDTO.setRole(null);
@@ -112,6 +117,7 @@ public class UserController {
     @PutMapping("/admin/users/{userId}")
     public Result<String> adminUpdateUser(@PathVariable Long userId,
                                           @Valid @RequestBody UserUpdateDTO updateDTO) {
+        updateDTO = requireBody(updateDTO);
         updateDTO.setId(userId);
         userService.updateUserInfo(updateDTO);
         return Result.success(null, "用户信息更新成功");
@@ -184,5 +190,12 @@ public class UserController {
         if (!userId.equals(currentUserId)) {
             throw new BusinessException("只能操作自己的用户信息");
         }
+    }
+
+    private <T> T requireBody(T body) {
+        if (body == null) {
+            throw new BusinessException(400, "请求体不能为空");
+        }
+        return body;
     }
 }

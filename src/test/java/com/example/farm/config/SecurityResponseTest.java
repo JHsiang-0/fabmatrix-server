@@ -166,6 +166,26 @@ class SecurityResponseTest {
     }
 
     @Test
+    void nullJsonBodyUsesUnified400Response() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/admin/users")
+                        .with(user("1").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void emptyPrinterBatchUsesUnified400Response() throws Exception {
+        mockMvc.perform(post("/api/v1/printers/batch-add")
+                        .with(user("1").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("[]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
     void adminCanDisableUser() throws Exception {
         doNothing().when(userService).disableUser(2L, 1L);
 

@@ -57,6 +57,7 @@ public class PrintJobController {
     @Operation(summary = "分页查询打印任务列表")
     @PostMapping("/page")
     public Result<PageResult<PrintJobVO>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
+        queryDTO = requireBody(queryDTO);
         return Result.success(PageResult.from(printJobService.queryJobs(queryDTO), PrintJobVO::from));
     }
 
@@ -83,6 +84,7 @@ public class PrintJobController {
     @Operation(summary = "创建打印任务", description = "标准创建地址；任务初始状态为 QUEUED")
     @PostMapping
     public Result<Long> createStandardJob(@Valid @RequestBody PrintJobCreateDTO req) {
+        req = requireBody(req);
         return doCreateJob(req);
     }
 
@@ -93,6 +95,7 @@ public class PrintJobController {
     @Operation(summary = "创建打印任务（兼容地址）", description = "请迁移到 POST /api/v1/print-jobs", deprecated = true)
     @PostMapping("/create")
     public Result<Long> createJob(@Valid @RequestBody PrintJobCreateDTO req) {
+        req = requireBody(req);
         return doCreateJob(req);
     }
 
@@ -145,6 +148,7 @@ public class PrintJobController {
     @PutMapping("/{id}/priority")
     public Result<Void> updatePriority(@PathVariable Long id,
                                        @Valid @RequestBody UpdatePrintJobPriorityRequest request) {
+        request = requireBody(request);
         printJobService.updatePriority(id, request);
         return Result.success(null, "任务优先级已更新");
     }
@@ -183,6 +187,7 @@ public class PrintJobController {
     @Operation(summary = "派发任务（安全模式-第一步）")
     @PostMapping("/safe/assign")
     public Result<String> assignJobSafe(@Valid @RequestBody AssignJobRequest req) {
+        req = requireBody(req);
         printJobService.assignJob(req.getJobId(), req.getPrinterId());
         log.info("安全派发任务成功: jobId={}, printerId={}", req.getJobId(), req.getPrinterId());
         return Result.success(null, "任务已派发，请通知现场操作员确认安全后启动打印");
@@ -199,6 +204,7 @@ public class PrintJobController {
     @Operation(summary = "现场确认机器安全（安全模式-第二步之一）")
     @PostMapping("/safe/confirm")
     public Result<String> confirmPrinterSafe(@Valid @RequestBody ConfirmSafeRequest req) {
+        req = requireBody(req);
         Long operatorId = SecurityContextUtil.getCurrentUserId();
         printJobService.confirmPrinterSafe(req.getPrinterId(), operatorId);
         log.info("现场确认打印机安全: printerId={}, operatorId={}", req.getPrinterId(), operatorId);
@@ -217,11 +223,19 @@ public class PrintJobController {
     @Operation(summary = "现场启动打印（安全模式-第二步之二）")
     @PostMapping("/safe/start")
     public Result<String> startPrint(@Valid @RequestBody StartPrintJobRequest req) {
+        req = requireBody(req);
         Long operatorId = SecurityContextUtil.getCurrentUserId();
         String action = req.getAction();
         printJobService.startPrint(req.getJobId(), operatorId, action);
         String msg = "START_PRINT".equalsIgnoreCase(action) ? "打印任务已启动" : "文件已上传到机器";
         log.info("现场启动打印成功: jobId={}, operatorId={}, action={}", req.getJobId(), operatorId, action);
         return Result.success(null, msg);
+    }
+
+    private <T> T requireBody(T body) {
+        if (body == null) {
+            throw new BusinessException(400, "请求体不能为空");
+        }
+        return body;
     }
 }

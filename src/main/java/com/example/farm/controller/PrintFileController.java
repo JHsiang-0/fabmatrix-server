@@ -61,6 +61,7 @@ public class PrintFileController {
     @Operation(summary = "分页查询打印文件列表")
     @PostMapping("/page")
     public Result<PageResult<PrintFileVO>> pageFiles(@Valid @RequestBody PrintFileQueryDTO queryDTO) {
+        queryDTO = requireBody(queryDTO);
         return Result.success(PageResult.from(farmPrintFileService.pageFiles(queryDTO), PrintFileVO::from));
     }
 
@@ -138,6 +139,7 @@ public class PrintFileController {
     @DeleteMapping("/batch")
     public Result<PrintFileService.BatchDeleteResult> batchDeleteFiles(
             @Valid @RequestBody BatchDeleteFilesRequest request) {
+        request = requireBody(request);
         PrintFileService.BatchDeleteResult result = farmPrintFileService.batchDeleteFiles(request.getIds());
         return Result.success(result, result.getMessage());
     }
@@ -168,7 +170,15 @@ public class PrintFileController {
     @Operation(summary = "创建文件夹")
     @PostMapping("/folder/create")
     public Result<PrintFileVO> createFolder(@Valid @RequestBody CreateFolderRequest req) {
+        req = requireBody(req);
         PrintFile folder = farmPrintFileService.createFolder(req.getParentId(), req.getFolderName());
         return Result.success(PrintFileVO.from(folder), "文件夹创建成功");
+    }
+
+    private <T> T requireBody(T body) {
+        if (body == null) {
+            throw new BusinessException(400, "请求体不能为空");
+        }
+        return body;
     }
 }

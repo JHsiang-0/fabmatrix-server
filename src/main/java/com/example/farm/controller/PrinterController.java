@@ -94,6 +94,7 @@ public class PrinterController {
     @Operation(summary = "新增打印机", description = "基于 MAC 地址的 Upsert 机制，解决 DHCP 动态分配导致的设备重复录入问题")
     @PostMapping("/add")
     public Result<String> addPrinter(@Valid @RequestBody PrinterAddDTO addDTO) {
+        addDTO = requireBody(addDTO);
         if (!StringUtils.hasText(addDTO.getIpAddress())) {
             throw new BusinessException("打印机 IP 地址不能为空");
         }
@@ -114,6 +115,7 @@ public class PrinterController {
     @Operation(summary = "更新打印机信息", description = "修改打印机的名称、IP、MAC、耗材等配置信息")
     @PutMapping("/update")
     public Result<String> updatePrinter(@Valid @RequestBody PrinterUpdateDTO updateDTO) {
+        updateDTO = requireBody(updateDTO);
         if (updateDTO.getId() == null) {
             throw new BusinessException("设备 ID 不能为空");
         }
@@ -189,7 +191,7 @@ public class PrinterController {
             @Valid @RequestBody @jakarta.validation.constraints.Size(max = 100, message = "单次最多添加100台打印机")
             List<@Valid PrinterScanResultDTO> scanResults) {
         if (scanResults == null || scanResults.isEmpty()) {
-            throw new BusinessException("设备列表不能为空");
+            throw new BusinessException(400, "设备列表不能为空");
         }
 
         PrinterService.BatchUpsertResult result = printerService.batchUpsertPrinters(scanResults);
@@ -256,7 +258,7 @@ public class PrinterController {
             @Valid @RequestBody @jakarta.validation.constraints.Size(max = 100, message = "单次最多更新100台打印机位置")
             List<@Valid PrinterPositionUpdateDTO> positionUpdates) {
         if (positionUpdates == null || positionUpdates.isEmpty()) {
-            throw new BusinessException("位置更新列表不能为空");
+            throw new BusinessException(400, "位置更新列表不能为空");
         }
 
         int successCount = printerService.batchUpdatePositions(positionUpdates);
@@ -285,5 +287,12 @@ public class PrinterController {
 
         String message = String.format("查询到 %d 台未分配位置的设备", unallocatedPrinters.size());
         return Result.success(unallocatedPrinters, message);
+    }
+
+    private <T> T requireBody(T body) {
+        if (body == null) {
+            throw new BusinessException(400, "请求体不能为空");
+        }
+        return body;
     }
 }

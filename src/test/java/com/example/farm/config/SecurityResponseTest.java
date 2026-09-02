@@ -228,6 +228,24 @@ class SecurityResponseTest {
     }
 
     @Test
+    void rejectsBlankUsernameAvailabilityCheck() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/check-username")
+                        .with(authentication(adminAuthentication()))
+                        .param("username", "   "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void rejectsBlankEmailAvailabilityCheck() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/check-email")
+                        .with(authentication(adminAuthentication()))
+                        .param("email", "   "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
     void operatorCannotCreateOperator() throws Exception {
         mockMvc.perform(post("/api/v1/auth/admin/users")
                         .with(user("2").roles("OPERATOR"))

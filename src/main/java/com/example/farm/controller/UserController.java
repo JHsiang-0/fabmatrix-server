@@ -21,6 +21,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -153,6 +154,9 @@ public class UserController {
     @Operation(summary = "检查用户名是否可用")
     @GetMapping("/check-username")
     public Result<Boolean> checkUsername(@RequestParam String username) {
+        if (!StringUtils.hasText(username)) {
+            throw new BusinessException(400, "用户名不能为空");
+        }
         boolean exists = userService.isUsernameExists(username);
         return Result.success(!exists, exists ? "用户名已被使用" : "用户名可用");
     }
@@ -160,6 +164,9 @@ public class UserController {
     @Operation(summary = "检查邮箱是否可用")
     @GetMapping("/check-email")
     public Result<Boolean> checkEmail(@RequestParam String email) {
+        if (!StringUtils.hasText(email)) {
+            throw new BusinessException(400, "邮箱不能为空");
+        }
         boolean exists = userService.isEmailExists(email);
         return Result.success(!exists, exists ? "邮箱已被使用" : "邮箱可用");
     }

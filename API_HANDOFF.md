@@ -167,6 +167,8 @@ POST /api/v1/auth/login
 | POST | `/auth/admin/users/{userId}/enable` | ADMIN | Path ID | `Result<null>` |
 | POST | `/auth/admin/migrate-passwords` | ADMIN | Header：`X-Admin-Secret` | `Result<PasswordMigrateResultDTO>` |
 | GET | `/auth/admin/password-status` | ADMIN | Header：`X-Admin-Secret` | `Result<PasswordStatusResultDTO>` |
+| GET | `/auth/check-username` | ADMIN | Query：`username`，不能为空或纯空格 | `Result<Boolean>` |
+| GET | `/auth/check-email` | ADMIN | Query：`email`，不能为空或纯空格 | `Result<Boolean>` |
 | GET | `/auth/me` | ADMIN/OPERATOR | 无 | `Result<UserVO>` |
 | GET | `/auth/{userId}/profile` | 本人 | 无 | `Result<UserVO>` |
 | PUT | `/auth/{userId}/profile` | 本人 | 邮箱、手机号 | `Result<null>` |
@@ -246,6 +248,7 @@ POST /api/v1/auth/login
 
 - 打印机名称最多100个字符；IP 必须为 IPv4；MAC 支持冒号或连字符格式；固件类型只能是 `KLIPPER` 或 `RRF`（大小写兼容）；网格范围为行 `1-4`、列 `1-12`。
 - 创建任务的 `fileId` 必须为正数，`priority` 范围为 `0-100`。
+- 用户名和邮箱可用性检查的 Query 参数不能为空或只包含空格，否则返回 HTTP 400、业务码 `400`。
 - 派发、确认安全、启动任务的 ID 必须为正数；`action` 只能是 `START_PRINT` 或 `UPLOAD_ONLY`。`operatorId` 仍兼容接收，但后端忽略其值并使用 JWT 当前用户。
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。

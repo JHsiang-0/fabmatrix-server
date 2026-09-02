@@ -249,13 +249,29 @@ POST /api/v1/auth/login
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
 |---|---|---|---|---|---|
-| GET | `/printers/{id}` | ADMIN/OPERATOR | Path ID | `PrinterDetailVO` | 规划 |
-| GET | `/printers/{id}/history` | ADMIN/OPERATOR | `from,to,pageNum,pageSize` | 状态历史分页 | 规划 |
+| GET | `/printers/{id}` | ADMIN/OPERATOR | Path ID | `PrinterDetailVO` | 已完成 |
+| GET | `/printers/{id}/history` | ADMIN/OPERATOR | `from,to,pageNum,pageSize` | `PageResult<PrinterStatusHistoryVO>` | 已完成 |
 | GET | `/printers/{id}/statistics` | ADMIN/OPERATOR | `from,to` | 统计 DTO | 规划 |
 | POST | `/control/{id}/resume` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
 | POST | `/control/{id}/cancel` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
 
 设备控制接口必须经过统一协议适配器，不允许 Controller 直接调用 Moonraker 客户端。
+
+状态历史接口契约：
+
+```http
+GET /api/v1/printers/{id}/history?pageNum=1&pageSize=20&from=2026-09-01T00:00:00&to=2026-09-02T23:59:59
+Authorization: Bearer <token>
+```
+
+返回 `Result<PageResult<PrinterStatusHistoryVO>>`。`records` 按 `recordedAt` 倒序，字段包括
+`id`、`printerId`、`status`、`rawState`、`systemMessage`、`filename`、`progress`、温度目标/当前值、
+耗材/时长数据和 `recordedAt`。时间参数使用不带时区的 ISO-8601 本地时间；`pageNum` 从1开始，
+`pageSize` 范围为1-100；`from` 晚于 `to` 返回 HTTP 400。不存在打印机返回 HTTP 404。
+
+状态历史的存储边界已经冻结：Redis List 仍用于最近高频状态（最多2880条、24小时过期），
+MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本和每分钟采样样本，支持服务重启后分页查询。
+新增数据库卷会自动执行 `06-add-printer-status-history.sql`；已有 Docker 数据卷不会自动执行，升级前备份后手工执行该脚本。
 
 ### 5.2 任务
 
@@ -374,6 +390,7 @@ FAILED -> QUEUED（重试）
 ```bash
 mysql -u root -p farm < src/main/resources/db/migration/04-normalize-print-job-status.sql
 mysql -u root -p farm < src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
+mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-history.sql
 ```
 
 ### 6.3 PrintFileVO
@@ -527,6 +544,7 @@ src/main/resources/db/migration/02-current-schema.sql
 src/main/resources/db/migration/03-remove-customer-role.sql
 src/main/resources/db/migration/04-normalize-print-job-status.sql
 src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
+src/main/resources/db/migration/06-add-printer-status-history.sql
 ```
 
 已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。

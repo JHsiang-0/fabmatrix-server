@@ -9,10 +9,13 @@ import com.example.farm.entity.dto.PrinterQueryDTO;
 import com.example.farm.entity.dto.PrinterUpdateDTO;
 import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
+import com.example.farm.entity.dto.PrinterHistoryQueryDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.entity.vo.PrinterDetailVO;
+import com.example.farm.entity.vo.PrinterStatusHistoryVO;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterDetailService;
+import com.example.farm.service.PrinterStatusHistoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,6 +39,7 @@ public class PrinterController {
 
     private final PrinterService printerService;
     private final PrinterDetailService printerDetailService;
+    private final PrinterStatusHistoryService printerStatusHistoryService;
 
     /**
      * 分页查询打印机列表。
@@ -53,6 +57,14 @@ public class PrinterController {
     @GetMapping("/{id}")
     public Result<PrinterDetailVO> getPrinterDetail(@PathVariable Long id) {
         return Result.success(printerDetailService.getDetail(id));
+    }
+
+    @Operation(summary = "分页查询打印机状态历史", description = "查询持久化状态样本，按记录时间倒序返回")
+    @GetMapping("/{id}/history")
+    public Result<PageResult<PrinterStatusHistoryVO>> getPrinterHistory(
+            @PathVariable Long id, @Valid PrinterHistoryQueryDTO queryDTO) {
+        return Result.success(PageResult.from(
+                printerStatusHistoryService.page(id, queryDTO), PrinterStatusHistoryVO::from));
     }
 
     /**

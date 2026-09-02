@@ -18,6 +18,7 @@ services:
       - ./src/main/resources/db/migration/03-remove-customer-role.sql:/docker-entrypoint-initdb.d/03-remove-customer-role.sql:ro
       - ./src/main/resources/db/migration/04-normalize-print-job-status.sql:/docker-entrypoint-initdb.d/04-normalize-print-job-status.sql:ro
       - ./src/main/resources/db/migration/05-normalize-printer-firmware-type.sql:/docker-entrypoint-initdb.d/05-normalize-printer-firmware-type.sql:ro
+      - ./src/main/resources/db/migration/06-add-printer-status-history.sql:/docker-entrypoint-initdb.d/06-add-printer-status-history.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci

@@ -6,6 +6,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.service.PrinterCacheService;
+import com.example.farm.service.PrinterStatusHistoryService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -28,6 +31,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
 
     private final RedisUtil redisUtil;
     private final PrinterMapper printerMapper;
+    private final PrinterStatusHistoryService printerStatusHistoryService;
 
     // 缓存过期时间：10秒
     private static final long STATUS_CACHE_TTL = 10;
@@ -37,6 +41,9 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     private static final int HISTORY_KEEP_COUNT = 2880;
     // 心跳超时时间：30秒
     private static final long HEARTBEAT_TIMEOUT_SECONDS = 30;
+    // 持久化状态历史的最小采样间隔；状态发生变化时立即记录。
+    private static final long PERSIST_HISTORY_INTERVAL_MILLIS = 60_000;
+    private final Map<Long, PersistedStatus> lastPersistedStatuses = new ConcurrentHashMap<>();
 
     @Override
     public void cachePrinterStatus(Long printerId, MoonrakerStatusDTO status) {
@@ -133,6 +140,17 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
             redisUtil.expire(key, 24, TimeUnit.HOURS);
         } catch (Exception e) {
             log.error("写入打印机状态历史失败: printerId={}", printerId, e);
+        }
+
+        // Redis 保留高频短期数据；MySQL 只保存状态变化或每分钟一次的样本，
+        // 既支持分页和重启后查询，也避免每台设备每5秒产生一条持久化记录。
+        PersistedStatus current = PersistedStatus.from(status);
+        PersistedStatus previous = lastPersistedStatuses.get(printerId);
+        long now = System.currentTimeMillis();
+        if (previous == null || now - previous.recordedAt() >= PERSIST_HISTORY_INTERVAL_MILLIS
+                || !current.sameState(previous)) {
+            printerStatusHistoryService.record(printerId, status);
+            lastPersistedStatuses.put(printerId, current.withRecordedAt(now));
         }
     }
 
@@ -265,5 +283,24 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         String key = RedisKeyConstant.PRINTER_LIST;
         redisUtil.delete(key);
         log.info("已刷新打印机列表缓存");
+    }
+
+    private record PersistedStatus(String unifiedState, String rawState,
+                                   String systemMessage, long recordedAt) {
+
+        private static PersistedStatus from(MoonrakerStatusDTO status) {
+            return new PersistedStatus(status.getUnifiedState(), status.getState(),
+                    status.getSystemMessage(), 0);
+        }
+
+        private PersistedStatus withRecordedAt(long timestamp) {
+            return new PersistedStatus(unifiedState, rawState, systemMessage, timestamp);
+        }
+
+        private boolean sameState(PersistedStatus other) {
+            return Objects.equals(unifiedState, other.unifiedState)
+                    && Objects.equals(rawState, other.rawState)
+                    && Objects.equals(systemMessage, other.systemMessage);
+        }
     }
 }

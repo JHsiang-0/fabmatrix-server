@@ -102,7 +102,9 @@
 - [x] T4.1 实现 `GET /api/v1/printers/{id}` 和 `PrinterDetailVO`。
   - 验收：返回安全打印机配置、实时状态缓存和当前任务摘要；不存在设备返回 404，未命中状态缓存或未绑定任务返回 `null`，不暴露 `apiKey`。
   - 测试：`PrinterDetailServiceTest` 3 个测试通过。
-- [ ] T4.2 实现打印机状态历史分页和迁移/持久化方案。
+- [x] T4.2 实现打印机状态历史分页和迁移/持久化方案。
+  - 验收：新增 `GET /api/v1/printers/{id}/history`，按设备和时间范围返回统一 `PageResult`；Redis 保留短期高频历史，MySQL 保存状态变化/每分钟样本。
+  - 迁移：新增可重复执行的 `06-add-printer-status-history.sql`；已有 Docker 数据卷需备份后手工执行。
 - [ ] T4.3 实现打印机统计接口。
 - [ ] T4.4 实现恢复、取消当前设备任务接口。
 - [ ] T4.5 扩展扫描和批量添加的协议识别及逐项结果。

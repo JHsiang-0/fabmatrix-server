@@ -186,6 +186,27 @@ class PrintJobOwnershipTest {
     }
 
     @Test
+    void requeueFailsWithoutPublishingWhenPrinterCannotBeReleased() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setPrinterId(403L);
+        job.setStatus("ASSIGNED");
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setCurrentJobId(100L);
+        printer.setStatus("PREPARING");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> printJobService.requeueJob(100L))
+                .hasMessage("重新排队任务失败：打印机状态保存失败");
+
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
+    @Test
     void pausedJobCannotBeRequeuedWithoutExplicitCancel() {
         mockUser(1L, "OPERATOR");
         PrintJob job = job(100L, 1L);

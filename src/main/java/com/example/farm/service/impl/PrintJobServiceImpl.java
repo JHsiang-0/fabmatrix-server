@@ -75,7 +75,11 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         queuedJobs.forEach(job -> {
             if (!PrintJobStatus.QUEUED.name().equals(job.getStatus())) {
                 job.setStatus(PrintJobStatus.QUEUED.name());
-                this.updateJobAndPublish(job);
+                if (this.updateById(job)) {
+                    eventPublisher.publishJobStatus(job);
+                } else {
+                    log.warn("兼容任务状态规范化失败: jobId={}", job.getId());
+                }
             }
         });
         return queuedJobs;
@@ -210,10 +214,11 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         // 先进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
         job.setPrinterId(printerId);
         job.setStatus(PrintJobStatus.ASSIGNED.name());
-        this.updateJobAndPublish(job);
+        updateJobOrThrow(job, "派发打印任务失败");
         printer.setCurrentJobId(jobId);
         printer.setStatus("PREPARING");
-        printerService.updateById(printer);
+        updatePrinterOrThrow(printer, "派发打印任务失败");
+        eventPublisher.publishJobStatus(job);
 
         // 从切片文件获取工艺参数，做材料与喷嘴校验
         PrintFile fileRecord = printFileMapper.selectById(job.getFileId());
@@ -246,10 +251,11 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
         job.setStatus(PrintJobStatus.PRINTING.name());
         job.setStartedAt(LocalDateTime.now());
-        this.updateJobAndPublish(job);
+        updateJobOrThrow(job, "启动打印失败");
 
         printer.setStatus("PRINTING");
-        printerService.updateById(printer);
+        updatePrinterOrThrow(printer, "启动打印失败");
+        eventPublisher.publishJobStatus(job);
 
         LogUtil.dataChange("启动打印任务", "FarmPrintJob", job.getId(), "已分配到打印机: " + printer.getName());
         return true;
@@ -286,12 +292,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         // 行为：将 Job 的 printerId 设为目标机器，状态改为 ASSIGNED
         job.setPrinterId(printerId);
         job.setStatus(PrintJobStatus.ASSIGNED.name());
-        this.updateJobAndPublish(job);
+        updateJobOrThrow(job, "派发任务失败");
 
         // 行为：将目标 Printer 的 is_safe_to_print 重置为 false（防范风险）
         printer.setIsSafeToPrint(false);
         printer.setCurrentJobId(jobId);
-        printerService.updateById(printer);
+        updatePrinterOrThrow(printer, "派发任务失败");
+        eventPublisher.publishJobStatus(job);
 
         LogUtil.bizInfo("任务派发（安全模式）", "任务ID", jobId, "打印机ID", printerId, "打印机名称", printer.getName());
         log.info("派发任务成功（已重置安全标记）: jobId={}, printerId={}", jobId, printerId);
@@ -313,7 +320,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         // 行为：将 Printer 的 is_safe_to_print 设为 true
         printer.setIsSafeToPrint(true);
-        printerService.updateById(printer);
+        updatePrinterOrThrow(printer, "确认打印机安全失败");
 
         String operatorInfo = operatorId != null ? "operatorId=" + operatorId : "operator=system";
         LogUtil.bizInfo("现场确认安全", "打印机ID", printerId, "打印机名称", printer.getName(), "操作员", operatorInfo);
@@ -399,12 +406,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             job.setStatus(PrintJobStatus.PRINTING.name());
             job.setOperatorId(operatorId);
             job.setStartedAt(LocalDateTime.now());
-            this.updateJobAndPublish(job);
+            updateJobOrThrow(job, "启动打印失败");
 
             // 行为：将 Printer 的 is_safe_to_print 再次置为 false，状态改为 PRINTING
             printer.setStatus("PRINTING");
             printer.setIsSafeToPrint(false);
-            printerService.updateById(printer);
+            updatePrinterOrThrow(printer, "启动打印失败");
+            eventPublisher.publishJobStatus(job);
 
             LogUtil.bizInfo("现场启动打印", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
             log.info("现场启动打印成功: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
@@ -413,11 +421,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
             job.setStatus(PrintJobStatus.READY.name());
             job.setOperatorId(operatorId);
-            this.updateJobAndPublish(job);
+            updateJobOrThrow(job, "上传文件到打印机失败");
 
             // 打印机状态保持 IDLE（等待手动在机器上点击打印）
             printer.setIsSafeToPrint(false);
-            printerService.updateById(printer);
+            updatePrinterOrThrow(printer, "上传文件到打印机失败");
+            eventPublisher.publishJobStatus(job);
 
             LogUtil.bizInfo("文件上传到机器（待机）", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
             log.info("文件已上传到机器（待机）: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
@@ -444,7 +453,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                     .cancel(endpointOf(printer, PrinterOperation.CANCEL));
             printer.setCurrentJobId(null);
             printer.setIsSafeToPrint(false);
-            printerService.updateById(printer);
+            updatePrinterOrThrow(printer, "取消打印任务失败");
         }
 
         job.setStatus(PrintJobStatus.CANCELLED.name());
@@ -495,7 +504,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 if ("PREPARING".equals(printer.getStatus())) {
                     printer.setStatus("IDLE");
                 }
-                printerService.updateById(printer);
+                updatePrinterOrThrow(printer, "重新排队任务失败");
             }
         }
 
@@ -530,8 +539,19 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     private void updateJobAndPublish(PrintJob job) {
-        if (this.updateById(job)) {
-            eventPublisher.publishJobStatus(job);
+        updateJobOrThrow(job, "任务状态更新失败");
+        eventPublisher.publishJobStatus(job);
+    }
+
+    private void updateJobOrThrow(PrintJob job, String operation) {
+        if (!this.updateById(job)) {
+            throw new BusinessException(operation + "：任务状态保存失败");
+        }
+    }
+
+    private void updatePrinterOrThrow(Printer printer, String operation) {
+        if (!printerService.updateById(printer)) {
+            throw new BusinessException(operation + "：打印机状态保存失败");
         }
     }
 

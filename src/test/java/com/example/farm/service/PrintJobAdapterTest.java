@@ -25,6 +25,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
@@ -69,6 +70,7 @@ class PrintJobAdapterTest {
         when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
 
         printJobService.startPrint(1001L, 2L, "START_PRINT");
 
@@ -90,6 +92,7 @@ class PrintJobAdapterTest {
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
 
         printJobService.cancelJob(1001L);
 
@@ -97,6 +100,42 @@ class PrintJobAdapterTest {
         assertThat(job.getStatus()).isEqualTo("CANCELLED");
         assertThat(printer.getCurrentJobId()).isNull();
         verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
+    void startPrintFailsWithoutPublishingWhenPrinterStateCannotBeSaved() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printFileMapper.selectById(20L)).thenReturn(file());
+        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> printJobService.startPrint(1001L, 2L, "START_PRINT"))
+                .hasMessage("启动打印失败：打印机状态保存失败");
+
+        verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(any());
+    }
+
+    @Test
+    void cancelFailsBeforeJobSaveWhenPrinterCannotBeUnbound() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> printJobService.cancelJob(1001L))
+                .hasMessage("取消打印任务失败：打印机状态保存失败");
+
+        verify(printJobMapper, org.mockito.Mockito.never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(any());
     }
 
     private PrintJob job(String status) {

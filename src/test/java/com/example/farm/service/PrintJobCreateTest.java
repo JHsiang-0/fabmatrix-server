@@ -95,6 +95,26 @@ class PrintJobCreateTest {
     }
 
     @Test
+    void manualAssignmentDoesNotPublishWhenPrinterStateCannotBeSaved() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        AtomicReference<PrintJob> created = stubInsert(true);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setName("Printer-403");
+        printer.setStatus("IDLE");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+
+        assertThatThrownBy(() -> printJobService.createJob(request(403L)))
+                .hasMessage("派发任务失败：打印机状态保存失败");
+
+        assertThat(created.get().getStatus()).isEqualTo("ASSIGNED");
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
+    @Test
     void schedulerAssignmentPersistsJobAndPrinterBeforePublishingEvent() {
         PrintJob job = new PrintJob();
         job.setId(1001L);

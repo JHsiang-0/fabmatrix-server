@@ -134,6 +134,42 @@ class WebSocketSecurityTest {
         new WebSocketServer().onClose(session);
     }
 
+    @Test
+    void sendsProtocolHeartbeatToAuthorizedSession() throws Exception {
+        Session session = authorizedSession();
+        RemoteEndpoint.Basic basic = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        RemoteEndpoint.Async async = org.mockito.Mockito.mock(RemoteEndpoint.Async.class);
+        when(session.getBasicRemote()).thenReturn(basic);
+        when(session.getAsyncRemote()).thenReturn(async);
+        when(session.isOpen()).thenReturn(true);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
+
+        new WebSocketServer().onOpen(session);
+        WebSocketServer.sendHeartbeat();
+
+        verify(async).sendPing(org.mockito.ArgumentMatchers.any(java.nio.ByteBuffer.class));
+        new WebSocketServer().onClose(session);
+    }
+
+    @Test
+    void removesSessionWhenProtocolHeartbeatFails() throws Exception {
+        Session session = authorizedSession();
+        RemoteEndpoint.Basic basic = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        RemoteEndpoint.Async async = org.mockito.Mockito.mock(RemoteEndpoint.Async.class);
+        when(session.getBasicRemote()).thenReturn(basic);
+        when(session.getAsyncRemote()).thenReturn(async);
+        when(session.isOpen()).thenReturn(true);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
+        doThrow(new IOException("connection closed")).when(async)
+                .sendPing(org.mockito.ArgumentMatchers.any(java.nio.ByteBuffer.class));
+
+        new WebSocketServer().onOpen(session);
+        WebSocketServer.sendHeartbeat();
+
+        verify(session).close();
+        assertThat(WebSocketServer.getOnlineCount()).isZero();
+    }
+
     private Session authorizedSession() {
         Session session = org.mockito.Mockito.mock(Session.class);
         when(session.getId()).thenReturn("authorized-session");

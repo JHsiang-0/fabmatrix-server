@@ -95,6 +95,7 @@ server:
 farm:
   websocket:
     max-connections: 1000
+    heartbeat-interval-ms: 30000
   file:
     allowed-types: gcode,g,3mf,stl
     max-file-size: 200MB

@@ -334,6 +334,7 @@ public record FarmStatusMessage(
 - Session 资源清理
 - 单连接同步发送
 - 快照发送
+- 协议级 Ping 保活；发送失败复用异常会话清理逻辑
 
 由于 `@ServerEndpoint` 的实例化方式与 Spring Bean 不同，快照查询和事件发布通过明确的 Spring 桥接组件注入或静态安全入口接入；不得在 Endpoint 中自行创建 Service、Mapper 或数据库连接。
 
@@ -347,6 +348,7 @@ farm:
     websocket-max-connections: 100
   websocket:
     enabled: true
+    heartbeat-interval-ms: 30000
 ```
 
 已有 `farm.tasks.enabled=false` 的开发默认值保持不变。适配器本身不因没有真实设备而自动启动轮询。

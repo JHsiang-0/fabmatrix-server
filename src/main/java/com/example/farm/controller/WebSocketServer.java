@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -105,6 +106,35 @@ public class WebSocketServer {
 
     public static void broadcastJobStatus(FarmStatusMessage data) {
         broadcast(data);
+    }
+
+    /**
+     * 发送 WebSocket 协议级 Ping。浏览器客户端会自动回复 Pong，
+     * 不会产生新的业务消息类型；发送失败的连接立即清理。
+     */
+    public static void sendHeartbeat() {
+        for (Session session : sessions) {
+            if (!session.isOpen()) {
+                closeAndRemove(session);
+                continue;
+            }
+
+            Object lock = sessionLocks.get(session);
+            if (lock == null) {
+                lock = new Object();
+                sessionLocks.putIfAbsent(session, lock);
+                lock = sessionLocks.get(session);
+            }
+
+            synchronized (lock) {
+                try {
+                    session.getAsyncRemote().sendPing(ByteBuffer.allocate(0));
+                } catch (IOException | RuntimeException exception) {
+                    log.warn("WebSocket 心跳发送失败，清理会话: sessionId={}", session.getId(), exception);
+                    closeAndRemove(session);
+                }
+            }
+        }
     }
 
     private static void broadcast(FarmStatusMessage data) {

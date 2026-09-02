@@ -159,6 +159,9 @@
 - [x] T5.12 收敛缩略图地址并补齐对象清理。
   - 验收：`PrintFileVO/PrintFilePreviewVO` 不返回 RustFS 直连缩略图地址；新增 `GET /api/v1/print-files/{id}/thumbnail`，复用文件归属和预签名有效期上限；删除文件时清理主文件和缩略图对象。
   - 测试：`PrintFileOwnershipTest` 覆盖缩略图权限、有效期上限和删除清理；`PrintFileVOContractTest` 验证缩略图地址不出现在公共 VO。
+- [x] T5.13 修复虚拟目录直接内容的目录优先排序。
+  - 验收：`GET /api/v1/print-files/folder/content` 固定按目录优先、同级创建时间倒序返回，根目录和指定父目录行为不变。
+  - 测试：`PrintFileMapperTest` 使用 H2 真实执行 Service 查询，验证目录先于文件且同级按创建时间倒序。
 
 ## 6. P1 打印任务
 

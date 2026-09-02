@@ -223,6 +223,8 @@ POST /api/v1/auth/login
 
 `POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员始终只能查询本人文件，管理员可通过 `userId` 查询指定用户，不传则查询全部用户。
 
+`GET /print-files/folder/content` 返回指定目录的直接子节点，排序固定为目录优先、同级创建时间倒序；根目录通过省略 `parentId` 查询。
+
 ### 4.3 打印任务
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |

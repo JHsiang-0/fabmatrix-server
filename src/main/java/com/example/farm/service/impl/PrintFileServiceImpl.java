@@ -69,7 +69,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             wrapper.eq(PrintFile::getParentId, parentId);
         }
         // 文件夹排在前面，文件按创建时间倒序
-        wrapper.orderByAsc(PrintFile::getIsFolder)
+        wrapper.orderByDesc(PrintFile::getIsFolder)
                 .orderByDesc(PrintFile::getCreatedAt);
         return this.list(wrapper);
     }

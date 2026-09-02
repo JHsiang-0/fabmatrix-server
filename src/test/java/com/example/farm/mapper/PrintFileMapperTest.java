@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.service.PrintFileService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -35,6 +39,9 @@ class PrintFileMapperTest {
 
     @Autowired
     private PrintJobMapper printJobMapper;
+
+    @Autowired
+    private PrintFileService printFileService;
 
     @BeforeEach
     void createTables() {
@@ -107,7 +114,23 @@ class PrintFileMapperTest {
 
     @AfterEach
     void dropTablesAfterTest() {
+        SecurityContextHolder.clearContext();
         dropTables();
+    }
+
+    @Test
+    void folderContentReturnsFoldersBeforeFiles() {
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, is_folder, original_name, safe_name, file_size, user_id, created_at, material_type)
+                VALUES (?, TRUE, ?, ?, NULL, ?, ?, NULL)
+                """, 4L, "Models", "Models", 7L, "2026-09-01 13:00:00");
+        mockOperator(7L);
+
+        List<PrintFile> contents = printFileService.getFolderContent(null);
+
+        assertThat(contents).extracting(PrintFile::getId)
+                .containsExactly(4L, 3L, 1L);
     }
 
     @Test
@@ -163,5 +186,11 @@ class PrintFileMapperTest {
     private void dropTables() {
         jdbcTemplate.execute("DROP TABLE IF EXISTS farm_print_job");
         jdbcTemplate.execute("DROP TABLE IF EXISTS farm_print_file");
+    }
+
+    private void mockOperator(Long userId) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userId, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_OPERATOR"))));
     }
 }

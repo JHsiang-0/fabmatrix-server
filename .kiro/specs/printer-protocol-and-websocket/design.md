@@ -348,7 +348,7 @@ farm:
     websocket-max-connections: 100
   websocket:
     enabled: true
-    heartbeat-interval-ms: 30000
+    heartbeat-interval: 30s
 ```
 
 已有 `farm.tasks.enabled=false` 的开发默认值保持不变。适配器本身不因没有真实设备而自动启动轮询。

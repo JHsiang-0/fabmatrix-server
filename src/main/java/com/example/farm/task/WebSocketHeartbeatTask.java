@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(prefix = "farm.websocket", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class WebSocketHeartbeatTask {
 
-    @Scheduled(fixedDelayString = "${farm.websocket.heartbeat-interval-ms:30000}")
+    @Scheduled(fixedDelayString = "${farm.websocket.heartbeat-interval:30s}")
     public void sendHeartbeat() {
         WebSocketServer.sendHeartbeat();
         log.debug("WebSocket 心跳检查完成，在线连接数: {}", WebSocketServer.getOnlineCount());

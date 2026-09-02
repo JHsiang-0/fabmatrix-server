@@ -169,7 +169,7 @@ WebSocket 必须使用正式地址：
 2. ADMIN 和 OPERATOR 的有效 Token 都可以连接。
 3. 连接关闭或发送失败后，会话和锁资源被清理。
 4. 连接上限为可配置值，默认值保持 100。
-5. 服务端按可配置间隔发送 WebSocket 协议级 Ping，默认间隔为 30 秒；发送失败的会话必须关闭并从广播集合清理。协议级 Pong 不进入四种业务消息类型。
+5. 服务端按 `farm.websocket.heartbeat-interval` 可配置间隔发送 WebSocket 协议级 Ping，默认间隔为 `30s`；发送失败的会话必须关闭并从广播集合清理。协议级 Pong 不进入四种业务消息类型。
 
 ### FR-07：WebSocket 消息契约
 

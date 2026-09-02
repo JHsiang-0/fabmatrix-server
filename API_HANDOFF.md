@@ -496,7 +496,7 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
   "fileSize": 123456,
   "userId": 1,
   "createdAt": "2026-09-02T17:00:00",
-  "estimatedSeconds": 3600,
+  "estTime": 3600,
   "materialType": "PLA",
   "nozzleSize": 0.4,
   "filamentWeight": 12.5,
@@ -510,8 +510,9 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 ```
 
 - `fileSize`：Long，单位字节。
-- `estimatedSeconds`：Long，单位秒。
-- `filamentWeight`：Double，单位克。
+- `estTime`：Integer，单位秒；字段名以当前 VO 实际 JSON 为准，不使用 `estimatedSeconds`。
+- `filamentWeight`：BigDecimal，单位克。
+- `filamentLength`：BigDecimal，单位米。
 - 温度：Double，单位摄氏度。
 - `successRate`：Double，范围 0-100，表示百分比。
 - `folder` 是文件对象唯一的目录布尔字段，禁止依赖或发送旧字段 `isFolder`；实体内部仍使用数据库列 `is_folder`。

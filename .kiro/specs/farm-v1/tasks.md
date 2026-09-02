@@ -147,6 +147,9 @@
 - [x] T5.8 收敛文件响应中的对象存储内部字段。
   - 验收：`PrintFileVO` 不再返回直连 `fileUrl`；`rustfsKey`、`safeName` 和 `fileUrl` 仅供后端内部使用，前端下载统一调用 `/download` 获取预签名 URL。
   - 测试：`PrintFileVOContractTest` 和 `SensitiveFieldSerializationTest` 覆盖字段脱敏。
+- [x] T5.9 冻结文件 VO 的字段名和数值单位。
+  - 验收：预计打印时长对外字段固定为 `estTime`（Integer，秒），耗材重量/长度固定为 `BigDecimal`（克/米）；不再使用文档中的 `estimatedSeconds` 别名。
+  - 测试：`PrintFileVOContractTest` 验证实际 JSON 字段名。
 
 ## 6. P1 打印任务
 

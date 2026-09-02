@@ -17,11 +17,13 @@ class PrintFileVOContractTest {
         file.setIsFolder(true);
         file.setOriginalName("Models");
         file.setFileUrl("http://rustfs:9000/farm/internal-key");
+        file.setEstTime(3600);
 
         String json = objectMapper.writeValueAsString(PrintFileVO.from(file));
 
         assertThat(json).contains("\"folder\":true");
-        assertThat(json).doesNotContain("isFolder", "fileUrl", "internal-key");
+        assertThat(json).contains("\"estTime\":3600");
+        assertThat(json).doesNotContain("isFolder", "fileUrl", "internal-key", "estimatedSeconds");
     }
 
     @Test

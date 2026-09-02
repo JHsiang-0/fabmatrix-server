@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
+import com.example.farm.common.api.ResultCode;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.common.utils.PasswordMigrationUtil;
@@ -52,17 +53,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         if (loginProtectUtil.isLocked(username)) {
             long remainingMinutes = loginProtectUtil.getRemainingLockTime(username);
-            throw new BusinessException("账号已锁定，请 " + remainingMinutes + " 分钟后重试");
+            throw authenticationFailure("账号已锁定，请 " + remainingMinutes + " 分钟后重试");
         }
 
         User user = findByUsername(username);
         if (user == null) {
             loginProtectUtil.recordLoginFail(username);
-            throw new BusinessException("账号或密码错误");
+            throw authenticationFailure("账号或密码错误");
         }
 
         if (loginProtectUtil.isUserDisabled(user.getId())) {
-            throw new BusinessException("用户已被禁用，请联系管理员");
+            throw new BusinessException(ResultCode.FORBIDDEN.getCode(), "用户已被禁用，请联系管理员");
         }
 
         PasswordMigrationUtil.MigrateResult verifyResult = PasswordMigrationUtil.matchesAndMigrate(
@@ -72,9 +73,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             int failCount = loginProtectUtil.recordLoginFail(username);
             int remainingAttempts = 5 - failCount;
             if (remainingAttempts > 0) {
-                throw new BusinessException("账号或密码错误，还剩 " + remainingAttempts + " 次机会");
+                throw authenticationFailure("账号或密码错误，还剩 " + remainingAttempts + " 次机会");
             }
-            throw new BusinessException("账号已锁定，请 15 分钟后重试");
+            throw authenticationFailure("账号已锁定，请 15 分钟后重试");
         }
 
         loginProtectUtil.clearLoginFail(username);
@@ -305,6 +306,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, username);
         return getOne(wrapper);
+    }
+
+    private BusinessException authenticationFailure(String message) {
+        return new BusinessException(ResultCode.UNAUTHORIZED.getCode(), message);
     }
 
     private void assertAdmin(Long adminId) {

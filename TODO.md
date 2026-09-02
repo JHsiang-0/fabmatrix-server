@@ -238,7 +238,8 @@ startPrint()
   - `UserVO` 仅包含 `id,username,role,email,phone,createdAt,updatedAt`；持久化实体只在 Service 内部使用。
 - [x] 增加管理员创建操作员、禁用、启用、修改角色的接口测试。
   - 已覆盖 ADMIN 成功委托和 OPERATOR 统一 403；管理员角色更新仍由现有 Service 校验角色枚举。
-- [ ] 检查登录失败次数、Redis 锁定和禁用用户的统一错误响应。
+- [x] 检查登录失败次数、Redis 锁定、禁用用户和 Token 错误的统一响应。
+  - 账号不存在、密码错误、锁定和无效/过期 Token 返回 HTTP 401、业务码 `401`；禁用用户返回 HTTP 403、业务码 `403`；Redis 故障返回 HTTP 503、业务码 `5002`。
 
 ## P1：前端页面和联调任务
 

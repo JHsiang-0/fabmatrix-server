@@ -177,7 +177,9 @@
 - [x] T7.3 补充管理员创建、启用、禁用、角色修改的 Controller 集成测试。
   - 验收：ADMIN 成功委托四类管理操作；OPERATOR 调用四类 ADMIN-only 路由统一返回 HTTP 403、业务码 `403`。
   - 测试：`SecurityResponseTest` 覆盖成功和拒绝路径；全量 `mvn test` 通过。
-- [ ] T7.4 统一登录失败次数、Redis 锁定、禁用用户和 Token 错误响应。
+- [x] T7.4 统一登录失败次数、Redis 锁定、禁用用户和 Token 错误响应。
+  - 验收：账号/密码失败和锁定为 HTTP 401、业务码 `401`；禁用用户为 HTTP 403、业务码 `403`；无效/过期 Token 为 HTTP 401；Redis 故障沿用 HTTP 503、业务码 `5002`。
+  - 测试：`UserAuthenticationTest`、`SecurityResponseTest` 覆盖认证失败、锁定、禁用 Token 和无效 Token；全量 `mvn test` 通过。
 - [ ] T7.5 评估是否实现 logout；若不实现，记录前端删除 Token 的产品决定。
 
 ## 8. P1 前端接入与联调

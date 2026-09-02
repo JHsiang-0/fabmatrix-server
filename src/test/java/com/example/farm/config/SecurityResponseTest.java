@@ -2,6 +2,8 @@ package com.example.farm.config;
 
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.common.utils.JwtUtils;
+import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,9 @@ class SecurityResponseTest {
     @MockitoBean
     private UserService userService;
 
+    @MockitoBean
+    private LoginProtectUtil loginProtectUtil;
+
     @Test
     void unauthenticatedRequestUsesUnified401Response() throws Exception {
         mockMvc.perform(get("/api/v1/printers/page"))
@@ -48,6 +53,25 @@ class SecurityResponseTest {
         mockMvc.perform(get("/api/v1/auth/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void invalidTokenUsesUnified401Response() throws Exception {
+        mockMvc.perform(get("/api/v1/printers/page")
+                        .header("Authorization", "Bearer invalid-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void disabledUserTokenUsesUnified403Response() throws Exception {
+        when(loginProtectUtil.isUserDisabled(7L)).thenReturn(true);
+        String token = JwtUtils.generateToken(7L, "operator", "OPERATOR");
+
+        mockMvc.perform(get("/api/v1/printers/page")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
     }
 
     @Test

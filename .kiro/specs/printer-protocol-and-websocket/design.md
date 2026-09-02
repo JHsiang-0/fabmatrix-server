@@ -321,7 +321,7 @@ public record FarmStatusMessage(
 ### 9.3 事件发布时机
 
 - `PrinterMonitorTask` 通过 `WebSocketEventPublisher` 比较本轮和上轮设备可用性/业务状态，只在状态或进度数据变化时发布状态事件；设备从在线转离线时发布一次离线事件，连续离线不重复发送。
-- 任务 Service 在任务状态成功持久化后发布 `JOB_STATUS`，避免先通知前端后事务回滚。
+- 任务 Service 和设备监控任务在任务状态成功持久化后发布 `JOB_STATUS`，避免先通知前端后事务回滚；没有绑定打印机的排队任务不发送设备关联事件。
 - WebSocket 推送失败只清理异常连接，不回滚业务事务。
 - 快照由独立的 `FarmStatusSnapshotService` 从数据库/缓存构建，不能依赖某一个设备当前在线。
 

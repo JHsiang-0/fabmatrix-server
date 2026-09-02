@@ -21,6 +21,7 @@ import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private final PrinterService printerService;
     private final RustFsClient rustFsClient;
     private final PrinterProtocolAdapterFactory adapterFactory;
+    private final WebSocketEventPublisher eventPublisher;
 
     @Override
     public PrintJobMapper getBaseMapper() {
@@ -71,7 +73,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         queuedJobs.forEach(job -> {
             if (!PrintJobStatus.QUEUED.name().equals(job.getStatus())) {
                 job.setStatus(PrintJobStatus.QUEUED.name());
-                this.updateById(job);
+                this.updateJobAndPublish(job);
             }
         });
         return queuedJobs;
@@ -167,7 +169,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         // 先进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
         job.setPrinterId(printerId);
         job.setStatus(PrintJobStatus.ASSIGNED.name());
-        this.updateById(job);
+        this.updateJobAndPublish(job);
         printer.setCurrentJobId(jobId);
         printer.setStatus("PREPARING");
         printerService.updateById(printer);
@@ -203,7 +205,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
         job.setStatus(PrintJobStatus.PRINTING.name());
         job.setStartedAt(LocalDateTime.now());
-        this.updateById(job);
+        this.updateJobAndPublish(job);
 
         printer.setStatus("PRINTING");
         printerService.updateById(printer);
@@ -243,7 +245,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         // 行为：将 Job 的 printerId 设为目标机器，状态改为 ASSIGNED
         job.setPrinterId(printerId);
         job.setStatus(PrintJobStatus.ASSIGNED.name());
-        this.updateById(job);
+        this.updateJobAndPublish(job);
 
         // 行为：将目标 Printer 的 is_safe_to_print 重置为 false（防范风险）
         printer.setIsSafeToPrint(false);
@@ -356,7 +358,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             job.setStatus(PrintJobStatus.PRINTING.name());
             job.setOperatorId(operatorId);
             job.setStartedAt(LocalDateTime.now());
-            this.updateById(job);
+            this.updateJobAndPublish(job);
 
             // 行为：将 Printer 的 is_safe_to_print 再次置为 false，状态改为 PRINTING
             printer.setStatus("PRINTING");
@@ -370,7 +372,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
             job.setStatus(PrintJobStatus.READY.name());
             job.setOperatorId(operatorId);
-            this.updateById(job);
+            this.updateJobAndPublish(job);
 
             // 打印机状态保持 IDLE（等待手动在机器上点击打印）
             printer.setIsSafeToPrint(false);
@@ -405,8 +407,14 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
 
         job.setStatus(PrintJobStatus.CANCELLED.name());
-        updateById(job);
+        updateJobAndPublish(job);
         log.info("取消打印任务成功: jobId={}, 原状态={}", jobId, status);
+    }
+
+    private void updateJobAndPublish(PrintJob job) {
+        if (this.updateById(job)) {
+            eventPublisher.publishJobStatus(job);
+        }
     }
 
     private PrinterEndpoint endpointOf(Printer printer, PrinterOperation operation) {

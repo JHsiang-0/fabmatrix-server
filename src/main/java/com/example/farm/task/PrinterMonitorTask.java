@@ -308,7 +308,9 @@ public class PrinterMonitorTask {
 
         // 保存任务变更
         if (jobChanged) {
-            printJobService.updateById(job);
+            if (printJobService.updateById(job)) {
+                eventPublisher.publishJobStatus(job);
+            }
         }
     }
 

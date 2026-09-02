@@ -2,10 +2,12 @@ package com.example.farm.service;
 
 import com.example.farm.controller.FarmStatusMessage;
 import com.example.farm.controller.WebSocketServer;
+import com.example.farm.entity.PrintJob;
 import com.example.farm.protocol.PrinterDeviceStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /**
  * 业务事件到 WebSocket 消息的唯一发布入口。
@@ -27,5 +29,17 @@ public class WebSocketEventPublisher {
         String safeReason = reason == null || reason.isBlank() ? "设备无法连接" : reason;
         WebSocketServer.broadcastPrinterOffline(FarmStatusMessage.printerOffline(
                 printerId, Map.of("status", "OFFLINE", "reason", safeReason)));
+    }
+
+    public void publishJobStatus(PrintJob job) {
+        if (job == null || job.getId() == null || job.getPrinterId() == null) {
+            return;
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("jobId", job.getId());
+        data.put("status", job.getStatus());
+        data.put("progress", job.getProgress());
+        data.put("errorReason", job.getErrorReason());
+        WebSocketServer.broadcastJobStatus(FarmStatusMessage.jobStatus(job.getPrinterId(), data));
     }
 }

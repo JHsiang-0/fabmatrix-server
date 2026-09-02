@@ -103,6 +103,10 @@ public class WebSocketServer {
         broadcast(data);
     }
 
+    public static void broadcastJobStatus(FarmStatusMessage data) {
+        broadcast(data);
+    }
+
     private static void broadcast(FarmStatusMessage data) {
         if (sessions.isEmpty()) return;
 

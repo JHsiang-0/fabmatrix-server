@@ -27,6 +27,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobAdapterTest {
@@ -43,6 +44,8 @@ class PrintJobAdapterTest {
     private PrinterProtocolAdapterFactory adapterFactory;
     @Mock
     private PrinterProtocolAdapter adapter;
+    @Mock
+    private WebSocketEventPublisher eventPublisher;
     @Mock
     private InputStreamResource resource;
 
@@ -65,6 +68,7 @@ class PrintJobAdapterTest {
         when(printFileMapper.selectById(20L)).thenReturn(file);
         when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
 
         printJobService.startPrint(1001L, 2L, "START_PRINT");
 
@@ -74,6 +78,7 @@ class PrintJobAdapterTest {
         assertThat(endpoint.getValue().printerId()).isEqualTo(403L);
         assertThat(endpoint.getValue().apiKey()).isEqualTo("device-secret");
         assertThat(job.getStatus()).isEqualTo("PRINTING");
+        verify(eventPublisher).publishJobStatus(job);
     }
 
     @Test
@@ -84,12 +89,14 @@ class PrintJobAdapterTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
 
         printJobService.cancelJob(1001L);
 
         verify(adapter).cancel(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
         assertThat(job.getStatus()).isEqualTo("CANCELLED");
         assertThat(printer.getCurrentJobId()).isNull();
+        verify(eventPublisher).publishJobStatus(job);
     }
 
     private PrintJob job(String status) {

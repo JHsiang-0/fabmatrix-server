@@ -88,9 +88,10 @@
   - 目标：监控任务发布状态变化和离线事件，避免高频重复离线消息。
   - 验收：监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS`/`PRINTER_OFFLINE`；相同设备连续离线只通知一次，恢复后重新发布状态；单台设备故障不影响其他设备。
   - 测试：`PrinterMonitorAdapterTest` 3 个测试通过，覆盖适配器调用、离线通知和重复离线抑制。
-- [ ] T3.4 接入任务状态事件。
+- [x] T3.4 接入任务状态事件。
   - 目标：任务暂停、启动、完成、失败、取消后发布 `JOB_STATUS`。
-  - 验收：事务成功后发布，事务失败不发布成功事件。
+  - 验收：任务服务和监控任务均在 `updateById` 成功后发布 `JOB_STATUS`；数据库更新失败不发布成功事件；未绑定打印机的排队任务不构造缺少设备 ID 的消息。
+  - 测试：`PrintJobAdapterTest`、`PrintJobOwnershipTest`、`PrinterMonitorAdapterTest` 覆盖任务服务和设备反馈事件路径。
 - [ ] T3.5 补齐 WebSocket 生命周期测试。
   - 目标：Token、连接上限、快照、四类消息、发送失败和断线清理。
   - 验收：自动化测试覆盖并更新 `WEBSOCKET_GUIDE.md` 或 API_HANDOFF。

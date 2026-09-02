@@ -41,6 +41,9 @@ class PrintJobOwnershipTest {
     @Mock
     private MoonrakerApiClient moonrakerApiClient;
 
+    @Mock
+    private WebSocketEventPublisher eventPublisher;
+
     @InjectMocks
     private PrintJobServiceImpl printJobService;
 

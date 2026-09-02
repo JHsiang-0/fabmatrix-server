@@ -182,7 +182,7 @@ POST /api/v1/auth/login
 | POST | `/printers/add` | ADMIN | 打印机配置 | `Result<null>` |
 | PUT | `/printers/update` | ADMIN | 包含 `id` 的打印机配置 | `Result<null>` |
 | DELETE | `/printers/delete/{id}` | ADMIN | Path ID | `Result<null>` |
-| GET | `/printers/scan` | ADMIN | Query：`subnet` | 扫描结果数组 |
+| GET | `/printers/scan` | ADMIN | Query：`subnet` | Klipper/RRF 协议识别扫描结果数组 |
 | POST | `/printers/batch-add` | ADMIN | 扫描结果数组 | 批量新增/更新统计及逐项结果 |
 | GET | `/printers/by-mac/{macAddress}` | ADMIN/OPERATOR | Path MAC | `PrinterVO` 或 null |
 | GET | `/printers/by-ip/{ipAddress}` | ADMIN/OPERATOR | Path IP | `PrinterVO` 或 null |

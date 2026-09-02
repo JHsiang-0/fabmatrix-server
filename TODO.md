@@ -181,8 +181,10 @@ startPrint()
 - [x] 实现 `POST /api/v1/control/{id}/resume` 恢复打印。
 - [x] 实现 `POST /api/v1/control/{id}/cancel` 取消当前设备任务。
 - [ ] 明确设备离线、忙碌、错误时的 HTTP 和业务错误码。
-- [ ] 扫描接口支持协议识别，不再只扫描 Moonraker 7125。
-- [ ] 扫描和批量添加返回每个设备的成功/失败原因。
+- [x] 扫描接口支持协议识别，不再只扫描 Moonraker 7125。
+  - 通过 Moonraker `/server/info` 和 RRF `/rr_connect` 识别 `KLIPPER/RRF`；未知设备不进入结果。
+- [x] 扫描和批量添加返回每个设备的成功/失败原因。
+  - 批量添加已返回逐项结果；扫描结果对每个已识别设备返回协议、MAC 和新旧状态，未识别地址不作为设备结果。
 
 ### P1.2 文件库
 

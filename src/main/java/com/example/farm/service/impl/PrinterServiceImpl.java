@@ -14,6 +14,7 @@ import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.PrinterProtocolDetector;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +47,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
     private final PrinterCacheService printerCacheService;
     private final MacAddressUtil macAddressUtil;
+    private final PrinterProtocolDetector protocolDetector;
 
     // ==================== 基础 CRUD 操作 ====================
 
@@ -282,8 +282,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
      * </ol>
      */
     @Override
-    public List<PrinterScanResultDTO> scanKlipperDevices(String subnet) {
-        log.info("开始扫描局域网 Klipper 设备：subnet={}", subnet);
+    public List<PrinterScanResultDTO> scanDevices(String subnet) {
+        log.info("开始扫描局域网 Klipper/RRF 设备：subnet={}", subnet);
 
         // 获取数据库中所有已存在的 MAC 地址（用于判断新旧设备）
         Set<String> existingMacs = this.list().stream()
@@ -301,8 +301,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
                 CompletableFuture<PrinterScanResultDTO> future = CompletableFuture.supplyAsync(() -> {
                     try {
-                        // 步骤 1: 探测 Klipper 端口
-                        if (!isKlipperDevice(targetIp)) {
+                        // 步骤 1: 识别协议，未知协议不加入扫描结果
+                        PrinterProtocolType protocolType = protocolDetector.detect(targetIp);
+                        if (protocolType == null) {
                             return null;
                         }
 
@@ -313,7 +314,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                         PrinterScanResultDTO result = new PrinterScanResultDTO();
                         result.setIpAddress(targetIp);
                         result.setMacAddress(macAddress);
-                        result.setFirmwareType(PrinterProtocolType.KLIPPER.name());
+                        result.setFirmwareType(protocolType.name());
 
                         if (StringUtils.hasText(macAddress)) {
                             String normalizedMac = macAddressUtil.normalizeMacAddress(macAddress);
@@ -357,19 +358,6 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             executor.shutdown();
         }
     }
-
-    /**
-     * 检测目标 IP 是否为 Klipper 设备
-     */
-    private boolean isKlipperDevice(String ipAddress) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(ipAddress, 7125), 200);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
 
     /**
      * 【重构核心】批量新增/更新打印机（基于 MAC 地址的 Upsert 机制）

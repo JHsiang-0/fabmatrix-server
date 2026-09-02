@@ -136,10 +136,10 @@ public class PrinterController {
     }
 
     /**
-     * 【重构核心】扫描指定网段中的 Klipper 设备，返回带 MAC 地址的详细信息
+     * 【重构核心】扫描指定网段中的 Klipper/RRF 设备，返回带 MAC 地址的详细信息
      * <p>相比旧版 scan 接口，新版会：</p>
      * <ol>
-     *     <li>扫描网段内所有 IP 的 7125 端口</li>
+     *     <li>识别 Moonraker 7125 或 RRF HTTP 80 端口</li>
      *     <li>尝试获取每个设备的 MAC 地址（通过 ARP 表或 Moonraker API）</li>
      *     <li>判断设备是新设备还是已知设备（基于 MAC 地址）</li>
      * </ol>
@@ -148,14 +148,14 @@ public class PrinterController {
      * @return 扫描结果列表（包含 IP、MAC、是否为新设备等）
      * @throws BusinessException 当 subnet 为空时抛出
      */
-    @Operation(summary = "扫描局域网打印机", description = "扫描指定网段中的 Klipper 设备，返回带 MAC 地址的详细信息")
+    @Operation(summary = "扫描局域网打印机", description = "扫描并识别局域网中的 Klipper 或 RRF 打印机")
     @GetMapping("/scan")
     public Result<List<PrinterScanResultDTO>> scanDevices(@RequestParam String subnet) {
         if (!StringUtils.hasText(subnet)) {
             throw new BusinessException("必须提供网段前缀，例如 192.168.1");
         }
 
-        List<PrinterScanResultDTO> results = printerService.scanKlipperDevices(subnet);
+        List<PrinterScanResultDTO> results = printerService.scanDevices(subnet);
 
         int newCount = (int) results.stream()
                 .filter(PrinterScanResultDTO::getIsNewDevice)

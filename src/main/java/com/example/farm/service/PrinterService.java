@@ -53,13 +53,21 @@ public interface PrinterService extends IService<Printer> {
     void deletePrinter(Long id);
 
     /**
-     * 【重构】扫描网段内的 Klipper 设备，返回带 MAC 地址的详细信息。
-     * <p>扫描过程中会尝试获取每个设备的 MAC 地址，用于后续 Upsert 操作。</p>
+     * 【重构】扫描网段内的 Klipper/RRF 设备，返回带 MAC 地址的详细信息。
+     * <p>扫描过程中会识别协议并尝试获取每个设备的 MAC 地址，用于后续 Upsert 操作。</p>
      *
      * @param subnet 网段前缀，例如 `192.168.1`
      * @return 扫描到的设备列表（包含 IP、MAC、是否为新设备等）
      */
-    List<PrinterScanResultDTO> scanKlipperDevices(String subnet);
+    List<PrinterScanResultDTO> scanDevices(String subnet);
+
+    /**
+     * 历史方法名兼容入口；扫描结果现在同时支持 Klipper 和 RRF。
+     */
+    @Deprecated
+    default List<PrinterScanResultDTO> scanKlipperDevices(String subnet) {
+        return scanDevices(subnet);
+    }
 
 
     /**

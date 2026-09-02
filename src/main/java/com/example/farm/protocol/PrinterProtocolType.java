@@ -19,18 +19,10 @@ public enum PrinterProtocolType {
         if (value == null || value.isBlank()) {
             throw new BusinessException(422, "打印机协议类型不能为空");
         }
-        try {
-            return value.trim().toUpperCase(java.util.Locale.ROOT).equals("KLIPPER")
-                    ? KLIPPER
-                    : value.trim().toUpperCase(java.util.Locale.ROOT).equals("RRF")
-                    ? RRF
-                    : throwUnsupported(value);
-        } catch (IllegalArgumentException exception) {
-            throw new BusinessException(422, "不支持的打印机协议类型: " + value.trim());
-        }
-    }
-
-    private static PrinterProtocolType throwUnsupported(String value) {
-        throw new BusinessException(422, "不支持的打印机协议类型: " + value.trim());
+        return switch (value.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "KLIPPER" -> KLIPPER;
+            case "RRF" -> RRF;
+            default -> throw new BusinessException(422, "不支持的打印机协议类型: " + value.trim());
+        };
     }
 }

@@ -34,10 +34,10 @@
   - 目标：`PrinterProtocolType`、统一设备状态、端点、操作和失败分类。
   - 验收：大小写/历史值规范化、未知协议拒绝、无敏感字段序列化。
   - 测试：`PrinterProtocolTypeTest`、`PrinterDeviceStatusTest`，3 个测试通过。
-- [ ] T1.2 新增 `PrinterProtocolAdapter` 和 Factory。
+- [x] T1.2 新增 `PrinterProtocolAdapter` 和 Factory。
   - 目标：统一 `getStatus/pause/resume/cancel/emergencyStop/uploadFile` 能力。
   - 验收：按协议返回唯一 Adapter，未知协议不回退，重复实现有明确检查。
-  - 测试：Factory 选择和错误测试。
+  - 测试：`PrinterProtocolAdapterFactoryTest`，3 个测试通过；协议相关测试共 6 个通过。
 - [ ] T1.3 实现 `KlipperMoonrakerAdapter`。
   - 目标：封装现有 `MoonrakerApiClient`，转换 Moonraker 状态，分类设备异常。
   - 验收：现有 Klipper 行为不回退，凭据不进入日志/响应。

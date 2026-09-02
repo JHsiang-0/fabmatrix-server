@@ -143,7 +143,7 @@ startPrint()
 - [x] 将 `PrintJobServiceImpl` 中的上传、启动、取消设备调用改为 Adapter。
 - [x] 将 `PrinterMonitorTask` 的状态查询改为 Adapter，并将适配器异常纳入离线处理。
 - [x] `firmwareType` 入库值统一为大写 `KLIPPER`、`RRF`，兼容旧数据 `Klipper`；新增迁移脚本 `05-normalize-printer-firmware-type.sql`。
-- [ ] RRF 适配器先完成接口和状态映射，再根据真实 RRF 3.7 API 实现 HTTP 调用。
+- [x] RRF 适配器已完成独立骨架和状态映射；真实 RRF 3.7 HTTP 调用仍待实机参数确认。
 - [x] 不在 Moonraker 客户端中通过替换 URL 假装支持 RRF。
 
 ## P0：WebSocket 实时状态

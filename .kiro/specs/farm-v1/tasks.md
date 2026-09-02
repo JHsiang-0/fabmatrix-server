@@ -65,10 +65,10 @@
   - 目标：确认状态、认证、暂停/恢复/取消/急停、上传和启动的实际 API。
   - 验收：已记录官方 HTTP/G-code/对象模型资料；未有真实设备证据的字段和副作用仍列为待确认/unsupported。
   - 产物：`../printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md`。
-- [ ] T2.2 实现 `RrfApiClient` 和 `RrfAdapter` 骨架。
+- [x] T2.2 实现 `RrfApiClient` 和 `RrfAdapter` 骨架。
   - 目标：独立于 Moonraker，完成协议选择和统一状态映射。
-  - 验收：`RRF` 永不调用 Moonraker，未支持能力返回稳定错误。
-  - 测试：RRF Mock 响应和错误分类。
+  - 验收：`RRF` 永不调用 Moonraker，未支持能力返回稳定 `UNSUPPORTED` 错误；Factory 已可选择 RRF Adapter。
+  - 测试：`RrfAdapterTest`、`PrinterProtocolAdapterFactoryTest`，6 个针对性测试通过；全量 `mvn test` 共 42 个通过。
 - [ ] T2.3 根据证据逐项实现 RRF 真实能力。
   - 目标：只实现已确认的 HTTP 调用。
   - 验收：真实设备或可复现协议测试通过；API_HANDOFF 标注实际状态。

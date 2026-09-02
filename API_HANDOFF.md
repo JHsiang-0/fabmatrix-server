@@ -458,7 +458,7 @@ JOB_STATUS        任务状态变化
 
 ## 8. 打印机协议适配约定
 
-HTTP API 不因为 Klipper 或 RRF 改变。当前已完成协议领域模型、Adapter 接口、Factory、Klipper Adapter、打印机控制 Service、任务服务和监控任务迁移；后端内部根据 `firmwareType` 选择适配器：
+HTTP API 不因为 Klipper 或 RRF 改变。当前已完成协议领域模型、Adapter 接口、Factory、Klipper Adapter、RRF Adapter 骨架、打印机控制 Service、任务服务和监控任务迁移；后端内部根据 `firmwareType` 选择适配器：
 
 ```text
 PrinterProtocolAdapter
@@ -479,6 +479,8 @@ startPrint()
 ```
 
 Controller -> Service -> `PrinterProtocolAdapter` -> 具体协议客户端。
+
+当前 `RrfApiClient` 只提供独立调用边界并对真实 HTTP 能力返回 `UNSUPPORTED`；RRF 状态映射已可通过 Mock 验证，不能据此宣称已完成 RRF 3.7 实机接入。
 
 禁止在 Controller 中直接注入 `MoonrakerApiClient`，也禁止仅通过修改 URL 假装支持 RRF 3.7。
 

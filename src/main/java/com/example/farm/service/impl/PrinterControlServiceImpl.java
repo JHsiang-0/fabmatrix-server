@@ -17,6 +17,7 @@ import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 通过协议适配器执行打印机控制操作。
@@ -46,6 +47,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void resume(Long printerId) {
         PrinterEndpoint endpoint = endpointOf(printerId, PrinterOperation.RESUME);
         Printer printer = printerService.getById(printerId);
@@ -67,9 +69,11 @@ public class PrinterControlServiceImpl implements PrinterControlService {
         if (!printJobService.updateById(job)) {
             throw new BusinessException("恢复打印后更新任务状态失败");
         }
-        eventPublisher.publishJobStatus(job);
         printer.setStatus("PRINTING");
-        printerService.updateById(printer);
+        if (!printerService.updateById(printer)) {
+            throw new BusinessException("恢复打印后更新打印机状态失败");
+        }
+        eventPublisher.publishJobStatus(job);
         log.info("恢复打印执行成功: printerId={}, jobId={}", printerId, jobId);
     }
 

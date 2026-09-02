@@ -317,7 +317,8 @@ MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本�
 
 恢复和取消当前设备任务的约定：`POST /api/v1/control/{id}/resume` 仅允许打印机有绑定任务且任务状态为
 `PAUSED` 时调用；成功后设备执行恢复、任务变为 `PRINTING`，并推送 `JOB_STATUS`。没有绑定任务或状态不允许时返回
-HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 要求设备有绑定任务，复用任务取消服务完成
+HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态必须都保存成功后才推送 `JOB_STATUS`，打印机状态保存失败不会返回成功。
+`POST /api/v1/control/{id}/cancel` 要求设备有绑定任务，复用任务取消服务完成
 归属校验、协议调用、任务状态变为 `CANCELLED` 和打印机解绑；没有绑定任务返回 HTTP 422。
 
 ### 5.2 任务

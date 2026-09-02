@@ -125,6 +125,9 @@
 - [x] T4.7 修复打印机状态持久化成功判定。
   - 验收：状态更新在 Redis 锁内执行后，以 MySQL `updateById` 实际影响行数判定成功；影响 0 行返回失败，监控不应据此更新内存状态或发布成功状态。
   - 测试：`PrinterCacheRedisTest` 覆盖锁获取失败、数据库 0 行和成功更新路径；全量测试通过。
+- [x] T4.8 修复恢复打印的双记录保存与事件顺序。
+  - 验收：恢复设备成功后，任务和打印机状态均保存成功才发布 `JOB_STATUS`；打印机保存失败返回业务异常且不发布成功事件，方法使用事务边界。
+  - 测试：`PrinterControlServiceTest` 覆盖正常恢复和打印机状态保存失败路径；全量测试通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

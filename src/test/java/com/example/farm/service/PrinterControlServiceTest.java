@@ -70,6 +70,7 @@ class PrinterControlServiceTest {
         when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
         when(printJobService.getById(1001L)).thenReturn(job);
         when(printJobService.updateById(job)).thenReturn(true);
+        when(printerService.updateById(printer)).thenReturn(true);
 
         new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).resume(403L);
 
@@ -77,6 +78,27 @@ class PrinterControlServiceTest {
         assertThat(job.getStatus()).isEqualTo("PRINTING");
         verify(eventPublisher).publishJobStatus(job);
         assertThat(printer.getStatus()).isEqualTo("PRINTING");
+    }
+
+    @Test
+    void doesNotPublishResumeEventWhenPrinterStateCannotBeSaved() {
+        Printer printer = printer();
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PAUSED");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(job)).thenReturn(true);
+        when(printerService.updateById(printer)).thenReturn(false);
+
+        assertThatThrownBy(() -> new PrinterControlServiceImpl(
+                printerService, adapterFactory, printJobService, eventPublisher).resume(403L))
+                .hasMessage("恢复打印后更新打印机状态失败");
+
+        org.mockito.Mockito.verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(job);
     }
 
     @Test

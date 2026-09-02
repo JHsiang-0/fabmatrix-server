@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -70,7 +69,6 @@ public class JobSchedulerTask {
         }
     }
 
-    @Transactional
     public void doSchedule() {
         long startTime = System.currentTimeMillis();
         
@@ -141,7 +139,12 @@ public class JobSchedulerTask {
                 return false;
             }
 
-            return assignJob(currentJob, currentPrinter);
+            try {
+                return printJobService.assignQueuedJob(currentJob.getId(), currentPrinter.getId());
+            } catch (Exception e) {
+                log.error("派发任务失败: jobId={}, printerId={}", jobId, currentPrinter.getId(), e);
+                return false;
+            }
 
         } finally {
             if (locked) {
@@ -150,27 +153,4 @@ public class JobSchedulerTask {
         }
     }
 
-    private boolean assignJob(PrintJob job, Printer printer) {
-        try {
-            // 更新任务状态
-            job.setPrinterId(printer.getId());
-            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.ASSIGNED);
-            job.setStatus(PrintJobStatus.ASSIGNED.name());
-            printJobService.updateById(job);
-
-            // 更新打印机状态
-            printer.setStatus("PREPARING");
-            printer.setCurrentJobId(job.getId());
-            printerService.updateById(printer);
-
-            LogUtil.dataChange("任务自动派发", "FarmPrintJob", job.getId(),
-                    "已分配到打印机: " + printer.getName());
-            return true;
-
-        } catch (Exception e) {
-            log.error("派发任务失败: jobId={}, printerId={}", 
-                    job.getId(), printer.getId(), e);
-            return false;
-        }
-    }
 }

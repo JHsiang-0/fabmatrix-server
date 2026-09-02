@@ -162,7 +162,6 @@
 - [x] T5.13 修复虚拟目录直接内容的目录优先排序。
   - 验收：`GET /api/v1/print-files/folder/content` 固定按目录优先、同级创建时间倒序返回，根目录和指定父目录行为不变。
   - 测试：`PrintFileMapperTest` 使用 H2 真实执行 Service 查询，验证目录先于文件且同级按创建时间倒序。
-
 ## 6. P1 打印任务
 
 - [x] T6.1 实现标准创建接口 `POST /api/v1/print-jobs`，旧 `/create` 标记 deprecated。
@@ -186,6 +185,9 @@
   - 验收：冻结前端组合查询方案；`PrintJobVO` 使用 `fileId/printerId`，文件调用 `/print-files/{fileId}/preview`，打印机调用 `/printers/{printerId}`，排队任务不查询空 `printerId`。
 - [x] T6.8 补齐任务状态事件、权限和端到端测试。
   - 验收：已覆盖 Service 状态/归属/设备调用、任务路由认证和绑定任务 `JOB_STATUS` 事件；队列任务因无 `printerId` 不构造消息；真实 MySQL/Redis/RustFS/打印机端到端链路保留现场验收。
+- [x] T6.9 修复自动调度任务与打印机状态保存的一致性。
+  - 验收：自动派发由 `PrintJobService.assignQueuedJob` 的事务方法执行；重新校验任务为 `QUEUED`、打印机为 `IDLE` 且未绑定其他任务；任务或打印机保存失败抛出异常并不发布成功事件；调度器只负责分布式锁、扫描和调用。
+  - 测试：`PrintJobCreateTest` 覆盖正常派发顺序、过期绑定拒绝和打印机保存失败不发布事件；全量测试通过。
 
 ## 7. P1 认证与用户
 

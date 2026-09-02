@@ -82,6 +82,42 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean assignQueuedJob(Long jobId, Long printerId) {
+        PrintJob job = this.getById(jobId);
+        if (job == null || !PrintJobStatus.QUEUED.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+            return false;
+        }
+
+        Printer printer = printerService.getById(printerId);
+        if (printer == null || !"IDLE".equals(printer.getStatus())) {
+            return false;
+        }
+        if (printer.getCurrentJobId() != null) {
+            return false;
+        }
+
+        PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.ASSIGNED);
+        job.setPrinterId(printerId);
+        job.setStatus(PrintJobStatus.ASSIGNED.name());
+        if (!this.updateById(job)) {
+            throw new BusinessException("自动派发任务失败：任务状态保存失败");
+        }
+
+        printer.setStatus("PREPARING");
+        printer.setCurrentJobId(job.getId());
+        printer.setIsSafeToPrint(false);
+        if (!printerService.updateById(printer)) {
+            throw new BusinessException("自动派发任务失败：打印机状态保存失败");
+        }
+
+        eventPublisher.publishJobStatus(job);
+        LogUtil.dataChange("任务自动派发", "FarmPrintJob", job.getId(),
+                "已分配到打印机: " + printer.getName());
+        return true;
+    }
+
+    @Override
     public List<PrintJob> getQueuedJobsForCurrentUser() {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
         if (SecurityContextUtil.isAdmin()) {

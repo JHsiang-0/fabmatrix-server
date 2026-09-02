@@ -23,12 +23,14 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobCreateTest {
@@ -90,6 +92,72 @@ class PrintJobCreateTest {
         assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
         assertThat(printer.getIsSafeToPrint()).isFalse();
         verify(adapterFactory, never()).getAdapter(any());
+    }
+
+    @Test
+    void schedulerAssignmentPersistsJobAndPrinterBeforePublishingEvent() {
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setStatus("QUEUED");
+        job.setFileId(20L);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setName("Printer-403");
+        printer.setStatus("IDLE");
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+
+        assertThat(printJobService.assignQueuedJob(1001L, 403L)).isTrue();
+
+        assertThat(job.getStatus()).isEqualTo("ASSIGNED");
+        assertThat(job.getPrinterId()).isEqualTo(403L);
+        assertThat(printer.getStatus()).isEqualTo("PREPARING");
+        assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
+        assertThat(printer.getIsSafeToPrint()).isFalse();
+        var order = inOrder(printJobMapper, printerService, eventPublisher);
+        order.verify(printJobMapper).updateById(job);
+        order.verify(printerService).updateById(printer);
+        order.verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
+    void schedulerAssignmentRejectsPrinterWithStaleCurrentJob() {
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setStatus("QUEUED");
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setStatus("IDLE");
+        printer.setCurrentJobId(999L);
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+
+        assertThat(printJobService.assignQueuedJob(1001L, 403L)).isFalse();
+
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+        verify(printerService, never()).updateById(any(Printer.class));
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
+    @Test
+    void schedulerAssignmentFailsWithoutPublishingWhenPrinterUpdateFails() {
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setStatus("QUEUED");
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setStatus("IDLE");
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> printJobService.assignQueuedJob(1001L, 403L))
+                .hasMessage("自动派发任务失败：打印机状态保存失败");
+
+        verify(eventPublisher, never()).publishJobStatus(any());
     }
 
     private AtomicReference<PrintJob> stubInsert(boolean needsReload) {

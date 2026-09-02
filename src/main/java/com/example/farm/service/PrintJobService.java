@@ -35,6 +35,16 @@ public interface PrintJobService extends IService<PrintJob> {
     List<PrintJob> getQueuedJobs();
 
     /**
+     * 由后台调度器将排队任务派发到空闲打印机。
+     * <p>该方法不依赖当前登录用户，事务内会重新校验任务和打印机状态，并保证两条记录一起成功保存。</p>
+     *
+     * @param jobId 任务 ID
+     * @param printerId 打印机 ID
+     * @return 是否完成派发；任务或打印机状态已变化时返回 false
+     */
+    boolean assignQueuedJob(Long jobId, Long printerId);
+
+    /**
      * 获取当前登录用户可见的排队任务。管理员可查看全部队列，操作员只能查看自己的任务。
      */
     List<PrintJob> getQueuedJobsForCurrentUser();

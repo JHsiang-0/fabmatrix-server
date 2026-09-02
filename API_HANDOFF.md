@@ -116,7 +116,7 @@ WebSocket: ws://<server-host>:8080/ws/farm-status
 
 Service 层仍使用 MyBatis-Plus `Page/IPage`，Controller 已通过 `PageResult` 转换为本文结构。分页参数要求 `pageNum>=1`、`1<=pageSize<=100`，非法参数返回 HTTP 400、`code=400`。
 
-任务状态已统一为 `QUEUED`、`ASSIGNED`、`READY`、`PRINTING`、`PAUSED`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；调度器只负责进入 `ASSIGNED`，必须在设备调用成功后才进入 `PRINTING`。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。
+任务状态已统一为 `QUEUED`、`ASSIGNED`、`READY`、`PRINTING`、`PAUSED`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；调度器只负责进入 `ASSIGNED`，必须在设备调用成功后才进入 `PRINTING`。自动派发由任务 Service 的事务方法重新校验任务为 `QUEUED`、打印机为 `IDLE` 且未绑定其他任务，并在任务和打印机均保存成功后发布 `JOB_STATUS`；任一保存失败不会发布成功事件。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。
 
 ## 3. 认证接口
 

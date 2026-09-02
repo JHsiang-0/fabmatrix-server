@@ -92,6 +92,36 @@ class PrintFileOwnershipTest {
     }
 
     @Test
+    void operatorCannotGetThumbnailForAnotherUsersFile() {
+        mockUser(2L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        file.setThumbnailUrl("http://rustfs:9000/farm/thumbnails/20_demo.jpeg");
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+
+        assertThatThrownBy(() -> printFileService.getPresignedThumbnailUrl(20L, 60))
+                .hasMessage("文件不存在");
+        verify(rustFsClient, never()).getPresignedUrlForObjectUrl(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void thumbnailUrlIsPermissionCheckedAndExpirationIsCapped() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        String thumbnailUrl = "http://rustfs:9000/farm/thumbnails/20_demo.jpeg";
+        file.setThumbnailUrl(thumbnailUrl);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(fileUploadProperties.getPresignedUrlMaxMinutes()).thenReturn(120);
+        when(rustFsClient.getPresignedUrlForObjectUrl(thumbnailUrl, java.time.Duration.ofMinutes(120)))
+                .thenReturn("https://example.test/thumbnail");
+
+        assertThat(printFileService.getPresignedThumbnailUrl(20L, 1000))
+                .isEqualTo("https://example.test/thumbnail");
+
+        verify(rustFsClient).getPresignedUrlForObjectUrl(thumbnailUrl, java.time.Duration.ofMinutes(120));
+    }
+
+    @Test
     void presignedUrlStorageFailureIsPropagatedForUnifiedHandler() {
         mockUser(1L, "OPERATOR");
         PrintFile file = file(20L, 1L);
@@ -120,7 +150,7 @@ class PrintFileOwnershipTest {
         assertThat(preview.getOriginalName()).isEqualTo("demo.gcode");
         assertThat(preview.getFileSize()).isEqualTo(123L);
         assertThat(preview).hasNoNullFieldsOrPropertiesExcept(
-                "estTime", "nozzleSize", "thumbnailUrl", "filamentWeight", "filamentLength",
+                "estTime", "nozzleSize", "filamentWeight", "filamentLength",
                 "nozzleTemp", "bedTemp", "layerHeight", "firstLayerNozzleTemp",
                 "firstLayerBedTemp", "firstLayerHeight");
     }
@@ -161,6 +191,22 @@ class PrintFileOwnershipTest {
         assertThatThrownBy(() -> printFileService.deleteFile(20L))
                 .isInstanceOf(com.example.farm.common.exception.StorageException.class);
         verify(printFileMapper, never()).deleteById(20L);
+    }
+
+    @Test
+    void deletingFileAlsoRemovesStoredThumbnail() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        String thumbnailUrl = "http://rustfs:9000/farm/thumbnails/20_demo.jpeg";
+        file.setThumbnailUrl(thumbnailUrl);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(0);
+
+        printFileService.deleteFile(20L);
+
+        verify(rustFsClient).deleteFileByObjectUrl(thumbnailUrl);
+        verify(rustFsClient).deleteFile("20_demo.gcode");
+        verify(printFileMapper).deleteById(20L);
     }
 
     @Test

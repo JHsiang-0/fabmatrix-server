@@ -23,6 +23,7 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
 
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -212,6 +213,44 @@ public class RustFsClient {
      */
     public String getPresignedUrl(String filename) {
         return getPresignedUrl(filename, null);
+    }
+
+    /**
+     * 将历史上保存的对象直连 URL 转换为短期预签名 URL。
+     * 对外接口不应直接返回 uploadBytes/uploadFile 产生的内部地址。
+     */
+    public String getPresignedUrlForObjectUrl(String objectUrl, Duration expiration) {
+        return getPresignedUrl(objectKeyFromObjectUrl(objectUrl), expiration);
+    }
+
+    /**
+     * 删除历史上保存的对象直连 URL 对应的对象。
+     */
+    public void deleteFileByObjectUrl(String objectUrl) {
+        deleteFile(objectKeyFromObjectUrl(objectUrl));
+    }
+
+    private String objectKeyFromObjectUrl(String objectUrl) {
+        if (objectUrl == null || objectUrl.isBlank()) {
+            throw new StorageException("对象存储地址不能为空");
+        }
+        try {
+            String path = URI.create(objectUrl).getPath();
+            String bucketPrefix = "/" + bucket + "/";
+            int prefixIndex = path.indexOf(bucketPrefix);
+            if (prefixIndex < 0) {
+                throw new StorageException("对象存储地址格式不正确");
+            }
+            String objectKey = path.substring(prefixIndex + bucketPrefix.length());
+            if (objectKey.isBlank()) {
+                throw new StorageException("对象存储对象不存在");
+            }
+            return objectKey;
+        } catch (StorageException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new StorageException("对象存储地址格式不正确", e);
+        }
     }
 
     /**

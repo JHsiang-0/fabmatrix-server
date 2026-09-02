@@ -79,7 +79,8 @@ public class PrintFile {
     @Schema(description = "喷嘴直径（如 0.40, 0.60）")
     private BigDecimal nozzleSize;
 
-    @Schema(description = "缩略图URL（G-code中提取的缩略图在RustFS中的地址）")
+    @Schema(description = "缩略图内部存储地址，仅供后端生成预签名 URL")
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String thumbnailUrl;
 
     @Schema(description = "耗材预估重量（克）")

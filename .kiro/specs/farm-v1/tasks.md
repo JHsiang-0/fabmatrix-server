@@ -133,7 +133,7 @@
   - 验收：先校验文件归属，再按 `file_id` 分页返回 `PageResult<PrintJobVO>`；操作员仅本人任务，管理员全部；无文件或无权统一 404。
   - 测试：`PrintJobOwnershipTest` 新增 2 个文件关联任务归属测试，全量测试通过。
 - [x] T5.4 实现安全预览 `GET /api/v1/print-files/{id}/preview`。
-  - 验收：返回已解析元数据和缩略图，不读/返回 G-code 原文、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；复用文件归属校验，目录返回 422。
+  - 验收：返回已解析元数据，不读/返回 G-code 原文、缩略图直连地址、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；缩略图通过独立预签名接口按需获取，复用文件归属校验，目录返回 422。
   - 测试：`PrintFileOwnershipTest` 新增本人预览和目录拒绝测试，全量测试通过。
 - [x] T5.5 统一 `folder/isFolder` 对外字段并更新 VO、Swagger 和前端契约。
   - 验收：`PrintFileVO` 和 `FileNodeVO` 对外只输出 `folder`；`isFolder` 仅保留在实体/数据库内部，不兼容输出旧字段；未设置目录标记的文件也稳定输出 `folder=false`。`PrintFileVOContractTest` 和真实上传回归均已验证。
@@ -156,6 +156,9 @@
 - [x] T5.11 冻结文件和任务 VO 的数值字段类型。
   - 验收：`PrintFileVO/PrintFilePreviewVO` 的切片温度为 Integer，`successRate` 为 BigDecimal，`PrintJobVO.progress` 为 BigDecimal；实时设备状态 DTO 的 Double 温度不与文件元数据混用，API_HANDOFF 示例单位和值一致。
   - 测试：`PrintFileVOContractTest`、`PrintJobVOContractTest` 验证实际 JSON 数值类型。
+- [x] T5.12 收敛缩略图地址并补齐对象清理。
+  - 验收：`PrintFileVO/PrintFilePreviewVO` 不返回 RustFS 直连缩略图地址；新增 `GET /api/v1/print-files/{id}/thumbnail`，复用文件归属和预签名有效期上限；删除文件时清理主文件和缩略图对象。
+  - 测试：`PrintFileOwnershipTest` 覆盖缩略图权限、有效期上限和删除清理；`PrintFileVOContractTest` 验证缩略图地址不出现在公共 VO。
 
 ## 6. P1 打印任务
 

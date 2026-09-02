@@ -102,6 +102,11 @@ public interface PrintFileService extends IService<PrintFile> {
     String getPresignedDownloadUrl(Long id, Integer expirationMinutes);
 
     /**
+     * 获取文件缩略图的短期预签名 URL；没有缩略图时返回 null。
+     */
+    String getPresignedThumbnailUrl(Long id, Integer expirationMinutes);
+
+    /**
      * 批量删除结果，保留每个 ID 的处理原因，便于前端逐项提示。
      */
     @lombok.Data

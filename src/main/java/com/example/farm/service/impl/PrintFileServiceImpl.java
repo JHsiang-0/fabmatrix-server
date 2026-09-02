@@ -346,7 +346,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 String thumbnailUrl = uploadThumbnailToRustFS(thumbnailBase64, safeName);
                 if (thumbnailUrl != null) {
                     printFile.setThumbnailUrl(thumbnailUrl);
-                    log.info("缩略图提取并上传成功: fileId={}, thumbnailUrl={}", printFile.getId(), thumbnailUrl);
+                    log.info("缩略图提取并上传成功: fileId={}", printFile.getId());
                 }
             } else {
                 log.debug("G-code 中未找到缩略图: safeName={}", safeName);
@@ -368,25 +368,38 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         PrintFile target = getAccessibleFile(id);
         ensureDeletable(target);
 
+        deleteThumbnailIfPresent(target);
         String objectKey = target.getSafeName();
         rustFsClient.deleteFile(objectKey);
         this.removeById(target.getId());
-        log.info("print file deleted from rustfs and db: fileId={}, userId={}, key={}", id, userId, objectKey);
+        log.info("print file deleted from rustfs and db: fileId={}, userId={}", id, userId);
     }
 
     @Override
     public String getPresignedDownloadUrl(Long id, Integer expirationMinutes) {
         PrintFile file = getAccessibleFile(id);
 
+        return rustFsClient.getPresignedUrl(file.getSafeName(), resolvePresignedExpiration(expirationMinutes));
+    }
+
+    @Override
+    public String getPresignedThumbnailUrl(Long id, Integer expirationMinutes) {
+        PrintFile file = getAccessibleFile(id);
+        if (file.getThumbnailUrl() == null || file.getThumbnailUrl().isBlank()) {
+            return null;
+        }
+        return rustFsClient.getPresignedUrlForObjectUrl(
+                file.getThumbnailUrl(), resolvePresignedExpiration(expirationMinutes));
+    }
+
+    private Duration resolvePresignedExpiration(Integer expirationMinutes) {
         int requestedMinutes = expirationMinutes != null && expirationMinutes > 0
                 ? expirationMinutes : 60;
         int maxMinutes = fileUploadProperties != null
                 && fileUploadProperties.getPresignedUrlMaxMinutes() != null
                 && fileUploadProperties.getPresignedUrlMaxMinutes() > 0
                 ? fileUploadProperties.getPresignedUrlMaxMinutes() : 120;
-        Duration expiration = Duration.ofMinutes(Math.min(requestedMinutes, maxMinutes));
-
-        return rustFsClient.getPresignedUrl(file.getSafeName(), expiration);
+        return Duration.ofMinutes(Math.min(requestedMinutes, maxMinutes));
     }
 
     @Override
@@ -419,6 +432,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             try {
                 PrintFile target = getAccessibleFile(id);
                 ensureDeletable(target);
+                deleteThumbnailIfPresent(target);
                 rustFsClient.deleteFile(target.getSafeName());
                 if (!this.removeById(target.getId())) {
                     throw new BusinessException("数据库记录删除失败");
@@ -517,6 +531,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (jobCount != null && jobCount > 0) {
             throw new BusinessException(409, "文件已关联打印任务，禁止删除");
         }
+    }
+
+    private void deleteThumbnailIfPresent(PrintFile file) {
+        if (file.getThumbnailUrl() == null || file.getThumbnailUrl().isBlank()) {
+            return;
+        }
+        rustFsClient.deleteFileByObjectUrl(file.getThumbnailUrl());
     }
 
     private void requireAccessibleFolder(Long folderId) {

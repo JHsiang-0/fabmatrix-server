@@ -19,7 +19,6 @@ public class PrintFilePreviewVO {
     private Integer estTime;
     private String materialType;
     private BigDecimal nozzleSize;
-    private String thumbnailUrl;
     private BigDecimal filamentWeight;
     private BigDecimal filamentLength;
     private Integer nozzleTemp;
@@ -37,7 +36,6 @@ public class PrintFilePreviewVO {
         vo.estTime = file.getEstTime();
         vo.materialType = file.getMaterialType();
         vo.nozzleSize = file.getNozzleSize();
-        vo.thumbnailUrl = file.getThumbnailUrl();
         vo.filamentWeight = file.getFilamentWeight();
         vo.filamentLength = file.getFilamentLength();
         vo.nozzleTemp = file.getNozzleTemp();

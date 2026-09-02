@@ -25,6 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -98,5 +101,29 @@ class RustFsClientTest {
 
         assertThatThrownBy(() -> client.deleteFile("demo.gcode"))
                 .isInstanceOf(StorageException.class);
+    }
+
+    @Test
+    void convertsStoredObjectUrlToPresignedObjectKey() {
+        RustFsClient spyClient = spy(client);
+        doReturn("https://example.test/signed-thumbnail")
+                .when(spyClient).getPresignedUrl("thumbnails/20_demo.jpeg", Duration.ofMinutes(30));
+
+        String url = spyClient.getPresignedUrlForObjectUrl(
+                "http://rustfs.test:9000/farm/thumbnails/20_demo.jpeg", Duration.ofMinutes(30));
+
+        assertThat(url).isEqualTo("https://example.test/signed-thumbnail");
+        verify(spyClient).getPresignedUrl("thumbnails/20_demo.jpeg", Duration.ofMinutes(30));
+    }
+
+    @Test
+    void deletesStoredObjectUrlUsingDecodedObjectKey() {
+        RustFsClient spyClient = spy(client);
+        doNothing().when(spyClient).deleteFile("thumbnails/20 demo.jpeg");
+
+        spyClient.deleteFileByObjectUrl(
+                "http://rustfs.test:9000/farm/thumbnails/20%20demo.jpeg");
+
+        verify(spyClient).deleteFile("thumbnails/20 demo.jpeg");
     }
 }

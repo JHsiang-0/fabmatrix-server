@@ -121,6 +121,15 @@ public class PrintFileController {
         return Result.success(presignedUrl, "获取下载链接成功");
     }
 
+    @Operation(summary = "获取缩略图链接", description = "返回短期预签名缩略图 URL；没有缩略图时 data=null")
+    @GetMapping("/{id}/thumbnail")
+    public Result<String> getThumbnailUrl(
+            @PathVariable Long id,
+            @RequestParam(value = "expires", required = false, defaultValue = "60") Integer expires) {
+        String presignedUrl = farmPrintFileService.getPresignedThumbnailUrl(id, expires);
+        return Result.success(presignedUrl, "获取缩略图链接成功");
+    }
+
     /**
      * 批量删除文件。
      * 请求格式: {"ids": [1, 2, 3]}

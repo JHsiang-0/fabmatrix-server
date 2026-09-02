@@ -206,7 +206,9 @@ startPrint()
 - [x] 实现 `GET /api/v1/print-files/{id}/jobs` 文件关联任务。
   - 已先校验文件归属，再按 `file_id` 分页返回 `PageResult<PrintJobVO>`；操作员仅本人任务，管理员全部；无文件或无权统一 404。
 - [x] 实现 `GET /api/v1/print-files/{id}/preview` 安全预览信息。
-  - 已返回已解析元数据和缩略图，不读/返回 G-code 原文、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；复用文件归属校验，目录返回 422。
+  - 已返回已解析元数据，不读/返回 G-code 原文、缩略图直连地址、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；缩略图通过独立预签名接口按需获取，复用文件归属校验，目录返回 422。
+- [x] 实现 `GET /api/v1/print-files/{id}/thumbnail` 安全缩略图接口，并在删除文件时清理缩略图对象。
+  - 缩略图接口复用文件下载的权限、默认有效期和服务端上限；无缩略图返回 `data=null`，对象存储失败返回 `503/5003`；公共 VO 不再暴露 RustFS 直连地址。
 - [x] 统一 `folder` 布尔字段名称，避免 `isFolder` 序列化差异。
   - 已统一 `PrintFileVO` 和 `FileNodeVO` 对外只输出 `folder`；`isFolder` 仅保留在实体/数据库内部，不兼容输出旧字段；实体未设置目录标记时也按文件返回 `folder=false`。
 - [x] 冻结文件 VO 的实际字段名和单位：预计打印时长使用 `estTime`（秒），耗材重量/长度使用 `BigDecimal`（克/米），不使用 `estimatedSeconds`。

@@ -214,6 +214,7 @@ P1 新接口先在 API_HANDOFF 中冻结，再实现 Controller/Service：
 
 - 打印机详情使用 `PrinterDetailVO`，历史和统计使用独立 DTO。
 - 文件目录树使用 `FileNodeVO`，预览不返回内部存储 key。
+- 文件缩略图不在公共 VO 中返回 RustFS 直连地址；通过 `GET /print-files/{id}/thumbnail` 按需签发短期 URL，删除文件时同步清理缩略图对象。
 - 任务标准创建地址为 `POST /api/v1/print-jobs`，保留旧 `/create` 兼容。
 - 任务重试、重新排队和优先级修改复用现有状态机和归属校验。
 - 用户增加 `/auth/me`，用户分页和资料响应继续脱敏。

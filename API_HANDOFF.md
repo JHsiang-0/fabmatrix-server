@@ -214,6 +214,7 @@ POST /api/v1/auth/login
 | GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | `FileNodeVO[]` |
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` |
+| GET | `/print-files/{id}/thumbnail` | ADMIN/OPERATOR | Query：`expires`，单位分钟 | 短期预签名缩略图 URL 或 null |
 | GET | `/print-files/{id}/download` | ADMIN/OPERATOR | Query：`expires` | 预签名 URL 字符串 |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
@@ -258,6 +259,7 @@ POST /api/v1/auth/login
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
 - 文件上传扩展名从 `farm.file.allowed-types` 读取，默认允许 `gcode,g,3mf,stl`；开发环境上限200MB，生产环境上限1GB。空文件、非法文件名、超限和不支持类型统一返回 HTTP 400；RustFS 失败返回 HTTP 503、业务码 `5003`。
+- 删除文件时先清理关联缩略图，再删除主文件对象；任一对象存储删除失败都会保留数据库记录并返回 `503/5003`，避免前端误判删除成功。
 
 ## 5. 已完成接口与冻结后的目标规范
 
@@ -376,7 +378,9 @@ Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更�
 
 `GET /print-files/{id}/jobs` 先校验文件对当前用户可见，再按 `file_id` 分页查询关联任务；操作员只能看到自己发起的任务，管理员可看到该文件的全部任务。`pageNum` 范围为 `1-Long.MAX_VALUE`，`pageSize` 范围为 `1-100`；文件不存在或无权访问均返回 HTTP 404，成功返回统一 `PageResult<PrintJobVO>`。
 
-`GET /print-files/{id}/preview` 先校验文件归属，只返回已入库的安全预览元数据：`id`、`originalName`、`fileSize`、`materialType`、`estTime`、`nozzleSize`、`thumbnailUrl`、耗材用量、温度和层高字段。该接口不读取或返回 G-code 原文，不返回 `safeName`、`rustfsKey`、`fileUrl` 或下载 URL；文件不存在、目录资源或无权访问均返回 HTTP 404/422 的明确业务错误。
+`GET /print-files/{id}/preview` 先校验文件归属，只返回已入库的安全预览元数据：`id`、`originalName`、`fileSize`、`materialType`、`estTime`、`nozzleSize`、耗材用量、温度和层高字段。该接口不读取或返回 G-code 原文、缩略图直连地址、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；文件不存在、目录资源或无权访问均返回 HTTP 404/422 的明确业务错误。
+
+`GET /print-files/{id}/thumbnail` 用于按需加载缩略图。接口先校验文件归属，再把历史保存的 RustFS 对象地址转换为短期预签名 URL；`expires` 与下载接口共用默认值 60 分钟和服务端上限（默认 120 分钟），没有缩略图时成功返回 `data=null`。缩略图直连地址只保留在后端实体内部，不通过文件 VO、预览 VO 或日志输出。
 
 文件删除策略固定为“禁止删除已关联任务的文件”：只要 `farm_print_job.file_id` 存在关联记录（包括已取消、失败和已完成任务），单个删除返回 HTTP 409、业务码 `409`，批量删除在对应 item 中返回失败原因，不影响其他可删除项。目录资源不能通过文件删除接口删除，返回 HTTP 422；对象存储删除失败返回 HTTP 503、业务码 `5003`，数据库记录不会先行删除。
 

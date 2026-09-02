@@ -37,7 +37,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String ROLE_OPERATOR = "OPERATOR";
-    private static final String ROLE_CUSTOMER = "CUSTOMER";
 
     private final PasswordEncoder passwordEncoder;
     private final LoginProtectUtil loginProtectUtil;
@@ -319,7 +318,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private String normalizeRole(String role) {
         String normalized = role == null ? null : role.trim().toUpperCase();
-        if (ROLE_ADMIN.equals(normalized) || ROLE_OPERATOR.equals(normalized) || ROLE_CUSTOMER.equals(normalized)) {
+        if (ROLE_ADMIN.equals(normalized) || ROLE_OPERATOR.equals(normalized)) {
             return normalized;
         }
         throw new BusinessException("非法角色: " + role);

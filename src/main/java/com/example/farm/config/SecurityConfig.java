@@ -35,10 +35,34 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/login").permitAll()
-                        .requestMatchers("/api/v1/auth/register").permitAll()
-                        .requestMatchers("/api/v1/auth/check-username").permitAll()
-                        .requestMatchers("/api/v1/auth/check-email").permitAll()
+                        // 本地农场不开放匿名注册，操作员账号由管理员创建
+                        .requestMatchers("/api/v1/auth/register").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/auth/check-username").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/auth/check-email").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/admin/**").hasRole("ADMIN")
+
+                        // 打印机：操作员可以查看状态，只有管理员可以增删改和扫描设备
+                        .requestMatchers(HttpMethod.GET, "/api/v1/printers/**")
+                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/printers/**").hasRole("ADMIN")
+
+                        // 文件：所有登录用户可以查看和下载，操作员及管理员可以上传、建目录、删除
+                        .requestMatchers(HttpMethod.GET, "/api/v1/print-files/**")
+                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/print-files/page")
+                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/print-files/**").hasAnyRole("ADMIN", "OPERATOR")
+
+                        // 任务：所有登录用户可以查看队列，操作员及管理员负责提交和控制任务
+                        .requestMatchers(HttpMethod.GET, "/api/v1/print-jobs/**")
+                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/print-jobs/page")
+                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers("/api/v1/print-jobs/**").hasAnyRole("ADMIN", "OPERATOR")
+
+                        // 物理控制属于生产操作，管理员和操作员均可执行
+                        .requestMatchers("/api/v1/control/**").hasAnyRole("ADMIN", "OPERATOR")
+
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         // Moonraker API 模拟器（OrcaSlicer 等切片软件）

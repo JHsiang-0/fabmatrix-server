@@ -71,5 +71,7 @@ server:
 
 # 测试环境应用配置
 farm:
+  tasks:
+    enabled: false
   websocket:
     enabled: false

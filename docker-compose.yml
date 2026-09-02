@@ -1,0 +1,68 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: farm-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: FarmRoot2026!
+      MYSQL_DATABASE: farm
+      MYSQL_USER: farm
+      MYSQL_PASSWORD: YBW5esRQwm4fm3X2
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - farm_mysql_data:/var/lib/mysql
+      - ./src/main/resources/db/migration/farm.sql:/docker-entrypoint-initdb.d/01-farm.sql:ro
+      - ./src/main/resources/db/migration/02-current-schema.sql:/docker-entrypoint-initdb.d/02-current-schema.sql:ro
+      - ./src/main/resources/db/migration/03-remove-customer-role.sql:/docker-entrypoint-initdb.d/03-remove-customer-role.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -pFarmRoot2026! --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: farm-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - redis_ZSeBDY
+    ports:
+      - "6379:6379"
+    volumes:
+      - farm_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a redis_ZSeBDY --no-auth-warning ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: farm-rustfs
+    restart: unless-stopped
+    command: /data
+    environment:
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin_fzSNXB
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - farm_rustfs_data:/data
+
+volumes:
+  farm_mysql_data:
+  farm_redis_data:
+  farm_rustfs_data:

@@ -51,10 +51,10 @@ public class User implements Serializable {
     private String passwordHash;
 
     /**
-     * 角色权限：ADMIN, OPERATOR, CUSTOMER
+     * 角色权限：ADMIN, OPERATOR
      */
     @TableField("role")
-    @Schema(description = "角色权限：ADMIN, OPERATOR, CUSTOMER")
+    @Schema(description = "角色权限：ADMIN(管理员), OPERATOR(操作员)")
     private String role;
 
     /**

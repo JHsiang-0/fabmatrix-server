@@ -19,7 +19,7 @@ public class UserQueryDTO {
     @Schema(description = "搜索关键字：用户名 (模糊查询)")
     private String username;
 
-    @Schema(description = "角色筛选：ADMIN(管理员), OPERATOR(操作员), CUSTOMER(客户)")
+    @Schema(description = "角色筛选：ADMIN(管理员), OPERATOR(操作员)")
     private String role;
 
     @Schema(description = "邮箱")

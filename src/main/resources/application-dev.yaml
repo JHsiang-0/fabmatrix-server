@@ -44,15 +44,15 @@ rustfs:
 # 开发环境日志配置 - 更详细的日志输出
 logging:
   level:
-    root: INFO
-    com.example.farm: warn
-    com.example.farm.mapper: warn  # 打印SQL语句
+    root: WARN
+    com.example.farm: WARN
+    com.example.farm.mapper: WARN  # 打印SQL语句
     com.example.farm.task: WARN
     org.springframework.web: DEBUG
-    org.springframework.web.socket: warn
+    org.springframework.web.socket: WARN
     org.apache.ibatis: DEBUG
     io.lettuce.core: INFO
-    com.zaxxer.hikari: DEBUG
+    com.zaxxer.hikari: INFO
     org.springframework.web.client: WARN  # 屏蔽 WebClient REST 调用日志
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) - %msg%n"
@@ -70,8 +70,11 @@ server:
 
 # 开发环境应用配置
 farm:
+  tasks:
+    # 当前没有真实 Klipper 打印机，暂时关闭巡检和自动派单
+    enabled: false
   websocket:
     enabled: true
     max-connections: 100
-  # Moonraker API 模拟器（开发环境使用固定密钥）
-  moonraker-api-key: dev-moonraker-key
+#  # Moonraker API 模拟器（开发环境使用固定密钥）
+#  moonraker-api-key: dev-moonraker-key

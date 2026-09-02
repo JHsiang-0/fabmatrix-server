@@ -23,6 +23,6 @@ public class UserUpdateDTO {
     @Schema(description = "手机号", example = "13800138000")
     private String phone;
 
-    @Schema(description = "角色：ADMIN(管理员), OPERATOR(操作员), CUSTOMER(客户)")
+    @Schema(description = "角色：ADMIN(管理员), OPERATOR(操作员)")
     private String role;
 }

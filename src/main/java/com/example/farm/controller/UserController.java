@@ -50,10 +50,16 @@ public class UserController {
         return Result.success(userService.login(loginDTO), "登录成功");
     }
 
-    @Operation(summary = "用户注册")
+    @Operation(summary = "管理员创建操作员")
     @PostMapping("/register")
     public Result<Long> register(@Valid @RequestBody UserRegisterDTO registerDTO) {
         return Result.success(userService.register(registerDTO), "注册成功");
+    }
+
+    @Operation(summary = "管理员创建操作员账号")
+    @PostMapping("/admin/users")
+    public Result<Long> createOperator(@Valid @RequestBody UserRegisterDTO registerDTO) {
+        return Result.success(userService.register(registerDTO), "操作员创建成功");
     }
 
     @Operation(summary = "修改密码")

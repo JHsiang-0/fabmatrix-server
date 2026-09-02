@@ -72,6 +72,28 @@ class PrintJobCreateTest {
     }
 
     @Test
+    void rejectsStandardCreationWhenTaskInsertFails() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        when(printJobMapper.insert(any(PrintJob.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> printJobService.createJob(request(null)))
+                .hasMessage("创建打印任务失败：任务记录保存失败");
+
+        verify(printerService, never()).getById(any());
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
+    @Test
+    void rejectsCompatibilitySubmissionWhenTaskInsertFails() {
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        when(printJobMapper.insert(any(PrintJob.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> printJobService.submitJob(20L, 1L, 0))
+                .hasMessage("提交打印任务失败：任务记录保存失败");
+    }
+
+    @Test
     void specifiedIdlePrinterReceivesAssignedJobWithoutStartingIt() {
         mockUser(1L, "OPERATOR");
         when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));

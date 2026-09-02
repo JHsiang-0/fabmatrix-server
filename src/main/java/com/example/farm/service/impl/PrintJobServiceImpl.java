@@ -61,7 +61,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setPriority(priority != null ? priority : 0);
         job.setStatus(PrintJobStatus.QUEUED.name());
         job.setProgress(BigDecimal.ZERO);
-        this.save(job);
+        if (!this.save(job)) {
+            throw new BusinessException("提交打印任务失败：任务记录保存失败");
+        }
         log.info("提交打印任务成功: jobId={}, userId={}, fileId={}, priority={}", job.getId(), userId, fileId, job.getPriority());
         return job.getId();
     }
@@ -171,7 +173,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         // 状态：QUEUED（等待派发）
         job.setStatus(PrintJobStatus.QUEUED.name());
 
-        this.save(job);
+        if (!this.save(job)) {
+            throw new BusinessException("创建打印任务失败：任务记录保存失败");
+        }
         if (req.getPrinterId() != null) {
             assignJob(job.getId(), req.getPrinterId());
         }

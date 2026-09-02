@@ -172,7 +172,7 @@ public interface PrinterProtocolAdapter {
 - 取消、暂停、恢复
 - 后续重试、重新排队
 
-数据库状态更新必须发生在设备调用成功之后；成功事件在事务成功后发布。自动派发由 `PrintJobService.assignQueuedJob` 执行，调度器本身只负责分布式锁和扫描；该 Service 事务内重新校验 `QUEUED`/`IDLE`，依次保存任务和打印机，任一保存失败抛出业务异常并回滚，之后才发布任务事件。
+数据库状态更新必须发生在设备调用成功之后；任务创建也必须检查 `save` 的实际结果，插入失败立即抛出业务异常，不返回任务 ID。成功事件在事务成功后发布。自动派发由 `PrintJobService.assignQueuedJob` 执行，调度器本身只负责分布式锁和扫描；该 Service 事务内重新校验 `QUEUED`/`IDLE`，依次保存任务和打印机，任一保存失败抛出业务异常并回滚，之后才发布任务事件。
 
 ### 5.3 PrinterMonitorTask
 

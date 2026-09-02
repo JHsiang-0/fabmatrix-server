@@ -239,7 +239,10 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         existingPrinter.setFirmwareType(normalizeFirmwareType(
                 StringUtils.hasText(dto.getFirmwareType())
                         ? dto.getFirmwareType() : existingPrinter.getFirmwareType()));
-        existingPrinter.setApiKey(dto.getApiKey());
+        // apiKey 不出现在查询响应中；编辑时未传值表示保留原凭据，避免普通配置修改误清除设备认证。
+        if (StringUtils.hasText(dto.getApiKey())) {
+            existingPrinter.setApiKey(dto.getApiKey().trim());
+        }
         existingPrinter.setCurrentMaterial(dto.getCurrentMaterial());
         existingPrinter.setNozzleSize(dto.getNozzleSize());
         existingPrinter.setMachineNumber(dto.getMachineNumber());

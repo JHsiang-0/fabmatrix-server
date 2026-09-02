@@ -84,6 +84,7 @@ class PrinterServiceFirmwareTypeTest {
         existing.setName("klipper-01");
         existing.setIpAddress("192.168.1.80");
         existing.setFirmwareType("Klipper");
+        existing.setApiKey("device-secret");
         when(printerMapper.selectById(403L)).thenReturn(existing);
         when(printerMapper.updateById(any(Printer.class))).thenReturn(1);
 
@@ -96,6 +97,7 @@ class PrinterServiceFirmwareTypeTest {
         printerService.updatePrinter(request);
 
         assertThat(existing.getFirmwareType()).isEqualTo("KLIPPER");
+        assertThat(existing.getApiKey()).isEqualTo("device-secret");
         verify(printerMapper).updateById(existing);
     }
 

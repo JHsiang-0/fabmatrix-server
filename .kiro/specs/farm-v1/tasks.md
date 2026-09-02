@@ -131,6 +131,9 @@
 - [x] T4.9 收敛打印机 CRUD 的持久化成功判定。
   - 验收：打印机新增、重新录入、编辑、删除和无 MAC 降级插入检查实际数据库写入结果；失败时返回业务异常，不刷新缓存伪装成功。
   - 测试：`PrinterServiceFirmwareTypeTest` 覆盖新增/编辑数据库 0 行路径；全量测试通过。
+- [x] T4.10 修复打印机编辑时凭据字段的部分更新语义。
+  - 验收：`PrinterUpdateDTO.apiKey` 未传或为空白时保留数据库原值；响应仍不返回明文凭据，避免正常编辑清除设备认证。
+  - 测试：`PrinterServiceFirmwareTypeTest` 覆盖凭据保留路径；全量测试通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

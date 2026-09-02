@@ -1,6 +1,7 @@
 package com.example.farm.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.entity.PrintFile;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -15,6 +16,16 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface PrintFileMapper extends BaseMapper<PrintFile> {
+
+    /**
+     * 按当前用户和筛选条件分页查询文件。
+     */
+    Page<PrintFile> selectFilePage(Page<PrintFile> page,
+                                    @Param("userId") Long userId,
+                                    @Param("admin") boolean admin,
+                                    @Param("filterUserId") Long filterUserId,
+                                    @Param("fileName") String fileName,
+                                    @Param("materialType") String materialType);
 
     /**
      * 统计指定文件的打印任务数量

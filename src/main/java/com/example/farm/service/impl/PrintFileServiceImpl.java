@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 @Slf4j
@@ -116,19 +117,15 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         Long userId = SecurityContextUtil.getCurrentUserId();
         Page<PrintFile> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
 
-        // 分页查询当前用户文件列表
-        LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
-        if (SecurityContextUtil.isAdmin()) {
-            wrapper.eq(queryDTO.getUserId() != null, PrintFile::getUserId, queryDTO.getUserId());
-        } else {
-            wrapper.eq(PrintFile::getUserId, userId);
-        }
-        wrapper.like(queryDTO.getFileName() != null && !queryDTO.getFileName().isBlank(),
-                        PrintFile::getOriginalName, queryDTO.getFileName())
-                .eq(queryDTO.getMaterialType() != null && !queryDTO.getMaterialType().isBlank(),
-                        PrintFile::getMaterialType, queryDTO.getMaterialType())
-                .orderByDesc(PrintFile::getCreatedAt);
-        Page<PrintFile> resultPage = this.page(page, wrapper);
+        String fileName = normalizeFileName(queryDTO.getFileName());
+        String materialType = normalizeMaterialType(queryDTO.getMaterialType());
+
+        boolean admin = SecurityContextUtil.isAdmin();
+        Long filterUserId = admin ? queryDTO.getUserId() : null;
+
+        // 使用显式 Mapper SQL，固定 fileName/materialType 到真实数据库列的映射。
+        Page<PrintFile> resultPage = baseMapper.selectFilePage(
+                page, userId, admin, filterUserId, fileName, materialType);
 
         // 统计每个文件的打印次数和成功率
         if (resultPage.getRecords() != null && !resultPage.getRecords().isEmpty()) {
@@ -138,6 +135,20 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         }
 
         return resultPage;
+    }
+
+    private String normalizeFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return null;
+        }
+        return fileName.trim();
+    }
+
+    private String normalizeMaterialType(String materialType) {
+        if (materialType == null || materialType.isBlank()) {
+            return null;
+        }
+        return materialType.trim().toUpperCase(Locale.ROOT);
     }
 
     /**

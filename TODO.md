@@ -190,7 +190,8 @@ startPrint()
 
 ### P1.2 文件库
 
-- [ ] 修复现有文件分页的 `fileName`、`materialType` 筛选不生效问题。
+- [x] 修复现有文件分页的 `fileName`、`materialType` 筛选不生效问题。
+  - 已通过显式 Mapper SQL 固定 `fileName -> original_name LIKE`、`materialType -> UPPER(material_type) =`，并对输入 trim/大写规范化；操作员继续强制按 `user_id` 隔离。
 - [ ] 实现 `GET /api/v1/print-files/tree` 目录树。
 - [ ] 实现 `GET /api/v1/print-files/{id}/jobs` 文件关联任务。
 - [ ] 实现 `GET /api/v1/print-files/{id}/preview` 安全预览信息。

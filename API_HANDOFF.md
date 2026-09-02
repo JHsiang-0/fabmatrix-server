@@ -201,6 +201,8 @@ POST /api/v1/auth/login
 | GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId` | `PrintFileVO[]` |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
 
+`POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员始终只能查询本人文件，管理员可通过 `userId` 查询指定用户，不传则查询全部用户。
+
 ### 4.3 打印任务
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |

@@ -2,6 +2,29 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.PrintFileMapper">
 
+    <!-- 文件分页查询：操作员只能查本人，管理员可按 userId 筛选或查询全部。 -->
+    <select id="selectFilePage" resultType="com.example.farm.entity.PrintFile">
+        SELECT *
+        FROM farm_print_file
+        <where>
+            <choose>
+                <when test="admin and filterUserId != null">
+                    user_id = #{filterUserId}
+                </when>
+                <when test="!admin">
+                    user_id = #{userId}
+                </when>
+            </choose>
+            <if test="fileName != null and fileName != ''">
+                AND original_name LIKE CONCAT('%', #{fileName}, '%')
+            </if>
+            <if test="materialType != null and materialType != ''">
+                AND UPPER(material_type) = #{materialType}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
     <!-- 统计指定文件的打印任务数量 -->
     <select id="countPrintJobsByFileId" resultType="java.lang.Integer">
         SELECT COUNT(*)

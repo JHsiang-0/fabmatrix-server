@@ -163,7 +163,7 @@ startPrint()
 ```
 
 - [x] 冻结消息类型并增加服务端校验：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
-- [ ] 客户端连接后发送一次全量 `SNAPSHOT`。
+- [x] 客户端鉴权连接后发送一次全量 `SNAPSHOT`，数据使用安全打印机 VO。
 - [ ] 打印机离线时发送 `PRINTER_OFFLINE`，不能只更新数据库而不通知前端。
 - [ ] 明确是否需要按打印机订阅；第一版可先广播全部设备，但必须通过权限校验。
 - [ ] 增加 WebSocket 格式、连接、断线和离线推送测试。

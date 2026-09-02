@@ -80,9 +80,10 @@
   - 目标：`FarmStatusMessage`、`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
   - 验收：`FarmStatusMessage` 固定顶层字段，校验消息类型、时间戳、打印机 ID 和敏感字段；监控任务已改用类型化打印机状态消息。快照、离线和任务事件留到后续 Task。
   - 测试：`FarmStatusMessageTest`、`WebSocketSecurityTest` 共 4 个针对性测试通过。
-- [ ] T3.2 新增快照服务和连接成功快照。
+- [x] T3.2 新增快照服务和连接成功快照。
   - 目标：连接鉴权成功后发送 `data.printers` 全量快照。
-  - 验收：不依赖单台设备在线，不返回 Entity 敏感字段。
+  - 验收：鉴权成功后发送一次 `SNAPSHOT`；快照从安全 `PrinterVO` 构建，不依赖单台设备在线，空农场返回空数组，不返回 Entity 敏感字段。
+  - 测试：`FarmStatusSnapshotServiceTest`、`FarmStatusMessageTest`、`WebSocketSecurityTest` 共 6 个针对性测试通过。
 - [ ] T3.3 接入打印机状态和离线事件。
   - 目标：监控任务发布状态变化和离线事件，避免高频重复离线消息。
   - 验收：REST 状态与事件一致，单台设备故障不影响其他设备。

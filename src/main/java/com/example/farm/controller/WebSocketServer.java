@@ -3,11 +3,13 @@ package com.example.farm.controller;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.farm.common.utils.JwtUtils;
+import com.example.farm.service.FarmStatusSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.util.Map;
@@ -28,6 +30,15 @@ public class WebSocketServer {
     private static final Map<Session, Object> sessionLocks = new ConcurrentHashMap<>();
     
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static volatile FarmStatusSnapshotService snapshotService;
+
+    /**
+     * Jakarta Endpoint 由容器创建，使用 setter 将 Spring 快照服务注册到端点。
+     */
+    @Autowired
+    public void setSnapshotService(FarmStatusSnapshotService service) {
+        WebSocketServer.snapshotService = service;
+    }
 
     @OnOpen
     public void onOpen(Session session) {
@@ -63,6 +74,7 @@ public class WebSocketServer {
         // 为每个新会话创建锁对象
         sessionLocks.put(session, new Object());
         log.info("WebSocket 客户端接入，当前在线连接数: {}", sessions.size());
+        sendInitialSnapshot(session);
     }
 
     @OnClose
@@ -154,6 +166,19 @@ public class WebSocketServer {
      */
     public static int getOnlineCount() {
         return sessions.size();
+    }
+
+    private static void sendInitialSnapshot(Session session) {
+        FarmStatusSnapshotService service = snapshotService;
+        if (service == null) {
+            log.warn("WebSocket 初始快照服务尚未就绪: sessionId={}", session.getId());
+            return;
+        }
+        try {
+            sendMessage(session, FarmStatusMessage.snapshot(service.buildSnapshot()));
+        } catch (RuntimeException exception) {
+            log.error("发送 WebSocket 初始快照失败: sessionId={}", session.getId(), exception);
+        }
     }
 
     private static String firstText(java.util.List<String> values) {

@@ -269,7 +269,7 @@ public record FarmStatusMessage(
 }
 ```
 
-`data.printers` 使用安全的 `PrinterVO` 或专用状态快照 VO，不含 `apiKey`。新连接鉴权成功后只发送一次。
+`data.printers` 使用安全的 `PrinterVO` 或专用状态快照 VO，不含 `apiKey`。新连接鉴权成功后只发送一次；没有打印机时仍发送 `printers: []`。
 
 #### PRINTER_STATUS
 

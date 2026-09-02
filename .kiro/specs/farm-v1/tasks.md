@@ -145,7 +145,7 @@
 ## 6. P1 打印任务
 
 - [x] T6.1 实现标准创建接口 `POST /api/v1/print-jobs`，旧 `/create` 标记 deprecated。
-  - 验收：复用现有创建 Service，接收 `fileId,priority`，创建 `QUEUED` 任务；`printerId` 留给后续 T6.2；旧地址已标记 Java/OpenAPI deprecated。
+  - 验收：复用现有创建 Service，接收 `fileId,priority,printerId?`；不指定设备创建 `QUEUED`，指定设备按 T6.2 规则进入 `ASSIGNED`；旧地址已标记 Java/OpenAPI deprecated。
   - 测试：`SecurityResponseTest` 覆盖标准创建地址未认证 401，全量测试通过。
 - [x] T6.2 支持可选 `printerId`，不指定时进入 `QUEUED`。
   - 验收：指定设备时复用安全派发逻辑，校验设备存在且 IDLE，成功进入 `ASSIGNED` 并绑定设备但不直接打印；失败事务回滚。

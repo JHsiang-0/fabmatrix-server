@@ -192,7 +192,8 @@ startPrint()
 
 - [x] 修复现有文件分页的 `fileName`、`materialType` 筛选不生效问题。
   - 已通过显式 Mapper SQL 固定 `fileName -> original_name LIKE`、`materialType -> UPPER(material_type) =`，并对输入 trim/大写规范化；操作员继续强制按 `user_id` 隔离。
-- [ ] 实现 `GET /api/v1/print-files/tree` 目录树。
+- [x] 实现 `GET /api/v1/print-files/tree` 目录树。
+  - 已实现完整树返回 `id,parentId,folder,name,fileSize,materialType,createdAt,children`；操作员仅本人，管理员全部；目录优先、同级创建时间倒序，孤立/循环节点安全按根节点返回。
 - [ ] 实现 `GET /api/v1/print-files/{id}/jobs` 文件关联任务。
 - [ ] 实现 `GET /api/v1/print-files/{id}/preview` 安全预览信息。
 - [ ] 统一 `folder` 布尔字段名称，避免 `isFolder` 序列化差异。

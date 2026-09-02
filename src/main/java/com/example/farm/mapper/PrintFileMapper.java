@@ -28,6 +28,12 @@ public interface PrintFileMapper extends BaseMapper<PrintFile> {
                                     @Param("materialType") String materialType);
 
     /**
+     * 查询当前用户可访问的全部文件树节点。
+     */
+    java.util.List<PrintFile> selectAccessibleFileTree(@Param("userId") Long userId,
+                                                        @Param("admin") boolean admin);
+
+    /**
      * 统计指定文件的打印任务数量
      *
      * @param fileId  文件 ID

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
+import com.example.farm.entity.vo.FileNodeVO;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -21,6 +22,13 @@ public interface PrintFileService extends IService<PrintFile> {
      * @return 目录下的文件和文件夹列表
      */
     List<PrintFile> getFolderContent(Long parentId);
+
+    /**
+     * 获取当前用户可访问的完整文件目录树。
+     *
+     * @return 根节点列表
+     */
+    List<FileNodeVO> getFileTree();
 
     /**
      * 在指定目录下创建一个虚拟文件夹

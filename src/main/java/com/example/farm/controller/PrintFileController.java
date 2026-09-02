@@ -8,6 +8,7 @@ import com.example.farm.entity.dto.request.CreateFolderRequest;
 import com.example.farm.entity.dto.request.BatchDeleteFilesRequest;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFileVO;
+import com.example.farm.entity.vo.FileNodeVO;
 import com.example.farm.service.PrintFileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -56,6 +57,15 @@ public class PrintFileController {
     @PostMapping("/page")
     public Result<PageResult<PrintFileVO>> pageFiles(@Valid @RequestBody PrintFileQueryDTO queryDTO) {
         return Result.success(PageResult.from(farmPrintFileService.pageFiles(queryDTO), PrintFileVO::from));
+    }
+
+    /**
+     * 获取当前用户可访问的完整文件目录树。
+     */
+    @Operation(summary = "获取文件目录树", description = "返回完整目录树，不分页；目录和文件节点均包含 children 数组")
+    @GetMapping("/tree")
+    public Result<List<FileNodeVO>> getFileTree() {
+        return Result.success(farmPrintFileService.getFileTree(), "获取文件目录树成功");
     }
 
     /**

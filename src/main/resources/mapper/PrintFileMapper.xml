@@ -25,6 +25,18 @@
         ORDER BY created_at DESC
     </select>
 
+    <!-- 文件目录树节点查询：权限条件在 SQL 层再次固定。 -->
+    <select id="selectAccessibleFileTree" resultType="com.example.farm.entity.PrintFile">
+        SELECT *
+        FROM farm_print_file
+        <where>
+            <if test="!admin">
+                user_id = #{userId}
+            </if>
+        </where>
+        ORDER BY is_folder DESC, created_at DESC, id ASC
+    </select>
+
     <!-- 统计指定文件的打印任务数量 -->
     <select id="countPrintJobsByFileId" resultType="java.lang.Integer">
         SELECT COUNT(*)

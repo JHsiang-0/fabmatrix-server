@@ -123,7 +123,9 @@
 - [x] T5.1 修复文件分页名称和材质筛选，并增加查询测试。
   - 验收：显式 Mapper SQL 固定 `fileName -> original_name LIKE`、`materialType -> UPPER(material_type) =`；输入 trim/大写规范化；操作员忽略请求中的 `userId` 并按当前用户隔离。
   - 测试：`PrintFileQueryTest` 2 个测试通过。
-- [ ] T5.2 实现文件目录树 `GET /api/v1/print-files/tree`。
+- [x] T5.2 实现文件目录树 `GET /api/v1/print-files/tree`。
+  - 验收：返回完整树节点 `id,parentId,folder,name,fileSize,materialType,createdAt,children`；操作员仅本人，管理员全部；目录优先、同级创建时间倒序，孤立/循环节点安全按根节点返回。
+  - 测试：`PrintFileTreeTest` 2 个测试通过。
 - [ ] T5.3 实现文件关联任务 `GET /api/v1/print-files/{id}/jobs`。
 - [ ] T5.4 实现安全预览 `GET /api/v1/print-files/{id}/preview`。
 - [ ] T5.5 统一 `folder/isFolder` 对外字段并更新 VO、Swagger 和前端契约。

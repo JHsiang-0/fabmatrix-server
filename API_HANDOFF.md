@@ -308,6 +308,8 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 
 文件接口按当前登录用户隔离资源；`OPERATOR` 只能访问本人文件，`ADMIN` 可查看和管理全部文件。管理员分页查询可通过 `userId` 筛选指定用户，不传时查询全部。
 
+`GET /print-files/tree` 当前冻结为返回完整树，不分页、不接受必填参数；若以后传入 `parentId`，只作为从指定目录开始的兼容扩展。`FileNodeVO` 字段为：`id`、`parentId`、`folder`、`name`、`fileSize`、`materialType`、`createdAt`、`children`。目录和文件均返回 `children` 数组，文件节点数组为空；`name` 为目录名或文件原始名。节点按目录优先、同级创建时间倒序排列。操作员只获得本人节点，管理员获得全部节点；孤立节点按根节点返回，避免前端丢失数据。
+
 ## 6. 数据模型
 
 ### 6.1 PrinterVO / PrinterDetailVO

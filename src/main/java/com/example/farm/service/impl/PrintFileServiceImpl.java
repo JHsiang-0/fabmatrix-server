@@ -13,6 +13,7 @@ import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
+import com.example.farm.entity.vo.FileNodeVO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.PrintFileService;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +31,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -66,6 +71,58 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         wrapper.orderByAsc(PrintFile::getIsFolder)
                 .orderByDesc(PrintFile::getCreatedAt);
         return this.list(wrapper);
+    }
+
+    @Override
+    public List<FileNodeVO> getFileTree() {
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        boolean admin = SecurityContextUtil.isAdmin();
+        List<PrintFile> files = baseMapper.selectAccessibleFileTree(currentUserId, admin);
+        if (files == null || files.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, FileNodeVO> nodes = new LinkedHashMap<>();
+        Map<Long, PrintFile> filesById = new LinkedHashMap<>();
+        for (PrintFile file : files) {
+            if (file.getId() == null) {
+                continue;
+            }
+            nodes.put(file.getId(), FileNodeVO.from(file));
+            filesById.put(file.getId(), file);
+        }
+
+        List<FileNodeVO> roots = new ArrayList<>();
+        for (PrintFile file : files) {
+            FileNodeVO node = nodes.get(file.getId());
+            if (node == null) {
+                continue;
+            }
+            if (file.getParentId() == null
+                    || !nodes.containsKey(file.getParentId())
+                    || createsCycle(file, filesById)) {
+                roots.add(node);
+                continue;
+            }
+            nodes.get(file.getParentId()).getChildren().add(node);
+        }
+        return roots;
+    }
+
+    private boolean createsCycle(PrintFile file, Map<Long, PrintFile> filesById) {
+        Set<Long> visited = new HashSet<>();
+        Long ancestorId = file.getParentId();
+        while (ancestorId != null) {
+            if (Objects.equals(ancestorId, file.getId()) || !visited.add(ancestorId)) {
+                return true;
+            }
+            PrintFile ancestor = filesById.get(ancestorId);
+            if (ancestor == null) {
+                return false;
+            }
+            ancestorId = ancestor.getParentId();
+        }
+        return false;
     }
 
     @Override

@@ -63,17 +63,17 @@
 
 ### P0.3 统一状态机
 
-- [ ] 任务初始状态统一为 `QUEUED`，修复当前创建任务使用 `PENDING`、调度器查询 `QUEUED` 的冲突。
-- [ ] 任务状态统一为：
+- [x] 任务初始状态统一为 `QUEUED`，修复创建任务与调度器查询状态不一致的问题。
+- [x] 任务状态统一为：
 
 ```text
 QUEUED, ASSIGNED, READY, PRINTING, PAUSED,
 COMPLETED, FAILED, CANCELLED
 ```
 
-- [ ] 删除业务代码中的 `PENDING`、`CANCELED` 状态判断，增加兼容读取或一次性数据迁移。
-- [ ] `PREPARING` 只作为打印机状态，不作为任务状态。
-- [ ] 明确并测试状态流转：
+- [x] 删除业务代码中的旧状态判断，增加兼容读取和一次性数据迁移脚本 `04-normalize-print-job-status.sql`。
+- [x] `PREPARING` 只作为打印机状态，不作为任务状态。
+- [x] 明确并测试状态流转：
 
 ```text
 QUEUED -> ASSIGNED -> READY -> PRINTING
@@ -83,9 +83,11 @@ PRINTING -> COMPLETED/FAILED
 FAILED -> QUEUED（重试）
 ```
 
-- [ ] 禁止任务调度器在真实调用设备前把任务写成已开始打印。
-- [ ] 为每个非法状态转换返回 HTTP 422。
-- [ ] 为状态流转增加 Service 单元测试。
+设备上报取消时允许 `PRINTING -> CANCELLED`；用户主动取消打印中的任务仍由当前控制接口拒绝。
+
+- [x] 禁止任务调度器在真实调用设备前把任务写成已开始打印；调度只进入 `ASSIGNED`，设备调用成功后才进入 `PRINTING`。
+- [x] 为每个非法状态转换返回 HTTP 422。
+- [x] 为状态流转增加单元测试，覆盖旧状态兼容、正常流转和非法流转。
 
 ### P0.4 资源归属和权限
 

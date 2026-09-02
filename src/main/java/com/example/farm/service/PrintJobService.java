@@ -67,7 +67,7 @@ public interface PrintJobService extends IService<PrintJob> {
 
     /**
      * 后台派发任务（两步式安全打印的第一步）
-     * - 校验：Job 必须处于 PENDING 状态
+     * - 校验：Job 必须处于 QUEUED 状态
      * - 行为：将 Job 的 printerId 设为目标机器，状态改为 ASSIGNED
      * - 行为：将目标 Printer 的 is_safe_to_print 重置为 false（防范风险）
      *
@@ -89,7 +89,7 @@ public interface PrintJobService extends IService<PrintJob> {
 
     /**
      * 现场启动打印（两步式安全打印的第二步之二）
-     * - 校验 1：Job 必须处于 ASSIGNED 状态
+     * - 校验 1：Job 必须处于 ASSIGNED 或 READY 状态
      * - 校验 2：关联的 Printer 的 is_safe_to_print 必须为 true，否则抛出业务异常"热床未确认安全，禁止打印"
      * - 行为：将 Job 状态改为 PRINTING，记录传入的 operatorId
      * - 行为：调用 Moonraker 接口发送打印指令

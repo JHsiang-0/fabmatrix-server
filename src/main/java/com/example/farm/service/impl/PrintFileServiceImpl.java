@@ -9,6 +9,7 @@ import com.example.farm.common.utils.RustFsClient;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.PrintFileService;
@@ -122,7 +123,8 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         LambdaQueryWrapper<PrintJob> jobWrapper = new LambdaQueryWrapper<>();
         jobWrapper.eq(PrintJob::getFileId, printFile.getId());
         // 只统计已完成和失败的任务（排除正在进行的）
-        jobWrapper.in(PrintJob::getStatus, "COMPLETED", "FAILED", "CANCELED");
+        jobWrapper.in(PrintJob::getStatus, PrintJobStatus.COMPLETED.name(),
+                PrintJobStatus.FAILED.name(), PrintJobStatus.CANCELLED.name());
 
         Long userId = SecurityContextUtil.getCurrentUserId();
         Long fileId = printFile.getId();

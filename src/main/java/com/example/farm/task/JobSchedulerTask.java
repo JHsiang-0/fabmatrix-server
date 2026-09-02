@@ -6,6 +6,7 @@ import com.example.farm.common.utils.LogUtil;
 import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrintJobService;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +16,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -72,18 +72,6 @@ public class JobSchedulerTask {
 
     @Transactional
     public void doSchedule() {
-        // TODO: 自动派单功能目前只处理 QUEUED 状态的任务
-        // 状态流转设计：
-        // - PENDING: 等待派单（手动派单模式）
-        // - QUEUED: 等待自动派单（自动调度模式）
-        // - ASSIGNED: 已分配到打印机，等待启动打印
-        // - PRINTING/READY: 打印中/已上传待机
-        //
-        // 启用自动派单需要：
-        // 1. 在 createJob 提交任务时，根据业务需求将状态设为 QUEUED（自动模式）或 PENDING（手动模式）
-        // 2. 或者提供一个配置开关来控制新任务的初始状态
-        // 3. 手动派单流程（assignJob）目前设置的是 ASSIGNED，不会被自动调度器抢走
-
         long startTime = System.currentTimeMillis();
         
         try {
@@ -96,10 +84,7 @@ public class JobSchedulerTask {
             }
 
             // 获取排队任务
-            List<PrintJob> queuedJobs = printJobService.list(new LambdaQueryWrapper<PrintJob>()
-                    .eq(PrintJob::getStatus, "QUEUED")
-                    .orderByDesc(PrintJob::getPriority)
-                    .orderByAsc(PrintJob::getCreatedAt));
+            List<PrintJob> queuedJobs = printJobService.getQueuedJobs();
 
             if (queuedJobs.isEmpty()) {
                 return;
@@ -145,7 +130,7 @@ public class JobSchedulerTask {
 
             // 重新查询最新状态
             PrintJob currentJob = printJobService.getById(jobId);
-            if (currentJob == null || !"QUEUED".equals(currentJob.getStatus())) {
+            if (currentJob == null || !PrintJobStatus.QUEUED.name().equals(PrintJobStatus.normalize(currentJob.getStatus()))) {
                 log.debug("任务状态已变化，跳过派发: jobId={}", jobId);
                 return false;
             }
@@ -169,8 +154,8 @@ public class JobSchedulerTask {
         try {
             // 更新任务状态
             job.setPrinterId(printer.getId());
-            job.setStatus("ASSIGNED");
-            job.setStartedAt(LocalDateTime.now());
+            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.ASSIGNED);
+            job.setStatus(PrintJobStatus.ASSIGNED.name());
             printJobService.updateById(job);
 
             // 更新打印机状态

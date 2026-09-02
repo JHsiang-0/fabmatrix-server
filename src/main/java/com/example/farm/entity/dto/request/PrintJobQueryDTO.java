@@ -26,7 +26,7 @@ public class PrintJobQueryDTO {
     @Max(value = 100, message = "每页数量不能超过100")
     private Integer pageSize = 10;
 
-    @Schema(description = "任务状态：PENDING, QUEUED, ASSIGNED, PRINTING, PAUSED, READY, COMPLETED, FAILED, CANCELLED")
+    @Schema(description = "任务状态：QUEUED, ASSIGNED, READY, PRINTING, PAUSED, COMPLETED, FAILED, CANCELLED")
     private String status;
 
     @Schema(description = "打印机ID")

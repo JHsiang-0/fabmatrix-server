@@ -5,6 +5,7 @@ import com.example.farm.controller.WebSocketServer;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
@@ -235,7 +236,10 @@ public class PrinterMonitorTask {
 
             case "complete":
                 // 任务完成
-                job.setStatus("COMPLETED");
+                if (!transitionFromDevice(job, PrintJobStatus.COMPLETED)) {
+                    break;
+                }
+                job.setStatus(PrintJobStatus.COMPLETED.name());
                 job.setProgress(BigDecimal.valueOf(100));
                 job.setCompletedAt(LocalDateTime.now());
                 jobChanged = true;
@@ -249,7 +253,10 @@ public class PrinterMonitorTask {
 
             case "error":
                 // 任务失败
-                job.setStatus("FAILED");
+                if (!transitionFromDevice(job, PrintJobStatus.FAILED)) {
+                    break;
+                }
+                job.setStatus(PrintJobStatus.FAILED.name());
                 job.setCompletedAt(LocalDateTime.now());
                 job.setErrorReason("打印出错");
                 jobChanged = true;
@@ -262,7 +269,10 @@ public class PrinterMonitorTask {
 
             case "cancelled":
                 // 任务取消
-                job.setStatus("CANCELLED");
+                if (!transitionFromDevice(job, PrintJobStatus.CANCELLED)) {
+                    break;
+                }
+                job.setStatus(PrintJobStatus.CANCELLED.name());
                 job.setCompletedAt(LocalDateTime.now());
                 job.setErrorReason("用户取消");
                 jobChanged = true;
@@ -275,8 +285,11 @@ public class PrinterMonitorTask {
 
             case "paused":
                 // 暂停（需 PrintJob 支持 PAUSED 状态）
-                if (!"PAUSED".equals(job.getStatus())) {
-                    job.setStatus("PAUSED");
+                if (!PrintJobStatus.PAUSED.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+                    if (!transitionFromDevice(job, PrintJobStatus.PAUSED)) {
+                        break;
+                    }
+                    job.setStatus(PrintJobStatus.PAUSED.name());
                     jobChanged = true;
                 }
                 break;
@@ -288,6 +301,20 @@ public class PrinterMonitorTask {
         // 保存任务变更
         if (jobChanged) {
             printJobService.updateById(job);
+        }
+    }
+
+    private boolean transitionFromDevice(PrintJob job, PrintJobStatus targetStatus) {
+        if (targetStatus.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+            return false;
+        }
+        try {
+            PrintJobStatus.requireTransition(job.getStatus(), targetStatus);
+            return true;
+        } catch (com.example.farm.common.exception.BusinessException e) {
+            log.warn("设备状态无法驱动任务流转: jobId={}, currentStatus={}, targetStatus={}",
+                    job.getId(), job.getStatus(), targetStatus);
+            return false;
         }
     }
 

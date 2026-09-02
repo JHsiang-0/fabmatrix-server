@@ -110,6 +110,8 @@ WebSocket: ws://<server-host>:8080/ws/farm-status
 
 Service 层仍使用 MyBatis-Plus `Page/IPage`，Controller 已通过 `PageResult` 转换为本文结构。分页参数要求 `pageNum>=1`、`1<=pageSize<=100`，非法参数返回 HTTP 400、`code=400`。
 
+任务状态已统一为 `QUEUED`、`ASSIGNED`、`READY`、`PRINTING`、`PAUSED`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；调度器只负责进入 `ASSIGNED`，必须在设备调用成功后才进入 `PRINTING`。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。
+
 ## 3. 认证接口
 
 ### 3.1 登录
@@ -340,6 +342,13 @@ FAILED -> QUEUED（重试）
 ```
 
 废弃状态：`PENDING`、`PREPARING` 作为任务状态、`CANCELED`。`PREPARING` 只可用于打印机状态。
+设备上报取消时允许 `PRINTING -> CANCELLED`；用户通过当前任务删除接口取消打印中的任务仍返回 HTTP 422。
+
+已有 Docker 数据卷不会自动执行新增 SQL。升级已有数据库前请先备份，然后手动执行：
+
+```bash
+mysql -u root -p farm < src/main/resources/db/migration/04-normalize-print-job-status.sql
+```
 
 ### 6.3 PrintFileVO
 
@@ -486,6 +495,7 @@ RustFS: localhost:9000
 src/main/resources/db/migration/farm.sql
 src/main/resources/db/migration/02-current-schema.sql
 src/main/resources/db/migration/03-remove-customer-role.sql
+src/main/resources/db/migration/04-normalize-print-job-status.sql
 ```
 
 已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。

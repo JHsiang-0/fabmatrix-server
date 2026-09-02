@@ -63,7 +63,7 @@ CREATE TABLE `farm_print_job`  (
   `printer_id` bigint NULL DEFAULT NULL COMMENT '分配的打印机ID（排队中为NULL）',
   `user_id` bigint NOT NULL COMMENT '发起任务的用户ID',
   `priority` int NULL DEFAULT 0 COMMENT '排队优先级（数值越高越优先）',
-  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '任务状态：QUEUED, ASSIGNED, PRINTING, COMPLETED, FAILED, CANCELED',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'QUEUED' COMMENT '任务状态：QUEUED, ASSIGNED, READY, PRINTING, PAUSED, COMPLETED, FAILED, CANCELLED',
   `progress` decimal(5, 2) NULL DEFAULT 0.00 COMMENT '打印进度（0.00 - 100.00）',
   `started_at` datetime NULL DEFAULT NULL COMMENT '实际开始打印时间',
   `completed_at` datetime NULL DEFAULT NULL COMMENT '实际完成/失败时间',
@@ -85,8 +85,8 @@ CREATE TABLE `farm_print_job`  (
 -- Records of farm_print_job
 -- ----------------------------
 INSERT INTO `farm_print_job` VALUES (1, 2, 289, 1, 100, 'ASSIGNED', 0.00, '2026-03-03 15:00:06', NULL, NULL, '2026-03-03 14:59:58', '2026-03-03 14:59:58', 'http://127.0.0.1:9000/farm/1772520721537_测试文件.gcode', 0, 'ABS', 1.20);
-INSERT INTO `farm_print_job` VALUES (2, 21, NULL, 1, 0, 'MANUAL', 0.00, NULL, NULL, NULL, '2026-03-04 14:26:24', '2026-03-04 14:26:24', 'http://127.0.0.1:9000/farm/1772604929193_立方体_0.7mm_ABS_Generic Klipper Printer_56m0s.gcode', 3360, 'ABS', 1.20);
-INSERT INTO `farm_print_job` VALUES (3, 21, NULL, 1, 1, 'MANUAL', 0.00, NULL, NULL, NULL, '2026-03-04 14:34:55', '2026-03-04 14:34:55', 'http://127.0.0.1:9000/farm/1772604929193_立方体_0.7mm_ABS_Generic Klipper Printer_56m0s.gcode', 3360, 'ABS', 1.20);
+INSERT INTO `farm_print_job` VALUES (2, 21, NULL, 1, 0, 'QUEUED', 0.00, NULL, NULL, NULL, '2026-03-04 14:26:24', '2026-03-04 14:26:24', 'http://127.0.0.1:9000/farm/1772604929193_立方体_0.7mm_ABS_Generic Klipper Printer_56m0s.gcode', 3360, 'ABS', 1.20);
+INSERT INTO `farm_print_job` VALUES (3, 21, NULL, 1, 1, 'QUEUED', 0.00, NULL, NULL, NULL, '2026-03-04 14:34:55', '2026-03-04 14:34:55', 'http://127.0.0.1:9000/farm/1772604929193_立方体_0.7mm_ABS_Generic Klipper Printer_56m0s.gcode', 3360, 'ABS', 1.20);
 
 -- ----------------------------
 -- Table structure for farm_printer

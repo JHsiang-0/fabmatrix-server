@@ -11,6 +11,7 @@ import com.example.farm.entity.dto.request.AssignJobRequest;
 import com.example.farm.entity.dto.request.ConfirmSafeRequest;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
+import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.common.utils.MoonrakerApiClient;
@@ -93,7 +94,7 @@ public class PrintJobController {
 
     /**
      * 取消任务
-     * - PENDING/QUEUED: 未分配打印机，直接取消
+     * - QUEUED: 未分配打印机，直接取消
      * - ASSIGNED/READY/PAUSED: 已分配打印机，需调用 Moonraker 接口取消打印，并解绑机器
      *
      * @param id 任务 ID
@@ -111,12 +112,8 @@ public class PrintJobController {
         String status = job.getStatus();
         Long printerId = job.getPrinterId();
 
-        // 检查是否在可取消状态列表中
-        if (!"PENDING".equals(status) && !"QUEUED".equals(status)
-                && !"ASSIGNED".equals(status) && !"READY".equals(status)
-                && !"PAUSED".equals(status)) {
-            throw new BusinessException("当前状态为 [" + status + "]，不允许取消");
-        }
+        // 检查状态机：非法转换统一返回 HTTP 422/code=422。
+        PrintJobStatus.requireTransition(status, PrintJobStatus.CANCELLED);
 
         // 如果任务已分配到打印机，需要先取消打印并解绑机器
         if (printerId != null) {
@@ -138,7 +135,7 @@ public class PrintJobController {
         }
 
         // 更新任务状态为 CANCELLED
-        job.setStatus("CANCELLED");
+        job.setStatus(PrintJobStatus.CANCELLED.name());
         printJobService.updateById(job);
 
         log.info("取消打印任务成功: jobId={}, 原状态={}", id, status);

@@ -13,6 +13,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
+import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.service.PrintJobService;
@@ -49,7 +50,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setFileId(fileId);
         job.setUserId(userId);
         job.setPriority(priority != null ? priority : 0);
-        job.setStatus("PENDING");
+        job.setStatus(PrintJobStatus.QUEUED.name());
         job.setProgress(BigDecimal.ZERO);
         this.save(job);
         log.info("提交打印任务成功: jobId={}, userId={}, fileId={}, priority={}", job.getId(), userId, fileId, job.getPriority());
@@ -58,10 +59,17 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
     @Override
     public List<PrintJob> getQueuedJobs() {
-        return this.list(new LambdaQueryWrapper<PrintJob>()
-                .eq(PrintJob::getStatus, "PENDING")
+        List<PrintJob> queuedJobs = this.list(new LambdaQueryWrapper<PrintJob>()
+                .in(PrintJob::getStatus, PrintJobStatus.queuedStorageValues())
                 .orderByDesc(PrintJob::getPriority)
                 .orderByAsc(PrintJob::getCreatedAt));
+        queuedJobs.forEach(job -> {
+            if (!PrintJobStatus.QUEUED.name().equals(job.getStatus())) {
+                job.setStatus(PrintJobStatus.QUEUED.name());
+                this.updateById(job);
+            }
+        });
+        return queuedJobs;
     }
 
     @Override
@@ -96,8 +104,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setProgress(BigDecimal.ZERO);
         job.setCreatedAt(LocalDateTime.now());
 
-        // 状态：PENDING（等待派发）
-        job.setStatus("PENDING");
+        // 状态：QUEUED（等待派发）
+        job.setStatus(PrintJobStatus.QUEUED.name());
 
         this.save(job);
         LogUtil.dataChange("创建打印任务", "FarmPrintJob", job.getId(),
@@ -115,14 +123,19 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("派发打印任务失败：任务或打印机不存在，jobId={}, printerId={}", jobId, printerId);
             throw new BusinessException("找不到对应的任务或打印机");
         }
+        PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.ASSIGNED);
         if (!"IDLE".equals(printer.getStatus())) {
             log.warn("派发打印任务失败：打印机非空闲状态，jobId={}, printerId={}, status={}", jobId, printerId, printer.getStatus());
             throw new BusinessException("该打印机正在忙碌，无法派单");
         }
-        if (!"PENDING".equals(job.getStatus())) {
-            log.warn("派发打印任务失败：任务状态不支持派发，jobId={}, status={}", jobId, job.getStatus());
-            throw new BusinessException("任务状态不支持派发");
-        }
+
+        // 先进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
+        job.setPrinterId(printerId);
+        job.setStatus(PrintJobStatus.ASSIGNED.name());
+        this.updateById(job);
+        printer.setCurrentJobId(jobId);
+        printer.setStatus("PREPARING");
+        printerService.updateById(printer);
 
         // 从切片文件获取工艺参数，做材料与喷嘴校验
         PrintFile fileRecord = printFileMapper.selectById(job.getFileId());
@@ -155,8 +168,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("物理机接收文件超时或失败，请检查打印机网络连接");
         }
 
-        job.setPrinterId(printerId);
-        job.setStatus("PRINTING");
+        PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
+        job.setStatus(PrintJobStatus.PRINTING.name());
         job.setStartedAt(LocalDateTime.now());
         this.updateById(job);
 
@@ -186,11 +199,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("打印机不存在");
         }
 
-        // 校验 1：Job 必须处于 PENDING 状态
-        if (!"PENDING".equals(job.getStatus())) {
-            log.warn("派发任务失败：任务状态不支持派发，jobId={}, status={}", jobId, job.getStatus());
-            throw new BusinessException("任务当前状态为 [" + job.getStatus() + "]，仅 PENDING 状态可派发");
-        }
+        // 校验 1：Job 必须处于 QUEUED 状态
+        PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.ASSIGNED);
 
         // 校验 2：打印机必须处于 IDLE 状态
         if (!"IDLE".equals(printer.getStatus())) {
@@ -200,7 +210,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         // 行为：将 Job 的 printerId 设为目标机器，状态改为 ASSIGNED
         job.setPrinterId(printerId);
-        job.setStatus("ASSIGNED");
+        job.setStatus(PrintJobStatus.ASSIGNED.name());
         this.updateById(job);
 
         // 行为：将目标 Printer 的 is_safe_to_print 重置为 false（防范风险）
@@ -247,10 +257,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("任务不存在");
         }
 
-        // 校验 1：Job 必须处于 ASSIGNED 状态
-        if (!"ASSIGNED".equals(job.getStatus())) {
+        // 校验 1：Job 必须处于 ASSIGNED 或 READY 状态
+        String normalizedStatus = PrintJobStatus.normalize(job.getStatus());
+        if (!PrintJobStatus.ASSIGNED.name().equals(normalizedStatus)
+                && !PrintJobStatus.READY.name().equals(normalizedStatus)) {
             log.warn("启动打印失败：任务状态不正确，jobId={}, status={}", jobId, job.getStatus());
-            throw new BusinessException("任务当前状态为 [" + job.getStatus() + "]，仅 ASSIGNED 状态可启动打印");
+            throw new BusinessException(422, "任务当前状态为 [" + job.getStatus() + "]，仅 ASSIGNED 或 READY 状态可启动打印");
         }
 
         Long printerId = job.getPrinterId();
@@ -294,8 +306,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         // 根据 action 决定状态
         if (startPrint) {
+            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
             // 行为：将 Job 状态改为 PRINTING，记录 operatorId
-            job.setStatus("PRINTING");
+            job.setStatus(PrintJobStatus.PRINTING.name());
             job.setOperatorId(operatorId);
             job.setStartedAt(LocalDateTime.now());
             this.updateById(job);
@@ -309,7 +322,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.info("现场启动打印成功: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
         } else {
             // UPLOAD_ONLY: 仅上传文件，状态改为 READY（就绪待机）
-            job.setStatus("READY");
+            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
+            job.setStatus(PrintJobStatus.READY.name());
             job.setOperatorId(operatorId);
             this.updateById(job);
 
@@ -330,8 +344,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         LambdaQueryWrapper<PrintJob> wrapper = new LambdaQueryWrapper<>();
 
         // 状态精确匹配
-        wrapper.eq(queryDTO.getStatus() != null && !queryDTO.getStatus().isEmpty(),
-                PrintJob::getStatus, queryDTO.getStatus());
+        String queryStatus = PrintJobStatus.normalize(queryDTO.getStatus());
+        wrapper.eq(queryStatus != null && !queryStatus.isEmpty(),
+                PrintJob::getStatus, queryStatus);
 
         // 打印机ID精确匹配
         wrapper.eq(queryDTO.getPrinterId() != null,

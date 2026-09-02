@@ -73,10 +73,10 @@ public class PrintJob implements Serializable {
     private Integer priority;
 
     /**
-     * 任务状态：PENDING, ASSIGNED, PRINTING, COMPLETED, FAILED
+     * 任务状态：QUEUED, ASSIGNED, READY, PRINTING, PAUSED, COMPLETED, FAILED, CANCELLED
      */
     @TableField("status")
-    @Schema(description = "任务状态：PENDING, ASSIGNED, PRINTING, COMPLETED, FAILED")
+    @Schema(description = "任务状态：QUEUED, ASSIGNED, READY, PRINTING, PAUSED, COMPLETED, FAILED, CANCELLED")
     private String status;
 
     /**

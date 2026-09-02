@@ -130,10 +130,11 @@ MySQL 初始化脚本按挂载顺序执行：
 1. `src/main/resources/db/migration/farm.sql`
 2. `src/main/resources/db/migration/02-current-schema.sql`
 3. `src/main/resources/db/migration/03-remove-customer-role.sql`
+4. `src/main/resources/db/migration/04-normalize-print-job-status.sql`
 
 这些脚本只会在全新的 MySQL 数据卷初始化时自动执行。已有数据卷不会因为修改脚本而重新执行；升级已有数据库前先备份，再手动执行对应 SQL。
 
-仓库没有配置 Flyway 依赖，不能假设 `src/main/resources/db/migration/` 下的 `V*.sql` 会被 Spring 自动执行。`V1__init_schema.sql` 等文件是历史/手工迁移脚本，当前 Docker 启动实际使用的是 `farm.sql` 和显式挂载的增量脚本。
+仓库没有配置 Flyway 依赖，不能假设 `src/main/resources/db/migration/` 下的 `V*.sql` 会被 Spring 自动执行。`V1__init_schema.sql` 等文件是历史/手工迁移脚本，当前 Docker 启动实际使用的是 `farm.sql` 和显式挂载的增量脚本。已有数据卷不会自动执行新增脚本，升级前需备份并手动执行对应 SQL。
 
 ## 7. 数据模型与数据库注意事项
 

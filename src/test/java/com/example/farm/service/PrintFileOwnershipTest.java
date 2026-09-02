@@ -1,6 +1,7 @@
 package com.example.farm.service;
 
 import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.mapper.PrintFileMapper;
@@ -33,6 +34,9 @@ class PrintFileOwnershipTest {
 
     @Mock
     private RustFsClient rustFsClient;
+
+    @Mock
+    private FileUploadProperties fileUploadProperties;
 
     @InjectMocks
     private PrintFileServiceImpl printFileService;
@@ -71,6 +75,32 @@ class PrintFileOwnershipTest {
         printFileService.getPresignedDownloadUrl(20L, 60);
 
         verify(rustFsClient).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60));
+    }
+
+    @Test
+    void downloadExpirationIsCappedByConfiguredMaximum() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(fileUploadProperties.getPresignedUrlMaxMinutes()).thenReturn(120);
+        when(rustFsClient.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(120)))
+                .thenReturn("https://example.test/download");
+
+        printFileService.getPresignedDownloadUrl(20L, 1000);
+
+        verify(rustFsClient).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(120));
+    }
+
+    @Test
+    void presignedUrlStorageFailureIsPropagatedForUnifiedHandler() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = file(20L, 1L);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+        when(rustFsClient.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60)))
+                .thenThrow(new com.example.farm.common.exception.StorageException("生成预签名 URL 失败"));
+
+        assertThatThrownBy(() -> printFileService.getPresignedDownloadUrl(20L, 60))
+                .isInstanceOf(com.example.farm.common.exception.StorageException.class);
     }
 
     @Test

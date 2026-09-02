@@ -380,9 +380,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     public String getPresignedDownloadUrl(Long id, Integer expirationMinutes) {
         PrintFile file = getAccessibleFile(id);
 
-        Duration expiration = expirationMinutes != null && expirationMinutes > 0
-                ? Duration.ofMinutes(expirationMinutes)
-                : Duration.ofHours(1);
+        int requestedMinutes = expirationMinutes != null && expirationMinutes > 0
+                ? expirationMinutes : 60;
+        int maxMinutes = fileUploadProperties != null
+                && fileUploadProperties.getPresignedUrlMaxMinutes() != null
+                && fileUploadProperties.getPresignedUrlMaxMinutes() > 0
+                ? fileUploadProperties.getPresignedUrlMaxMinutes() : 120;
+        Duration expiration = Duration.ofMinutes(Math.min(requestedMinutes, maxMinutes));
 
         return rustFsClient.getPresignedUrl(file.getSafeName(), expiration);
     }

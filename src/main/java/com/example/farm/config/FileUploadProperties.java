@@ -23,4 +23,7 @@ public class FileUploadProperties {
 
     /** 应用层文件大小上限，必须与 spring.servlet.multipart.max-file-size 一致。 */
     private DataSize maxFileSize = DataSize.ofMegabytes(200);
+
+    /** 预签名下载 URL 最大有效期（分钟）。 */
+    private Integer presignedUrlMaxMinutes = 120;
 }

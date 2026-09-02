@@ -9,6 +9,7 @@ import com.example.farm.entity.dto.request.AssignJobRequest;
 import com.example.farm.entity.dto.request.ConfirmSafeRequest;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
+import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.vo.PrintJobVO;
 import com.example.farm.service.PrintJobService;
@@ -135,6 +136,17 @@ public class PrintJobController {
     public Result<Void> requeueJob(@PathVariable Long id) {
         printJobService.requeueJob(id);
         return Result.success(null, "任务已重新排队");
+    }
+
+    /**
+     * 修改排队任务优先级。
+     */
+    @Operation(summary = "修改任务优先级")
+    @PutMapping("/{id}/priority")
+    public Result<Void> updatePriority(@PathVariable Long id,
+                                       @Valid @RequestBody UpdatePrintJobPriorityRequest request) {
+        printJobService.updatePriority(id, request);
+        return Result.success(null, "任务优先级已更新");
     }
 
     /**

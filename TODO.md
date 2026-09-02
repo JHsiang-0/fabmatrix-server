@@ -218,7 +218,8 @@ startPrint()
   - 已仅允许 `FAILED` 重试；保留文件/用户/优先级，清除设备、操作员、时间和错误信息，进度归零后回到 `QUEUED` 并推送事件，不调用设备。
 - [x] 实现 `POST /api/v1/print-jobs/{id}/requeue`。
   - 已仅允许 `ASSIGNED/READY` 重新排队；解除设备绑定并清理运行字段后回 `QUEUED`，不调用设备；`PRINTING/PAUSED/FAILED` 等状态拒绝。
-- [ ] 实现 `PUT /api/v1/print-jobs/{id}/priority`。
+- [x] 实现 `PUT /api/v1/print-jobs/{id}/priority`。
+  - 已接收 JSON `{priority:0-100}`，仅 `QUEUED` 且当前用户可见的任务可修改；其他状态 422，不调用设备。
 - [ ] 将取消逻辑从 Controller 移到 Service，统一权限、状态和设备调用。
 - [ ] 安全打印流程固定为：派发 -> 安全确认 -> 启动。
 - [ ] 启动时由后端记录真实操作员，不接受任意前端 `operatorId`。

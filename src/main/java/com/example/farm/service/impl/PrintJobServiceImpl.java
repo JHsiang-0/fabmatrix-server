@@ -13,6 +13,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
+import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
@@ -472,6 +473,24 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setStatus(PrintJobStatus.QUEUED.name());
         updateJobAndPublish(job);
         log.info("重新排队打印任务成功: jobId={}, 原状态={}", jobId, status);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updatePriority(Long jobId, UpdatePrintJobPriorityRequest request) {
+        PrintJob job = getAccessibleJob(jobId);
+        String status = PrintJobStatus.normalize(job.getStatus());
+        if (!PrintJobStatus.QUEUED.name().equals(status)) {
+            throw new BusinessException(422, "只有排队中的任务可以修改优先级");
+        }
+        if (request == null || request.getPriority() == null) {
+            throw new BusinessException(400, "任务优先级不能为空");
+        }
+        job.setPriority(request.getPriority());
+        if (!this.updateById(job)) {
+            throw new BusinessException("任务优先级更新失败");
+        }
+        log.info("修改打印任务优先级成功: jobId={}, priority={}", jobId, request.getPriority());
     }
 
     private void updateJobAndPublish(PrintJob job) {

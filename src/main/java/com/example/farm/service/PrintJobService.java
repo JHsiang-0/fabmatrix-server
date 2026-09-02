@@ -7,6 +7,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
+import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 
 import java.util.List;
 
@@ -131,6 +132,14 @@ public interface PrintJobService extends IService<PrintJob> {
      * @param jobId 任务 ID
      */
     void requeueJob(Long jobId);
+
+    /**
+     * 修改排队任务优先级。
+     *
+     * @param jobId 任务 ID
+     * @param request 优先级请求
+     */
+    void updatePriority(Long jobId, UpdatePrintJobPriorityRequest request);
 
     /**
      * 分页查询打印任务列表（支持多条件过滤）

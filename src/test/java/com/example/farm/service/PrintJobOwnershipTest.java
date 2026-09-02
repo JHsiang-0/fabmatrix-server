@@ -4,6 +4,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
+import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.service.impl.PrintJobServiceImpl;
@@ -195,6 +196,37 @@ class PrintJobOwnershipTest {
         assertThatThrownBy(() -> printJobService.requeueJob(100L))
                 .hasMessage("只有已派发或已就绪任务可以重新排队");
         verify(printerService, never()).getById(403L);
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+    }
+
+    @Test
+    void updatesPriorityOfOwnQueuedJob() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setStatus("QUEUED");
+        job.setPriority(1);
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        UpdatePrintJobPriorityRequest request = new UpdatePrintJobPriorityRequest();
+        request.setPriority(80);
+
+        printJobService.updatePriority(100L, request);
+
+        assertThat(job.getPriority()).isEqualTo(80);
+        verify(printJobMapper).updateById(job);
+    }
+
+    @Test
+    void cannotUpdatePriorityAfterTaskIsAssigned() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setStatus("ASSIGNED");
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+        UpdatePrintJobPriorityRequest request = new UpdatePrintJobPriorityRequest();
+        request.setPriority(80);
+
+        assertThatThrownBy(() -> printJobService.updatePriority(100L, request))
+                .hasMessage("只有排队中的任务可以修改优先级");
         verify(printJobMapper, never()).updateById(any(PrintJob.class));
     }
 

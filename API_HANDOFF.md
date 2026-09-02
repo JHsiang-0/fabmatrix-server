@@ -295,7 +295,7 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID | 已完成 |
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
-| PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | `priority` | `Result<null>` | 规划 |
+| PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority`，范围 `0-100` | `Result<null>` | 已完成 |
 
 现有 `/print-jobs/create` 保留为兼容地址并标记 deprecated，前端新代码统一使用 `POST /print-jobs`。T6.1 阶段两条地址调用同一 Service 逻辑，均创建 `QUEUED` 任务；T6.2 规划支持可选 `printerId`。
 
@@ -304,6 +304,8 @@ T6.2 的 `printerId` 规则：不传时任务为 `QUEUED` 且不绑定设备；�
 T6.3 重试规则：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；成功后保留 `fileId`、`userId` 和 `priority`，清除 `printerId`、`operatorId`、`startedAt`、`completedAt`、`errorReason`，进度重置为 `0`，状态变为 `QUEUED` 并推送 `JOB_STATUS`。非失败状态返回 HTTP 422，不调用打印机设备；任务不存在或无权访问统一返回 HTTP 404。
 
 T6.4 重新排队规则：`POST /print-jobs/{id}/requeue` 仅允许 `ASSIGNED` 或 `READY` 任务；成功后解除打印机绑定、清除运行字段、进度归零，状态变为 `QUEUED` 并推送 `JOB_STATUS`。关联设备存在时清除其 `currentJobId` 和安全确认，`PREPARING` 设备恢复为 `IDLE`；不调用设备协议。`PRINTING`、`PAUSED`、`FAILED`、`COMPLETED`、`CANCELLED` 均返回 HTTP 422，任务或设备不存在/无权访问返回 HTTP 404。
+
+T6.5 优先级规则：`PUT /print-jobs/{id}/priority` 接收 `{ "priority": 0 }`，范围为 `0-100`，仅允许当前用户可见且状态为 `QUEUED` 的任务修改。成功后只更新优先级；已派发、打印中或已结束任务返回 HTTP 422，任务不存在或无权访问返回 HTTP 404。该操作不调用设备，也不发送无打印机目标的 `JOB_STATUS`，调度器下一轮按新优先级取队列。
 
 ### 5.3 文件
 

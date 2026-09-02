@@ -45,4 +45,31 @@ class SecurityResponseTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
+
+    @Test
+    void operatorCannotScanPrinters() throws Exception {
+        mockMvc.perform(get("/api/v1/printers/scan")
+                        .param("subnet", "192.168.1")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void unauthenticatedCannotResumePrinter() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/control/403/resume"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void validatesPrinterHistoryPaginationBeforeServiceCall() throws Exception {
+        mockMvc.perform(get("/api/v1/printers/403/history")
+                        .param("pageNum", "0")
+                        .param("pageSize", "101")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
 }

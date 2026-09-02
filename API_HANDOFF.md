@@ -567,7 +567,7 @@ src/main/resources/db/migration/06-add-printer-status-history.sql
 mvn test
 ```
 
-测试使用 H2 随机端口，关闭定时任务和 WebSocket。当前没有自动生成的测试用户，也没有真实数据库 HTTP 权限测试；已增加文件/任务服务层归属测试，以及未携带 Token 的 WebSocket 握手测试。
+测试使用 H2 随机端口，关闭定时任务和 WebSocket。当前没有自动生成的测试用户，也没有真实数据库 HTTP 权限测试；已增加打印机路由的 401/403/400 测试、文件/任务服务层归属测试，以及未携带 Token 的 WebSocket 握手测试。
 
 ### 9.4 真实打印机
 

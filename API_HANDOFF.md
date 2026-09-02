@@ -550,6 +550,8 @@ farm.tasks.enabled=false
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入。
 
+RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。目前只确认官方 HTTP/G-code 边界，尚未宣称 Farm 已具备 RRF 实机通信能力；具体设备响应、存储路径、会话重连和宏副作用确认前，RRF Adapter 不返回假成功。
+
 ## 11. 前端开发优先顺序
 
 第一阶段可以直接联调：

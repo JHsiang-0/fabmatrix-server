@@ -61,9 +61,10 @@
 
 ## 2. P0 RRF 3.7 适配边界
 
-- [ ] T2.1 收集并登记 RRF 3.7 协议证据。
+- [x] T2.1 收集并登记 RRF 3.7 协议证据。
   - 目标：确认状态、认证、暂停/恢复/取消/急停、上传和启动的实际 API。
-  - 验收：每个已支持能力记录官方资料或真实设备响应；未确认能力列为 unsupported。
+  - 验收：已记录官方 HTTP/G-code/对象模型资料；未有真实设备证据的字段和副作用仍列为待确认/unsupported。
+  - 产物：`../printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md`。
 - [ ] T2.2 实现 `RrfApiClient` 和 `RrfAdapter` 骨架。
   - 目标：独立于 Moonraker，完成协议选择和统一状态映射。
   - 验收：`RRF` 永不调用 Moonraker，未支持能力返回稳定错误。

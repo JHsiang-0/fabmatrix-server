@@ -30,10 +30,10 @@
 
 ## 1. P0 协议适配基础
 
-- [ ] T1.1 新增协议领域基础模型。
+- [x] T1.1 新增协议领域基础模型。
   - 目标：`PrinterProtocolType`、统一设备状态、端点、操作和失败分类。
   - 验收：大小写/历史值规范化、未知协议拒绝、无敏感字段序列化。
-  - 测试：协议枚举和领域对象单元测试。
+  - 测试：`PrinterProtocolTypeTest`、`PrinterDeviceStatusTest`，3 个测试通过。
 - [ ] T1.2 新增 `PrinterProtocolAdapter` 和 Factory。
   - 目标：统一 `getStatus/pause/resume/cancel/emergencyStop/uploadFile` 能力。
   - 验收：按协议返回唯一 Adapter，未知协议不回退，重复实现有明确检查。

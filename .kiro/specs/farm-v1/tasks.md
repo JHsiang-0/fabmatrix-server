@@ -222,7 +222,7 @@
   - 结论：新字段 `operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表由增量脚本补齐；状态值、固件类型由 `04`、`05` 规范化。真实 MySQL 执行验收仍需容器环境。
 - [x] T9.8 增加健康检查、启动依赖和生产运维说明。
   - 验收：`/actuator/health` 免认证且不公开详情；Compose 依赖、生产密钥、备份、迁移和无设备运行要求已记录在 `OPERATIONS.md`。
-  - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 29 项）；全量 `mvn test` 通过。
+  - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 29 项）；`ProductionSafetyValidatorTest` 覆盖生产必填密钥、默认密钥、CORS 和 Swagger 开关；全量 `mvn test` 通过。
 - [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
   - 后端完成：离线/恢复事件抑制与发布、失败任务 `JOB_STATUS.errorReason`、连接失败清理均已有实现和测试。
   - 本 Task 补充：服务端按 30 秒可配置间隔发送协议级 Ping 保活，发送失败清理会话；`WebSocketSecurityTest` 当前 8 项通过，业务消息仍只保留四种冻结类型。

@@ -8,6 +8,7 @@ import com.example.farm.protocol.PrinterProtocolType;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,5 +74,25 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(ResultCode.PRINTER_PROTOCOL_UNSUPPORTED.getCode());
+    }
+
+    @Test
+    void mapsRedisFailureTo503() {
+        var response = handler.handleRedisConnectionFailureException(
+                new RedisConnectionFailureException("redis down"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(ResultCode.REDIS_ERROR.getCode());
+    }
+
+    @Test
+    void mapsStorageFailureTo503() {
+        var response = handler.handleStorageException(
+                new StorageException("storage down"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(ResultCode.STORAGE_ERROR.getCode());
     }
 }

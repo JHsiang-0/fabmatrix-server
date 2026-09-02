@@ -22,4 +22,13 @@ class PrintFileVOContractTest {
         assertThat(json).contains("\"folder\":true");
         assertThat(json).doesNotContain("isFolder");
     }
+
+    @Test
+    void serializesUnsetFolderAsFalseForFiles() {
+        PrintFile file = new PrintFile();
+        file.setId(21L);
+        file.setOriginalName("demo.gcode");
+
+        assertThat(PrintFileVO.from(file).getFolder()).isFalse();
+    }
 }

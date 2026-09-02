@@ -514,6 +514,7 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 - 温度：Double，单位摄氏度。
 - `successRate`：Double，范围 0-100，表示百分比。
 - `folder` 是文件对象唯一的目录布尔字段，禁止依赖或发送旧字段 `isFolder`；实体内部仍使用数据库列 `is_folder`。
+- 文件对象无论来自上传、分页还是目录查询，`folder` 始终为 JSON 布尔值；实体目录标记为空时按普通文件输出 `false`，不会返回 `null`。
 - `rustfsKey`、内部存储路径和 API Key 不属于前端 DTO。
 
 ### 6.4 时间、数字和金额

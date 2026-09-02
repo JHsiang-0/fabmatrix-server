@@ -46,7 +46,8 @@ public class PrintFileVO implements Serializable {
         PrintFileVO vo = new PrintFileVO();
         vo.id = file.getId();
         vo.parentId = file.getParentId();
-        vo.folder = file.getIsFolder();
+        // 数据库旧记录或刚上传的实体可能尚未填充默认值；对外契约始终返回布尔值。
+        vo.folder = Boolean.TRUE.equals(file.getIsFolder());
         vo.originalName = file.getOriginalName();
         vo.fileUrl = file.getFileUrl();
         vo.fileSize = file.getFileSize();

@@ -30,6 +30,7 @@
 - [x] 完成一次现有 Docker 数据卷迁移和 dev HTTP 冒烟验证：迁移前已备份 MySQL、Redis、RustFS；02–06 增量脚本执行成功，健康检查、登录、`/auth/me`、打印机分页、文件分页和任务队列均通过真实容器验证
 - [x] 完成真实 WebSocket 握手和快照冒烟验证：JWT 握手成功后收到 `SNAPSHOT`，包含 46 台打印机，`LocalDateTime` 按 ISO-8601 序列化且未泄漏敏感字段
 - [x] 完成真实 RustFS 文件链路冒烟验证：临时 G-code 上传、预览、预签名下载 URL、删除均成功，清理后文件记录数量恢复且未污染现有任务
+- [x] 修复文件上传响应中的 `folder=null` 契约问题：文件对象统一返回布尔值 `folder=false`，并通过 VO 测试和真实上传回归验证
 - [ ] 增加真实 Klipper/RRF 设备测试
 
 ## P0：先修复契约和安全阻塞项
@@ -205,7 +206,7 @@ startPrint()
 - [x] 实现 `GET /api/v1/print-files/{id}/preview` 安全预览信息。
   - 已返回已解析元数据和缩略图，不读/返回 G-code 原文、`safeName`、`rustfsKey`、`fileUrl` 或下载 URL；复用文件归属校验，目录返回 422。
 - [x] 统一 `folder` 布尔字段名称，避免 `isFolder` 序列化差异。
-  - 已统一 `PrintFileVO` 和 `FileNodeVO` 对外只输出 `folder`；`isFolder` 仅保留在实体/数据库内部，不兼容输出旧字段。
+  - 已统一 `PrintFileVO` 和 `FileNodeVO` 对外只输出 `folder`；`isFolder` 仅保留在实体/数据库内部，不兼容输出旧字段；实体未设置目录标记时也按文件返回 `folder=false`。
 - [x] 对已关联打印任务的文件删除给出明确策略：禁止删除或软删除。
   - 已固定为禁止删除；已关联任意任务返回 HTTP 409/业务码 409，批量删除逐项失败，不删除数据库记录；目录返回 422，RustFS 失败返回 5003。
 - [x] 下载接口继续返回预签名 URL，但增加过期时间上限和权限校验。

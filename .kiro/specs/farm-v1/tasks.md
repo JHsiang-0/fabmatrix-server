@@ -180,7 +180,8 @@
 - [x] T7.4 统一登录失败次数、Redis 锁定、禁用用户和 Token 错误响应。
   - 验收：账号/密码失败和锁定为 HTTP 401、业务码 `401`；禁用用户为 HTTP 403、业务码 `403`；无效/过期 Token 为 HTTP 401；Redis 故障沿用 HTTP 503、业务码 `5002`。
   - 测试：`UserAuthenticationTest`、`SecurityResponseTest` 覆盖认证失败、锁定、禁用 Token 和无效 Token；全量 `mvn test` 通过。
-- [ ] T7.5 评估是否实现 logout；若不实现，记录前端删除 Token 的产品决定。
+- [x] T7.5 评估是否实现 logout；第一版不实现服务端 logout。
+  - 验收：交接文档明确没有 `/auth/logout`；前端退出时删除 Token、清空用户状态并断开 WebSocket，Token 自然过期。
 
 ## 8. P1 前端接入与联调
 

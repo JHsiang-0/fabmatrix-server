@@ -233,7 +233,7 @@ startPrint()
 
 - [x] 增加当前用户接口 `GET /api/v1/auth/me`，减少前端依赖路径参数。
   - 从 JWT 当前用户 ID 查询资料，响应不包含 `passwordHash`；未认证统一返回 HTTP 401、业务码 `401`。旧 `/auth/{userId}/profile` 保留兼容。
-- [ ] 可选增加 `POST /api/v1/auth/logout`；第一版可通过前端删除 Token 实现退出。
+- [x] 评估 logout：第一版不增加 `POST /api/v1/auth/logout`，前端删除 Token、清空用户状态并断开 WebSocket 即完成退出；Token 自然过期。
 - [x] 用户分页、当前用户资料和兼容 profile 响应统一使用 `UserVO`，禁止返回 `passwordHash`。
   - `UserVO` 仅包含 `id,username,role,email,phone,createdAt,updatedAt`；持久化实体只在 Service 内部使用。
 - [x] 增加管理员创建操作员、禁用、启用、修改角色的接口测试。

@@ -38,10 +38,10 @@
   - 目标：统一 `getStatus/pause/resume/cancel/emergencyStop/uploadFile` 能力。
   - 验收：按协议返回唯一 Adapter，未知协议不回退，重复实现有明确检查。
   - 测试：`PrinterProtocolAdapterFactoryTest`，3 个测试通过；协议相关测试共 6 个通过。
-- [ ] T1.3 实现 `KlipperMoonrakerAdapter`。
+- [x] T1.3 实现 `KlipperMoonrakerAdapter`。
   - 目标：封装现有 `MoonrakerApiClient`，转换 Moonraker 状态，分类设备异常。
   - 验收：现有 Klipper 行为不回退，凭据不进入日志/响应。
-  - 测试：Mock Moonraker 状态、暂停、取消、急停、上传和失败。
+  - 测试：`KlipperMoonrakerAdapterTest`，3 个测试通过；全量 `mvn test` 共 29 个通过。
 - [ ] T1.4 将打印机控制改为 Service → Adapter。
   - 目标：移除 `PrinterControlController` 对 Moonraker 的直接依赖。
   - 验收：暂停、急停和后续恢复/取消接口经过统一权限、状态和协议选择。

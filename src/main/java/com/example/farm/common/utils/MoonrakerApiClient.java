@@ -191,6 +191,20 @@ public class MoonrakerApiClient {
     }
 
     /**
+     * 恢复已暂停的打印任务。
+     */
+    public boolean resumePrint(String ipAddress) {
+        String url = String.format("http://%s:7125/printer/print/resume", ipAddress);
+        try {
+            restClient.post().uri(url).retrieve().toBodilessEntity();
+            return true;
+        } catch (Exception e) {
+            log.warn("发送恢复打印指令失败: 打印机IP={}，原因={}", ipAddress, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * 取消当前打印任务
      *
      * @param ipAddress 打印机 IP 地址

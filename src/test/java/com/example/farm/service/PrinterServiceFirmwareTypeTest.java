@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,6 +61,23 @@ class PrinterServiceFirmwareTypeTest {
     }
 
     @Test
+    void addPrinterFailsWhenDatabaseInsertAffectsNoRows() {
+        PrinterAddDTO request = new PrinterAddDTO();
+        request.setName("rrf-01");
+        request.setIpAddress("192.168.1.80");
+        request.setMacAddress("AA-BB-CC-DD-EE-FF");
+        request.setFirmwareType("RRF");
+        when(macAddressUtil.normalizeMacAddress("AA-BB-CC-DD-EE-FF"))
+                .thenReturn("aa:bb:cc:dd:ee:ff");
+        when(printerMapper.selectByMacAddress("aa:bb:cc:dd:ee:ff")).thenReturn(null);
+        when(printerMapper.selectByIpAddress("192.168.1.80")).thenReturn(null);
+        when(printerMapper.insert(any(Printer.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> printerService.addPrinter(request))
+                .hasMessage("新增打印机失败");
+    }
+
+    @Test
     void updatePrinterCanonicalizesLegacyKlipperAndPreservesTypeWhenOmitted() {
         Printer existing = new Printer();
         existing.setId(403L);
@@ -79,6 +97,24 @@ class PrinterServiceFirmwareTypeTest {
 
         assertThat(existing.getFirmwareType()).isEqualTo("KLIPPER");
         verify(printerMapper).updateById(existing);
+    }
+
+    @Test
+    void updatePrinterFailsWhenDatabaseUpdateAffectsNoRows() {
+        Printer existing = new Printer();
+        existing.setId(403L);
+        existing.setIpAddress("192.168.1.80");
+        existing.setFirmwareType("Klipper");
+        when(printerMapper.selectById(403L)).thenReturn(existing);
+        when(printerMapper.updateById(any(Printer.class))).thenReturn(0);
+
+        PrinterUpdateDTO request = new PrinterUpdateDTO();
+        request.setId(403L);
+        request.setName("klipper-01-renamed");
+        request.setIpAddress("192.168.1.80");
+
+        assertThatThrownBy(() -> printerService.updatePrinter(request))
+                .hasMessage("更新打印机失败");
     }
 
     @Test

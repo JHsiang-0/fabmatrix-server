@@ -142,7 +142,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                 existingPrinter.setApiKey(dto.getApiKey());
             }
 
-            this.updateById(existingPrinter);
+            if (!this.updateById(existingPrinter)) {
+                throw new BusinessException("更新已知打印机失败");
+            }
             log.info("更新已知设备成功: ID={}, MAC={}, IP={}",
                     existingPrinter.getId(), macAddress, ipAddress);
 
@@ -178,7 +180,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             newPrinter.setCreatedAt(LocalDateTime.now());
             newPrinter.setUpdatedAt(LocalDateTime.now());
 
-            this.save(newPrinter);
+            if (!this.save(newPrinter)) {
+                throw new BusinessException("新增打印机失败");
+            }
             log.info("新增设备成功: ID={}, MAC={}, IP={}, machineNumber={}, gridRow={}, gridCol={}",
                     newPrinter.getId(), macAddress, ipAddress,
                     dto.getMachineNumber(), dto.getGridRow(), dto.getGridCol());
@@ -207,7 +211,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setCreatedAt(LocalDateTime.now());
         printer.setUpdatedAt(LocalDateTime.now());
 
-        this.save(printer);
+        if (!this.save(printer)) {
+            throw new BusinessException("新增打印机失败");
+        }
         log.info("新增打印机成功（无 MAC）: id={}, ip={}", printer.getId(), printer.getIpAddress());
     }
 
@@ -244,7 +250,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
         existingPrinter.setUpdatedAt(LocalDateTime.now());
 
-        this.updateById(existingPrinter);
+        if (!this.updateById(existingPrinter)) {
+            throw new BusinessException("更新打印机失败");
+        }
         log.info("更新打印机成功：id={}, name={}, ip={}, gridRow={}, gridCol={}",
                 existingPrinter.getId(), existingPrinter.getName(), existingPrinter.getIpAddress(),
                 dto.getGridRow(), dto.getGridCol());
@@ -266,7 +274,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             throw new BusinessException("危险操作：该机器正在打印中，无法删除！请先中止打印任务。");
         }
 
-        this.removeById(id);
+        if (!this.removeById(id)) {
+            throw new BusinessException("删除打印机失败");
+        }
         log.info("删除打印机成功：id={}, name={}", id, printer.getName());
 
         printerCacheService.refreshPrinterCache();
@@ -459,7 +469,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             log.warn("设备无 MAC 地址，降级处理: IP={}", ipAddress);
             Printer printer = buildPrinterFromScanResult(result);
             printer.setMacAddress(null);
-            this.save(printer);
+            if (!this.save(printer)) {
+                throw new BusinessException("新增打印机失败");
+            }
         }
     }
 

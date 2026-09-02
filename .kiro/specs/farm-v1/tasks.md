@@ -128,6 +128,9 @@
 - [x] T4.8 修复恢复打印的双记录保存与事件顺序。
   - 验收：恢复设备成功后，任务和打印机状态均保存成功才发布 `JOB_STATUS`；打印机保存失败返回业务异常且不发布成功事件，方法使用事务边界。
   - 测试：`PrinterControlServiceTest` 覆盖正常恢复和打印机状态保存失败路径；全量测试通过。
+- [x] T4.9 收敛打印机 CRUD 的持久化成功判定。
+  - 验收：打印机新增、重新录入、编辑、删除和无 MAC 降级插入检查实际数据库写入结果；失败时返回业务异常，不刷新缓存伪装成功。
+  - 测试：`PrinterServiceFirmwareTypeTest` 覆盖新增/编辑数据库 0 行路径；全量测试通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

@@ -252,10 +252,11 @@ public class PrinterMonitorTask {
                 job.setCompletedAt(LocalDateTime.now());
                 jobChanged = true;
 
-                // 解绑机器
-                printer.setCurrentJobId(null);
-                printer.setIsSafeToPrint(false);
-                printerService.updateById(printer);
+                // 先成功解绑机器，再结束任务；失败时保留绑定，等待下一轮巡检重试。
+                if (!unbindPrinter(printer)) {
+                    jobChanged = false;
+                    break;
+                }
                 log.info("打印任务完成，已解绑机器: jobId={}, printerId={}", jobId, printer.getId());
                 break;
 
@@ -269,9 +270,10 @@ public class PrinterMonitorTask {
                 job.setErrorReason("打印出错");
                 jobChanged = true;
 
-                // 解绑机器
-                printer.setCurrentJobId(null);
-                printerService.updateById(printer);
+                if (!unbindPrinter(printer)) {
+                    jobChanged = false;
+                    break;
+                }
                 log.info("打印任务失败，已解绑机器: jobId={}, printerId={}", jobId, printer.getId());
                 break;
 
@@ -285,9 +287,10 @@ public class PrinterMonitorTask {
                 job.setErrorReason("用户取消");
                 jobChanged = true;
 
-                // 解绑机器
-                printer.setCurrentJobId(null);
-                printerService.updateById(printer);
+                if (!unbindPrinter(printer)) {
+                    jobChanged = false;
+                    break;
+                }
                 log.info("打印任务失败/取消，已解绑机器: jobId={}, printerId={}, state={}", jobId, printer.getId(), state);
                 break;
 
@@ -326,6 +329,21 @@ public class PrinterMonitorTask {
                     job.getId(), job.getStatus(), targetStatus);
             return false;
         }
+    }
+
+    private boolean unbindPrinter(Printer printer) {
+        Printer updateEntity = new Printer();
+        updateEntity.setId(printer.getId());
+        updateEntity.setCurrentJobId(null);
+        updateEntity.setIsSafeToPrint(false);
+        if (!printerService.updateById(updateEntity)) {
+            log.error("设备终态同步失败：打印机解绑保存失败，printerId={}, jobId={}",
+                    printer.getId(), printer.getCurrentJobId());
+            return false;
+        }
+        printer.setCurrentJobId(null);
+        printer.setIsSafeToPrint(false);
+        return true;
     }
 
     private void updatePrinterStatus(Printer printer, String newStatus) {

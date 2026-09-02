@@ -1,6 +1,7 @@
 package com.example.farm.task;
 
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.PrintJob;
 import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterDeviceStatus;
 import com.example.farm.protocol.PrinterOperation;
@@ -26,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class PrinterMonitorAdapterTest {
@@ -109,6 +111,29 @@ class PrinterMonitorAdapterTest {
                 .publishPrinterOffline(403L, "设备状态查询失败");
     }
 
+    @Test
+    void doesNotFinishJobWhenPrinterUnbindCannotBeSaved() {
+        Printer printer = printer("RRF");
+        printer.setStatus("PRINTING");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setStatus("PRINTING");
+        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(completedStatus());
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher);
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, timeout(1000)).getById(1001L);
+        verify(printJobService, never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, never()).publishJobStatus(any(PrintJob.class));
+    }
+
     private Printer printer(String firmwareType) {
         Printer printer = new Printer();
         printer.setId(403L);
@@ -126,6 +151,22 @@ class PrinterMonitorAdapterTest {
                 null,
                 "demo.gcode",
                 BigDecimal.valueOf(35.5),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private PrinterDeviceStatus completedStatus() {
+        return new PrinterDeviceStatus(
+                PrinterStatus.IDLE,
+                "complete",
+                null,
+                "demo.gcode",
+                BigDecimal.valueOf(100),
                 null,
                 null,
                 null,

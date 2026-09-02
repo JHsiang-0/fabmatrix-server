@@ -4,7 +4,6 @@ import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
-import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.AssignJobRequest;
@@ -12,6 +11,8 @@ import com.example.farm.entity.dto.request.ConfirmSafeRequest;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
 import com.example.farm.entity.enums.PrintJobStatus;
+import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.vo.PrintJobVO;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.common.utils.MoonrakerApiClient;
@@ -45,8 +46,9 @@ public class PrintJobController {
      */
     @Operation(summary = "获取排队中的任务队列")
     @GetMapping("/queue")
-    public Result<List<PrintJob>> getQueue() {
-        return Result.success(printJobService.getQueuedJobsForCurrentUser());
+    public Result<List<PrintJobVO>> getQueue() {
+        return Result.success(printJobService.getQueuedJobsForCurrentUser().stream()
+                .map(PrintJobVO::from).toList());
     }
 
     /**
@@ -57,8 +59,8 @@ public class PrintJobController {
      */
     @Operation(summary = "分页查询打印任务列表")
     @PostMapping("/page")
-    public Result<PageResult<PrintJob>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
-        return Result.success(PageResult.from(printJobService.queryJobs(queryDTO)));
+    public Result<PageResult<PrintJobVO>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
+        return Result.success(PageResult.from(printJobService.queryJobs(queryDTO), PrintJobVO::from));
     }
 
     /**
@@ -69,9 +71,9 @@ public class PrintJobController {
      */
     @Operation(summary = "获取打印任务详情")
     @GetMapping("/{id}")
-    public Result<PrintJob> getById(@PathVariable Long id) {
+    public Result<PrintJobVO> getById(@PathVariable Long id) {
         PrintJob job = printJobService.getAccessibleJob(id);
-        return Result.success(job);
+        return Result.success(PrintJobVO.from(job));
     }
 
     /**

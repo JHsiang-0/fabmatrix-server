@@ -98,5 +98,14 @@ farm:
   file:
     allowed-types: gcode,g,3mf,stl
     max-file-size: 200MB
+  security:
+    cors-allowed-origins: "*"
   # Moonraker API 模拟器配置（切片软件连接密钥）
   moonraker-api-key: ${MOONRAKER_API_KEY:}
+
+# 开发环境默认开启，生产环境必须显式关闭。
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

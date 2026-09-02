@@ -42,8 +42,8 @@ public class PrinterController {
      */
     @Operation(summary = "分页查询打印机列表", description = "支持按名称和状态筛选的分页查询")
     @GetMapping("/page")
-    public Result<PageResult<Printer>> getPrinterPage(@Valid PrinterQueryDTO queryDTO) {
-        return Result.success(PageResult.from(printerService.pagePrinters(queryDTO)));
+    public Result<PageResult<PrinterVO>> getPrinterPage(@Valid PrinterQueryDTO queryDTO) {
+        return Result.success(PageResult.from(printerService.pagePrinters(queryDTO), PrinterVO::from));
     }
 
     /**
@@ -174,7 +174,7 @@ public class PrinterController {
      */
     @Operation(summary = "根据 MAC 地址查询打印机", description = "通过 MAC 地址精确查询打印机信息")
     @GetMapping("/by-mac/{macAddress}")
-    public Result<Printer> getByMacAddress(@PathVariable String macAddress) {
+    public Result<PrinterVO> getByMacAddress(@PathVariable String macAddress) {
         if (!StringUtils.hasText(macAddress)) {
             throw new BusinessException("MAC 地址不能为空");
         }
@@ -182,7 +182,7 @@ public class PrinterController {
         if (printer == null) {
             return Result.success(null, "未找到该 MAC 地址的设备");
         }
-        return Result.success(printer);
+        return Result.success(PrinterVO.from(printer));
     }
 
     /**
@@ -193,7 +193,7 @@ public class PrinterController {
      */
     @Operation(summary = "根据 IP 地址查询打印机", description = "通过 IP 地址精确查询打印机信息")
     @GetMapping("/by-ip/{ipAddress}")
-    public Result<Printer> getByIpAddress(@PathVariable String ipAddress) {
+    public Result<PrinterVO> getByIpAddress(@PathVariable String ipAddress) {
         if (!StringUtils.hasText(ipAddress)) {
             throw new BusinessException("IP 地址不能为空");
         }
@@ -201,7 +201,7 @@ public class PrinterController {
         if (printer == null) {
             return Result.success(null, "未找到该 IP 地址的设备");
         }
-        return Result.success(printer);
+        return Result.success(PrinterVO.from(printer));
     }
 
     /**

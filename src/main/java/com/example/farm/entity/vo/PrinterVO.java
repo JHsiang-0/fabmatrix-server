@@ -1,9 +1,12 @@
 package com.example.farm.entity.vo;
 
+import com.example.farm.entity.Printer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
  * <p>
@@ -14,7 +17,7 @@ import java.io.Serializable;
  * @since 2026-03-05
  */
 @Data
-@Schema(name = "PrinterVO", description = "打印机精简信息（用于下拉列表）")
+@Schema(name = "PrinterVO", description = "打印机安全响应对象，不包含 apiKey")
 public class PrinterVO implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -54,4 +57,54 @@ public class PrinterVO implements Serializable {
      */
     @Schema(description = "业务状态：IDLE(空闲), PRINTING(打印中), OFFLINE(离线), ERROR(故障), MAINTENANCE(维护)")
     private String status;
+
+    @Schema(description = "固件类型")
+    private String firmwareType;
+
+    @Schema(description = "热床是否已确认安全")
+    private Boolean isSafeToPrint;
+
+    @Schema(description = "当前任务 ID")
+    private Long currentJobId;
+
+    @Schema(description = "当前装载耗材")
+    private String currentMaterial;
+
+    @Schema(description = "喷嘴直径")
+    private BigDecimal nozzleSize;
+
+    @Schema(description = "网格行号")
+    private Integer gridRow;
+
+    @Schema(description = "网格列号")
+    private Integer gridCol;
+
+    @Schema(description = "创建时间")
+    private LocalDateTime createdAt;
+
+    @Schema(description = "更新时间")
+    private LocalDateTime updatedAt;
+
+    public static PrinterVO from(Printer printer) {
+        if (printer == null) {
+            return null;
+        }
+        PrinterVO vo = new PrinterVO();
+        vo.id = printer.getId();
+        vo.name = printer.getName();
+        vo.machineNumber = printer.getMachineNumber();
+        vo.ipAddress = printer.getIpAddress();
+        vo.macAddress = printer.getMacAddress();
+        vo.status = printer.getStatus();
+        vo.firmwareType = printer.getFirmwareType();
+        vo.isSafeToPrint = printer.getIsSafeToPrint();
+        vo.currentJobId = printer.getCurrentJobId();
+        vo.currentMaterial = printer.getCurrentMaterial();
+        vo.nozzleSize = printer.getNozzleSize();
+        vo.gridRow = printer.getGridRow();
+        vo.gridCol = printer.getGridCol();
+        vo.createdAt = printer.getCreatedAt();
+        vo.updatedAt = printer.getUpdatedAt();
+        return vo;
+    }
 }

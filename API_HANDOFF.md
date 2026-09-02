@@ -174,14 +174,14 @@ POST /api/v1/auth/login
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
-| GET | `/printers/page` | ADMIN/OPERATOR | Query：`pageNum,pageSize,name,status` | 打印机分页 |
+| GET | `/printers/page` | ADMIN/OPERATOR | Query：`pageNum,pageSize,name,status` | `PageResult<PrinterVO>`，不含 apiKey |
 | POST | `/printers/add` | ADMIN | 打印机配置 | `Result<null>` |
 | PUT | `/printers/update` | ADMIN | 包含 `id` 的打印机配置 | `Result<null>` |
 | DELETE | `/printers/delete/{id}` | ADMIN | Path ID | `Result<null>` |
 | GET | `/printers/scan` | ADMIN | Query：`subnet` | 扫描结果数组 |
-| POST | `/printers/batch-add` | ADMIN | 扫描结果数组 | 批量新增/更新统计 |
-| GET | `/printers/by-mac/{macAddress}` | ADMIN/OPERATOR | Path MAC | `Printer` 或 null |
-| GET | `/printers/by-ip/{ipAddress}` | ADMIN/OPERATOR | Path IP | `Printer` 或 null |
+| POST | `/printers/batch-add` | ADMIN | 扫描结果数组 | 批量新增/更新统计及逐项结果 |
+| GET | `/printers/by-mac/{macAddress}` | ADMIN/OPERATOR | Path MAC | `PrinterVO` 或 null |
+| GET | `/printers/by-ip/{ipAddress}` | ADMIN/OPERATOR | Path IP | `PrinterVO` 或 null |
 | PUT | `/printers/positions` | ADMIN | 位置更新数组 | `Result<null>` |
 | GET | `/printers/unallocated` | ADMIN/OPERATOR | Query：`keyword` | `PrinterVO[]` |
 
@@ -189,21 +189,21 @@ POST /api/v1/auth/login
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
-| POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file` | `PrintFile` |
-| POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页和文件筛选 | 文件分页 |
+| POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file` | `PrintFileVO`，不含 rustfsKey |
+| POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页和文件筛选 | `PageResult<PrintFileVO>` |
 | GET | `/print-files/{id}/download` | ADMIN/OPERATOR | Query：`expires` | 预签名 URL 字符串 |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
-| GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId` | 文件/文件夹数组 |
-| POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | 文件夹对象 |
+| GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId` | `PrintFileVO[]` |
+| POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
 
 ### 4.3 打印任务
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
-| GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | 任务数组 |
-| POST | `/print-jobs/page` | ADMIN/OPERATOR | JSON：分页、状态、打印机、时间 | 任务分页 |
-| GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 任务对象 |
+| GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | `PrintJobVO[]` |
+| POST | `/print-jobs/page` | ADMIN/OPERATOR | JSON：分页、状态、打印机、时间 | `PageResult<PrintJobVO>` |
+| GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | `PrintJobVO` |
 | POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID |
 | DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务 |
 | POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | 分配并启动 |

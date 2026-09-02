@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -46,6 +47,7 @@ public class PrintFile {
      */
     @TableField("rustfs_key")
     @Schema(description = "对象存储真实路径")
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String rustfsKey;
 
     @Schema(description = "原始文件名")

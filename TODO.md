@@ -113,13 +113,13 @@ FAILED -> QUEUED（重试）
 
 ### P0.6 敏感字段和生产配置
 
-- [ ] 新增 `PrinterVO`、`PrintFileVO`、`PrintJobVO`，禁止接口直接返回 Entity。
-- [ ] 打印机响应不得返回明文 `apiKey`。
-- [ ] 文件响应不得返回 RustFS 内部 `rustfsKey`。
-- [ ] 生产环境强制要求 `JWT_SECRET_KEY`、`ADMIN_SECRET_KEY`、MySQL、Redis、RustFS 密钥，不允许使用开发默认值。
-- [ ] CORS 不再使用生产环境的 `* + credentials=true`。
-- [ ] 生产环境按配置关闭 Swagger 或限制到可信局域网来源。
-- [ ] 检查日志中不输出密码、JWT、API Key、数据库密码和 RustFS 密钥。
+- [x] 新增 `PrinterVO`、`PrintFileVO`、`PrintJobVO`，禁止接口直接返回 Entity。
+- [x] 打印机响应不得返回明文 `apiKey`。
+- [x] 文件响应不得返回 RustFS 内部 `rustfsKey`。
+- [x] 生产环境强制要求 `JWT_SECRET_KEY`、`ADMIN_SECRET_KEY`、MySQL、Redis、RustFS 密钥，不允许使用开发默认值。
+- [x] CORS 不再使用生产环境的 `* + credentials=true`。
+- [x] 生产环境按配置关闭 Swagger 或限制到可信局域网来源。
+- [x] 检查日志中不输出密码、JWT、API Key、数据库密码和 RustFS 密钥。
 
 ## P0：打印机协议适配基础
 

@@ -3,10 +3,11 @@ package com.example.farm.controller;
 import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.exception.BusinessException;
-import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.entity.dto.request.CreateFolderRequest;
 import com.example.farm.entity.dto.request.BatchDeleteFilesRequest;
+import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.vo.PrintFileVO;
 import com.example.farm.service.PrintFileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,12 +41,12 @@ public class PrintFileController {
      */
     @Operation(summary = "上传并解析切片文件")
     @PostMapping("/upload")
-    public Result<PrintFile> uploadFile(@RequestParam("file") MultipartFile file) {
+    public Result<PrintFileVO> uploadFile(@RequestParam("file") MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("上传文件不能为空");
         }
         PrintFile savedFile = farmPrintFileService.uploadAndParseFile(file);
-        return Result.success(savedFile, "文件上传成功");
+        return Result.success(PrintFileVO.from(savedFile), "文件上传成功");
     }
 
     /**
@@ -53,8 +54,8 @@ public class PrintFileController {
      */
     @Operation(summary = "分页查询打印文件列表")
     @PostMapping("/page")
-    public Result<PageResult<PrintFile>> pageFiles(@Valid @RequestBody PrintFileQueryDTO queryDTO) {
-        return Result.success(PageResult.from(farmPrintFileService.pageFiles(queryDTO)));
+    public Result<PageResult<PrintFileVO>> pageFiles(@Valid @RequestBody PrintFileQueryDTO queryDTO) {
+        return Result.success(PageResult.from(farmPrintFileService.pageFiles(queryDTO), PrintFileVO::from));
     }
 
     /**
@@ -109,9 +110,9 @@ public class PrintFileController {
      */
     @Operation(summary = "获取目录内容")
     @GetMapping("/folder/content")
-    public Result<List<PrintFile>> getFolderContent(@RequestParam(required = false) Long parentId) {
+    public Result<List<PrintFileVO>> getFolderContent(@RequestParam(required = false) Long parentId) {
         List<PrintFile> contents = farmPrintFileService.getFolderContent(parentId);
-        return Result.success(contents, "获取目录内容成功");
+        return Result.success(contents.stream().map(PrintFileVO::from).toList(), "获取目录内容成功");
     }
 
     /**
@@ -122,8 +123,8 @@ public class PrintFileController {
      */
     @Operation(summary = "创建文件夹")
     @PostMapping("/folder/create")
-    public Result<PrintFile> createFolder(@Valid @RequestBody CreateFolderRequest req) {
+    public Result<PrintFileVO> createFolder(@Valid @RequestBody CreateFolderRequest req) {
         PrintFile folder = farmPrintFileService.createFolder(req.getParentId(), req.getFolderName());
-        return Result.success(folder, "文件夹创建成功");
+        return Result.success(PrintFileVO.from(folder), "文件夹创建成功");
     }
 }

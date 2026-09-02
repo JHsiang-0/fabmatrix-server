@@ -191,6 +191,8 @@ P0.4 资源边界已经在服务层落实：打印机是本地农场共享资源
 
 P0.5 输入约束已经启用：打印机、任务、派发、安全确认、文件夹请求使用 Jakarta Bean Validation；批量添加、批量删除和位置更新单次最多 100 项；文件上传扩展名读取 `farm.file.allowed-types`，大小读取 `farm.file.max-file-size`。RustFS 访问失败统一返回存储错误（业务码 5003）。
 
+P0.6 对外业务接口使用 `PrinterVO`、`PrintFileVO`、`PrintJobVO`，不得直接返回对应 Entity；VO 不包含打印机 `apiKey`、文件 `rustfsKey`。生产 Profile 启动时会强制检查数据库、Redis、RustFS、JWT、管理员密钥和明确 CORS 来源，并默认关闭 Swagger/OpenAPI。
+
 ## 9. 主要 API
 
 公共业务前缀为 `/api/v1`，成功响应统一使用 `Result`，认证请求携带：

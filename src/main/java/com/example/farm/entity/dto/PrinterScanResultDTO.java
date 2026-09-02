@@ -1,6 +1,7 @@
 package com.example.farm.entity.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
@@ -34,6 +35,7 @@ public class PrinterScanResultDTO {
     private String status;
 
     @Schema(description = "API 密钥（如果有）")
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String apiKey;
 
     @Schema(description = "建议的默认名称", example = "Printer_4455")

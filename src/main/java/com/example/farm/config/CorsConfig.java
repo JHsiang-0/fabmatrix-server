@@ -1,8 +1,12 @@
 package com.example.farm.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * 全局跨域配置类
@@ -11,12 +15,23 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
 
+    @Value("${farm.security.cors-allowed-origins:*}")
+    private String corsAllowedOrigins;
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         // 设置允许跨域的路径
-        registry.addMapping("/**")
-                // 设置允许跨域请求的域名 (开发阶段可以用 "*"，生产环境建议写死前端域名)
-                .allowedOriginPatterns("*")
+        var registration = registry.addMapping("/**");
+        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList();
+        if (origins.contains("*")) {
+            registration.allowedOriginPatterns("*");
+        } else {
+            registration.allowedOrigins(origins.toArray(String[]::new));
+        }
+        registration
                 // 是否允许 cookie
                 .allowCredentials(true)
                 // 设置允许的请求方式

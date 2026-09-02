@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * 对外统一分页返回结构。
@@ -37,5 +38,15 @@ public class PageResult<T> {
                 page.getSize(),
                 page.getPages()
         );
+    }
+
+    public static <S, T> PageResult<T> from(IPage<S> page, Function<S, T> mapper) {
+        if (page == null) {
+            return new PageResult<>();
+        }
+        List<T> records = page.getRecords() == null
+                ? Collections.emptyList()
+                : page.getRecords().stream().map(mapper).toList();
+        return new PageResult<>(records, page.getTotal(), page.getCurrent(), page.getSize(), page.getPages());
     }
 }

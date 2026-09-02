@@ -20,7 +20,6 @@ public class PrintFileVO implements Serializable {
     @Schema(description = "是否为目录")
     private Boolean folder;
     private String originalName;
-    private String fileUrl;
     private Long fileSize;
     private Long userId;
     private LocalDateTime createdAt;
@@ -49,7 +48,6 @@ public class PrintFileVO implements Serializable {
         // 数据库旧记录或刚上传的实体可能尚未填充默认值；对外契约始终返回布尔值。
         vo.folder = Boolean.TRUE.equals(file.getIsFolder());
         vo.originalName = file.getOriginalName();
-        vo.fileUrl = file.getFileUrl();
         vo.fileSize = file.getFileSize();
         vo.userId = file.getUserId();
         vo.createdAt = file.getCreatedAt();

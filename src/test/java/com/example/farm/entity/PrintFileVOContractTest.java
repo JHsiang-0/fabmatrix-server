@@ -16,11 +16,12 @@ class PrintFileVOContractTest {
         file.setId(20L);
         file.setIsFolder(true);
         file.setOriginalName("Models");
+        file.setFileUrl("http://rustfs:9000/farm/internal-key");
 
         String json = objectMapper.writeValueAsString(PrintFileVO.from(file));
 
         assertThat(json).contains("\"folder\":true");
-        assertThat(json).doesNotContain("isFolder");
+        assertThat(json).doesNotContain("isFolder", "fileUrl", "internal-key");
     }
 
     @Test

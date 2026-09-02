@@ -17,12 +17,15 @@ class SensitiveFieldSerializationTest {
 
         PrintFile file = new PrintFile();
         file.setRustfsKey("internal/rustfs-key");
+        file.setSafeName("internal-safe-name.gcode");
+        file.setFileUrl("http://rustfs:9000/farm/internal-safe-name.gcode");
 
         User user = new User();
         user.setPasswordHash("$2a$secret-hash");
 
         assertThat(objectMapper.writeValueAsString(printer)).doesNotContain("printer-secret");
         assertThat(objectMapper.writeValueAsString(file)).doesNotContain("internal/rustfs-key");
+        assertThat(objectMapper.writeValueAsString(file)).doesNotContain("internal-safe-name.gcode");
         assertThat(objectMapper.writeValueAsString(user)).doesNotContain("secret-hash");
         assertThat(objectMapper.writeValueAsString(UserVO.from(user)))
                 .doesNotContain("passwordHash")

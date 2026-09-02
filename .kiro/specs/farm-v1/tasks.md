@@ -144,6 +144,9 @@
 - [x] T5.7 增加下载 URL 有效期上限和文件存储异常测试。
   - 验收：`expires` 分钟、默认60、服务端默认上限120并支持配置，超过截断；先做文件归属校验，RustFS 签发失败返回 5003。
   - 测试：`PrintFileOwnershipTest` 覆盖上限截断、权限校验和预签名存储异常，全量测试通过。
+- [x] T5.8 收敛文件响应中的对象存储内部字段。
+  - 验收：`PrintFileVO` 不再返回直连 `fileUrl`；`rustfsKey`、`safeName` 和 `fileUrl` 仅供后端内部使用，前端下载统一调用 `/download` 获取预签名 URL。
+  - 测试：`PrintFileVOContractTest` 和 `SensitiveFieldSerializationTest` 覆盖字段脱敏。
 
 ## 6. P1 打印任务
 

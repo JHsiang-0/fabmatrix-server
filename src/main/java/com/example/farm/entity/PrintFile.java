@@ -54,9 +54,11 @@ public class PrintFile {
     private String originalName;
 
     @Schema(description = "安全文件名（带时间戳）")
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String safeName;
 
     @Schema(description = "文件存储URL")
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String fileUrl;
 
     @Schema(description = "文件大小（字节）")

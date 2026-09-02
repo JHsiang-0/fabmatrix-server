@@ -165,6 +165,9 @@
 - [x] T5.14 防止文件上传数据库失败时产生对象存储孤儿。
   - 验收：RustFS 主文件上传后若文件记录保存失败，补偿删除主文件；已上传缩略图时同时尝试删除缩略图；补偿失败不覆盖原始异常；上传校验只执行一次。
   - 测试：`PrintFileMetadataTest` 覆盖数据库写入失败后的主文件清理；全量测试通过。
+- [x] T5.15 修复文件列表打印统计的未完成任务污染。
+  - 验收：`printCount` 只统计 `COMPLETED/FAILED/CANCELLED`；`successRate` 按 `COMPLETED/(COMPLETED+FAILED)` 计算，取消、排队和执行中任务不进入分母。
+  - 测试：`PrintFileQueryTest` 覆盖结束任务统计和取消任务排除；全量测试通过。
 ## 6. P1 打印任务
 
 - [x] T6.1 实现标准创建接口 `POST /api/v1/print-jobs`，旧 `/create` 标记 deprecated。

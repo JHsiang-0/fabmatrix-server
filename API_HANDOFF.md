@@ -523,6 +523,7 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 - G-code 中 `filament used [mm]` 或兼容的毫米字段，无论数值大小都会在入库时除以1000转换为米；显式以 `m/meter` 给出的兼容字段按米保存。
 - `PrintFileVO`/`PrintFilePreviewVO` 的切片温度字段（`nozzleTemp`、`bedTemp` 及首层温度）为 Integer，单位摄氏度；实时设备状态 DTO 的温度字段仍为 Double。
 - `successRate`：BigDecimal，范围 0-100，表示百分比。
+- 文件列表统计口径：`printCount` 只统计已结束的 `COMPLETED/FAILED/CANCELLED` 任务；`successRate` 为 `COMPLETED/(COMPLETED+FAILED)` 的百分比，取消任务不计入分母，`QUEUED/ASSIGNED/READY/PRINTING/PAUSED` 不参与统计。
 - `folder` 是文件对象唯一的目录布尔字段，禁止依赖或发送旧字段 `isFolder`；实体内部仍使用数据库列 `is_folder`。
 - 文件对象无论来自上传、分页还是目录查询，`folder` 始终为 JSON 布尔值；实体目录标记为空时按普通文件输出 `false`，不会返回 `null`。
 - `rustfsKey`、`safeName`、`fileUrl`、内部存储路径和 API Key 不属于前端 DTO；下载必须调用独立的 `/download` 接口获取短期预签名 URL。

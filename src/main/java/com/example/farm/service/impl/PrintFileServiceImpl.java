@@ -10,8 +10,6 @@ import com.example.farm.common.utils.RustFsClient;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
-import com.example.farm.entity.PrintJob;
-import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.entity.vo.FileNodeVO;
 import com.example.farm.entity.vo.PrintFilePreviewVO;
@@ -226,26 +224,26 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             return;
         }
 
-        // 查询该文件的所有打印任务
-        LambdaQueryWrapper<PrintJob> jobWrapper = new LambdaQueryWrapper<>();
-        jobWrapper.eq(PrintJob::getFileId, printFile.getId());
-        // 只统计已完成和失败的任务（排除正在进行的）
-        jobWrapper.in(PrintJob::getStatus, PrintJobStatus.COMPLETED.name(),
-                PrintJobStatus.FAILED.name(), PrintJobStatus.CANCELLED.name());
-
         Long userId = SecurityContextUtil.isAdmin() ? null : SecurityContextUtil.getCurrentUserId();
         Long fileId = printFile.getId();
 
-        // 使用原生 SQL 进行统计查询
-        Integer totalCount = baseMapper.countPrintJobsByFileId(fileId, userId, null);
+        // 只统计已结束的打印尝试；排队和执行中的任务不应影响文件成功率。
         Integer completedCount = baseMapper.countPrintJobsByFileId(fileId, userId, "COMPLETED");
+        Integer failedCount = baseMapper.countPrintJobsByFileId(fileId, userId, "FAILED");
+        Integer cancelledCount = baseMapper.countPrintJobsByFileId(fileId, userId, "CANCELLED");
 
-        printFile.setPrintCount(totalCount != null ? totalCount : 0);
+        int completed = completedCount != null ? completedCount : 0;
+        int failed = failedCount != null ? failedCount : 0;
+        int cancelled = cancelledCount != null ? cancelledCount : 0;
+        int totalCount = completed + failed + cancelled;
 
-        if (totalCount != null && totalCount > 0 && completedCount != null) {
-            // 计算成功率 = 完成数 / 总数 * 100
-            BigDecimal rate = new BigDecimal(completedCount)
-                    .divide(new BigDecimal(totalCount), 4, RoundingMode.HALF_UP)
+        printFile.setPrintCount(totalCount);
+
+        // 成功率 = 完成数 /（完成数 + 失败数）* 100；取消任务不计入分母。
+        int evaluatedCount = completed + failed;
+        if (evaluatedCount > 0) {
+            BigDecimal rate = new BigDecimal(completed)
+                    .divide(new BigDecimal(evaluatedCount), 4, RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"))
                     .setScale(2, RoundingMode.HALF_UP);
             printFile.setSuccessRate(rate);

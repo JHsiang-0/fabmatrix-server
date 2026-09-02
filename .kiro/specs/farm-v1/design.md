@@ -31,6 +31,7 @@ Application Service
 - `PrinterControlController` 通过控制 Service 调用协议 Adapter。
 - `PrintJobServiceImpl` 通过 Factory 获取 Adapter，负责安全打印、任务状态和事务。
 - `PrintFileServiceImpl` 在 RustFS 上传成功后写入文件记录；数据库保存失败时补偿删除已上传的主文件和缩略图对象，补偿异常只记录日志并保留原始失败原因。
+- 文件列表统计只使用结束任务状态；成功率分母排除取消、排队和执行中任务，避免未完成任务改变成功率。
 - `PrinterMonitorTask` 通过 Adapter 获取统一状态，再同步缓存、数据库和 WebSocket 事件。
 - `WebSocketServer` 已完成鉴权、统一事件对象、快照、协议级 Ping 保活和失败清理。
 

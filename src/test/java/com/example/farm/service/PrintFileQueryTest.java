@@ -20,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -79,6 +80,28 @@ class PrintFileQueryTest {
         printFileService.pageFiles(query);
 
         verify(printFileMapper).selectFilePage(any(Page.class), eq(7L), eq(false), isNull(), isNull(), isNull());
+    }
+
+    @Test
+    void calculatesFileStatsFromFinishedJobsOnly() {
+        mockUser(1L, "OPERATOR");
+        PrintFile file = new PrintFile();
+        file.setId(20L);
+        Page<PrintFile> page = new Page<>(1, 10);
+        page.setRecords(List.of(file));
+        when(printFileMapper.selectFilePage(any(), eq(1L), eq(false), isNull(), isNull(), isNull()))
+                .thenReturn(page);
+        when(printFileMapper.countPrintJobsByFileId(20L, 1L, "COMPLETED")).thenReturn(2);
+        when(printFileMapper.countPrintJobsByFileId(20L, 1L, "FAILED")).thenReturn(1);
+        when(printFileMapper.countPrintJobsByFileId(20L, 1L, "CANCELLED")).thenReturn(1);
+
+        printFileService.pageFiles(new PrintFileQueryDTO());
+
+        assertThat(file.getPrintCount()).isEqualTo(4);
+        assertThat(file.getSuccessRate()).isEqualByComparingTo("66.67");
+        verify(printFileMapper).countPrintJobsByFileId(20L, 1L, "COMPLETED");
+        verify(printFileMapper).countPrintJobsByFileId(20L, 1L, "FAILED");
+        verify(printFileMapper).countPrintJobsByFileId(20L, 1L, "CANCELLED");
     }
 
     private void mockUser(Long userId, String role) {

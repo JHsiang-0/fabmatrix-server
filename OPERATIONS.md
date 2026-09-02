@@ -27,6 +27,66 @@
 
 当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；`02-current-schema.sql` 的新增列/索引检查已支持重复执行。
 
+### 已有数据卷的升级步骤
+
+以下命令在仓库根目录执行。备份目录仅为示例，执行前确认磁盘空间充足，并将密码通过环境变量提供，不要把真实密码写入脚本或提交到 Git。
+
+```bash
+export FARM_BACKUP_DIR="./backups/$(date +%Y%m%d-%H%M%S)"
+export FARM_REDIS_PASSWORD='替换为当前 Redis 密码'
+mkdir -p "$FARM_BACKUP_DIR"
+
+# MySQL：事务一致性导出
+docker compose exec -T mysql sh -c \
+  'exec mysqldump --single-transaction --routines --events --triggers \
+   -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' \
+  > "$FARM_BACKUP_DIR/farm.sql"
+
+# Redis：导出 RDB 快照
+docker compose exec -T -e REDISCLI_AUTH="$FARM_REDIS_PASSWORD" redis \
+  redis-cli --no-auth-warning --rdb - \
+  > "$FARM_BACKUP_DIR/redis.rdb"
+
+# RustFS：备份对象存储数据卷
+docker run --rm \
+  -v farm_rustfs_data:/data:ro \
+  -v "$PWD/$FARM_BACKUP_DIR":/backup \
+  alpine:3.21 tar -czf /backup/rustfs-data.tar.gz -C /data .
+```
+
+确认备份文件可读后，再执行增量迁移。应用应先停止（使用 IDEA 的 Stop 或运行终端中的 Ctrl+C），基础设施保持运行：
+
+```bash
+docker compose up -d mysql redis rustfs
+docker compose ps
+
+for migration in \
+  src/main/resources/db/migration/02-current-schema.sql \
+  src/main/resources/db/migration/03-remove-customer-role.sql \
+  src/main/resources/db/migration/04-normalize-print-job-status.sql \
+  src/main/resources/db/migration/05-normalize-printer-firmware-type.sql \
+  src/main/resources/db/migration/06-add-printer-status-history.sql; do
+  docker compose exec -T mysql sh -c \
+    'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
+done
+```
+
+迁移后至少核对新增字段、历史表和规范化值，再启动应用：
+
+```bash
+docker compose exec -T mysql sh -c \
+  'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e \
+   "SHOW COLUMNS FROM farm_print_job LIKE '\''operator_id'\''; \
+    SHOW COLUMNS FROM farm_print_file LIKE '\''rustfs_key'\''; \
+    SHOW TABLES LIKE '\''farm_printer_status_history'\''; \
+    SELECT DISTINCT status FROM farm_print_job; \
+    SELECT DISTINCT firmware_type FROM farm_printer;"'
+
+mvn spring-boot:run
+```
+
+如果迁移验证失败，先停止应用并保留备份，再根据失败脚本和数据库备份制定回滚方案；不要直接删除 Docker 数据卷。
+
 ## 故障定位
 
 - `GET /actuator/health` 返回 `DOWN`：先检查 MySQL/Redis 容器状态和应用配置；不要仅根据 Redis 缓存判断打印机是否存在。

@@ -54,7 +54,7 @@ WebSocket: ws://<server-host>:8080/ws/farm-status
 - `data` 没有业务数据时为 `null`，不使用随机字符串表示成功。
 - `timestamp`：Long，Unix epoch 毫秒。
 - 新接口必须同时返回正确的 HTTP 状态码和业务码。
-- 现有异常处理会把部分业务错误压成 `code=500`，后端实现规划接口时必须修复，不得继续复制这个行为。
+- P0.1 已修复业务异常码丢失问题；认证、权限、参数和核心业务异常现在返回对应 HTTP 状态与业务码。
 
 ### 2.3 错误码
 
@@ -516,8 +516,8 @@ farm.tasks.enabled=false
 2. `CANCELED/CANCELLED` 统一为 `CANCELLED`。
 3. `POST /print-jobs` 与旧 `/create` 的兼容策略。
 4. 统一分页返回字段。
-5. 修复 `BusinessException` 错误码被丢失的问题。
-6. 统一 HTTP 401、403 和 JSON 错误格式。
+5. 已修复 `BusinessException` 错误码被丢失的问题。
+6. 已统一 HTTP 401、403 和 JSON 错误格式；仍需补充更多端到端错误场景测试。
 7. 增加任务、文件和打印机的服务层资源归属校验。
 8. 返回 VO，禁止直接暴露 `apiKey` 和 `rustfsKey`。
 9. 文件分页真正支持名称、材质筛选。

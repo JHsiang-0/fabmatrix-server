@@ -1,5 +1,7 @@
 # WebSocket 实时状态推送指南
 
+> **历史文档（不用于当前联调）**：本文保留早期客户端示例，部分路径、消息字段和认证说明已经过期。当前契约请以 [`API_HANDOFF.md`](./API_HANDOFF.md) 第 7 节和实际 `WebSocketServer` 为准：连接地址为 `/ws/farm-status?token=<JWT>`（兼容 `access_token`），首帧为 `SNAPSHOT`，业务消息类型固定为 `SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`，顶层包含 `type`、`printerId`（快照除外）、`timestamp`、`data`。本文中的“无需 Token”、`unifiedState` 和 `FarmWebSocketServer.java` 均不可用于当前开发。
+
 ## 架构概述
 
 ```

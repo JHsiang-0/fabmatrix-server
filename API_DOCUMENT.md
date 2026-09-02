@@ -1,5 +1,7 @@
 # 3D 农场管理系统 API 文档
 
+> **历史文档（不用于当前联调）**：本文保留早期接口说明，部分示例已经过期。当前前后端唯一接口契约是 [`API_HANDOFF.md`](./API_HANDOFF.md)，实际行为以当前 Controller、SecurityConfig 和 Swagger/OpenAPI 为准。特别注意：注册仅允许 ADMIN，管理员密钥使用 `X-Admin-Secret` 请求头，推荐任务创建地址为 `POST /api/v1/print-jobs`，WebSocket 必须通过 `?token=<JWT>` 握手。
+
 ## 基础信息
 - Base URL: `http://localhost:8080`
 - API 前缀: `/api/v1`

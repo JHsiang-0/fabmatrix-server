@@ -162,6 +162,9 @@
 - [x] T5.13 修复虚拟目录直接内容的目录优先排序。
   - 验收：`GET /api/v1/print-files/folder/content` 固定按目录优先、同级创建时间倒序返回，根目录和指定父目录行为不变。
   - 测试：`PrintFileMapperTest` 使用 H2 真实执行 Service 查询，验证目录先于文件且同级按创建时间倒序。
+- [x] T5.14 防止文件上传数据库失败时产生对象存储孤儿。
+  - 验收：RustFS 主文件上传后若文件记录保存失败，补偿删除主文件；已上传缩略图时同时尝试删除缩略图；补偿失败不覆盖原始异常；上传校验只执行一次。
+  - 测试：`PrintFileMetadataTest` 覆盖数据库写入失败后的主文件清理；全量测试通过。
 ## 6. P1 打印任务
 
 - [x] T6.1 实现标准创建接口 `POST /api/v1/print-jobs`，旧 `/create` 标记 deprecated。

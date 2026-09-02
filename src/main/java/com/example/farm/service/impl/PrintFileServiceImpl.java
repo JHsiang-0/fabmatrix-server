@@ -339,12 +339,15 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         printFile.setFirstLayerBedTemp(meta.getFirstLayerBedTemp());
         printFile.setFirstLayerHeight(meta.getFirstLayerHeight());
 
+        String uploadedThumbnailUrl = null;
+
         // 提取并上传缩略图
         try {
             String thumbnailBase64 = GCodeParser.extractThumbnailBase64(headTailForThumb);
             if (thumbnailBase64 != null && !thumbnailBase64.isEmpty()) {
                 String thumbnailUrl = uploadThumbnailToRustFS(thumbnailBase64, safeName);
                 if (thumbnailUrl != null) {
+                    uploadedThumbnailUrl = thumbnailUrl;
                     printFile.setThumbnailUrl(thumbnailUrl);
                     log.info("缩略图提取并上传成功: fileId={}", printFile.getId());
                 }
@@ -356,9 +359,35 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             // 缩略图失败不影响主流程
         }
 
-        this.save(printFile);
+        try {
+            if (!this.save(printFile)) {
+                throw new BusinessException("文件记录保存失败");
+            }
+        } catch (RuntimeException exception) {
+            cleanupUploadedObjects(safeName, uploadedThumbnailUrl);
+            throw exception;
+        }
         log.info("切片文件入库成功: fileId={}, userId={}, safeName={}", printFile.getId(), userId, safeName);
         return printFile;
+    }
+
+    /**
+     * 数据库写入失败时补偿删除已经上传的对象。对象存储不参与本地事务，不能依赖
+     * {@code @Transactional} 自动回滚；清理失败只记录日志，保留原始数据库异常。
+     */
+    private void cleanupUploadedObjects(String safeName, String thumbnailUrl) {
+        if (thumbnailUrl != null && !thumbnailUrl.isBlank()) {
+            try {
+                rustFsClient.deleteFileByObjectUrl(thumbnailUrl);
+            } catch (RuntimeException cleanupException) {
+                log.warn("数据库保存失败后清理缩略图对象失败", cleanupException);
+            }
+        }
+        try {
+            rustFsClient.deleteFile(safeName);
+        } catch (RuntimeException cleanupException) {
+            log.warn("数据库保存失败后清理文件对象失败", cleanupException);
+        }
     }
 
     @Override

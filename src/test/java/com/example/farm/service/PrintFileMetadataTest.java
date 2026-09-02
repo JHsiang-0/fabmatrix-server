@@ -21,9 +21,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -64,6 +67,21 @@ class PrintFileMetadataTest {
         PrintFile saved = printFileService.uploadAndParseFile(file);
 
         assertThat(saved.getFilamentLength()).isEqualByComparingTo("0.50");
+    }
+
+    @Test
+    void cleansUploadedObjectWhenDatabaseRecordCannotBeSaved() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "database-failure.gcode", "text/plain",
+                "G1 X1\n".getBytes(StandardCharsets.UTF_8));
+        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(printFileMapper).insert(any(PrintFile.class));
+
+        assertThatThrownBy(() -> printFileService.uploadAndParseFile(file))
+                .hasMessage("database unavailable");
+
+        verify(rustFsClient).deleteFile(anyString());
     }
 
     private void mockUser(Long userId) {

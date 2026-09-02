@@ -49,7 +49,7 @@ public class PrintFileController {
     @PostMapping("/upload")
     public Result<PrintFileVO> uploadFile(@RequestParam("file") MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new BusinessException("上传文件不能为空");
+            throw new BusinessException(400, "上传文件不能为空");
         }
         PrintFile savedFile = farmPrintFileService.uploadAndParseFile(file);
         return Result.success(PrintFileVO.from(savedFile), "文件上传成功");

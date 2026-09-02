@@ -25,6 +25,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -351,6 +352,36 @@ class SecurityResponseTest {
                         .content("{}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void missingPrinterIpUsesUnified400Response() throws Exception {
+        mockMvc.perform(post("/api/v1/printers/add")
+                        .with(user("1").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void missingPrinterIdUsesUnified400Response() throws Exception {
+        mockMvc.perform(put("/api/v1/printers/update")
+                        .with(user("1").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void emptyFileUploadUsesUnified400Response() throws Exception {
+        mockMvc.perform(multipart("/api/v1/print-files/upload")
+                        .file(new org.springframework.mock.web.MockMultipartFile(
+                                "file", "empty.gcode", "text/plain", new byte[0]))
+                        .with(user("1").roles("OPERATOR")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test

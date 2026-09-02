@@ -69,7 +69,7 @@ public class PrinterStatusHistoryServiceImpl implements PrinterStatusHistoryServ
             throw new BusinessException(404, "打印机不存在");
         }
         if (query == null) {
-            throw new BusinessException("历史查询参数不能为空");
+            throw new BusinessException(400, "历史查询参数不能为空");
         }
         if (query.getFrom() != null && query.getTo() != null
                 && query.getFrom().isAfter(query.getTo())) {

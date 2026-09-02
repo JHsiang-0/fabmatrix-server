@@ -84,6 +84,14 @@ class PrintFileMetadataTest {
         verify(rustFsClient).deleteFile(anyString());
     }
 
+    @Test
+    void rejectsBlankFolderNameAsValidationError() {
+        assertThatThrownBy(() -> printFileService.createFolder(null, "  "))
+                .hasMessage("文件夹名称不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
+    }
+
     private void mockUser(Long userId) {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userId, null,

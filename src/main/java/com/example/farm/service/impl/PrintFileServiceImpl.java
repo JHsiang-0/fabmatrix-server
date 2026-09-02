@@ -138,7 +138,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     public PrintFile createFolder(Long parentId, String folderName) {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
         if (folderName == null || folderName.isBlank()) {
-            throw new BusinessException("文件夹名称不能为空");
+            throw new BusinessException(400, "文件夹名称不能为空");
         }
 
         if (parentId != null) {

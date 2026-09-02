@@ -149,4 +149,14 @@ class PrinterServiceFirmwareTypeTest {
                 .extracting("code")
                 .isEqualTo(400L);
     }
+
+    @Test
+    void rejectsMissingPrinterIpAsValidationError() {
+        PrinterAddDTO request = new PrinterAddDTO();
+
+        assertThatThrownBy(() -> printerService.addPrinter(request))
+                .hasMessage("IP 地址不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
+    }
 }

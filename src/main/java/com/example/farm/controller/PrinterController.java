@@ -96,7 +96,7 @@ public class PrinterController {
     public Result<String> addPrinter(@Valid @RequestBody PrinterAddDTO addDTO) {
         addDTO = requireBody(addDTO);
         if (!StringUtils.hasText(addDTO.getIpAddress())) {
-            throw new BusinessException("打印机 IP 地址不能为空");
+            throw new BusinessException(400, "打印机 IP 地址不能为空");
         }
 
         // 调用重构后的 Service 方法（内部实现 Upsert 逻辑）
@@ -117,7 +117,7 @@ public class PrinterController {
     public Result<String> updatePrinter(@Valid @RequestBody PrinterUpdateDTO updateDTO) {
         updateDTO = requireBody(updateDTO);
         if (updateDTO.getId() == null) {
-            throw new BusinessException("设备 ID 不能为空");
+            throw new BusinessException(400, "设备 ID 不能为空");
         }
         printerService.updatePrinter(updateDTO);
         return Result.success(null, "打印机信息更新成功");
@@ -210,7 +210,7 @@ public class PrinterController {
     @GetMapping("/by-mac/{macAddress}")
     public Result<PrinterVO> getByMacAddress(@PathVariable String macAddress) {
         if (!StringUtils.hasText(macAddress)) {
-            throw new BusinessException("MAC 地址不能为空");
+            throw new BusinessException(400, "MAC 地址不能为空");
         }
         Printer printer = printerService.getByMacAddress(macAddress);
         if (printer == null) {
@@ -229,7 +229,7 @@ public class PrinterController {
     @GetMapping("/by-ip/{ipAddress}")
     public Result<PrinterVO> getByIpAddress(@PathVariable String ipAddress) {
         if (!StringUtils.hasText(ipAddress)) {
-            throw new BusinessException("IP 地址不能为空");
+            throw new BusinessException(400, "IP 地址不能为空");
         }
         Printer printer = printerService.getByIpAddress(ipAddress);
         if (printer == null) {

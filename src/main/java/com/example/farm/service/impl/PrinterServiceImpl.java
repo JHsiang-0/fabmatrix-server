@@ -81,7 +81,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
     public void addPrinter(PrinterAddDTO dto) {
         // 参数校验
         if (!StringUtils.hasText(dto.getIpAddress())) {
-            throw new BusinessException("IP 地址不能为空");
+            throw new BusinessException(400, "IP 地址不能为空");
         }
 
         String ipAddress = dto.getIpAddress();

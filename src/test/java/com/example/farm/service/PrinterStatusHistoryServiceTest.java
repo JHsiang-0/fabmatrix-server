@@ -112,6 +112,20 @@ class PrinterStatusHistoryServiceTest {
     }
 
     @Test
+    void rejectsMissingHistoryQueryAsValidationError() {
+        PrinterMapper printerMapper = mock(PrinterMapper.class);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        when(printerMapper.selectById(403L)).thenReturn(printer);
+        PrinterStatusHistoryService service = new PrinterStatusHistoryServiceImpl(
+                mock(PrinterStatusHistoryMapper.class), printerMapper);
+
+        assertThatThrownBy(() -> service.page(403L, null))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(400));
+    }
+
+    @Test
     void persistsFirstSampleAndStateChangesWithoutWritingEveryPoll() {
         RedisUtil redisUtil = mock(RedisUtil.class);
         PrinterMapper printerMapper = mock(PrinterMapper.class);

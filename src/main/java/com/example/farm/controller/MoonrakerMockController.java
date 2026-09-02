@@ -184,7 +184,7 @@ public class MoonrakerMockController {
         validateApiKey(apiKey);
 
         if (file == null || file.isEmpty()) {
-            throw new BusinessException("文件不能为空");
+            throw new BusinessException(400, "文件不能为空");
         }
 
         log.info("Moonraker 收到文件上传: filename={}, size={}, print={}",

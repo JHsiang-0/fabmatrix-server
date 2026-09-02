@@ -178,8 +178,8 @@ startPrint()
   - Redis 保留高频短期历史，MySQL 增量保存状态变化和每分钟样本；迁移脚本为 `06-add-printer-status-history.sql`。
 - [x] 实现 `GET /api/v1/printers/{id}/statistics` 打印统计。
   - 按任务创建时间聚合任务数量、成功率和已结束任务时长；暂不虚构耗材成本等数据库未记录指标。
-- [ ] 实现 `POST /api/v1/control/{id}/resume` 恢复打印。
-- [ ] 实现 `POST /api/v1/control/{id}/cancel` 取消当前设备任务。
+- [x] 实现 `POST /api/v1/control/{id}/resume` 恢复打印。
+- [x] 实现 `POST /api/v1/control/{id}/cancel` 取消当前设备任务。
 - [ ] 明确设备离线、忙碌、错误时的 HTTP 和业务错误码。
 - [ ] 扫描接口支持协议识别，不再只扫描 Moonraker 7125。
 - [ ] 扫描和批量添加返回每个设备的成功/失败原因。

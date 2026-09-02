@@ -43,4 +43,18 @@ public class PrinterControlController {
         printerControlService.pause(id);
         return Result.success(null, "暂停指令已发送");
     }
+
+    @Operation(summary = "恢复打印", description = "恢复指定打印机当前绑定的暂停任务")
+    @PostMapping("/{id}/resume")
+    public Result<Void> resumePrint(@PathVariable Long id) {
+        printerControlService.resume(id);
+        return Result.success(null, "恢复指令已发送");
+    }
+
+    @Operation(summary = "取消当前设备任务", description = "取消指定打印机当前绑定的农场任务并解绑设备")
+    @PostMapping("/{id}/cancel")
+    public Result<Void> cancelCurrentJob(@PathVariable Long id) {
+        printerControlService.cancelCurrentJob(id);
+        return Result.success(null, "当前任务已取消");
+    }
 }

@@ -2,6 +2,7 @@ package com.example.farm.service;
 
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.PrintJob;
 import com.example.farm.protocol.PrinterEndpoint;
 import com.example.farm.protocol.PrinterProtocolAdapter;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
@@ -26,6 +27,10 @@ class PrinterControlServiceTest {
     private PrinterProtocolAdapterFactory adapterFactory;
     @Mock
     private PrinterProtocolAdapter adapter;
+    @Mock
+    private PrintJobService printJobService;
+    @Mock
+    private WebSocketEventPublisher eventPublisher;
 
     @Test
     void routesPauseThroughAdapterWithoutMoonrakerDependency() {
@@ -33,7 +38,7 @@ class PrinterControlServiceTest {
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
 
-        new PrinterControlServiceImpl(printerService, adapterFactory).pause(403L);
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).pause(403L);
 
         ArgumentCaptor<PrinterEndpoint> endpoint = ArgumentCaptor.forClass(PrinterEndpoint.class);
         verify(adapter).pause(endpoint.capture());
@@ -47,9 +52,59 @@ class PrinterControlServiceTest {
         printer.setStatus("OFFLINE");
         when(printerService.getById(403L)).thenReturn(printer);
 
-        assertThatThrownBy(() -> new PrinterControlServiceImpl(printerService, adapterFactory).emergencyStop(403L))
+        assertThatThrownBy(() -> new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).emergencyStop(403L))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getCode()).isEqualTo(10001));
+    }
+
+    @Test
+    void resumesPausedCurrentJobThroughAdapterAndPublishesState() {
+        Printer printer = printer();
+        printer.setStatus("PAUSED");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PAUSED");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(job)).thenReturn(true);
+
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).resume(403L);
+
+        verify(adapter).resume(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
+        assertThat(job.getStatus()).isEqualTo("PRINTING");
+        verify(eventPublisher).publishJobStatus(job);
+        assertThat(printer.getStatus()).isEqualTo("PRINTING");
+    }
+
+    @Test
+    void rejectsResumeWhenPrinterHasNoCurrentJob() {
+        Printer printer = printer();
+        when(printerService.getById(403L)).thenReturn(printer);
+
+        assertThatThrownBy(() -> new PrinterControlServiceImpl(
+                printerService, adapterFactory, printJobService, eventPublisher).resume(403L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("打印机当前没有绑定任务");
+    }
+
+    @Test
+    void delegatesCancelCurrentJobToJobService() {
+        Printer printer = printer();
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PAUSED");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printJobService.getById(1001L)).thenReturn(job);
+
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher)
+                .cancelCurrentJob(403L);
+
+        org.mockito.Mockito.verify(printJobService).cancelJob(1001L);
     }
 
     private Printer printer() {

@@ -174,7 +174,9 @@
 - [x] T7.2 用户分页、资料和管理响应脱敏复核。
   - 验收：资料和管理员分页统一返回 `UserVO`，不直接序列化 `User`，响应字段不包含 `passwordHash`。
   - 测试：`SensitiveFieldSerializationTest` 覆盖 `UserVO` 脱敏；全量 `mvn test` 通过。
-- [ ] T7.3 补充管理员创建、启用、禁用、角色修改的 Controller 集成测试。
+- [x] T7.3 补充管理员创建、启用、禁用、角色修改的 Controller 集成测试。
+  - 验收：ADMIN 成功委托四类管理操作；OPERATOR 调用四类 ADMIN-only 路由统一返回 HTTP 403、业务码 `403`。
+  - 测试：`SecurityResponseTest` 覆盖成功和拒绝路径；全量 `mvn test` 通过。
 - [ ] T7.4 统一登录失败次数、Redis 锁定、禁用用户和 Token 错误响应。
 - [ ] T7.5 评估是否实现 logout；若不实现，记录前端删除 Token 的产品决定。
 

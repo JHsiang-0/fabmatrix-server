@@ -236,7 +236,8 @@ startPrint()
 - [ ] 可选增加 `POST /api/v1/auth/logout`；第一版可通过前端删除 Token 实现退出。
 - [x] 用户分页、当前用户资料和兼容 profile 响应统一使用 `UserVO`，禁止返回 `passwordHash`。
   - `UserVO` 仅包含 `id,username,role,email,phone,createdAt,updatedAt`；持久化实体只在 Service 内部使用。
-- [ ] 增加管理员创建操作员、禁用、启用、修改角色的接口测试。
+- [x] 增加管理员创建操作员、禁用、启用、修改角色的接口测试。
+  - 已覆盖 ADMIN 成功委托和 OPERATOR 统一 403；管理员角色更新仍由现有 Service 校验角色枚举。
 - [ ] 检查登录失败次数、Redis 锁定和禁用用户的统一错误响应。
 
 ## P1：前端页面和联调任务

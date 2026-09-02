@@ -1,15 +1,27 @@
 package com.example.farm.config;
 
 import com.example.farm.FarmApplication;
+import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,6 +32,9 @@ class SecurityResponseTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private UserService userService;
 
     @Test
     void unauthenticatedRequestUsesUnified401Response() throws Exception {
@@ -88,5 +103,103 @@ class SecurityResponseTest {
                         .with(user("operator").roles("OPERATOR")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void adminCanCreateOperator() throws Exception {
+        when(userService.register(any())).thenReturn(2L);
+
+        mockMvc.perform(post("/api/v1/auth/admin/users")
+                        .with(user("1").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("{\"username\":\"operator1\",\"password\":\"Operator1\","
+                                + "\"confirmPassword\":\"Operator1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value(2));
+
+        verify(userService).register(any());
+    }
+
+    @Test
+    void adminCanDisableUser() throws Exception {
+        doNothing().when(userService).disableUser(2L, 1L);
+
+        mockMvc.perform(post("/api/v1/auth/admin/users/2/disable")
+                        .with(authentication(adminAuthentication())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(userService).disableUser(2L, 1L);
+    }
+
+    @Test
+    void adminCanEnableUser() throws Exception {
+        doNothing().when(userService).enableUser(2L, 1L);
+
+        mockMvc.perform(post("/api/v1/auth/admin/users/2/enable")
+                        .with(authentication(adminAuthentication())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(userService).enableUser(2L, 1L);
+    }
+
+    @Test
+    void adminCanUpdateUserRole() throws Exception {
+        doNothing().when(userService).updateUserInfo(any(UserUpdateDTO.class));
+
+        mockMvc.perform(put("/api/v1/auth/admin/users/2")
+                        .with(user("1").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("{\"role\":\"OPERATOR\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(userService).updateUserInfo(any(UserUpdateDTO.class));
+    }
+
+    @Test
+    void operatorCannotCreateOperator() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/admin/users")
+                        .with(user("2").roles("OPERATOR"))
+                        .contentType("application/json")
+                        .content("{\"username\":\"operator1\",\"password\":\"Operator1\","
+                                + "\"confirmPassword\":\"Operator1\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void operatorCannotDisableUser() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/admin/users/2/disable")
+                        .with(user("2").roles("OPERATOR")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void operatorCannotEnableUser() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/admin/users/2/enable")
+                        .with(user("2").roles("OPERATOR")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void operatorCannotUpdateUserRole() throws Exception {
+        mockMvc.perform(put("/api/v1/auth/admin/users/2")
+                        .with(user("2").roles("OPERATOR"))
+                        .contentType("application/json")
+                        .content("{\"role\":\"ADMIN\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    private UsernamePasswordAuthenticationToken adminAuthentication() {
+        return new UsernamePasswordAuthenticationToken(
+                1L,
+                null,
+                java.util.List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
     }
 }

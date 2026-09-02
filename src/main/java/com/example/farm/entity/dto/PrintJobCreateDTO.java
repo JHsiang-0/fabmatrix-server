@@ -1,6 +1,9 @@
 package com.example.farm.entity.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
 /**
@@ -11,8 +14,12 @@ import lombok.Data;
 public class PrintJobCreateDTO {
 
     @Schema(description = "切片文件ID (必填)", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotNull(message = "切片文件 ID 不能为空")
+    @Positive(message = "切片文件 ID 必须为正数")
     private Long fileId;
 
     @Schema(description = "任务优先级 (数字越大越优先，默认 0)")
+    @Max(value = 100, message = "任务优先级不能超过100")
+    @jakarta.validation.constraints.Min(value = 0, message = "任务优先级不能小于0")
     private Integer priority;
 }

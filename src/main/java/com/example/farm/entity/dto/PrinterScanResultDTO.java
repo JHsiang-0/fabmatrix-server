@@ -1,6 +1,8 @@
 package com.example.farm.entity.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
@@ -12,12 +14,17 @@ import lombok.Data;
 public class PrinterScanResultDTO {
 
     @Schema(description = "IP 地址", example = "192.168.1.100")
+    @NotBlank(message = "扫描结果中的 IP 地址不能为空")
+    @Pattern(regexp = "^(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)){3})$",
+            message = "扫描结果中的 IP 地址格式不正确")
     private String ipAddress;
 
     @Schema(description = "MAC 地址（标准化格式）", example = "00:11:22:33:44:55")
+    @Pattern(regexp = "(?i)^(?:$|(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2})$", message = "扫描结果中的 MAC 地址格式不正确")
     private String macAddress;
 
     @Schema(description = "固件类型", example = "Klipper")
+    @Pattern(regexp = "(?i)^(KLIPPER|RRF)$", message = "固件类型只能是 KLIPPER 或 RRF")
     private String firmwareType;
 
     @Schema(description = "是否为新设备（数据库中不存在该 MAC）", example = "true")

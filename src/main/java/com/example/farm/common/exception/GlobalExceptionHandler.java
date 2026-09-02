@@ -264,6 +264,17 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理 RustFS/S3 对象存储访问失败。
+     */
+    @ExceptionHandler(StorageException.class)
+    public ResponseEntity<Result<Object>> handleStorageException(StorageException e,
+                                                                   HttpServletRequest request) {
+        log.error("对象存储服务异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
+        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(),
+                getEnvironmentMessage("对象存储服务异常，请稍后重试"));
+    }
+
+    /**
      * 处理未知异常
      */
     @ExceptionHandler(Exception.class)

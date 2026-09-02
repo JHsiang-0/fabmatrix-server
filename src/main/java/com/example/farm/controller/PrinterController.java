@@ -61,7 +61,7 @@ public class PrinterController {
      */
     @Operation(summary = "新增打印机", description = "基于 MAC 地址的 Upsert 机制，解决 DHCP 动态分配导致的设备重复录入问题")
     @PostMapping("/add")
-    public Result<String> addPrinter(@RequestBody PrinterAddDTO addDTO) {
+    public Result<String> addPrinter(@Valid @RequestBody PrinterAddDTO addDTO) {
         if (!StringUtils.hasText(addDTO.getIpAddress())) {
             throw new BusinessException("打印机 IP 地址不能为空");
         }
@@ -81,7 +81,7 @@ public class PrinterController {
      */
     @Operation(summary = "更新打印机信息", description = "修改打印机的名称、IP、MAC、耗材等配置信息")
     @PutMapping("/update")
-    public Result<String> updatePrinter(@RequestBody PrinterUpdateDTO updateDTO) {
+    public Result<String> updatePrinter(@Valid @RequestBody PrinterUpdateDTO updateDTO) {
         if (updateDTO.getId() == null) {
             throw new BusinessException("设备 ID 不能为空");
         }
@@ -154,7 +154,8 @@ public class PrinterController {
     @Operation(summary = "批量添加打印机", description = "基于 MAC 地址的 Upsert 机制，批量录入扫描到的设备")
     @PostMapping("/batch-add")
     public Result<PrinterService.BatchUpsertResult> batchAdd(
-            @RequestBody List<PrinterScanResultDTO> scanResults) {
+            @Valid @RequestBody @jakarta.validation.constraints.Size(max = 100, message = "单次最多添加100台打印机")
+            List<@Valid PrinterScanResultDTO> scanResults) {
         if (scanResults == null || scanResults.isEmpty()) {
             throw new BusinessException("设备列表不能为空");
         }
@@ -220,7 +221,8 @@ public class PrinterController {
     @PutMapping("/positions")
     @Operation(summary = "批量更新打印机物理位置", description = "用于数字孪生看板拖拽后更新设备坐标")
     public Result<String> batchUpdatePositions(
-            @RequestBody List<PrinterPositionUpdateDTO> positionUpdates) {
+            @Valid @RequestBody @jakarta.validation.constraints.Size(max = 100, message = "单次最多更新100台打印机位置")
+            List<@Valid PrinterPositionUpdateDTO> positionUpdates) {
         if (positionUpdates == null || positionUpdates.isEmpty()) {
             throw new BusinessException("位置更新列表不能为空");
         }

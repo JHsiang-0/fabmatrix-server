@@ -6,6 +6,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.entity.dto.request.CreateFolderRequest;
+import com.example.farm.entity.dto.request.BatchDeleteFilesRequest;
 import com.example.farm.service.PrintFileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,7 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 打印文件管理接口。
@@ -91,13 +91,10 @@ public class PrintFileController {
      */
     @Operation(summary = "批量删除文件")
     @DeleteMapping("/batch")
-    public Result<Void> batchDeleteFiles(@RequestBody Map<String, List<Long>> request) {
-        List<Long> ids = request.get("ids");
-        if (ids == null || ids.isEmpty()) {
-            throw new BusinessException("请选择要删除的文件");
-        }
-        farmPrintFileService.batchDeleteFiles(ids);
-        return Result.success(null, "批量删除成功");
+    public Result<PrintFileService.BatchDeleteResult> batchDeleteFiles(
+            @Valid @RequestBody BatchDeleteFilesRequest request) {
+        PrintFileService.BatchDeleteResult result = farmPrintFileService.batchDeleteFiles(request.getIds());
+        return Result.success(result, result.getMessage());
     }
 
     // =============================================
@@ -125,7 +122,7 @@ public class PrintFileController {
      */
     @Operation(summary = "创建文件夹")
     @PostMapping("/folder/create")
-    public Result<PrintFile> createFolder(@RequestBody CreateFolderRequest req) {
+    public Result<PrintFile> createFolder(@Valid @RequestBody CreateFolderRequest req) {
         PrintFile folder = farmPrintFileService.createFolder(req.getParentId(), req.getFolderName());
         return Result.success(folder, "文件夹创建成功");
     }

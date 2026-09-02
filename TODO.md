@@ -102,14 +102,14 @@ FAILED -> QUEUED（重试）
 
 ### P0.5 输入校验
 
-- [ ] `PrinterAddDTO`、`PrinterUpdateDTO` 增加名称、IP、MAC、固件类型、网格位置校验。
-- [ ] `PrintJobCreateDTO` 增加 `fileId @NotNull`、`priority` 范围校验。
-- [ ] `AssignJobRequest` 增加 `jobId`、`printerId` 非空和正数校验。
-- [ ] `ConfirmSafeRequest`、`StartPrintJobRequest` 增加 ID 和 action 枚举校验。
-- [ ] `CreateFolderRequest` 增加名称长度、非法字符、父目录校验。
-- [ ] 批量添加和批量删除增加最大数量限制，并返回每一项失败原因。
-- [ ] 上传文件校验扩展名、文件大小和文件名；允许类型必须与配置实际绑定。
-- [ ] 统一处理文件不存在、空文件、超限文件和 RustFS 上传失败。
+- [x] `PrinterAddDTO`、`PrinterUpdateDTO` 增加名称、IP、MAC、固件类型、网格位置校验。
+- [x] `PrintJobCreateDTO` 增加 `fileId @NotNull`、`priority` 范围校验。
+- [x] `AssignJobRequest` 增加 `jobId`、`printerId` 非空和正数校验。
+- [x] `ConfirmSafeRequest`、`StartPrintJobRequest` 增加 ID 和 action 枚举校验。
+- [x] `CreateFolderRequest` 增加名称长度、非法字符、父目录校验。
+- [x] 批量添加和批量删除增加最大数量限制，并返回每一项失败原因。
+- [x] 上传文件校验扩展名、文件大小和文件名；允许类型绑定到 `farm.file.allowed-types` 和 `farm.file.max-file-size`。
+- [x] 统一处理文件不存在、空文件、超限文件和 RustFS 上传失败。
 
 ### P0.6 敏感字段和生产配置
 

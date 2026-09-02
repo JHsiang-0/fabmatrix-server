@@ -83,7 +83,7 @@ public class PrintJobController {
      */
     @Operation(summary = "创建打印任务")
     @PostMapping("/create")
-    public Result<Long> createJob(@RequestBody PrintJobCreateDTO req) {
+    public Result<Long> createJob(@Valid @RequestBody PrintJobCreateDTO req) {
         Long jobId = printJobService.createJob(req);
         log.info("创建打印任务请求完成: jobId={}", jobId);
         return Result.success(jobId, "任务创建成功");
@@ -169,7 +169,7 @@ public class PrintJobController {
      */
     @Operation(summary = "派发任务（安全模式-第一步）")
     @PostMapping("/safe/assign")
-    public Result<String> assignJobSafe(@RequestBody AssignJobRequest req) {
+    public Result<String> assignJobSafe(@Valid @RequestBody AssignJobRequest req) {
         printJobService.assignJob(req.getJobId(), req.getPrinterId());
         log.info("安全派发任务成功: jobId={}, printerId={}", req.getJobId(), req.getPrinterId());
         return Result.success(null, "任务已派发，请通知现场操作员确认安全后启动打印");
@@ -185,7 +185,7 @@ public class PrintJobController {
      */
     @Operation(summary = "现场确认机器安全（安全模式-第二步之一）")
     @PostMapping("/safe/confirm")
-    public Result<String> confirmPrinterSafe(@RequestBody ConfirmSafeRequest req) {
+    public Result<String> confirmPrinterSafe(@Valid @RequestBody ConfirmSafeRequest req) {
         Long operatorId = SecurityContextUtil.getCurrentUserId();
         printJobService.confirmPrinterSafe(req.getPrinterId(), operatorId);
         log.info("现场确认打印机安全: printerId={}, operatorId={}", req.getPrinterId(), operatorId);
@@ -203,7 +203,7 @@ public class PrintJobController {
      */
     @Operation(summary = "现场启动打印（安全模式-第二步之二）")
     @PostMapping("/safe/start")
-    public Result<String> startPrint(@RequestBody StartPrintJobRequest req) {
+    public Result<String> startPrint(@Valid @RequestBody StartPrintJobRequest req) {
         Long operatorId = SecurityContextUtil.getCurrentUserId();
         String action = req.getAction();
         printJobService.startPrint(req.getJobId(), operatorId, action);

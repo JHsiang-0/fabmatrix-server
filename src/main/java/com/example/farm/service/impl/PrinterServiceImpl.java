@@ -43,6 +43,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> implements PrinterService {
 
+    private static final int MAX_BATCH_SIZE = 100;
+
     private final PrinterCacheService printerCacheService;
     private final MacAddressUtil macAddressUtil;
 
@@ -383,6 +385,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             log.warn("批量 Upsert 跳过：扫描结果为空");
             return new BatchUpsertResult(0, 0, 0, 0);
         }
+        if (scanResults.size() > MAX_BATCH_SIZE) {
+            throw new BusinessException(400, "单次最多添加" + MAX_BATCH_SIZE + "台打印机");
+        }
 
         int totalCount = scanResults.size();
         int insertedCount = 0;
@@ -392,25 +397,41 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         log.info("开始批量 Upsert 打印机：共 {} 台设备", totalCount);
 
         // 逐个处理每台设备
+        int index = 0;
+        BatchUpsertResult batchResult = new BatchUpsertResult(totalCount, 0, 0, 0);
         for (PrinterScanResultDTO result : scanResults) {
             try {
+                if (result == null) {
+                    throw new BusinessException(400, "设备数据不能为空");
+                }
+                if (!StringUtils.hasText(result.getIpAddress())) {
+                    throw new BusinessException(400, "IP 地址不能为空");
+                }
                 processSingleDevice(result, insertedCount, updatedCount);
                 if (Boolean.TRUE.equals(result.getIsNewDevice())) {
                     insertedCount++;
                 } else {
                     updatedCount++;
                 }
+                batchResult.getItems().add(new PrinterService.BatchUpsertItemResult(
+                        index, result.getIpAddress(), result.getMacAddress(), true, "处理成功"));
             } catch (Exception e) {
-                log.error("处理设备失败: IP={}, MAC={}, 原因={}",
-                        result.getIpAddress(), result.getMacAddress(), e.getMessage());
+                String ip = result == null ? null : result.getIpAddress();
+                String mac = result == null ? null : result.getMacAddress();
+                log.error("处理设备失败: IP={}, MAC={}, 原因={}", ip, mac, e.getMessage());
                 failedCount++;
+                batchResult.getItems().add(new PrinterService.BatchUpsertItemResult(
+                        index, ip, mac, false, e.getMessage() == null ? "处理失败" : e.getMessage()));
             }
+            index++;
         }
 
         // 刷新缓存
         printerCacheService.refreshPrinterCache();
 
-        BatchUpsertResult batchResult = new BatchUpsertResult(totalCount, insertedCount, updatedCount, failedCount);
+        batchResult.setInsertedCount(insertedCount);
+        batchResult.setUpdatedCount(updatedCount);
+        batchResult.setFailedCount(failedCount);
         batchResult.setMessage(String.format("批量处理完成：新增 %d 台，更新 %d 台，失败 %d 台",
                 insertedCount, updatedCount, failedCount));
 

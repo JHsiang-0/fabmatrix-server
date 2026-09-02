@@ -1,5 +1,6 @@
 package com.example.farm.common.utils;
 
+import com.example.farm.common.exception.StorageException;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -109,7 +110,7 @@ public class RustFsClient {
 
         } catch (Exception e) {
             log.error("上传切片文件到对象存储失败: 文件名={}", filename, e);
-            throw new RuntimeException("对象存储服务异常");
+            throw new StorageException("对象存储服务异常", e);
         }
     }
 
@@ -158,7 +159,7 @@ public class RustFsClient {
             };
         } catch (Exception e) {
             log.error("读取对象存储文件流失败: 文件名={}", filename, e);
-            throw new RuntimeException("读取对象存储文件失败");
+            throw new StorageException("读取对象存储文件失败", e);
         }
     }
 
@@ -175,7 +176,7 @@ public class RustFsClient {
             log.info("RustFS 对象删除成功: bucket={}, key={}", bucket, filename);
         } catch (Exception e) {
             log.error("RustFS 对象删除失败: bucket={}, key={}", bucket, filename, e);
-            throw new RuntimeException("对象存储删除失败");
+            throw new StorageException("对象存储删除失败", e);
         }
     }
 
@@ -199,7 +200,7 @@ public class RustFsClient {
             return s3Presigner.presignGetObject(presignRequest).url().toString();
         } catch (Exception e) {
             log.error("生成预签名 URL 失败: key={}", filename, e);
-            throw new RuntimeException("生成预签名 URL 失败");
+            throw new StorageException("生成预签名 URL 失败", e);
         }
     }
 
@@ -237,7 +238,7 @@ public class RustFsClient {
 
         } catch (Exception e) {
             log.error("字节数组上传失败: key={}", key, e);
-            throw new RuntimeException("对象存储上传失败");
+            throw new StorageException("对象存储上传失败", e);
         }
     }
 }

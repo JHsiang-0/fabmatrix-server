@@ -193,7 +193,7 @@ POST /api/v1/auth/login
 | POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页和文件筛选 | 文件分页 |
 | GET | `/print-files/{id}/download` | ADMIN/OPERATOR | Query：`expires` | 预签名 URL 字符串 |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
-| DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}` | `Result<null>` |
+| DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
 | GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId` | 文件/文件夹数组 |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | 文件夹对象 |
 
@@ -217,6 +217,15 @@ POST /api/v1/auth/login
 |---|---|---|---|---|
 | POST | `/control/{id}/pause` | ADMIN/OPERATOR | Path 打印机 ID | `Result<null>` |
 | POST | `/control/{id}/emergency-stop` | ADMIN/OPERATOR | Path 打印机 ID | `Result<null>` |
+
+### 4.5 当前输入校验约定
+
+- 打印机名称最多100个字符；IP 必须为 IPv4；MAC 支持冒号或连字符格式；固件类型只能是 `KLIPPER` 或 `RRF`（大小写兼容）；网格范围为行 `1-4`、列 `1-12`。
+- 创建任务的 `fileId` 必须为正数，`priority` 范围为 `0-100`。
+- 派发、确认安全、启动任务的 ID 必须为正数；`action` 只能是 `START_PRINT` 或 `UPLOAD_ONLY`。`operatorId` 仍兼容接收，但后端忽略其值并使用 JWT 当前用户。
+- 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
+- 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
+- 文件上传扩展名从 `farm.file.allowed-types` 读取，默认允许 `gcode,g,3mf,stl`；开发环境上限200MB，生产环境上限1GB。空文件、非法文件名、超限和不支持类型统一返回 HTTP 400；RustFS 失败返回 HTTP 503、业务码 `5003`。
 
 ## 5. 未完成接口与冻结后的目标规范
 

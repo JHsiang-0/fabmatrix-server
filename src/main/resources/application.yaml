@@ -95,5 +95,8 @@ server:
 farm:
   websocket:
     max-connections: 1000
+  file:
+    allowed-types: gcode,g,3mf,stl
+    max-file-size: 200MB
   # Moonraker API 模拟器配置（切片软件连接密钥）
   moonraker-api-key: ${MOONRAKER_API_KEY:}

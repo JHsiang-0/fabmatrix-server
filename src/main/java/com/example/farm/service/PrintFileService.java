@@ -72,7 +72,7 @@ public interface PrintFileService extends IService<PrintFile> {
      * @param ids 文件 ID 列表
      * @throws BusinessException 当任一文件不存在或当前用户无权删除时抛出
      */
-    void batchDeleteFiles(java.util.List<Long> ids);
+    BatchDeleteResult batchDeleteFiles(java.util.List<Long> ids);
 
     /**
      * 获取文件的预签名下载 URL。
@@ -83,4 +83,32 @@ public interface PrintFileService extends IService<PrintFile> {
      * @throws BusinessException 当文件不存在或当前用户无权访问时抛出
      */
     String getPresignedDownloadUrl(Long id, Integer expirationMinutes);
+
+    /**
+     * 批量删除结果，保留每个 ID 的处理原因，便于前端逐项提示。
+     */
+    @lombok.Data
+    class BatchDeleteResult {
+        private int totalCount;
+        private int deletedCount;
+        private int failedCount;
+        private java.util.List<BatchDeleteItemResult> items = new java.util.ArrayList<>();
+        private String message;
+    }
+
+    /**
+     * 单个文件的批量删除结果。
+     */
+    @lombok.Data
+    class BatchDeleteItemResult {
+        private Long id;
+        private boolean success;
+        private String reason;
+
+        public BatchDeleteItemResult(Long id, boolean success, String reason) {
+            this.id = id;
+            this.success = success;
+            this.reason = reason;
+        }
+    }
 }

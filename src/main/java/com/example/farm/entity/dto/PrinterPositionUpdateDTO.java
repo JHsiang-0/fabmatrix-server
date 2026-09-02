@@ -1,6 +1,8 @@
 package com.example.farm.entity.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
 /**
@@ -11,6 +13,8 @@ import lombok.Data;
 public class PrinterPositionUpdateDTO {
 
     @Schema(description = "设备ID (必填)", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotNull(message = "设备 ID 不能为空")
+    @Positive(message = "设备 ID 必须为正数")
     private Long id;
 
     @Schema(description = "物理位置 - 网格行号 (1-4，null 表示移回待分配区)")

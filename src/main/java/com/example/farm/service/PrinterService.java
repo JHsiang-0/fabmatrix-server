@@ -133,6 +133,7 @@ public interface PrinterService extends IService<Printer> {
         private int updatedCount;    // 更新数
         private int failedCount;     // 失败数
         private String message;      // 结果消息
+        private List<BatchUpsertItemResult> items = new java.util.ArrayList<>();
 
         public BatchUpsertResult() {}
 
@@ -154,11 +155,46 @@ public interface PrinterService extends IService<Printer> {
         public void setFailedCount(int failedCount) { this.failedCount = failedCount; }
         public String getMessage() { return message; }
         public void setMessage(String message) { this.message = message; }
+        public List<BatchUpsertItemResult> getItems() { return items; }
+        public void setItems(List<BatchUpsertItemResult> items) { this.items = items; }
 
         @Override
         public String toString() {
             return String.format("BatchUpsertResult{total=%d, inserted=%d, updated=%d, failed=%d}",
                     totalCount, insertedCount, updatedCount, failedCount);
         }
+    }
+
+    /**
+     * 批量录入单台打印机的处理结果。
+     */
+    class BatchUpsertItemResult {
+        private int index;
+        private String ipAddress;
+        private String macAddress;
+        private boolean success;
+        private String reason;
+
+        public BatchUpsertItemResult() {}
+
+        public BatchUpsertItemResult(int index, String ipAddress, String macAddress,
+                                     boolean success, String reason) {
+            this.index = index;
+            this.ipAddress = ipAddress;
+            this.macAddress = macAddress;
+            this.success = success;
+            this.reason = reason;
+        }
+
+        public int getIndex() { return index; }
+        public void setIndex(int index) { this.index = index; }
+        public String getIpAddress() { return ipAddress; }
+        public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+        public String getMacAddress() { return macAddress; }
+        public void setMacAddress(String macAddress) { this.macAddress = macAddress; }
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        public String getReason() { return reason; }
+        public void setReason(String reason) { this.reason = reason; }
     }
 }

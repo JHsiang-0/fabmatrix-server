@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
+import com.example.farm.common.exception.StorageException;
 import com.example.farm.common.utils.GCodeParser;
 import com.example.farm.common.utils.RustFsClient;
 import com.example.farm.common.utils.SecurityContextUtil;
+import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.enums.PrintJobStatus;
@@ -27,6 +29,7 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -38,8 +41,11 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     private static final int META_SAMPLE_SIZE = 8192;
     private static final int DEEP_TAIL_SAMPLE_SIZE = 512 * 1024; // 512KB
     private static final long FULL_PARSE_MAX_BYTES = 100L * 1024 * 1024; // 100MB
+    private static final int MAX_BATCH_SIZE = 100;
+    private static final int MAX_FILENAME_LENGTH = 255;
 
     private final RustFsClient rustFsClient;
+    private final FileUploadProperties fileUploadProperties;
 
     @Override
     public List<PrintFile> getFolderContent(Long parentId) {
@@ -173,15 +179,10 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PrintFile uploadAndParseFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new BusinessException("上传文件不能为空");
-        }
+        validateUpload(file);
 
         Long userId = SecurityContextUtil.getCurrentUserId();
-        String originalName = file.getOriginalFilename();
-        if (originalName == null || originalName.isBlank()) {
-            originalName = "unknown.gcode";
-        }
+        String originalName = file.getOriginalFilename().trim();
         String safeName = System.currentTimeMillis() + "_" + originalName;
 
         // 统一从完整文件解析
@@ -315,41 +316,103 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void batchDeleteFiles(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return;
-        }
-        Long userId = SecurityContextUtil.getCurrentUserId();
+    public PrintFileService.BatchDeleteResult batchDeleteFiles(List<Long> ids) {
+        PrintFileService.BatchDeleteResult result = new PrintFileService.BatchDeleteResult();
+        List<Long> distinctIds = ids == null ? List.of() : ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        result.setTotalCount(distinctIds.size());
+        result.setItems(new ArrayList<>());
 
-        // 查询用户拥有的文件
-        LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
-        List<Long> distinctIds = ids.stream().filter(Objects::nonNull).distinct().toList();
         if (distinctIds.isEmpty()) {
-            throw new BusinessException("请选择有效的文件");
+            result.setMessage("没有需要删除的文件");
+            return result;
         }
-        wrapper.in(PrintFile::getId, distinctIds);
-        if (!SecurityContextUtil.isAdmin()) {
-            wrapper.eq(PrintFile::getUserId, userId);
-        }
-        List<PrintFile> files = this.list(wrapper);
-
-        if (files.size() != distinctIds.size()) {
-            throw new BusinessException(404, "部分文件不存在或无权限访问");
+        if (distinctIds.size() > MAX_BATCH_SIZE) {
+            throw new BusinessException(400, "单次最多删除" + MAX_BATCH_SIZE + "个文件");
         }
 
-        // 删除 RustFS 中的文件
-        for (PrintFile file : files) {
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        for (Long id : distinctIds) {
             try {
-                rustFsClient.deleteFile(file.getSafeName());
+                PrintFile target = getAccessibleFile(id);
+                rustFsClient.deleteFile(target.getSafeName());
+                if (!this.removeById(target.getId())) {
+                    throw new BusinessException("数据库记录删除失败");
+                }
+                result.getItems().add(new PrintFileService.BatchDeleteItemResult(id, true, "删除成功"));
+                result.setDeletedCount(result.getDeletedCount() + 1);
+            } catch (BusinessException e) {
+                result.getItems().add(new PrintFileService.BatchDeleteItemResult(id, false, e.getMessage()));
+                result.setFailedCount(result.getFailedCount() + 1);
+            } catch (StorageException e) {
+                log.warn("批量删除文件时对象存储失败: fileId={}, userId={}, reason={}", id, userId, e.getMessage());
+                result.getItems().add(new PrintFileService.BatchDeleteItemResult(id, false, "对象存储删除失败"));
+                result.setFailedCount(result.getFailedCount() + 1);
             } catch (Exception e) {
-                log.warn("删除 RustFS 文件失败: key={}, error={}", file.getSafeName(), e.getMessage());
+                log.error("批量删除文件失败: fileId={}, userId={}", id, userId, e);
+                result.getItems().add(new PrintFileService.BatchDeleteItemResult(id, false, "删除失败，请稍后重试"));
+                result.setFailedCount(result.getFailedCount() + 1);
             }
         }
+        result.setMessage(String.format("批量删除完成：成功 %d 个，失败 %d 个",
+                result.getDeletedCount(), result.getFailedCount()));
+        log.info("批量删除文件完成: userId={}, deletedCount={}, failedCount={}",
+                userId, result.getDeletedCount(), result.getFailedCount());
+        return result;
+    }
 
-        // 批量删除数据库记录
-        List<Long> idsToDelete = files.stream().map(PrintFile::getId).toList();
-        this.removeByIds(idsToDelete);
-        log.info("批量删除文件完成: userId={}, deletedCount={}", userId, idsToDelete.size());
+    private void validateUpload(MultipartFile file) {
+        if (file == null || file.isEmpty() || file.getSize() <= 0) {
+            throw new BusinessException(400, "上传文件不能为空");
+        }
+        long maxBytes = fileUploadProperties != null && fileUploadProperties.getMaxFileSize() != null
+                ? fileUploadProperties.getMaxFileSize().toBytes()
+                : 200L * 1024 * 1024;
+        if (file.getSize() > maxBytes) {
+            throw new BusinessException(400, "文件大小不能超过" + formatDataSize(maxBytes));
+        }
+
+        String originalName = file.getOriginalFilename();
+        if (originalName == null || originalName.isBlank()) {
+            throw new BusinessException(400, "文件名不能为空");
+        }
+        originalName = originalName.trim();
+        if (originalName.length() > MAX_FILENAME_LENGTH
+                || originalName.equals(".")
+                || originalName.equals("..")
+                || containsUnsafeFilenameCharacter(originalName)) {
+            throw new BusinessException(400, "文件名长度或格式不正确");
+        }
+
+        int dot = originalName.lastIndexOf('.');
+        if (dot <= 0 || dot == originalName.length() - 1) {
+            throw new BusinessException(400, "文件必须包含受支持的扩展名");
+        }
+        String extension = originalName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        List<String> allowedTypes = fileUploadProperties == null ? List.of("gcode", "g", "3mf", "stl")
+                : fileUploadProperties.getAllowedTypes();
+        boolean allowed = allowedTypes != null && allowedTypes.stream()
+                .filter(Objects::nonNull)
+                .map(type -> type.trim().toLowerCase(java.util.Locale.ROOT))
+                .map(type -> type.startsWith(".") ? type.substring(1) : type)
+                .anyMatch(extension::equals);
+        if (!allowed) {
+            throw new BusinessException(400, "不支持的文件类型: ." + extension);
+        }
+    }
+
+    private boolean containsUnsafeFilenameCharacter(String filename) {
+        return filename.indexOf('/') >= 0 || filename.indexOf('\\') >= 0
+                || filename.chars().anyMatch(Character::isISOControl);
+    }
+
+    private String formatDataSize(long bytes) {
+        if (bytes % (1024L * 1024 * 1024) == 0) {
+            return (bytes / (1024L * 1024 * 1024)) + "GB";
+        }
+        return (bytes / (1024L * 1024)) + "MB";
     }
 
     private PrintFile getAccessibleFile(Long id) {

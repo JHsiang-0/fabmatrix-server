@@ -5,6 +5,8 @@ import com.example.farm.controller.WebSocketServer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.protocol.PrinterDeviceStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Map;
 import java.util.LinkedHashMap;
@@ -19,7 +21,8 @@ public class WebSocketEventPublisher {
         if (printerId == null || status == null) {
             return;
         }
-        WebSocketServer.broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, status));
+        FarmStatusMessage message = FarmStatusMessage.printerStatus(printerId, status);
+        publishAfterCommit(() -> broadcastPrinterStatus(message));
     }
 
     public void publishPrinterOffline(Long printerId, String reason) {
@@ -27,8 +30,9 @@ public class WebSocketEventPublisher {
             return;
         }
         String safeReason = reason == null || reason.isBlank() ? "设备无法连接" : reason;
-        WebSocketServer.broadcastPrinterOffline(FarmStatusMessage.printerOffline(
-                printerId, Map.of("status", "OFFLINE", "reason", safeReason)));
+        FarmStatusMessage message = FarmStatusMessage.printerOffline(
+                printerId, Map.of("status", "OFFLINE", "reason", safeReason));
+        publishAfterCommit(() -> broadcastPrinterOffline(message));
     }
 
     public void publishJobStatus(PrintJob job) {
@@ -40,6 +44,32 @@ public class WebSocketEventPublisher {
         data.put("status", job.getStatus());
         data.put("progress", job.getProgress());
         data.put("errorReason", job.getErrorReason());
-        WebSocketServer.broadcastJobStatus(FarmStatusMessage.jobStatus(job.getPrinterId(), data));
+        FarmStatusMessage message = FarmStatusMessage.jobStatus(job.getPrinterId(), data);
+        publishAfterCommit(() -> broadcastJobStatus(message));
+    }
+
+    protected void broadcastPrinterStatus(FarmStatusMessage message) {
+        WebSocketServer.broadcastPrinterStatus(message);
+    }
+
+    protected void broadcastPrinterOffline(FarmStatusMessage message) {
+        WebSocketServer.broadcastPrinterOffline(message);
+    }
+
+    protected void broadcastJobStatus(FarmStatusMessage message) {
+        WebSocketServer.broadcastJobStatus(message);
+    }
+
+    private void publishAfterCommit(Runnable publisher) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publisher.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publisher.run();
+            }
+        });
     }
 }

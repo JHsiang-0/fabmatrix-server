@@ -207,6 +207,7 @@ public record FarmStatusMessage(
 - `FarmStatusSnapshotService` 为新连接构建全量快照。
 - `PrinterMonitorTask` 在状态或可用性发生变化时发布打印机事件。
 - `PrintJobService` 在任务状态持久化成功后发布任务事件。
+- `WebSocketEventPublisher` 使用事务提交回调发布业务事件；存在事务时提交前不广播，回滚不广播；无事务的监控场景直接发布。
 - WebSocket 发送失败只清理会话，不回滚业务操作。
 
 由于 `@ServerEndpoint` 的实例化方式，Endpoint 不自行创建 Mapper/Service；通过 Spring 桥接组件或明确的应用级发布器注入依赖。

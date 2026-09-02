@@ -78,6 +78,24 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理协议适配器异常，避免设备通信失败落入通用 500。
+     */
+    @ExceptionHandler(com.example.farm.protocol.PrinterProtocolException.class)
+    public ResponseEntity<Result<Object>> handlePrinterProtocolException(
+            com.example.farm.protocol.PrinterProtocolException e,
+            HttpServletRequest request) {
+        long code = switch (e.getCategory()) {
+            case OFFLINE -> ResultCode.PRINTER_OFFLINE.getCode();
+            case TIMEOUT, PROTOCOL_ERROR, UNKNOWN -> ResultCode.NETWORK_ERROR.getCode();
+            case UNSUPPORTED -> ResultCode.PRINTER_PROTOCOL_UNSUPPORTED.getCode();
+            case REJECTED -> ResultCode.VALIDATE_FAILED.getCode();
+        };
+        log.warn("打印机协议调用失败: uri={}, operation={}, protocol={}, category={}",
+                request.getRequestURI(), e.getOperation(), e.getProtocolType(), e.getCategory());
+        return failed(resolveHttpStatus(code), code, getEnvironmentMessage(e.getMessage()));
+    }
+
+    /**
      * 处理参数校验异常
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -299,6 +317,7 @@ public class GlobalExceptionHandler {
             case 409, 10002 -> HttpStatus.CONFLICT;
             case 422 -> HttpStatus.UNPROCESSABLE_ENTITY;
             case 10001, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;
+            case 10003 -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

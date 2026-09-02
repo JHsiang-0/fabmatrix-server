@@ -42,10 +42,10 @@
   - 目标：封装现有 `MoonrakerApiClient`，转换 Moonraker 状态，分类设备异常。
   - 验收：现有 Klipper 行为不回退，凭据不进入日志/响应。
   - 测试：`KlipperMoonrakerAdapterTest`，3 个测试通过；全量 `mvn test` 共 29 个通过。
-- [ ] T1.4 将打印机控制改为 Service → Adapter。
+- [x] T1.4 将打印机控制改为 Service → Adapter。
   - 目标：移除 `PrinterControlController` 对 Moonraker 的直接依赖。
   - 验收：暂停、急停和后续恢复/取消接口经过统一权限、状态和协议选择。
-  - 测试：Controller 401/403/404/设备失败。
+  - 测试：`PrinterControlServiceTest`、`GlobalExceptionHandlerTest`，7 个针对性测试通过；协议异常已映射为 10001/5004/10003。
 - [ ] T1.5 将任务服务改为 Adapter 调用。
   - 目标：替换 `PrintJobServiceImpl` 的上传、启动、取消等直接 Moonraker 调用。
   - 验收：设备成功后才更新任务/打印机状态，失败不会伪造 `PRINTING`。

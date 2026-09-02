@@ -117,7 +117,7 @@ public enum PrinterOperation {
 
 `FailureCategory` 至少包含：`OFFLINE`、`TIMEOUT`、`UNSUPPORTED`、`REJECTED`、`PROTOCOL_ERROR`、`UNKNOWN`。
 
-Controller/全局异常处理器将其映射为现有业务错误码：离线优先使用 `10001`，网络超时使用 `5004`，协议不支持使用新增稳定业务码；非法业务状态仍使用 `422`，打印机忙使用 `10002`。
+Controller/全局异常处理器将其映射为现有业务错误码：离线优先使用 `10001`，网络超时使用 `5004`，协议不支持使用稳定业务码 `10003`；非法业务状态仍使用 `422`，打印机忙使用 `10002`。
 
 ## 4. Adapter 接口
 

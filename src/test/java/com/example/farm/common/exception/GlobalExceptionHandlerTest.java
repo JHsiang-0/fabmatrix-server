@@ -1,6 +1,10 @@
 package com.example.farm.common.exception;
 
 import com.example.farm.common.api.ResultCode;
+import com.example.farm.protocol.FailureCategory;
+import com.example.farm.protocol.PrinterOperation;
+import com.example.farm.protocol.PrinterProtocolException;
+import com.example.farm.protocol.PrinterProtocolType;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -39,5 +43,35 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED.value());
+    }
+
+    @Test
+    void mapsProtocolOfflineToPrinterOffline() {
+        var exception = new PrinterProtocolException(
+                PrinterOperation.PAUSE,
+                PrinterProtocolType.KLIPPER,
+                FailureCategory.OFFLINE,
+                "设备无法连接");
+
+        var response = handler.handlePrinterProtocolException(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(ResultCode.PRINTER_OFFLINE.getCode());
+    }
+
+    @Test
+    void mapsUnsupportedProtocolToStableBusinessCode() {
+        var exception = new PrinterProtocolException(
+                PrinterOperation.GET_STATUS,
+                PrinterProtocolType.RRF,
+                FailureCategory.UNSUPPORTED,
+                "协议暂未接入");
+
+        var response = handler.handlePrinterProtocolException(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(ResultCode.PRINTER_PROTOCOL_UNSUPPORTED.getCode());
     }
 }

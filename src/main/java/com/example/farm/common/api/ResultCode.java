@@ -13,6 +13,7 @@ public enum ResultCode {
     // 你可以在这里继续追加农场相关的业务状态码
     PRINTER_OFFLINE(10001, "打印机离线"),
     PRINTER_BUSY(10002, "打印机正忙"),
+    PRINTER_PROTOCOL_UNSUPPORTED(10003, "打印机协议不支持当前操作"),
 
     // 中间件错误码 (5xxx)
     MYSQL_ERROR(5001, "数据库连接异常"),

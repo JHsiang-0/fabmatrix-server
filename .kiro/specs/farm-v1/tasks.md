@@ -182,6 +182,8 @@
   - 测试：`UserAuthenticationTest`、`SecurityResponseTest` 覆盖认证失败、锁定、禁用 Token 和无效 Token；全量 `mvn test` 通过。
 - [x] T7.5 评估是否实现 logout；第一版不实现服务端 logout。
   - 验收：交接文档明确没有 `/auth/logout`；前端退出时删除 Token、清空用户状态并断开 WebSocket，Token 自然过期。
+- [x] T7.6 收紧管理员密钥传输方式。
+  - 验收：密码迁移和状态检查只接受 `X-Admin-Secret` 请求头，拒绝 URL 查询参数；使用常量时间比较并有缺失/成功请求测试。
 
 ## 8. P1 前端接入与联调
 

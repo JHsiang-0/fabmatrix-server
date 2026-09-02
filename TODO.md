@@ -122,6 +122,7 @@ FAILED -> QUEUED（重试）
 - [x] CORS 不再使用生产环境的 `* + credentials=true`。
 - [x] 生产环境按配置关闭 Swagger 或限制到可信局域网来源。
 - [x] 检查日志中不输出密码、JWT、API Key、数据库密码和 RustFS 密钥。
+- [x] 管理员密码迁移/状态检查改用 `X-Admin-Secret` 请求头，不将管理员密钥放入 URL 查询参数；已覆盖缺失和成功请求测试。
 
 ## P0：打印机协议适配基础
 

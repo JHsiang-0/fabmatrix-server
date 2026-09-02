@@ -17,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MissingPathVariableException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.client.ResourceAccessException;
@@ -135,6 +136,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler({
             MissingServletRequestParameterException.class,
+            MissingRequestHeaderException.class,
             MissingPathVariableException.class,
             MethodArgumentTypeMismatchException.class,
             HttpMessageNotReadableException.class,

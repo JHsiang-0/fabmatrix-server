@@ -165,12 +165,16 @@ POST /api/v1/auth/login
 | PUT | `/auth/admin/users/{userId}` | ADMIN | 用户更新 DTO | `Result<null>` |
 | POST | `/auth/admin/users/{userId}/disable` | ADMIN | Path ID | `Result<null>` |
 | POST | `/auth/admin/users/{userId}/enable` | ADMIN | Path ID | `Result<null>` |
+| POST | `/auth/admin/migrate-passwords` | ADMIN | Header：`X-Admin-Secret` | `Result<PasswordMigrateResultDTO>` |
+| GET | `/auth/admin/password-status` | ADMIN | Header：`X-Admin-Secret` | `Result<PasswordStatusResultDTO>` |
 | GET | `/auth/me` | ADMIN/OPERATOR | 无 | `Result<UserVO>` |
 | GET | `/auth/{userId}/profile` | 本人 | 无 | `Result<UserVO>` |
 | PUT | `/auth/{userId}/profile` | 本人 | 邮箱、手机号 | `Result<null>` |
 | POST | `/auth/{userId}/change-password` | 本人 | 旧密码、新密码、确认密码 | `Result<null>` |
 
 密码规则由后端强制校验：6-20 位，必须包含大写字母、小写字母和数字。`CUSTOMER` 不再使用。
+
+管理员密码迁移和状态检查接口只接受 `X-Admin-Secret` 请求头，不接受 URL 查询参数，避免管理员密钥进入浏览器、代理或访问日志。
 
 `GET /auth/me` 从 Bearer JWT 的当前用户 ID 读取用户资料，不需要也不接受路径参数；前端登录成功后可直接调用该接口初始化用户状态。用户资料和管理员用户分页统一返回 `UserVO`，字段只有 `id,username,role,email,phone,createdAt,updatedAt`，不包含 `passwordHash`。
 

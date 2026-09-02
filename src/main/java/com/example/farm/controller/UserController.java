@@ -26,9 +26,13 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * 用户认证与管理接口。
@@ -130,7 +134,8 @@ public class UserController {
 
     @Operation(summary = "管理员批量迁移明文密码")
     @PostMapping("/admin/migrate-passwords")
-    public Result<PasswordMigrateResultDTO> migrateAllPasswords(@RequestParam String adminSecret) {
+    public Result<PasswordMigrateResultDTO> migrateAllPasswords(
+            @RequestHeader("X-Admin-Secret") String adminSecret) {
         validateAdminSecret(adminSecret);
         PasswordMigrateResultDTO result = userService.migrateAllPasswords();
         return Result.success(result,
@@ -139,7 +144,8 @@ public class UserController {
 
     @Operation(summary = "管理员检查密码存储状态")
     @GetMapping("/admin/password-status")
-    public Result<PasswordStatusResultDTO> checkPasswordStatus(@RequestParam String adminSecret) {
+    public Result<PasswordStatusResultDTO> checkPasswordStatus(
+            @RequestHeader("X-Admin-Secret") String adminSecret) {
         validateAdminSecret(adminSecret);
         return Result.success(userService.checkPasswordStatus());
     }
@@ -159,7 +165,9 @@ public class UserController {
     }
 
     private void validateAdminSecret(String adminSecret) {
-        if (!adminSecretKey.equals(adminSecret)) {
+        if (!MessageDigest.isEqual(
+                adminSecretKey.getBytes(StandardCharsets.UTF_8),
+                adminSecret.getBytes(StandardCharsets.UTF_8))) {
             throw new BusinessException("管理员密钥错误");
         }
     }

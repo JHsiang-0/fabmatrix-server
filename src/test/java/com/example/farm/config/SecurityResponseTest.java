@@ -204,6 +204,30 @@ class SecurityResponseTest {
     }
 
     @Test
+    void adminSecretMustBeProvidedInHeader() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/admin/password-status")
+                        .with(authentication(adminAuthentication()))
+                        .param("adminSecret", "test-admin-key"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void adminSecretHeaderAuthorizesPasswordStatus() throws Exception {
+        when(userService.checkPasswordStatus())
+                .thenReturn(new com.example.farm.entity.dto.PasswordStatusResultDTO(1, 0, 1));
+
+        mockMvc.perform(get("/api/v1/auth/admin/password-status")
+                        .with(authentication(adminAuthentication()))
+                        .header("X-Admin-Secret", "test-admin-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.totalCount").value(1));
+
+        verify(userService).checkPasswordStatus();
+    }
+
+    @Test
     void operatorCannotCreateOperator() throws Exception {
         mockMvc.perform(post("/api/v1/auth/admin/users")
                         .with(user("2").roles("OPERATOR"))

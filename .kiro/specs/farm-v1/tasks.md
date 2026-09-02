@@ -203,7 +203,9 @@
 - [x] T9.2 补齐 Mapper/MySQL 查询、分页和迁移验证。
   - 验收：`farm.sql` 与当前实体/Mapper 字段已核对；02 增量脚本按列/索引存在性重复执行安全；04 状态迁移、05 协议规范化和 06 历史表脚本可重复执行。
   - 说明：项目未引入 Flyway，已有 Docker 数据卷仍需备份后手工执行增量 SQL；真实 MySQL 执行验收待容器环境。
-- [ ] T9.3 补齐 Redis 锁、缓存和登录保护测试。
+- [x] T9.3 补齐 Redis 锁、缓存和登录保护测试。
+  - 验收：登录失败计数、15 分钟锁定、禁用标记、打印机状态缓存 10 秒 TTL、状态锁 5 秒 TTL 和锁竞争路径均有测试；不连接或清空真实 Redis。
+  - 测试：`RedisProtectionTest`、`PrinterCacheRedisTest`；全量 `mvn test` 通过。
 - [ ] T9.4 补齐 RustFS 上传、预签名 URL、删除失败测试。
 - [ ] T9.5 补齐 Klipper/RRF Adapter 和 Mock 测试。
 - [ ] T9.6 完成上传文件到打印完成的端到端测试。

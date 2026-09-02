@@ -449,6 +449,8 @@ mysql -u root -p farm < src/main/resources/db/migration/05-normalize-printer-fir
 mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-history.sql
 ```
 
+`02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
+
 ### 6.3 PrintFileVO
 
 ```json

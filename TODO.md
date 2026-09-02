@@ -316,9 +316,9 @@ startPrint()
 
 ### P2.2 数据库和迁移
 
-- [ ] 核对 `farm.sql`、增量 SQL、实体和 Mapper 的字段一致性。
-- [ ] 为任务状态统一增加可重复执行的迁移脚本。
-- [ ] 为旧的 `CANCELED`、`PENDING` 数据提供迁移策略。
+- [x] 核对 `farm.sql`、增量 SQL、实体和 Mapper 的字段一致性；当前核心实体字段均有对应初始化/增量字段，历史 `V*.sql` 仅作为手工迁移记录。
+- [x] 为任务状态统一增加可重复执行的迁移脚本；`04-normalize-print-job-status.sql` 可重复执行并只转换旧状态。
+- [x] 为旧的 `CANCELED`、`PENDING`、`MANUAL` 数据提供迁移策略；脚本统一转换为 `CANCELLED` 或 `QUEUED`。
 - [ ] 明确已有 Docker 数据卷升级步骤，升级前备份 MySQL、Redis 和 RustFS。
 - [ ] 不依赖 Spring 自动执行历史 `V*.sql` 文件；当前项目没有 Flyway 依赖。
 

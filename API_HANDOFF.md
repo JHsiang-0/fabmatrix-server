@@ -203,6 +203,8 @@ POST /api/v1/auth/login
 | PUT | `/printers/positions` | ADMIN | 位置更新数组 | `Result<null>` |
 | GET | `/printers/unallocated` | ADMIN/OPERATOR | Query：`keyword` | `PrinterVO[]` |
 
+新增、重新录入或批量扫描入库的打印机，在下一次协议状态探测完成前返回 `status=UNKNOWN`；`ONLINE` 不属于打印机状态枚举，也不会作为业务状态写入。普通配置编辑不重置设备当前状态。
+
 ### 4.2 文件
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |

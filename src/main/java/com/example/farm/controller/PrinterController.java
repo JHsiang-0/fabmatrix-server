@@ -83,7 +83,7 @@ public class PrinterController {
      * <p>业务逻辑：</p>
      * <ul>
      *     <li>如果提供了 MAC 地址 → 按 MAC 查询数据库</li>
-     *     <li>MAC 存在 → 更新该设备的 IP 和状态为 ONLINE（设备换了 IP 重新上线）</li>
+     *     <li>MAC 存在 → 更新该设备的 IP，状态置为 UNKNOWN，等待下一次协议探测</li>
      *     <li>MAC 不存在 → 检查 IP 是否被占用，如果被占用先释放旧设备，然后插入新记录</li>
      * </ul>
      *
@@ -175,7 +175,7 @@ public class PrinterController {
      * <ul>
      *     <li>接收扫描结果列表（包含 IP 和 MAC）</li>
      *     <li>根据 MAC 地址判断是更新还是插入</li>
-     *     <li>MAC 存在 → 更新 IP 和状态为 ONLINE（设备换了 IP 重新上线）</li>
+     *     <li>MAC 存在 → 更新 IP，状态置为 UNKNOWN，等待下一次协议探测</li>
      *     <li>MAC 不存在 → 插入新记录（真正的新设备）</li>
      * </ul>
      *

@@ -99,7 +99,7 @@ CREATE TABLE `farm_printer`  (
   `mac_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'MAC 地址（用于网络唤醒等）',
   `firmware_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'KLIPPER' COMMENT '固件类型（KLIPPER, RRF）',
   `api_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '上位机 API 通信密钥',
-  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'OFFLINE' COMMENT '业务状态：IDLE, PRINTING, OFFLINE, ERROR, MAINTENANCE',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'OFFLINE' COMMENT '业务状态：OFFLINE, IDLE, PREPARING, PRINTING, PAUSED, ERROR, UNKNOWN',
   `current_job_id` bigint NULL DEFAULT NULL COMMENT '当前正在执行的打印任务 ID',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '录入时间',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

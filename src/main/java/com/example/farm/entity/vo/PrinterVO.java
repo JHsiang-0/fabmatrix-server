@@ -53,9 +53,9 @@ public class PrinterVO implements Serializable {
     private String macAddress;
 
     /**
-     * 业务状态：IDLE, PRINTING, OFFLINE, ERROR, MAINTENANCE
+     * 业务状态：OFFLINE, IDLE, PREPARING, PRINTING, PAUSED, ERROR, UNKNOWN
      */
-    @Schema(description = "业务状态：IDLE(空闲), PRINTING(打印中), OFFLINE(离线), ERROR(故障), MAINTENANCE(维护)")
+    @Schema(description = "业务状态：OFFLINE(离线), IDLE(空闲), PREPARING(准备中), PRINTING(打印中), PAUSED(暂停), ERROR(故障), UNKNOWN(未知)")
     private String status;
 
     @Schema(description = "固件类型")

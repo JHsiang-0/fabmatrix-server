@@ -31,7 +31,7 @@ public class PrinterScanResultDTO {
     @Schema(description = "是否为新设备（数据库中不存在该 MAC）", example = "true")
     private Boolean isNewDevice;
 
-    @Schema(description = "设备状态：ONLINE, OFFLINE, EXISTING(已存在)", example = "ONLINE")
+    @Schema(description = "扫描发现状态：ONLINE(已发现), EXISTING(数据库已存在)", example = "ONLINE")
     private String status;
 
     @Schema(description = "API 密钥（如果有）")

@@ -15,6 +15,7 @@ import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterProtocolDetector;
+import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import lombok.RequiredArgsConstructor;
@@ -126,7 +127,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
             // 更新设备信息
             existingPrinter.setIpAddress(ipAddress);
-            existingPrinter.setStatus("ONLINE");
+            // 重新录入只代表设备配置已保存，尚未完成协议状态探测。
+            existingPrinter.setStatus(PrinterStatus.UNKNOWN.name());
             existingPrinter.setUpdatedAt(LocalDateTime.now());
 
             // 可选更新字段
@@ -160,7 +162,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             newPrinter.setMacAddress(macAddress);
             newPrinter.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
             newPrinter.setApiKey(dto.getApiKey());
-            newPrinter.setStatus("ONLINE");
+            newPrinter.setStatus(PrinterStatus.UNKNOWN.name());
 
             // 设置耗材和喷嘴（使用传入值或默认值）
             newPrinter.setCurrentMaterial(StringUtils.hasText(dto.getCurrentMaterial())
@@ -201,7 +203,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setIpAddress(dto.getIpAddress());
         printer.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
         printer.setApiKey(dto.getApiKey());
-        printer.setStatus("OFFLINE");
+        printer.setStatus(PrinterStatus.UNKNOWN.name());
         printer.setCreatedAt(LocalDateTime.now());
         printer.setUpdatedAt(LocalDateTime.now());
 
@@ -477,7 +479,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setMacAddress(macAddressUtil.normalizeMacAddress(result.getMacAddress()));
         printer.setFirmwareType(normalizeFirmwareType(result.getFirmwareType()));
         printer.setApiKey(result.getApiKey());
-        printer.setStatus("ONLINE");
+        printer.setStatus(PrinterStatus.UNKNOWN.name());
         printer.setCurrentMaterial("ABS");
         printer.setNozzleSize(new BigDecimal("0.40"));
         printer.setCreatedAt(LocalDateTime.now());

@@ -56,6 +56,7 @@ class PrinterServiceFirmwareTypeTest {
         ArgumentCaptor<Printer> printer = ArgumentCaptor.forClass(Printer.class);
         verify(printerMapper).insert(printer.capture());
         assertThat(printer.getValue().getFirmwareType()).isEqualTo("RRF");
+        assertThat(printer.getValue().getStatus()).isEqualTo("UNKNOWN");
     }
 
     @Test
@@ -78,5 +79,22 @@ class PrinterServiceFirmwareTypeTest {
 
         assertThat(existing.getFirmwareType()).isEqualTo("KLIPPER");
         verify(printerMapper).updateById(existing);
+    }
+
+    @Test
+    void batchUpsertUsesUnknownUntilProtocolProbe() {
+        var scan = com.example.farm.entity.dto.PrinterScanResultDTO.of(
+                "192.168.1.81", "AA-BB-CC-DD-EE-11", true);
+        scan.setFirmwareType("KLIPPER");
+        when(macAddressUtil.normalizeMacAddress("AA-BB-CC-DD-EE-11"))
+                .thenReturn("aa:bb:cc:dd:ee:11");
+        when(printerMapper.selectByIpAddress("192.168.1.81")).thenReturn(null);
+        when(printerMapper.upsertByMacAddress(any(Printer.class))).thenReturn(1);
+
+        printerService.batchUpsertPrinters(java.util.List.of(scan));
+
+        ArgumentCaptor<Printer> printer = ArgumentCaptor.forClass(Printer.class);
+        verify(printerMapper).upsertByMacAddress(printer.capture());
+        assertThat(printer.getValue().getStatus()).isEqualTo("UNKNOWN");
     }
 }

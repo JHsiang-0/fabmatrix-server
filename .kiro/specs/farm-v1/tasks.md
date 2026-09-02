@@ -94,8 +94,8 @@
   - 测试：`PrintJobAdapterTest`、`PrintJobOwnershipTest`、`PrinterMonitorAdapterTest` 覆盖任务服务和设备反馈事件路径。
 - [x] T3.5 补齐 WebSocket 生命周期测试。
   - 目标：Token、连接上限、快照、四类消息、发送失败和断线清理。
-  - 验收：已覆盖 Token 拒绝、有效连接、首帧快照、配置连接上限、广播发送失败清理、断开清理和消息结构校验；真实容器端到端网络测试和四类消息的容器级测试仍留在后续稳定性任务。
-  - 测试：`WebSocketSecurityTest`、`FarmStatusMessageTest` 共 8 个针对性测试通过（后续 T9.9 又补充事件/Ping 覆盖）。
+  - 验收：已覆盖 Token 拒绝、有效连接、首帧快照、配置连接上限、广播发送失败清理、断开清理和消息结构校验；真实容器已完成 JWT 握手和首帧快照验收。
+  - 测试：`WebSocketSecurityTest`、`FarmStatusMessageTest` 共 9 个针对性测试通过（后续 T9.9 又补充事件/Ping 覆盖）。
 
 ## 4. P1 打印机管理
 
@@ -113,6 +113,9 @@
 - [x] T4.5 扩展扫描和批量添加的协议识别及逐项结果。
   - 验收：扫描通过 Moonraker/RRF HTTP 探测识别协议，结果写入规范化 `firmwareType`；批量添加保留逐项成功/失败原因。
   - 限制：扫描接口只返回已识别设备，不把整个网段的未响应地址伪装成失败设备。
+- [x] T4.5a 统一打印机录入后的初始状态。
+  - 验收：新增、重新录入和批量扫描入库在下一次协议探测前写入 `UNKNOWN`，不再产生未登记的 `ONLINE` 状态；普通配置编辑保留设备当前状态。
+  - 测试：`PrinterServiceFirmwareTypeTest` 覆盖新增和批量录入状态；状态枚举和 Swagger 描述已同步。
 - [x] T4.6 补齐打印机 Controller/权限/设备异常测试。
   - 验收：打印机接口覆盖未登录 401、操作员访问管理员扫描 403、历史分页参数 400；控制服务覆盖设备离线和适配器调用路径。
 

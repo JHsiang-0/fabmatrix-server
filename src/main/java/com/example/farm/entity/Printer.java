@@ -74,10 +74,10 @@ public class Printer implements Serializable {
     private String apiKey;
 
     /**
-     * 业务状态：IDLE, PRINTING, OFFLINE, ERROR, MAINTENANCE
+     * 业务状态：OFFLINE, IDLE, PREPARING, PRINTING, PAUSED, ERROR, UNKNOWN
      */
     @TableField("status")
-    @Schema(description = "业务状态：IDLE, PRINTING, OFFLINE, ERROR, MAINTENANCE")
+    @Schema(description = "业务状态：OFFLINE(离线), IDLE(空闲), PREPARING(准备中), PRINTING(打印中), PAUSED(暂停), ERROR(故障), UNKNOWN(未知)")
     private String status;
 
     /**

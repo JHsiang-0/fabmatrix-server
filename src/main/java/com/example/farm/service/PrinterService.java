@@ -74,8 +74,8 @@ public interface PrinterService extends IService<Printer> {
      * 【重构】批量新增/更新打印机（基于 MAC 地址的 Upsert 机制）。
      * <p>根据 MAC 地址判断是更新还是插入：</p>
      * <ul>
-     *     <li>MAC 存在 → 更新 IP 和状态为 ONLINE</li>
-     *     <li>MAC 不存在 → 插入新记录</li>
+     *     <li>MAC 存在 → 更新 IP，状态置为 UNKNOWN，等待下一次协议探测</li>
+     *     <li>MAC 不存在 → 插入状态为 UNKNOWN 的新记录</li>
      * </ul>
      *
      * @param scanResults 扫描结果列表（必须包含 macAddress）

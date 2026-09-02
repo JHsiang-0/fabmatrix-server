@@ -131,6 +131,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setStatus(PrintJobStatus.QUEUED.name());
 
         this.save(job);
+        if (req.getPrinterId() != null) {
+            assignJob(job.getId(), req.getPrinterId());
+        }
         LogUtil.dataChange("创建打印任务", "FarmPrintJob", job.getId(),
                 String.format("用户=%d，文件ID=%d", userId, req.getFileId()));
         return job.getId();

@@ -212,7 +212,8 @@ startPrint()
   - 已复用现有创建 Service，接收 `fileId,priority`，创建 `QUEUED` 任务；`printerId` 留给后续 T6.2。
 - [x] 保留 `/api/v1/print-jobs/create` 作为兼容接口，并在 Swagger 标记 deprecated。
   - 两条地址共用同一 Controller 创建逻辑，旧地址已标记 Java/OpenAPI deprecated。
-- [ ] 创建任务支持可选 `printerId`；不指定时进入 `QUEUED`。
+- [x] 创建任务支持可选 `printerId`；不指定时进入 `QUEUED`。
+  - 已指定设备时复用安全派发逻辑，校验设备存在且 IDLE，成功进入 `ASSIGNED` 并绑定设备但不直接打印；失败事务回滚。
 - [ ] 实现 `POST /api/v1/print-jobs/{id}/retry`。
 - [ ] 实现 `POST /api/v1/print-jobs/{id}/requeue`。
 - [ ] 实现 `PUT /api/v1/print-jobs/{id}/priority`。

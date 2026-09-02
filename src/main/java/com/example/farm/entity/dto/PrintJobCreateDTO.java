@@ -22,4 +22,8 @@ public class PrintJobCreateDTO {
     @Max(value = 100, message = "任务优先级不能超过100")
     @jakarta.validation.constraints.Min(value = 0, message = "任务优先级不能小于0")
     private Integer priority;
+
+    @Schema(description = "可选目标打印机 ID；传入后只派发不直接启动")
+    @Positive(message = "打印机 ID 必须为正数")
+    private Long printerId;
 }

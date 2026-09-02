@@ -33,6 +33,7 @@ Application Service
 - `PrintFileServiceImpl` 在 RustFS 上传成功后写入文件记录；数据库保存失败时补偿删除已上传的主文件和缩略图对象，补偿异常只记录日志并保留原始失败原因。
 - 文件列表统计只使用结束任务状态；成功率分母排除取消、排队和执行中任务，避免未完成任务改变成功率。
 - `PrinterMonitorTask` 通过 Adapter 获取统一状态，再同步缓存、数据库和 WebSocket 事件。
+- `PrinterCacheService.updatePrinterStatusWithLock` 只有在数据库更新影响至少一行时才返回成功；监控任务据此决定是否更新本地状态和发布状态变化。
 - `WebSocketServer` 已完成鉴权、统一事件对象、快照、协议级 Ping 保活和失败清理。
 
 ## 2. 包和类规划

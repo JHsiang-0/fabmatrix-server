@@ -118,6 +118,9 @@
   - 测试：`PrinterServiceFirmwareTypeTest` 覆盖新增和批量录入状态；状态枚举和 Swagger 描述已同步。
 - [x] T4.6 补齐打印机 Controller/权限/设备异常测试。
   - 验收：打印机接口覆盖未登录 401、操作员访问管理员扫描 403、历史分页参数 400；控制服务覆盖设备离线和适配器调用路径。
+- [x] T4.7 修复打印机状态持久化成功判定。
+  - 验收：状态更新在 Redis 锁内执行后，以 MySQL `updateById` 实际影响行数判定成功；影响 0 行返回失败，监控不应据此更新内存状态或发布成功状态。
+  - 测试：`PrinterCacheRedisTest` 覆盖锁获取失败、数据库 0 行和成功更新路径；全量测试通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 

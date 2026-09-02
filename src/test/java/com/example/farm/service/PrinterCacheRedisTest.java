@@ -56,6 +56,32 @@ class PrinterCacheRedisTest {
     }
 
     @Test
+    void reportsFailureWhenDatabaseStatusUpdateAffectsNoRows() {
+        when(redisUtil.tryLock(anyString(), anyString(), eq(5L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(printerMapper.updateById(any(Printer.class))).thenReturn(0);
+        Printer printer = new Printer();
+        printer.setId(403L);
+
+        boolean updated = new PrinterCacheServiceImpl(redisUtil, printerMapper, historyService)
+                .updatePrinterStatusWithLock(printer);
+
+        assertThat(updated).isFalse();
+    }
+
+    @Test
+    void reportsSuccessOnlyWhenDatabaseStatusUpdateAffectsARow() {
+        when(redisUtil.tryLock(anyString(), anyString(), eq(5L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(printerMapper.updateById(any(Printer.class))).thenReturn(1);
+        Printer printer = new Printer();
+        printer.setId(403L);
+
+        boolean updated = new PrinterCacheServiceImpl(redisUtil, printerMapper, historyService)
+                .updatePrinterStatusWithLock(printer);
+
+        assertThat(updated).isTrue();
+    }
+
+    @Test
     void explicitPrinterLockUsesFiveSecondRedisLease() {
         when(redisUtil.tryLock(anyString(), anyString(), eq(5L), eq(TimeUnit.SECONDS))).thenReturn(true);
         PrinterCacheService service = new PrinterCacheServiceImpl(redisUtil, printerMapper, historyService);

@@ -12,6 +12,7 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.WebSocketEventPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +40,8 @@ class PrinterMonitorAdapterTest {
     private PrinterProtocolAdapter adapter;
     @Mock
     private PrintJobService printJobService;
+    @Mock
+    private WebSocketEventPublisher eventPublisher;
 
     private PrinterMonitorTask monitorTask;
 
@@ -55,7 +58,8 @@ class PrinterMonitorAdapterTest {
         when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenReturn(printingStatus());
-        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher);
 
         monitorTask.checkPrinterStatus();
 
@@ -74,12 +78,35 @@ class PrinterMonitorAdapterTest {
                 PrinterProtocolType.RRF,
                 FailureCategory.TIMEOUT,
                 "设备状态查询超时"));
-        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher);
 
         monitorTask.checkPrinterStatus();
 
         verify(printerCacheService, timeout(1000)).markPrinterOffline(403L);
         verify(printerCacheService, timeout(1000)).clearStatusCache(403L);
+        verify(eventPublisher, timeout(1000)).publishPrinterOffline(403L, "设备状态查询失败");
+    }
+
+    @Test
+    void doesNotPublishRepeatedOfflineEvents() {
+        Printer printer = printer("RRF");
+        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenThrow(new PrinterProtocolException(
+                PrinterOperation.GET_STATUS,
+                PrinterProtocolType.RRF,
+                FailureCategory.OFFLINE,
+                "设备离线"));
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher);
+
+        monitorTask.checkPrinterStatus();
+        verify(eventPublisher, timeout(1000)).publishPrinterOffline(403L, "设备状态查询失败");
+
+        monitorTask.checkPrinterStatus();
+        verify(eventPublisher, timeout(1000).times(1))
+                .publishPrinterOffline(403L, "设备状态查询失败");
     }
 
     private Printer printer(String firmwareType) {

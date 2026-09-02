@@ -96,6 +96,14 @@ public class WebSocketServer {
      * 使用同步锁解决并发写入冲突问题
      */
     public static void broadcastPrinterStatus(FarmStatusMessage data) {
+        broadcast(data);
+    }
+
+    public static void broadcastPrinterOffline(FarmStatusMessage data) {
+        broadcast(data);
+    }
+
+    private static void broadcast(FarmStatusMessage data) {
         if (sessions.isEmpty()) return;
 
         String jsonMessage;

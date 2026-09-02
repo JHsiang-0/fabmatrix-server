@@ -84,9 +84,10 @@
   - 目标：连接鉴权成功后发送 `data.printers` 全量快照。
   - 验收：鉴权成功后发送一次 `SNAPSHOT`；快照从安全 `PrinterVO` 构建，不依赖单台设备在线，空农场返回空数组，不返回 Entity 敏感字段。
   - 测试：`FarmStatusSnapshotServiceTest`、`FarmStatusMessageTest`、`WebSocketSecurityTest` 共 6 个针对性测试通过。
-- [ ] T3.3 接入打印机状态和离线事件。
+- [x] T3.3 接入打印机状态和离线事件。
   - 目标：监控任务发布状态变化和离线事件，避免高频重复离线消息。
-  - 验收：REST 状态与事件一致，单台设备故障不影响其他设备。
+  - 验收：监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS`/`PRINTER_OFFLINE`；相同设备连续离线只通知一次，恢复后重新发布状态；单台设备故障不影响其他设备。
+  - 测试：`PrinterMonitorAdapterTest` 3 个测试通过，覆盖适配器调用、离线通知和重复离线抑制。
 - [ ] T3.4 接入任务状态事件。
   - 目标：任务暂停、启动、完成、失败、取消后发布 `JOB_STATUS`。
   - 验收：事务成功后发布，事务失败不发布成功事件。

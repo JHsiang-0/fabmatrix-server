@@ -1,8 +1,6 @@
 package com.example.farm.task;
 
 import com.example.farm.common.utils.LogUtil;
-import com.example.farm.controller.FarmStatusMessage;
-import com.example.farm.controller.WebSocketServer;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
@@ -15,6 +13,7 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
+import com.example.farm.service.WebSocketEventPublisher;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +24,9 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -44,9 +45,12 @@ public class PrinterMonitorTask {
     private final PrinterCacheService printerCacheService;
     private final PrinterProtocolAdapterFactory adapterFactory;
     private final PrintJobService printJobService;
+    private final WebSocketEventPublisher eventPublisher;
 
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService = Executors.newFixedThreadPool(10);
+    private final Map<Long, Boolean> lastOnlineStates = new ConcurrentHashMap<>();
+    private final Map<Long, PrinterDeviceStatus> lastPublishedStatuses = new ConcurrentHashMap<>();
 
     // 慢查询阈值：5秒
     private static final long SLOW_THRESHOLD_MS = 5000;
@@ -92,12 +96,10 @@ public class PrinterMonitorTask {
 
             // 并行查询打印机状态
             List<CompletableFuture<PrinterStatusResult>> futures = printers.stream()
-                    .map(printer -> CompletableFuture.supplyAsync(
+                            .map(printer -> CompletableFuture.supplyAsync(
                                     () -> fetchAndUpdateStatus(printer), executorService)
                             .thenApply(result -> {
-                                if (result.status != null) {
-                                    pushToFrontend(result.printerId, result.status);
-                                }
+                                publishStatusEvent(result);
                                 return result;
                             }))
                     .toList();
@@ -151,16 +153,16 @@ public class PrinterMonitorTask {
 
             if (status != null) {
                 handlePrinterOnline(printerId, printerName, status, printer, duration);
-                return new PrinterStatusResult(printerId, status, true);
+                return new PrinterStatusResult(printerId, status, true, null);
             } else {
                 handlePrinterOffline(printer);
-                return new PrinterStatusResult(printerId, null, false);
+                return new PrinterStatusResult(printerId, null, false, "设备未返回状态");
             }
         } catch (Exception e) {
             log.error("获取打印机状态失败: printerId={}, name={}",
                     printerId, printerName, e);
             handlePrinterOffline(printer);
-            return new PrinterStatusResult(printerId, null, false);
+            return new PrinterStatusResult(printerId, null, false, "设备状态查询失败");
         }
     }
 
@@ -389,8 +391,20 @@ public class PrinterMonitorTask {
         };
     }
 
-    private void pushToFrontend(Long printerId, PrinterDeviceStatus status) {
-        WebSocketServer.broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, status));
+    private void publishStatusEvent(PrinterStatusResult result) {
+        Boolean wasOnline = lastOnlineStates.put(result.printerId, result.online);
+        if (!result.online) {
+            lastPublishedStatuses.remove(result.printerId);
+            if (!Boolean.FALSE.equals(wasOnline)) {
+                eventPublisher.publishPrinterOffline(result.printerId, result.offlineReason);
+            }
+            return;
+        }
+
+        PrinterDeviceStatus previous = lastPublishedStatuses.put(result.printerId, result.status);
+        if (!result.status.equals(previous)) {
+            eventPublisher.publishPrinterStatus(result.printerId, result.status);
+        }
     }
 
     private MoonrakerStatusDTO toLegacyStatus(PrinterDeviceStatus status) {
@@ -428,6 +442,7 @@ public class PrinterMonitorTask {
                 : rawState.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
-    private record PrinterStatusResult(Long printerId, PrinterDeviceStatus status, boolean online) {
+    private record PrinterStatusResult(Long printerId, PrinterDeviceStatus status,
+                                       boolean online, String offlineReason) {
     }
 }

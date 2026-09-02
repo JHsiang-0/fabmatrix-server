@@ -164,9 +164,9 @@ startPrint()
 
 - [x] 冻结消息类型并增加服务端校验：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`。
 - [x] 客户端鉴权连接后发送一次全量 `SNAPSHOT`，数据使用安全打印机 VO。
-- [ ] 打印机离线时发送 `PRINTER_OFFLINE`，不能只更新数据库而不通知前端。
+- [x] 打印机离线时发送 `PRINTER_OFFLINE`，并按设备抑制连续重复离线消息。
 - [ ] 明确是否需要按打印机订阅；第一版可先广播全部设备，但必须通过权限校验。
-- [ ] 增加 WebSocket 格式、连接、断线和离线推送测试。
+- [ ] 增加 WebSocket 真实连接、格式、断线和离线推送测试；当前已有消息对象、快照服务和监控事件单元测试。
 
 ## P1：后端第一版功能
 

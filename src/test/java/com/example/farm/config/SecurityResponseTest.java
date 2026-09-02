@@ -64,6 +64,16 @@ class SecurityResponseTest {
     }
 
     @Test
+    void standardCreateJobEndpointRequiresAuthentication() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/print-jobs")
+                        .contentType("application/json")
+                        .content("{\"fileId\":20,\"priority\":0}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
     void validatesPrinterHistoryPaginationBeforeServiceCall() throws Exception {
         mockMvc.perform(get("/api/v1/printers/403/history")
                         .param("pageNum", "0")

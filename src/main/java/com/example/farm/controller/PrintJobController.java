@@ -79,9 +79,23 @@ public class PrintJobController {
      * @return 新任务 ID
      * @throws BusinessException 当参数非法或关联文件不存在时抛出
      */
-    @Operation(summary = "创建打印任务")
+    @Operation(summary = "创建打印任务", description = "标准创建地址；任务初始状态为 QUEUED")
+    @PostMapping
+    public Result<Long> createStandardJob(@Valid @RequestBody PrintJobCreateDTO req) {
+        return doCreateJob(req);
+    }
+
+    /**
+     * 旧版创建地址，保留给已有客户端过渡使用。
+     */
+    @Deprecated
+    @Operation(summary = "创建打印任务（兼容地址）", description = "请迁移到 POST /api/v1/print-jobs", deprecated = true)
     @PostMapping("/create")
     public Result<Long> createJob(@Valid @RequestBody PrintJobCreateDTO req) {
+        return doCreateJob(req);
+    }
+
+    private Result<Long> doCreateJob(PrintJobCreateDTO req) {
         Long jobId = printJobService.createJob(req);
         log.info("创建打印任务请求完成: jobId={}", jobId);
         return Result.success(jobId, "任务创建成功");

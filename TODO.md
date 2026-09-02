@@ -208,8 +208,10 @@ startPrint()
 
 ### P1.3 打印任务
 
-- [ ] 实现标准创建接口 `POST /api/v1/print-jobs`。
-- [ ] 保留 `/api/v1/print-jobs/create` 作为兼容接口，并在 Swagger 标记 deprecated。
+- [x] 实现标准创建接口 `POST /api/v1/print-jobs`。
+  - 已复用现有创建 Service，接收 `fileId,priority`，创建 `QUEUED` 任务；`printerId` 留给后续 T6.2。
+- [x] 保留 `/api/v1/print-jobs/create` 作为兼容接口，并在 Swagger 标记 deprecated。
+  - 两条地址共用同一 Controller 创建逻辑，旧地址已标记 Java/OpenAPI deprecated。
 - [ ] 创建任务支持可选 `printerId`；不指定时进入 `QUEUED`。
 - [ ] 实现 `POST /api/v1/print-jobs/{id}/retry`。
 - [ ] 实现 `POST /api/v1/print-jobs/{id}/requeue`。

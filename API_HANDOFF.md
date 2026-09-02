@@ -210,7 +210,8 @@ POST /api/v1/auth/login
 | GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | `PrintJobVO[]` |
 | POST | `/print-jobs/page` | ADMIN/OPERATOR | JSON：分页、状态、打印机、时间 | `PageResult<PrintJobVO>` |
 | GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | `PrintJobVO` |
-| POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID |
+| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID |
+| POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID（兼容，deprecated） |
 | DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务 |
 | POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | 分配并启动 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
@@ -291,12 +292,12 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
 |---|---|---|---|---|---|
-| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID | 规划，作为标准创建地址 |
+| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID | 已完成，标准创建地址；`printerId` 留给 T6.2 |
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | `priority` | `Result<null>` | 规划 |
 
-现有 `/print-jobs/create` 保留为兼容地址，前端新代码统一使用 `POST /print-jobs`。
+现有 `/print-jobs/create` 保留为兼容地址并标记 deprecated，前端新代码统一使用 `POST /print-jobs`。T6.1 阶段两条地址调用同一 Service 逻辑，均创建 `QUEUED` 任务；可选 `printerId` 不属于本阶段契约。
 
 ### 5.3 文件
 

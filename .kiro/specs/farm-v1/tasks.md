@@ -163,7 +163,8 @@
   - 验收：Controller 仅委托 `PrintJobService.cancelJob`；Service 统一处理归属、状态、适配器取消、解绑、持久化和事件；现有 `PrintJobAdapterTest`、`PrinterControlServiceTest` 已覆盖设备调用路径。
 - [x] T6.7 增加文件摘要、打印机摘要或冻结前端组合查询方案。
   - 验收：冻结前端组合查询方案；`PrintJobVO` 使用 `fileId/printerId`，文件调用 `/print-files/{fileId}/preview`，打印机调用 `/printers/{printerId}`，排队任务不查询空 `printerId`。
-- [ ] T6.8 补齐任务状态事件、权限和端到端测试。
+- [x] T6.8 补齐任务状态事件、权限和端到端测试。
+  - 验收：已覆盖 Service 状态/归属/设备调用、任务路由认证和绑定任务 `JOB_STATUS` 事件；队列任务因无 `printerId` 不构造消息；真实 MySQL/Redis/RustFS/打印机端到端链路保留现场验收。
 
 ## 7. P1 认证与用户
 

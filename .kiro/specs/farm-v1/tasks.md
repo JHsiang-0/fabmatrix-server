@@ -38,7 +38,7 @@
   - 测试：新增参数边界回归测试；全量 `mvn test` 通过。
 - [x] T0.6 校正 Kiro 文档中的测试证据计数。
   - 验收：任务记录中的当前基线计数与 `target/surefire-reports/TEST-*.xml` 汇总一致；历史阶段描述不改写为当前结果。
-  - 证据：全量 `mvn test` 汇总为 210 项，0 errors、0 failures、0 skipped；`SecurityResponseTest` 36 项，`WebSocketSecurityTest` 11 项。
+  - 证据：T0.6 完成时全量 `mvn test` 汇总为 210 项，0 errors、0 failures、0 skipped；`SecurityResponseTest` 36 项，`WebSocketSecurityTest` 11 项。最新汇总由后续 Task 更新。
 
 ## 1. P0 协议适配基础
 
@@ -151,10 +151,10 @@
   - 测试：`PrinterServiceFirmwareTypeTest` 覆盖非法网段路径；全量测试通过。
 - [x] T4.12 收敛打印机详情、历史和统计的参数错误码。
   - 验收：非正打印机 ID、状态历史反向时间范围和统计反向时间范围返回 HTTP 400、业务码 `400`；不存在的打印机仍返回 404。
-  - 测试：`PrinterDetailServiceTest`、`PrinterStatusHistoryServiceTest`、`PrinterStatisticsServiceTest` 覆盖参数边界；当前全量 `mvn test` 210 项通过。
+  - 测试：`PrinterDetailServiceTest`、`PrinterStatusHistoryServiceTest`、`PrinterStatisticsServiceTest` 覆盖参数边界；截至当前全量 `mvn test` 212 项通过。
 - [x] T4.13 修复状态历史写入失败后的重试语义。
   - 验收：历史 Mapper 插入影响 0 行或抛异常时返回失败但不打断监控；监控不更新已持久化时间，下一次符合采样条件时可以重试；成功插入后才更新时间。
-  - 测试：`PrinterStatusHistoryServiceTest` 8 项、`PrinterCacheRedisTest` 5 项覆盖成功/失败写入和重试边界；当前全量 `mvn test` 210 项通过。
+  - 测试：`PrinterStatusHistoryServiceTest` 8 项、`PrinterCacheRedisTest` 5 项覆盖成功/失败写入和重试边界；截至当前全量 `mvn test` 212 项通过。
 
 每个 Task 都必须先更新 API_HANDOFF 的目标契约，再实现 Controller、Service、Mapper/DTO/VO 和测试。
 
@@ -248,7 +248,10 @@
   - 测试：分页 Service 针对空参数和任务反向时间范围增加回归测试；全量测试通过。
 - [x] T6.13 收敛任务创建的数据库插入成功判定。
   - 验收：标准任务创建和 Moonraker 兼容提交路径检查 `save` 实际结果；插入影响 0 行时抛出业务异常，不返回任务 ID、不继续派发或记录成功日志。
-  - 测试：`PrintJobCreateTest` 8 项覆盖标准创建和兼容提交插入失败；当前全量 `mvn test` 210 项通过。
+  - 测试：`PrintJobCreateTest` 8 项覆盖标准创建和兼容提交插入失败；截至当前全量 `mvn test` 212 项通过。
+- [x] T6.14 收敛所有任务派发路径的设备绑定冲突校验。
+  - 验收：安全派发和兼容派发均拒绝 `IDLE` 但 `currentJobId` 非空的打印机；手动接口返回 HTTP/业务码 `409`，不覆盖既有绑定、不更新任务、不发布成功事件；自动调度原有跳过语义保持不变。
+  - 测试：`PrintJobCreateTest`、`PrintJobAdapterTest` 新增手动派发冲突回归测试；全量 `mvn test` 212 项通过。
 - [x] T7.7 收敛用户写操作的持久化成功判定。
   - 验收：用户创建、修改密码、资料更新和密码迁移检查实际数据库写入结果；影响 0 行时抛出业务异常，不返回成功。
   - 测试：`UserAuthenticationTest` 覆盖创建用户、修改密码、资料更新和登录时旧密码自动迁移的数据库 0 行路径；全量测试通过。

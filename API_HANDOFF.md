@@ -339,7 +339,7 @@ HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态�
 
 现有 `/print-jobs/create` 保留为兼容地址并标记 deprecated，前端新代码统一使用 `POST /print-jobs`。两条地址调用同一 Service 逻辑；不传 `printerId` 创建 `QUEUED`，传入后按 T6.2 规则进入 `ASSIGNED`。
 
-T6.2 的 `printerId` 规则：不传时任务为 `QUEUED` 且不绑定设备；传入时先创建任务，再复用安全派发逻辑校验设备存在且为 `IDLE`，成功后任务为 `ASSIGNED`、打印机绑定任务且 `isSafeToPrint=false`，不会直接开始打印。任务记录插入影响 0 行时直接返回业务错误，不返回任务 ID；设备忙碌、设备不存在或派发状态校验失败时整体创建事务回滚。
+T6.2 的 `printerId` 规则：不传时任务为 `QUEUED` 且不绑定设备；传入时先创建任务，再复用安全派发逻辑校验设备存在、为 `IDLE` 且 `currentJobId=null`，成功后任务为 `ASSIGNED`、打印机绑定任务且 `isSafeToPrint=false`，不会直接开始打印。任务记录插入影响 0 行时直接返回业务错误，不返回任务 ID；设备忙碌、设备不存在、已有任务绑定或派发状态校验失败时整体创建事务回滚；手动接口对已有绑定返回 `409`。
 
 T6.3 重试规则：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；成功后保留 `fileId`、`userId` 和 `priority`，清除 `printerId`、`operatorId`、`startedAt`、`completedAt`、`errorReason`，进度重置为 `0`，状态变为 `QUEUED`。由于队列任务没有 `printerId`，不构造无设备 ID 的 `JOB_STATUS`；前端以任务列表/队列数据为准。非失败状态返回 HTTP 422，不调用打印机设备；任务不存在或无权访问统一返回 HTTP 404。
 

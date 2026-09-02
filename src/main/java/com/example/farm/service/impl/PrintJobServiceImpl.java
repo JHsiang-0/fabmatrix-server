@@ -214,6 +214,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("派发打印任务失败：打印机非空闲状态，jobId={}, printerId={}, status={}", jobId, printerId, printer.getStatus());
             throw new BusinessException("该打印机正在忙碌，无法派单");
         }
+        requireUnboundPrinter(printer);
 
         // 先进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
         job.setPrinterId(printerId);
@@ -292,6 +293,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("派发任务失败：打印机非空闲，printerId={}, status={}", printerId, printer.getStatus());
             throw new BusinessException("打印机 [" + printer.getName() + "] 当前忙碌，无法派单");
         }
+        requireUnboundPrinter(printer);
 
         // 行为：将 Job 的 printerId 设为目标机器，状态改为 ASSIGNED
         job.setPrinterId(printerId);
@@ -556,6 +558,14 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private void updatePrinterOrThrow(Printer printer, String operation) {
         if (!printerService.updateById(printer)) {
             throw new BusinessException(operation + "：打印机状态保存失败");
+        }
+    }
+
+    private void requireUnboundPrinter(Printer printer) {
+        if (printer.getCurrentJobId() != null) {
+            log.warn("派发任务失败：打印机仍绑定任务，printerId={}, currentJobId={}",
+                    printer.getId(), printer.getCurrentJobId());
+            throw new BusinessException(409, "打印机当前已绑定任务，无法派发");
         }
     }
 

@@ -202,6 +202,31 @@ class PrintJobCreateTest {
         verify(eventPublisher, never()).publishJobStatus(any());
     }
 
+    @Test
+    void manualAssignmentRejectsIdlePrinterWithExistingBinding() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setUserId(1L);
+        job.setStatus("QUEUED");
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setStatus("IDLE");
+        printer.setCurrentJobId(999L);
+        when(printerService.getById(403L)).thenReturn(printer);
+
+        assertThatThrownBy(() -> printJobService.assignJob(1001L, 403L))
+                .hasMessage("打印机当前已绑定任务，无法派发")
+                .extracting("code")
+                .isEqualTo(409L);
+
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+        verify(printerService, never()).updateById(any(Printer.class));
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
     private AtomicReference<PrintJob> stubInsert(boolean needsReload) {
         AtomicReference<PrintJob> created = new AtomicReference<>();
         doAnswer(invocation -> {

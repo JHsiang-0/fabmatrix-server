@@ -138,6 +138,26 @@ class PrintJobAdapterTest {
         verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(any());
     }
 
+    @Test
+    void compatibilityAssignmentRejectsIdlePrinterWithExistingBinding() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("QUEUED");
+        Printer printer = printer();
+        printer.setStatus("IDLE");
+        printer.setCurrentJobId(999L);
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+
+        assertThatThrownBy(() -> printJobService.assignAndStartPrint(1001L, 403L))
+                .hasMessage("打印机当前已绑定任务，无法派发")
+                .extracting("code")
+                .isEqualTo(409L);
+
+        verify(printJobMapper, org.mockito.Mockito.never()).updateById(any(PrintJob.class));
+        verify(printerService, org.mockito.Mockito.never()).updateById(any(Printer.class));
+        verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(any());
+    }
+
     private PrintJob job(String status) {
         PrintJob job = new PrintJob();
         job.setId(1001L);

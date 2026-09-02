@@ -204,6 +204,9 @@ POST /api/v1/auth/login
 |---|---|---|---|---|
 | POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file` | `PrintFileVO`，不含 rustfsKey |
 | POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页和文件筛选 | `PageResult<PrintFileVO>` |
+| GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | `FileNodeVO[]` |
+| GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` |
+| GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` |
 | GET | `/print-files/{id}/download` | ADMIN/OPERATOR | Query：`expires` | 预签名 URL 字符串 |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
@@ -219,9 +222,12 @@ POST /api/v1/auth/login
 | GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | `PrintJobVO[]` |
 | POST | `/print-jobs/page` | ADMIN/OPERATOR | JSON：分页、状态、打印机、时间 | `PageResult<PrintJobVO>` |
 | GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | `PrintJobVO` |
-| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID |
-| POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority` | 新任务 ID（兼容，deprecated） |
+| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID |
+| POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID（兼容，deprecated） |
 | DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务（Service 统一校验、设备控制和解绑） |
+| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | 失败任务重新入队 |
+| POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | 已派发任务重新入队 |
+| PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority` | 更新排队优先级 |
 | POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | 分配并启动 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
@@ -232,6 +238,8 @@ POST /api/v1/auth/login
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
 | POST | `/control/{id}/pause` | ADMIN/OPERATOR | Path 打印机 ID | `Result<null>` |
+| POST | `/control/{id}/resume` | ADMIN/OPERATOR | Path 打印机 ID | `Result<null>` |
+| POST | `/control/{id}/cancel` | ADMIN/OPERATOR | Path 打印机 ID | `Result<null>` |
 | POST | `/control/{id}/emergency-stop` | ADMIN/OPERATOR | Path 打印机 ID | `Result<null>` |
 
 ### 4.5 当前输入校验约定
@@ -350,7 +358,7 @@ Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更�
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
 |---|---|---|---|---|---|
-| GET | `/print-files/tree` | ADMIN/OPERATOR | 无或 `parentId` | `FileNodeVO[]` | 规划 |
+| GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | `FileNodeVO[]` | 已完成 |
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` | 已完成 |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` | 已完成 |
 
@@ -646,7 +654,7 @@ farm.tasks.enabled=false
 
 ## 10. 当前已知差异和验收条件
 
-当前规划接口的状态：
+当前契约和剩余验收状态：
 
 1. `PENDING/QUEUED` 统一为 `QUEUED`。
 2. `CANCELED/CANCELLED` 统一为 `CANCELLED`。

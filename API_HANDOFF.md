@@ -1,7 +1,7 @@
 # Farm 前后端接口交接与契约文档
 
 版本：v1.0
-更新时间：2026-09-02  
+更新时间：2026-09-03
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
 > 本文以当前 Java 源码为准。标记为“现有”的接口已经有 Controller；标记为“规划”的接口是前后端同步开发前冻结的目标契约，当前尚未全部实现。前端不得把规划接口当成当前可调用接口。
@@ -638,7 +638,7 @@ src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
 src/main/resources/db/migration/06-add-printer-status-history.sql
 ```
 
-已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。
+已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。2026-09-03 已在当前开发 Docker 数据卷完成一次备份后迁移：记录数量保持为用户 2、打印机 46、文件 1、任务 3；旧任务状态 `MANUAL` 已规范为 `QUEUED`，旧协议值 `Klipper` 已规范为 `KLIPPER`，新增字段和 `farm_printer_status_history` 已核对存在。该记录不代表生产环境已迁移，生产仍须按 `OPERATIONS.md` 执行并保留备份。
 
 ### 9.3 测试环境
 
@@ -646,7 +646,7 @@ src/main/resources/db/migration/06-add-printer-status-history.sql
 mvn test
 ```
 
-测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。真实 MySQL 查询和容器网络联调仍待现场环境。
+测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。2026-09-03 已使用真实 Docker MySQL、Redis、RustFS 启动 dev 应用完成一次冒烟验证：`/actuator/health` 返回 `UP`，管理员登录、`/auth/me`、打印机分页、文件分页和任务队列均返回 200，分页总数与数据库记录一致。该验证未连接真实 Klipper/RRF 打印机，也未完成上传到打印完成的完整链路。
 
 ### 9.4 真实打印机
 

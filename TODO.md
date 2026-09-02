@@ -2,7 +2,7 @@
 
 版本：v1.0  
 依据：[API_HANDOFF.md](./API_HANDOFF.md) 与当前 Java 源码  
-更新时间：2026-09-02
+更新时间：2026-09-03
 
 ## 使用说明
 
@@ -27,6 +27,7 @@
 - [x] 已确认开发环境默认关闭打印机监控任务：`farm.tasks.enabled=false`
 - [x] 已执行 `mvn test`：当前全量测试通过，包含上下文、Controller 权限、Service 和协议测试
 - [x] 增加真实 HTTP 接口和权限测试：`SecurityResponseTest` 覆盖核心接口的 401/403、成功委托和健康探针；真实数据库成功链路仍需容器联调
+- [x] 完成一次现有 Docker 数据卷迁移和 dev HTTP 冒烟验证：迁移前已备份 MySQL、Redis、RustFS；02–06 增量脚本执行成功，健康检查、登录、`/auth/me`、打印机分页、文件分页和任务队列均通过真实容器验证
 - [ ] 增加真实 Klipper/RRF 设备测试
 
 ## P0：先修复契约和安全阻塞项
@@ -319,7 +320,7 @@ startPrint()
 
 ### P2.2 数据库和迁移
 
-- [x] 核对 `farm.sql`、增量 SQL、实体和 Mapper 的字段一致性；当前核心实体字段均有对应初始化/增量字段，历史 `V*.sql` 仅作为手工迁移记录。
+- [x] 核对 `farm.sql`、增量 SQL、实体和 Mapper 的字段一致性；当前核心实体字段均有对应初始化/增量字段，历史 `V*.sql` 仅作为手工迁移记录；2026-09-03 已在现有 Docker MySQL 数据卷执行 02–06 迁移并核对字段、状态、协议类型和状态历史表。
 - [x] 为任务状态统一增加可重复执行的迁移脚本；`04-normalize-print-job-status.sql` 可重复执行并只转换旧状态。
 - [x] 为旧的 `CANCELED`、`PENDING`、`MANUAL` 数据提供迁移策略；脚本统一转换为 `CANCELLED` 或 `QUEUED`。
 - [x] 明确已有 Docker 数据卷升级步骤，升级前备份 MySQL、Redis 和 RustFS；可执行命令模板已写入 `OPERATIONS.md`。

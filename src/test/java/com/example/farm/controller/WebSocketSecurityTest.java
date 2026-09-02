@@ -3,6 +3,7 @@ package com.example.farm.controller;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.example.farm.common.utils.JwtUtils;
+import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.vo.PrinterVO;
@@ -34,12 +35,14 @@ import static org.mockito.Mockito.when;
 class WebSocketSecurityTest {
 
     private final FarmStatusSnapshotService snapshotService = org.mockito.Mockito.mock(FarmStatusSnapshotService.class);
+    private final LoginProtectUtil loginProtectUtil = org.mockito.Mockito.mock(LoginProtectUtil.class);
 
     @BeforeEach
     void setJwtSecret() {
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "websocket-test-secret");
         WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(snapshotService);
+        new WebSocketServer().setLoginProtectUtil(loginProtectUtil);
     }
 
     @AfterEach
@@ -48,6 +51,7 @@ class WebSocketSecurityTest {
         assertThat(WebSocketServer.getOnlineCount()).isZero();
         WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(null);
+        new WebSocketServer().setLoginProtectUtil(null);
     }
 
     @Test
@@ -55,6 +59,29 @@ class WebSocketSecurityTest {
         Session session = mock(Session.class);
         when(session.getId()).thenReturn("unauthorized-session");
         when(session.getRequestParameterMap()).thenReturn(Map.of());
+
+        new WebSocketServer().onOpen(session);
+
+        verify(session).close(any());
+        assertThat(WebSocketServer.getOnlineCount()).isZero();
+    }
+
+    @Test
+    void rejectsDisabledUserEvenWhenTokenIsValid() throws Exception {
+        when(loginProtectUtil.isUserDisabled(1L)).thenReturn(true);
+        Session session = authorizedSession();
+
+        new WebSocketServer().onOpen(session);
+
+        verify(session).close(any());
+        assertThat(WebSocketServer.getOnlineCount()).isZero();
+    }
+
+    @Test
+    void rejectsConnectionWhenDisabledStateCannotBeChecked() throws Exception {
+        doThrow(new IllegalStateException("redis unavailable"))
+                .when(loginProtectUtil).isUserDisabled(1L);
+        Session session = authorizedSession();
 
         new WebSocketServer().onOpen(session);
 

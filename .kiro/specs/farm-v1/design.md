@@ -182,7 +182,7 @@ public interface PrinterProtocolAdapter {
 
 ### 6.1 连接
 
-保留 `WebSocketServer` 的 `/ws/farm-status` 和 `token/access_token` 查询参数兼容逻辑。连接上限从配置读取，默认 100。Endpoint 只负责鉴权、Session 注册、发送和资源清理。
+保留 `WebSocketServer` 的 `/ws/farm-status` 和 `token/access_token` 查询参数兼容逻辑。连接上限从配置读取，默认 100。Endpoint 通过 Spring 桥接注入 `LoginProtectUtil`，在 JWT 签名/有效期和身份声明校验后检查用户禁用标记；禁用用户或禁用状态查询异常均拒绝连接，不得进入 Session 集合。Endpoint 负责鉴权、Session 注册、发送和资源清理。
 
 ### 6.2 消息
 

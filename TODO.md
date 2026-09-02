@@ -26,6 +26,7 @@
 - [x] 已确认开发环境默认端口为 `8080`
 - [x] 已确认开发环境默认关闭打印机监控任务：`farm.tasks.enabled=false`
 - [x] JSON 请求体缺失、`null` 和打印机批量空列表统一返回 HTTP 400/业务码400，不再进入 Controller 解引用或返回 500。
+- [x] WebSocket 握手同步检查用户禁用状态；禁用标记或其 Redis 查询异常时拒绝连接，避免既有 JWT 绕过 HTTP 禁用保护。
 - [x] 已执行 `mvn test`：当前全量测试通过，包含上下文、Controller 权限、Service 和协议测试
 - [x] 增加真实 HTTP 接口和权限测试：`SecurityResponseTest` 覆盖核心接口的 401/403、成功委托和健康探针；真实数据库成功链路仍需容器联调
 - [x] 完成一次现有 Docker 数据卷迁移和 dev HTTP 冒烟验证：迁移前已备份 MySQL、Redis、RustFS；02–06 增量脚本执行成功，健康检查、登录、`/auth/me`、打印机分页、文件分页和任务队列均通过真实容器验证

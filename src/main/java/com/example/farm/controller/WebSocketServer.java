@@ -3,6 +3,7 @@ package com.example.farm.controller;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.farm.common.utils.JwtUtils;
+import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.service.FarmStatusSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -37,6 +38,7 @@ public class WebSocketServer {
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     private static volatile FarmStatusSnapshotService snapshotService;
+    private static volatile LoginProtectUtil loginProtectUtil;
 
     /**
      * Jakarta Endpoint 由容器创建，使用 setter 将 Spring 快照服务注册到端点。
@@ -44,6 +46,14 @@ public class WebSocketServer {
     @Autowired
     public void setSnapshotService(FarmStatusSnapshotService service) {
         WebSocketServer.snapshotService = service;
+    }
+
+    /**
+     * 将 HTTP 鉴权链使用的禁用状态检查桥接到 Jakarta Endpoint。
+     */
+    @Autowired
+    public void setLoginProtectUtil(LoginProtectUtil service) {
+        WebSocketServer.loginProtectUtil = service;
     }
 
     @OnOpen
@@ -63,6 +73,22 @@ public class WebSocketServer {
             String role = jwt.getClaim("role").asString();
             if (userId == null || role == null || role.isBlank()) {
                 closeForPolicy(session, "Token 缺少用户身份");
+                return;
+            }
+            LoginProtectUtil protectUtil = loginProtectUtil;
+            if (protectUtil == null) {
+                closeForPolicy(session, "鉴权服务尚未就绪");
+                return;
+            }
+            try {
+                if (protectUtil.isUserDisabled(userId)) {
+                    closeForPolicy(session, "用户已被禁用");
+                    return;
+                }
+            } catch (RuntimeException exception) {
+                log.warn("WebSocket 用户禁用状态检查失败，拒绝连接: sessionId={}, userId={}",
+                        session.getId(), userId, exception);
+                closeForPolicy(session, "鉴权服务暂不可用");
                 return;
             }
             synchronized (sessions) {

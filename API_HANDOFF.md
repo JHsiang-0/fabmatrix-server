@@ -568,7 +568,7 @@ ws://<server-host>:8080/ws/farm-status
 ws://<server-host>:8080/ws/farm-status?token=<JWT>
 ```
 
-WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用查询参数传递：`/ws/farm-status?token=<JWT>`；缺少、无效或过期 Token 的连接会被服务端拒绝。当前连接仍是农场级广播，后续如需按打印机订阅再增加细粒度隔离。
+WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用查询参数传递：`/ws/farm-status?token=<JWT>`；缺少、无效或过期 Token 的连接会被服务端拒绝。服务端还会检查 Redis 中的用户禁用标记：已禁用用户不能使用既有 JWT 建立 WebSocket 连接；禁用状态查询异常时同样拒绝连接，不允许鉴权依赖故障时放行。WebSocket 握手在升级后无法返回 REST JSON，客户端应将关闭视为鉴权失败并重新请求 `/auth/me` 或重新登录。当前连接仍是农场级广播，后续如需按打印机订阅再增加细粒度隔离。
 
 ### 7.2 消息格式
 

@@ -13,6 +13,7 @@ import com.example.farm.entity.dto.UserLoginDTO;
 import com.example.farm.entity.dto.UserQueryDTO;
 import com.example.farm.entity.dto.UserRegisterDTO;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.entity.vo.UserVO;
 import com.example.farm.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -73,14 +74,14 @@ public class UserController {
 
     @Operation(summary = "获取当前用户信息")
     @GetMapping("/me")
-    public Result<User> getCurrentUser() {
+    public Result<UserVO> getCurrentUser() {
         Long userId = SecurityContextUtil.getCurrentUserId();
         return Result.success(userService.getCurrentUser(userId));
     }
 
     @Operation(summary = "获取当前用户信息")
     @GetMapping("/{userId}/profile")
-    public Result<User> getCurrentUser(@PathVariable Long userId) {
+    public Result<UserVO> getCurrentUser(@PathVariable Long userId) {
         ensureCurrentUser(userId);
         return Result.success(userService.getCurrentUser(userId));
     }
@@ -98,7 +99,7 @@ public class UserController {
 
     @Operation(summary = "管理员查询用户列表")
     @GetMapping("/admin/users")
-    public Result<PageResult<User>> pageUsers(@Valid UserQueryDTO queryDTO) {
+    public Result<PageResult<UserVO>> pageUsers(@Valid UserQueryDTO queryDTO) {
         return Result.success(PageResult.from(userService.pageUsers(queryDTO)));
     }
 

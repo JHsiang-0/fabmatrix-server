@@ -18,6 +18,7 @@ import com.example.farm.entity.dto.UserLoginDTO;
 import com.example.farm.entity.dto.UserQueryDTO;
 import com.example.farm.entity.dto.UserRegisterDTO;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.entity.vo.UserVO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -183,17 +184,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public User getCurrentUser(Long userId) {
+    public UserVO getCurrentUser(Long userId) {
         User user = getById(userId);
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
-        user.setPasswordHash(null);
-        return user;
+        return UserVO.from(user);
     }
 
     @Override
-    public IPage<User> pageUsers(UserQueryDTO queryDTO) {
+    public IPage<UserVO> pageUsers(UserQueryDTO queryDTO) {
         Page<User> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
 
@@ -209,8 +209,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         wrapper.orderByDesc(User::getCreatedAt);
         IPage<User> result = page(page, wrapper);
-        result.getRecords().forEach(u -> u.setPasswordHash(null));
-        return result;
+        Page<UserVO> safePage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
+        safePage.setRecords(result.getRecords().stream().map(UserVO::from).toList());
+        return safePage;
     }
 
     @Override

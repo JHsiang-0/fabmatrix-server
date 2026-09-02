@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.User;
 import com.example.farm.entity.dto.*;
+import com.example.farm.entity.vo.UserVO;
 
 /**
  * 用户服务接口。
@@ -53,7 +54,7 @@ public interface UserService extends IService<User> {
      * @return 用户信息（已脱敏）
      * @throws BusinessException 当用户不存在时抛出
      */
-    User getCurrentUser(Long userId);
+    UserVO getCurrentUser(Long userId);
 
     /**
      * 分页查询用户。
@@ -61,7 +62,7 @@ public interface UserService extends IService<User> {
      * @param queryDTO 查询参数
      * @return 用户分页结果
      */
-    IPage<User> pageUsers(UserQueryDTO queryDTO);
+    IPage<UserVO> pageUsers(UserQueryDTO queryDTO);
 
     /**
      * 禁用用户。

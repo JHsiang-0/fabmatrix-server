@@ -1,6 +1,7 @@
 package com.example.farm.entity;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.farm.entity.vo.UserVO;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,5 +24,8 @@ class SensitiveFieldSerializationTest {
         assertThat(objectMapper.writeValueAsString(printer)).doesNotContain("printer-secret");
         assertThat(objectMapper.writeValueAsString(file)).doesNotContain("internal/rustfs-key");
         assertThat(objectMapper.writeValueAsString(user)).doesNotContain("secret-hash");
+        assertThat(objectMapper.writeValueAsString(UserVO.from(user)))
+                .doesNotContain("passwordHash")
+                .doesNotContain("secret-hash");
     }
 }

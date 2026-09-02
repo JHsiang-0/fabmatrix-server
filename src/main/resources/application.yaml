@@ -110,3 +110,15 @@ springdoc:
     enabled: true
   swagger-ui:
     enabled: true
+
+# Actuator 基础探活配置。生产环境可在 application-prod.yaml 中进一步收紧暴露范围。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true

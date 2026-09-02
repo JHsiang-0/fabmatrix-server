@@ -324,11 +324,11 @@ startPrint()
 
 ### P2.3 生产环境
 
-- [ ] 检查 MySQL、Redis、RustFS 健康检查和启动依赖。
-- [ ] 增加应用健康检查和依赖状态检查。
-- [ ] 配置生产日志级别、日志滚动和敏感信息脱敏。
-- [ ] 限制 CORS 到实际前端客户端地址。
-- [ ] 限制 Swagger/OpenAPI 访问范围。
+- [x] 检查 MySQL、Redis、RustFS 健康检查和启动依赖；Compose 已有 MySQL/Redis healthcheck，启动顺序和 RustFS 可写检查已写入 `OPERATIONS.md`。
+- [x] 增加应用健康检查和依赖状态检查；Actuator 暴露免认证 `/actuator/health`，数据库/Redis 使用 Spring Boot 自动健康指标，详情不对外暴露。
+- [x] 配置生产日志级别、日志滚动和敏感信息脱敏；生产配置已有滚动策略，运维文档补充禁止记录敏感值。
+- [x] 限制 CORS 到实际前端客户端地址；生产安全校验拒绝 `*`，需通过配置提供明确来源。
+- [x] 限制 Swagger/OpenAPI 访问范围；生产安全校验拒绝开启公开文档。
 - [ ] 配置 JWT 密钥轮换和管理员密钥保管方式。
 - [ ] 增加文件存储容量、清理和备份策略。
 - [ ] 增加设备离线告警和任务失败告警。

@@ -213,8 +213,11 @@
   - 验收：统一 Factory、Klipper/RRF Adapter、状态映射、RRF HTTP 会话/状态/G-code/上传 Mock 均有测试；真实设备联调保留现场验收。
   - 测试：`KlipperMoonrakerAdapterTest`、`RrfAdapterTest`、`RrfApiClientTest`、协议 Factory/Detector/Type 测试；全量 `mvn test` 通过。
 - [ ] T9.6 完成上传文件到打印完成的端到端测试。
+  - 说明：必须在真实 MySQL、Redis、RustFS 和至少一台 Klipper/RRF 设备环境执行；当前环境无 Docker socket 和真实打印机，保留现场验收。
 - [ ] T9.7 核对实体、Mapper、`farm.sql` 和增量 SQL 字段一致性。
-- [ ] T9.8 增加健康检查、启动依赖和生产运维说明。
+- [x] T9.8 增加健康检查、启动依赖和生产运维说明。
+  - 验收：`/actuator/health` 免认证且不公开详情；Compose 依赖、生产密钥、备份、迁移和无设备运行要求已记录在 `OPERATIONS.md`。
+  - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 23 项）；全量 `mvn test` 通过。
 - [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
 
 ## 10. 第一版最终验收

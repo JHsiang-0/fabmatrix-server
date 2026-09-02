@@ -237,6 +237,13 @@ class SecurityResponseTest {
     }
 
     @Test
+    void healthProbeDoesNotRequireAuthentication() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(
+                        result.getResponse().getStatus()).isNotIn(401, 403));
+    }
+
+    @Test
     void operatorCannotAddPrinter() throws Exception {
         mockMvc.perform(post("/api/v1/printers/add")
                         .with(user("2").roles("OPERATOR"))

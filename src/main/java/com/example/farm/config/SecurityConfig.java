@@ -84,6 +84,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/control/**").hasAnyRole("ADMIN", "OPERATOR")
 
                         .requestMatchers("/ws/**").permitAll()
+                        // 健康探针供 Docker/反向代理探活；详情和其他 Actuator 端点仍需认证。
+                        .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         // Moonraker API 模拟器（OrcaSlicer 等切片软件）
                         .requestMatchers(HttpMethod.OPTIONS, "/server/**", "/printer/**", "/machine/**", "/api/files/**").permitAll()

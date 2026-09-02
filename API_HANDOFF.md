@@ -336,6 +336,8 @@ T9.4 已完成：RustFS 客户端上传、预签名 URL、删除失败均统一�
 
 T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选择；适配器测试覆盖协议状态映射、暂停/恢复/取消/急停、上传和不支持能力，RRF HTTP 客户端测试覆盖会话、状态、G-code 与上传请求。真实设备响应和副作用仍需现场验收。
 
+T9.8 已完成后端基础部分：`GET /actuator/health` 为免认证探活端点且不返回依赖详情，`health/info` 为基础暴露范围；生产环境仍由 `ProductionSafetyValidator` 收紧密钥、CORS 和 Swagger/OpenAPI。启动顺序、备份、迁移和无真实打印机时关闭任务的要求见 `OPERATIONS.md`。RustFS 和打印机真实连通性仍需现场检查。
+
 ### 5.3 文件
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |

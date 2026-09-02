@@ -338,6 +338,8 @@ T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选�
 
 T9.8 已完成后端基础部分：`GET /actuator/health` 为免认证探活端点且不返回依赖详情，`health/info` 为基础暴露范围；生产环境仍由 `ProductionSafetyValidator` 收紧密钥、CORS 和 Swagger/OpenAPI。启动顺序、备份、迁移和无真实打印机时关闭任务的要求见 `OPERATIONS.md`。RustFS 和打印机真实连通性仍需现场检查。
 
+T9.9 后端事件部分已完成：`PRINTER_OFFLINE` 使用稳定的 `printerId/status/reason` 数据，连续离线由监控逻辑抑制重复事件；设备恢复时重新发布 `PRINTER_STATUS`。失败任务通过 `JOB_STATUS` 携带 `jobId/status/progress/errorReason`。前端断线重连、指数退避和告警展示必须在真实前端仓库完成，当前后端仓库无前端代码。
+
 ### 5.3 文件
 
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
@@ -458,6 +460,8 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 ```
 
 `02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
+
+实体、Mapper 与 SQL 字段已完成静态核对：用户、打印机、打印文件、打印任务和打印机状态历史的当前字段均能在初始化表或对应增量脚本中找到；`operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表属于增量升级内容。历史 `V*.sql` 文件不代表 Spring 会自动执行的迁移，已有数据卷仍需按 `OPERATIONS.md` 手工升级并在真实 MySQL 中验收。
 
 ### 6.3 PrintFileVO
 

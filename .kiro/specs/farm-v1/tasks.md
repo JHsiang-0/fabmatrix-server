@@ -199,7 +199,7 @@
 
 - [x] T9.1 补齐核心 Controller 和权限集成测试。
   - 验收：认证、打印机、文件、任务、用户管理核心入口覆盖匿名 401；ADMIN-only 的打印机/用户管理操作覆盖 OPERATOR 403；管理员用户管理成功委托路径已覆盖。
-  - 测试：`SecurityResponseTest` 22 个测试通过；真实数据库成功链路仍需容器联调。
+  - 测试：`SecurityResponseTest` 当前 23 个测试通过；真实数据库成功链路仍需容器联调。
 - [x] T9.2 补齐 Mapper/MySQL 查询、分页和迁移验证。
   - 验收：`farm.sql` 与当前实体/Mapper 字段已核对；02 增量脚本按列/索引存在性重复执行安全；04 状态迁移、05 协议规范化和 06 历史表脚本可重复执行。
   - 说明：项目未引入 Flyway，已有 Docker 数据卷仍需备份后手工执行增量 SQL；真实 MySQL 执行验收待容器环境。
@@ -214,11 +214,15 @@
   - 测试：`KlipperMoonrakerAdapterTest`、`RrfAdapterTest`、`RrfApiClientTest`、协议 Factory/Detector/Type 测试；全量 `mvn test` 通过。
 - [ ] T9.6 完成上传文件到打印完成的端到端测试。
   - 说明：必须在真实 MySQL、Redis、RustFS 和至少一台 Klipper/RRF 设备环境执行；当前环境无 Docker socket 和真实打印机，保留现场验收。
-- [ ] T9.7 核对实体、Mapper、`farm.sql` 和增量 SQL 字段一致性。
+- [x] T9.7 核对实体、Mapper、`farm.sql` 和增量 SQL 字段一致性。
+  - 验收：已核对 `User`、`Printer`、`PrintFile`、`PrintJob`、`PrinterStatusHistory` 与对应 Mapper、`farm.sql`、`02` 和 `06` 脚本；历史 `V*.sql` 仅作为手工迁移记录，不会被 Spring 自动执行。
+  - 结论：新字段 `operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表由增量脚本补齐；状态值、固件类型由 `04`、`05` 规范化。真实 MySQL 执行验收仍需容器环境。
 - [x] T9.8 增加健康检查、启动依赖和生产运维说明。
   - 验收：`/actuator/health` 免认证且不公开详情；Compose 依赖、生产密钥、备份、迁移和无设备运行要求已记录在 `OPERATIONS.md`。
   - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 23 项）；全量 `mvn test` 通过。
 - [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
+  - 后端完成：离线/恢复事件抑制与发布、失败任务 `JOB_STATUS.errorReason`、连接失败清理均已有实现和测试。
+  - 待前端：自动重连和指数退避；当前仓库没有真实前端工程，不能在此完成前端文件改动。
 
 ## 10. 第一版最终验收
 

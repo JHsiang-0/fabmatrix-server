@@ -3,6 +3,8 @@ package com.example.farm.controller;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.example.farm.common.utils.JwtUtils;
+import com.example.farm.entity.PrintJob;
+import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.service.FarmStatusSnapshotService;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
@@ -88,6 +90,48 @@ class WebSocketSecurityTest {
 
         verify(session).close();
         assertThat(WebSocketServer.getOnlineCount()).isZero();
+    }
+
+    @Test
+    void publishesOfflineAlertWithStableReason() throws Exception {
+        Session session = authorizedSession();
+        RemoteEndpoint.Basic remote = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        when(session.getBasicRemote()).thenReturn(remote);
+        when(session.isOpen()).thenReturn(true);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
+
+        new WebSocketServer().onOpen(session);
+        new WebSocketEventPublisher().publishPrinterOffline(403L, "");
+
+        verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
+                message.contains("\"type\":\"PRINTER_OFFLINE\"")
+                        && message.contains("\"printerId\":403")
+                        && message.contains("设备无法连接")));
+        new WebSocketServer().onClose(session);
+    }
+
+    @Test
+    void publishesFailedJobAlertWithErrorReason() throws Exception {
+        Session session = authorizedSession();
+        RemoteEndpoint.Basic remote = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        when(session.getBasicRemote()).thenReturn(remote);
+        when(session.isOpen()).thenReturn(true);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
+
+        new WebSocketServer().onOpen(session);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("FAILED");
+        job.setProgress(java.math.BigDecimal.valueOf(35));
+        job.setErrorReason("喷嘴堵塞");
+        new WebSocketEventPublisher().publishJobStatus(job);
+
+        verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
+                message.contains("\"type\":\"JOB_STATUS\"")
+                        && message.contains("\"jobId\":1001")
+                        && message.contains("喷嘴堵塞")));
+        new WebSocketServer().onClose(session);
     }
 
     private Session authorizedSession() {

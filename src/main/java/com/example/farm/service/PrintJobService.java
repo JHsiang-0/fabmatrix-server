@@ -126,6 +126,13 @@ public interface PrintJobService extends IService<PrintJob> {
     void retryJob(Long jobId);
 
     /**
+     * 将尚未实际打印的已派发任务解除设备绑定并重新排队。
+     *
+     * @param jobId 任务 ID
+     */
+    void requeueJob(Long jobId);
+
+    /**
      * 分页查询打印任务列表（支持多条件过滤）
      *
      * @param queryDTO 查询条件

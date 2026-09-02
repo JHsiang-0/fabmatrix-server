@@ -294,7 +294,7 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 |---|---|---|---|---|---|
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID | 已完成 |
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
-| POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 规划 |
+| POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | `priority` | `Result<null>` | 规划 |
 
 现有 `/print-jobs/create` 保留为兼容地址并标记 deprecated，前端新代码统一使用 `POST /print-jobs`。T6.1 阶段两条地址调用同一 Service 逻辑，均创建 `QUEUED` 任务；T6.2 规划支持可选 `printerId`。
@@ -302,6 +302,8 @@ HTTP 422，设备离线返回 `code=10001`。`POST /api/v1/control/{id}/cancel` 
 T6.2 的 `printerId` 规则：不传时任务为 `QUEUED` 且不绑定设备；传入时先创建任务，再复用安全派发逻辑校验设备存在且为 `IDLE`，成功后任务为 `ASSIGNED`、打印机绑定任务且 `isSafeToPrint=false`，不会直接开始打印。设备忙碌、设备不存在或派发状态校验失败时整体创建事务回滚。
 
 T6.3 重试规则：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；成功后保留 `fileId`、`userId` 和 `priority`，清除 `printerId`、`operatorId`、`startedAt`、`completedAt`、`errorReason`，进度重置为 `0`，状态变为 `QUEUED` 并推送 `JOB_STATUS`。非失败状态返回 HTTP 422，不调用打印机设备；任务不存在或无权访问统一返回 HTTP 404。
+
+T6.4 重新排队规则：`POST /print-jobs/{id}/requeue` 仅允许 `ASSIGNED` 或 `READY` 任务；成功后解除打印机绑定、清除运行字段、进度归零，状态变为 `QUEUED` 并推送 `JOB_STATUS`。关联设备存在时清除其 `currentJobId` 和安全确认，`PREPARING` 设备恢复为 `IDLE`；不调用设备协议。`PRINTING`、`PAUSED`、`FAILED`、`COMPLETED`、`CANCELLED` 均返回 HTTP 422，任务或设备不存在/无权访问返回 HTTP 404。
 
 ### 5.3 文件
 

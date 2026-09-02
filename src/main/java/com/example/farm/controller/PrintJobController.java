@@ -128,6 +128,16 @@ public class PrintJobController {
     }
 
     /**
+     * 解除尚未实际打印的任务与设备绑定并重新排队。
+     */
+    @Operation(summary = "重新排队打印任务")
+    @PostMapping("/{id}/requeue")
+    public Result<Void> requeueJob(@PathVariable Long id) {
+        printJobService.requeueJob(id);
+        return Result.success(null, "任务已重新排队");
+    }
+
+    /**
      * 手动派发任务并立即启动打印（兼容旧接口）。
      *
      * @param jobId 任务 ID

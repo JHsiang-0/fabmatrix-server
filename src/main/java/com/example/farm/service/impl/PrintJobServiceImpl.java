@@ -433,6 +433,47 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         log.info("重试打印任务成功: jobId={}, 原状态={}", jobId, status);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void requeueJob(Long jobId) {
+        PrintJob job = getAccessibleJob(jobId);
+        String status = PrintJobStatus.normalize(job.getStatus());
+        if (!(PrintJobStatus.ASSIGNED.name().equals(status)
+                || PrintJobStatus.READY.name().equals(status))) {
+            throw new BusinessException(422, "只有已派发或已就绪任务可以重新排队");
+        }
+
+        Long printerId = job.getPrinterId();
+        if (printerId != null) {
+            Printer printer = printerService.getById(printerId);
+            if (printer == null) {
+                throw new BusinessException(404, "关联打印机不存在");
+            }
+            if (printer.getCurrentJobId() != null && !Objects.equals(printer.getCurrentJobId(), jobId)) {
+                throw new BusinessException(409, "打印机当前绑定其他任务");
+            }
+            if (Objects.equals(printer.getCurrentJobId(), jobId)) {
+                printer.setCurrentJobId(null);
+                printer.setIsSafeToPrint(false);
+                if ("PREPARING".equals(printer.getStatus())) {
+                    printer.setStatus("IDLE");
+                }
+                printerService.updateById(printer);
+            }
+        }
+
+        PrintJobStatus.requireTransition(status, PrintJobStatus.QUEUED);
+        job.setPrinterId(null);
+        job.setOperatorId(null);
+        job.setStartedAt(null);
+        job.setCompletedAt(null);
+        job.setErrorReason(null);
+        job.setProgress(BigDecimal.ZERO);
+        job.setStatus(PrintJobStatus.QUEUED.name());
+        updateJobAndPublish(job);
+        log.info("重新排队打印任务成功: jobId={}, 原状态={}", jobId, status);
+    }
+
     private void updateJobAndPublish(PrintJob job) {
         if (this.updateById(job)) {
             eventPublisher.publishJobStatus(job);

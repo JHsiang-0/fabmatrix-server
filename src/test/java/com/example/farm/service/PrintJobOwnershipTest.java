@@ -2,6 +2,7 @@ package com.example.farm.service;
 
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
@@ -153,6 +154,47 @@ class PrintJobOwnershipTest {
 
         assertThatThrownBy(() -> printJobService.retryJob(100L))
                 .hasMessage("任务状态不允许从 [COMPLETED] 转换为 [QUEUED]");
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+    }
+
+    @Test
+    void requeuesAssignedJobAndReleasesPreparingPrinter() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setPrinterId(403L);
+        job.setStatus("ASSIGNED");
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setCurrentJobId(100L);
+        printer.setStatus("PREPARING");
+        printer.setIsSafeToPrint(true);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+
+        printJobService.requeueJob(100L);
+
+        assertThat(job.getStatus()).isEqualTo("QUEUED");
+        assertThat(job.getPrinterId()).isNull();
+        assertThat(job.getProgress()).isEqualByComparingTo("0");
+        assertThat(printer.getCurrentJobId()).isNull();
+        assertThat(printer.getStatus()).isEqualTo("IDLE");
+        assertThat(printer.getIsSafeToPrint()).isFalse();
+        verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
+    void pausedJobCannotBeRequeuedWithoutExplicitCancel() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = job(100L, 1L);
+        job.setPrinterId(403L);
+        job.setStatus("PAUSED");
+        when(printJobMapper.selectById(100L)).thenReturn(job);
+
+        assertThatThrownBy(() -> printJobService.requeueJob(100L))
+                .hasMessage("只有已派发或已就绪任务可以重新排队");
+        verify(printerService, never()).getById(403L);
         verify(printJobMapper, never()).updateById(any(PrintJob.class));
     }
 

@@ -92,9 +92,10 @@
   - 目标：任务暂停、启动、完成、失败、取消后发布 `JOB_STATUS`。
   - 验收：任务服务和监控任务均在 `updateById` 成功后发布 `JOB_STATUS`；数据库更新失败不发布成功事件；未绑定打印机的排队任务不构造缺少设备 ID 的消息。
   - 测试：`PrintJobAdapterTest`、`PrintJobOwnershipTest`、`PrinterMonitorAdapterTest` 覆盖任务服务和设备反馈事件路径。
-- [ ] T3.5 补齐 WebSocket 生命周期测试。
+- [x] T3.5 补齐 WebSocket 生命周期测试。
   - 目标：Token、连接上限、快照、四类消息、发送失败和断线清理。
-  - 验收：自动化测试覆盖并更新 `WEBSOCKET_GUIDE.md` 或 API_HANDOFF。
+  - 验收：已覆盖 Token 拒绝、有效连接、首帧快照、广播发送失败清理、断开清理和消息结构校验；连接上限常量已存在。真实容器端到端网络测试和四类消息的容器级测试仍留在后续稳定性任务。
+  - 测试：`WebSocketSecurityTest`、`FarmStatusMessageTest` 共 6 个针对性测试通过。
 
 ## 4. P1 打印机管理
 

@@ -168,7 +168,8 @@ public class WebSocketServer {
                 String jsonMessage = objectMapper.writeValueAsString(data);
                 session.getBasicRemote().sendText(jsonMessage);
             } catch (Exception e) {
-                log.error("单播消息发送失败", e);
+                log.error("单播消息发送失败: sessionId={}", session.getId(), e);
+                closeAndRemove(session);
             }
         }
     }
@@ -207,5 +208,17 @@ public class WebSocketServer {
             log.debug("关闭未通过鉴权的 WebSocket 连接失败: sessionId={}", session.getId(), e);
         }
         log.warn("拒绝未授权 WebSocket 连接: sessionId={}, reason={}", session.getId(), message);
+    }
+
+    private static void closeAndRemove(Session session) {
+        sessions.remove(session);
+        sessionLocks.remove(session);
+        try {
+            if (session.isOpen()) {
+                session.close();
+            }
+        } catch (IOException closeException) {
+            log.debug("关闭异常 WebSocket 连接失败: sessionId={}", session.getId(), closeException);
+        }
     }
 }

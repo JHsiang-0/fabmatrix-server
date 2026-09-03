@@ -39,6 +39,10 @@ java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server
 
 Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份必须同时保存 `farm.db` 和 `files` 目录，示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataDir D:/FarmData`；恢复时先停止 Farm，再使用 `local-restore.ps1 -BackupDir D:/Backups/farm-local-... -DataDir D:/FarmData -Confirm RESTORE`，脚本会先把当前数据移到 `pre-restore-时间戳` 再恢复。Linux 使用 `sh scripts/local-restore.sh <备份目录> <数据目录> RESTORE`。恢复后重新启动并检查 `/actuator/health`、文件列表和任务列表，不要只恢复数据库而遗漏文件目录。
 
+### 历史幽灵绑定修复记录
+
+2026-09-03 在当前开发 MySQL 数据卷中发现 1 条任务指向已不存在打印机的历史绑定：任务 `1` -> 打印机 `289`。执行修复前已生成备份 `/tmp/farm-before-ghost-repair-20260903.sql`，随后运行 `scripts/repair-ghost-bindings.sql`。脚本创建并写入 `farm_binding_repair_audit`，解除任务的打印机绑定，并将活动任务置为 `RECONCILING`，不删除任务、不自动重新派单、不调用打印机。执行后残留幽灵绑定为 0。生产环境执行前必须使用生产数据库备份替换示例路径，并先停应用。
+
 ## 生产启动前检查
 
 生产环境使用 `prod` profile，并通过环境变量提供 MySQL、Redis、RustFS、JWT 和管理员密钥。`ProductionSafetyValidator` 会拒绝开发默认密钥、通配 CORS 和公开 Swagger/OpenAPI。

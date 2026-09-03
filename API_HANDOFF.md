@@ -718,6 +718,8 @@ farm.tasks.enabled=false
 
 没有真实打印机时不要打开监控任务，否则会持续访问不存在的设备。当前 Moonraker 模拟接口只在 `dev/test` Profile 加载，不代表完整 Klipper 或 RRF 模拟器。
 
+监控任务已增加单轮巡检互斥，上一轮未结束时会跳过重叠轮次；单台设备的离线异常 WARN 日志按 60 秒限频，恢复在线后重置限频状态。该保护由 `PrinterMonitorAdapterTest` 覆盖，但未在当前关闭调度的 dev 环境对全部设备做压力轮询。
+
 ## 10. 当前已知差异和验收条件
 
 当前契约和剩余验收状态：

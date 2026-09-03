@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -49,11 +50,14 @@ public class PrinterMonitorTask {
 
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService = Executors.newFixedThreadPool(10);
+    private final AtomicBoolean scanInProgress = new AtomicBoolean();
     private final Map<Long, Boolean> lastOnlineStates = new ConcurrentHashMap<>();
     private final Map<Long, PrinterDeviceStatus> lastPublishedStatuses = new ConcurrentHashMap<>();
+    private final Map<Long, Long> lastOfflineLogAt = new ConcurrentHashMap<>();
 
     // 慢查询阈值：5秒
     private static final long SLOW_THRESHOLD_MS = 5000;
+    private static final long OFFLINE_LOG_INTERVAL_MS = 60_000;
 
     @PreDestroy
     public void destroy() {
@@ -78,6 +82,10 @@ public class PrinterMonitorTask {
      */
     @Scheduled(fixedRate = 5000)
     public void checkPrinterStatus() {
+        if (!scanInProgress.compareAndSet(false, true)) {
+            log.debug("跳过重叠的打印机状态巡检");
+            return;
+        }
         long startTime = System.currentTimeMillis();
         
         try {
@@ -86,11 +94,13 @@ public class PrinterMonitorTask {
             if (printers == null) {
                 printers = loadPrintersFromDb();
                 if (printers.isEmpty()) {
+                    scanInProgress.set(false);
                     return;
                 }
             }
 
             if (printers.isEmpty()) {
+                scanInProgress.set(false);
                 return;
             }
 
@@ -106,9 +116,11 @@ public class PrinterMonitorTask {
 
             // 异步统计
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .thenRun(() -> logScanResult(futures, startTime));
-                    
+                    .thenRun(() -> logScanResult(futures, startTime))
+                    .whenComplete((ignored, error) -> scanInProgress.set(false));
+
         } catch (Exception e) {
+            scanInProgress.set(false);
             log.error("打印机状态巡检失败", e);
         }
     }
@@ -159,8 +171,7 @@ public class PrinterMonitorTask {
                 return new PrinterStatusResult(printerId, null, false, "设备未返回状态");
             }
         } catch (Exception e) {
-            log.error("获取打印机状态失败: printerId={}, name={}",
-                    printerId, printerName, e);
+            logOfflineQueryFailure(printerId, printerName, e);
             handlePrinterOffline(printer);
             return new PrinterStatusResult(printerId, null, false, "设备状态查询失败");
         }
@@ -168,6 +179,7 @@ public class PrinterMonitorTask {
 
     private void handlePrinterOnline(Long printerId, String printerName,
                                      PrinterDeviceStatus status, Printer printer, long duration) {
+        lastOfflineLogAt.remove(printerId);
         MoonrakerStatusDTO legacyStatus = toLegacyStatus(status);
         // 缓存状态
         printerCacheService.cachePrinterStatus(printerId, legacyStatus);
@@ -380,6 +392,25 @@ public class PrinterMonitorTask {
         }
         printerCacheService.markPrinterOffline(printer.getId());
         printerCacheService.clearStatusCache(printer.getId());
+    }
+
+    private void logOfflineQueryFailure(Long printerId, String printerName, Exception exception) {
+        long now = System.currentTimeMillis();
+        AtomicBoolean shouldLog = new AtomicBoolean(false);
+        lastOfflineLogAt.compute(printerId, (ignored, previous) -> {
+            if (previous == null || now - previous >= OFFLINE_LOG_INTERVAL_MS) {
+                shouldLog.set(true);
+                return now;
+            }
+            return previous;
+        });
+
+        if (shouldLog.get()) {
+            log.warn("获取打印机状态失败（离线日志已限频）: printerId={}, name={}",
+                    printerId, printerName, exception);
+        } else {
+            log.debug("打印机仍处于离线状态: printerId={}, name={}", printerId, printerName);
+        }
     }
 
     /**

@@ -22,12 +22,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(MockitoExtension.class)
 class PrinterMonitorAdapterTest {
@@ -109,6 +112,29 @@ class PrinterMonitorAdapterTest {
         monitorTask.checkPrinterStatus();
         verify(eventPublisher, timeout(1000).times(1))
                 .publishPrinterOffline(403L, "设备状态查询失败");
+    }
+
+    @Test
+    void skipsOverlappingScansWhilePreviousScanIsRunning() throws InterruptedException {
+        Printer printer = printer("RRF");
+        CountDownLatch queryStarted = new CountDownLatch(1);
+        CountDownLatch releaseQuery = new CountDownLatch(1);
+        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenAnswer(invocation -> {
+            queryStarted.countDown();
+            releaseQuery.await(2, TimeUnit.SECONDS);
+            return printingStatus();
+        });
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher);
+
+        monitorTask.checkPrinterStatus();
+        assertThat(queryStarted.await(1, TimeUnit.SECONDS)).isTrue();
+        monitorTask.checkPrinterStatus();
+        releaseQuery.countDown();
+
+        verify(adapter, timeout(1000).times(1)).getStatus(any());
     }
 
     @Test

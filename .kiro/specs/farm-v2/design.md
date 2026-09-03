@@ -238,7 +238,36 @@ WebSocket 使用 `/ws/farm-status`。目标消息格式：
 
 ## 11. 数据库与发布策略
 
-优先复用现有 `farm_print_file`、`farm_print_job` 和 `farm_printer`，仅在幂等/审计无法由现有字段表达时增加 `farm_dispatch_plan`、`farm_dispatch_plan_item`、状态事件或操作审计表。所有 SQL 必须提供增量迁移，先备份现有 Docker MySQL 数据，不使用 `down -v`。
+### 11.1 当前数据库的适用范围
+
+现有 `farm_print_file`、`farm_print_job` 和 `farm_printer` 可以继续支撑单任务手动上传、派发和安全启动，但存在以下结构性限制：
+
+- `farm_printer.current_job_id` 与 `farm_print_job.printer_id` 是同一绑定关系的两份写入，容易在异常或并发请求时不一致。
+- 任务表没有版本号、幂等键和派单计划引用，无法可靠表达批量预览后的确认、重复确认和重启恢复。
+- 打印机表主要保存当前业务状态，没有独立的最后观测时间、原始协议状态和状态来源；RRF `idle` 等状态无法留下充分证据。
+- 任务表中的文件地址、耗材、喷嘴等字段是任务创建时的快照，但当前没有明确区分“文件当前属性”和“任务历史快照”。
+- 当前仓库没有自动执行 Flyway；已有 SQL 是初始化脚本和手工增量脚本，数据库升级必须显式执行并记录版本。
+
+因此 v2 不把现有表全部替换，而是先建立兼容的事实来源和幂等边界。
+
+### 11.2 推荐的增量架构
+
+第一阶段根据实际代码和现有数据增加以下能力：
+
+1. `farm_print_job` 增加 `version`、`idempotency_key`、期望动作/状态、最后设备命令结果和状态来源字段；原有文件参数继续作为任务快照保留。
+2. `farm_printer` 增加 `state_version`、`last_seen_at`、`last_raw_state`/错误摘要和状态来源字段；Redis 只做缓存。
+3. 增加 `farm_dispatch_plan`、`farm_dispatch_plan_item`，保存批量预览内容、版本、确认摘要、过期时间、逐项执行状态和重试次数。
+4. 增加 `farm_job_event` 或等价操作事件表，记录状态迁移和设备动作，满足重启恢复、审计和问题定位。
+5. 派发确认时在事务内锁定打印机行（或使用后续新增的唯一活动绑定表），检查活动任务，再更新任务和打印机投影；不能依赖 Redis 锁单独保证数据库一致性。
+
+如果后续并发量或状态复杂度证明 `current_job_id` 双写难以维护，再增加 `farm_printer_job_binding` 作为唯一活动绑定事实来源，保留旧字段作为过渡投影，完成数据校验后再下线旧字段。这个升级不需要删除历史打印任务。
+
+### 11.3 迁移原则
+
+- 所有结构调整使用编号明确的增量 SQL，执行前备份 Docker MySQL 数据，并提供回滚/兼容说明。
+- 新字段先允许旧数据为空，由应用补齐；验证无冲突后再收紧非空、索引和唯一约束。
+- 不删除 `farm_print_job` 历史记录，不用重建数据卷解决结构问题，不执行 `docker compose down -v`。
+- 每次迁移同时更新实体、Mapper、Service、测试数据和 `API_HANDOFF.md`。
 
 发布顺序：
 

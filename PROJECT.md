@@ -63,6 +63,8 @@ tasks.md
 - Maven、JaCoCo
 - 当前设备协议实现为 Klipper/Moonraker
 - 目标设备协议为 Klipper/Moonraker 与 RRF 3.7
+- v1 Server Edition 使用 Docker Compose 编排 Farm、MySQL、Redis、RustFS
+- v2 Local Edition 规划使用 SQLite 与 Windows 本地文件存储，不依赖 Docker
 - 开发环境默认端口 `8080`
 - 开发环境默认关闭定时监控任务，避免没有真实打印机时持续报错
 

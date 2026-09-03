@@ -42,6 +42,7 @@ HELP.md
 /src/main/resources/application-local.yml
 /src/main/resources/application-dev.yaml
 /src/main/resources/application-prod.yaml
+.env.server
 
 # Temporary files
 *.tmp

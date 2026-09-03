@@ -177,6 +177,26 @@
 - [ ] T15.3 记录数据库增量迁移、回滚方案、配置开关和真实设备限制。
 - [ ] T15.4 完成阶段验收后创建普通提交；按用户约定在阶段结束时统一使用 GPG 签名提交。
 
+## T16 [新增] v2 Local Edition：SQLite 与本地文件存储
+
+**对应需求：REQ-03、REQ-05、REQ-09、REQ-13**
+
+- [ ] T16.1 抽象 `FileStorage` 接口，实现本地文件存储，并保留 RustFS 实现；文件下载、缩略图和打印任务读取不直接依赖具体客户端。
+- [ ] T16.2 增加 SQLite 驱动、Local profile、建表和增量迁移脚本；核对 MyBatis-Plus SQL、分页、时间类型和事务行为。
+- [ ] T16.3 将打印机缓存、登录保护和单后端锁替换为本地实现；确认 Local Edition 不需要 Redis。
+- [ ] T16.4 增加数据目录、磁盘空间、文件权限、备份/恢复和数据库迁移检查。
+- [ ] T16.5 验证 Local Edition 与 Server Edition 返回相同的 REST/WebSocket 契约和任务状态。
+
+## T17 [发布] v1 Server Edition：Docker Compose 正式部署
+
+**对应需求：REQ-12、REQ-13**
+
+- [ ] T17.1 维护 `Dockerfile` 和 `docker-compose.server.yml`，编排 Farm、MySQL、Redis、RustFS 四个服务。
+- [ ] T17.2 提供 `.env.server.example`，所有生产密码、JWT、管理员密钥和 RustFS 凭据通过环境变量注入。
+- [ ] T17.3 完成服务健康检查、启动依赖、数据卷、日志卷、内部网络和基础设施端口隔离。
+- [ ] T17.4 验证全新数据库初始化、已有数据卷升级、备份恢复和容器重启；不得使用 `docker compose down -v`。
+- [ ] T17.5 运行后端镜像构建、Compose 配置校验、接口探活和正式配置安全检查，形成 v1 Server Edition 发布说明。
+
 ## 执行规则
 
 每次只推进当前未完成 Task：先阅读实际代码，完成实现和针对性测试，再更新本文件中的状态、根目录 `TODO.md` 和接口交接文档。真实 RRF 控制、上传、启动、暂停、急停仅允许在 `192.168.0.77` 上验证，并且每次操作前确认设备状态和测试文件安全性。

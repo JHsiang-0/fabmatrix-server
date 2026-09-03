@@ -269,6 +269,57 @@ WebSocket 使用 `/ws/farm-status`。目标消息格式：
 - 不删除 `farm_print_job` 历史记录，不用重建数据卷解决结构问题，不执行 `docker compose down -v`。
 - 每次迁移同时更新实体、Mapper、Service、测试数据和 `API_HANDOFF.md`。
 
+## 12. v2 双部署形态
+
+### 12.1 v1 Server Edition
+
+v1 正式部署可以选择 Docker Server Edition。`docker-compose.server.yml` 编排四个服务：`farm`、`mysql`、`redis` 和 `rustfs`；`Dockerfile` 使用 Java 25 运行时启动 Spring Boot 可执行 JAR。MySQL、Redis 和 RustFS 使用命名卷持久化，正式密钥通过 `.env.server` 或部署平台 Secret 注入，不写入 Compose 文件。
+
+正式 Compose 默认只暴露 Farm HTTP 端口，基础设施服务加入内部网络。MySQL 初始化脚本只对全新数据卷自动执行；已有数据卷必须先备份，再手动执行编号增量迁移。RustFS 镜像发布前必须固定为经过验证的 tag 或 digest，不能把 `latest` 当作正式版本策略。
+
+当前仓库的 `docker-compose.yml` 继续作为本地开发基础设施编排；正式发布使用 `docker-compose.server.yml`，避免开发密码和开发配置进入正式部署。
+
+### 12.2 v2 Local Edition
+
+Local Edition 面向 Windows 单机服务端：
+
+```text
+SQLite              业务数据
+Windows 本地目录    G-code、缩略图和导出备份
+Caffeine/本地缓存   状态缓存
+数据库事务锁        单后端进程内的任务/打印机占用
+```
+
+多个浏览器客户端仍通过同一个 Farm 后端访问，不直接打开 SQLite 或本地文件。文件下载、缩略图和打印机上传都通过后端的 `FileStorage` 接口完成。Local Edition 默认关闭后台自动派单，不依赖 Redis/RustFS。
+
+SQLite 只保存元数据，不把大文件放入 BLOB。应用启动时检查数据目录可写、磁盘空间和数据库迁移版本；备份至少包含 SQLite 数据库文件、文件目录和配置密钥。
+
+### 12.3 存储抽象
+
+新增或重构为以下接口，Controller 和业务 Service 只依赖接口：
+
+```java
+interface FileStorage {
+    StoredFile put(String key, InputStream content, long size, String contentType);
+    InputStream open(String key);
+    void delete(String key);
+    StorageUrl createDownloadUrl(String key, Duration expires);
+}
+```
+
+实现至少包括 `LocalFileStorage` 和 `RustFsStorage`。数据库访问也应通过 MyBatis 兼容的 Repository/Mapper 边界隔离；SQLite 和 MySQL 的 DDL、分页、时间类型和迁移脚本分别验证。Redis 只作为 Server Edition 的缓存/分布式锁实现，Local Edition 使用本地缓存和数据库事务锁。
+
+### 12.4 发布关系
+
+```text
+v1 Server Edition：当前 MySQL/Redis/RustFS 栈 + Docker Compose
+v2 业务：手动单任务 + 用户确认批量分配
+v2 Local Edition：SQLite + 本地文件 + Windows 安装包
+v3：重新评审后台自动派单
+```
+
+Local Edition 的存储改造不能改变 v2 的两个业务目标；Server Edition 继续作为兼容部署方式，二者必须通过相同的接口和验收用例。
+
 发布顺序：
 
 1. 先上线状态枚举、配置拆分和只读监控修复，旧自动调度保持关闭。

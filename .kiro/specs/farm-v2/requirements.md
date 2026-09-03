@@ -45,7 +45,7 @@ v2 的核心调整是把业务收口为两条用户主动操作路径：单任�
 
 - 单文件扩展名、大小、空文件和内容解析校验失败时，不影响其他文件结果。
 - 响应包含成功文件 ID、失败原因、重复文件提示和是否可以重试。
-- 上传接口必须使用现有 RustFS 存储和文件归属规则，不将本地临时路径暴露给前端。
+- 上传接口必须使用统一文件存储抽象和文件归属规则；Server Edition 使用 RustFS，Local Edition 使用受控的 Windows 本地目录，不将本地临时路径暴露给前端。
 - 批量大小和文件数量有明确上限，超过上限返回参数错误。
 
 ### REQ-04 用户发起的批量分配预览
@@ -147,6 +147,19 @@ Klipper/Moonraker 和 RRF 必须通过统一设备能力接口接入，协议差
 - 真实设备控制、上传、启动、暂停、急停只在用户指定的真实 RRF 设备上验证；模拟板不作为打印机验收依据。
 - Swagger、`API_HANDOFF.md`、`TODO.md` 和 `tasks.md` 的已实现状态一致。
 - 开发环境默认不会因为没有真实设备而自动产生轮询和调度错误。
+
+### REQ-13 双部署形态
+
+系统必须同时规划 v1 Server Edition 和 v2 Local Edition，二者共用业务 API、权限模型和打印机协议适配层。
+
+验收标准：
+
+- v1 Server Edition 可以使用正式 Docker Compose 启动 Farm 后端、MySQL、Redis 和 RustFS；敏感配置通过环境变量注入，数据通过命名卷持久化。
+- Server Edition 的 MySQL、Redis、RustFS 默认不直接暴露到宿主机，只由 Farm 后端访问；需要对外访问时必须有明确配置和安全说明。
+- v2 Local Edition 使用 SQLite 保存业务数据，使用 Windows 本地目录保存 G-code 和缩略图，不要求安装 Docker、MySQL、Redis 或 RustFS。
+- Local Edition 在单个 Farm 后端进程、多个局域网客户端的范围内支持事务、文件归属、批量操作和备份恢复。
+- 两种部署形态对前端保持相同的 REST/WebSocket 契约；部署模式不能改变任务状态和权限语义。
+- SQLite/MySQL、本地文件/RustFS 的切换通过服务接口和配置完成，不能在 Controller 中写死具体存储实现。
 
 ## 4. 非目标
 

@@ -9,6 +9,23 @@
 
 应用默认使用 `dev` profile，HTTP 端口为 `8080`。健康探针为 `GET /actuator/health`，只返回整体状态，不公开依赖详情；`info` 端点需要登录。
 
+## v1 Server Edition Docker 部署
+
+正式 Docker 部署使用仓库根目录的 `docker-compose.server.yml`，不要把开发用 `docker-compose.yml` 当作正式配置。首次部署：
+
+```bash
+cp .env.server.example .env.server
+# 编辑 .env.server，替换 CHANGE_ME 值，并填写已验证的 RUSTFS_IMAGE
+mvn clean package -DskipTests
+docker compose --env-file .env.server -f docker-compose.server.yml config
+docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
+docker compose --env-file .env.server -f docker-compose.server.yml ps
+```
+
+正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_TASKS_ENABLED` 默认是 `false`；确认真实打印机白名单和协议后，再单独启用监控。当前 v1 的监控/调度仍共用旧开关，后台调度不要在正式环境误开启。
+
+正式发布前必须固定并验证 RustFS 镜像版本；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。
+
 ## 生产启动前检查
 
 生产环境使用 `prod` profile，并通过环境变量提供 MySQL、Redis、RustFS、JWT 和管理员密钥。`ProductionSafetyValidator` 会拒绝开发默认密钥、通配 CORS 和公开 Swagger/OpenAPI。

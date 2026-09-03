@@ -287,7 +287,9 @@
 - [x] T8.2 封装 HTTP 客户端、Bearer Token、统一响应和错误处理。
   - 验收：`/home/codex/workspace/farm-ui/src/utils/request.js` 统一注入 `Authorization: Bearer <token>`，校验 `{code,message,data,timestamp}` 成功响应，集中处理 401/403/404/409/422/5xx 和网络错误；`src/api/*.js` 只负责路径、参数和数据适配。
   - 验证：`farm-ui` 执行 `npm test`（1 个测试文件、1 个套件通过）、`npm run build` 和 `npm run lint` 通过；前端工作区原有 lockfile 修改保留未动。
-- [ ] T8.3 完成登录、角色菜单、用户管理和个人资料。
+- [x] T8.3 完成登录、角色菜单、用户管理和个人资料。
+  - 验收：真实前端 `/home/codex/workspace/farm-ui` 已完成登录、ADMIN/OPERATOR 路由守卫、管理员用户管理，以及 `/profile` 个人中心；个人中心调用 `src/api/user.js` 的 `getProfile/updateProfile/changePassword`，不提交角色字段。
+  - 验证：前端 `npm test` 3 项、`npm run build`、`npm run lint` 通过；真实后端账号请求级联调归入 T8.7/T10 验收。
 - [ ] T8.4 完成打印机看板、设备管理和 WebSocket 增量更新。
 - [ ] T8.5 完成文件库、上传、目录、下载、删除和预览。
 - [ ] T8.6 完成任务队列、安全打印、控制、重试和状态展示。

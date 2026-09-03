@@ -15,6 +15,7 @@
 | `POST /api/v1/print-jobs/safe/assign` | `PrintJobController`、`PrintJobServiceImpl` | 改造并发占用和权限后保留 |
 | `POST /api/v1/print-jobs/safe/confirm` | `PrintJobController`、`PrintJobServiceImpl` | 改造安全确认状态后保留 |
 | `POST /api/v1/print-jobs/safe/start` | `PrintJobController`、`PrintJobServiceImpl` | 保留，作为批量启动前的单项安全动作 |
+| `POST /api/v1/print-jobs/{jobId}/assign` | `PrintJobController`、`PrintJobServiceImpl` | 已有的直接派发/启动入口，需收敛安全语义；前端默认不使用 |
 | `POST /api/v1/control/{id}/pause`、`resume`、`cancel`、`emergency-stop` | `PrinterControlController`、`PrinterControlServiceImpl` | 改造状态回写和设备确认后保留 |
 
 当前代码中没有、需要新增的主要接口是 `batch-upload`、`batch/preview`、`batch/confirm` 以及后台派单设置/计划接口。下面每个 Task 的标题会明确标识类型。

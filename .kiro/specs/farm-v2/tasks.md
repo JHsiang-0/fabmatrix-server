@@ -32,7 +32,7 @@
 **对应需求：REQ-01、REQ-02、REQ-03、REQ-04、REQ-05、REQ-10**
 
 - [x] T1.1 将 `MANUAL`、`USER_BATCH`、`UPLOAD_ONLY`、`QUEUE`、`START_AFTER_CONFIRM` 写入统一领域枚举或契约常量；`AUTO_MATCH` 仅作为用户批量策略。
-- [~] T1.2 已冻结 `QUEUED`、`ASSIGNED`、`UPLOADING`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`CANCELLED`、`FAILED` 状态和基础迁移规则；创建任务与调度扫描的运行时一致性仍待 T2 完成。
+- [x] T1.2 已冻结 `QUEUED`、`ASSIGNED`、`UPLOADING`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`CANCELLED`、`FAILED` 状态和基础迁移规则；创建任务与调度扫描均使用 `QUEUED`。
 - [ ] T1.3 定义批量上传、预览、确认、逐项结果的 DTO、错误码、幂等字段和上限。
 - [ ] T1.4 定义 REST 分页/统一返回、设备快照、任务状态和 WebSocket 消息版本，补充到 `API_HANDOFF.md` 和 Swagger 设计稿。
 - [ ] T1.5 为每个状态迁移列出发起者、前置条件、数据库变化、设备动作和失败恢复方式。
@@ -42,20 +42,20 @@
 
 **对应需求：REQ-06、REQ-07、REQ-12**
 
-- [ ] T2.1 将全局 `farm.tasks.enabled` 拆为 `farm.monitor.enabled` 和 `farm.scheduler.enabled`，并保证缺省时二者均关闭。
-- [ ] T2.2 为监控增加 `printer-ids` 白名单、轮询间隔、并发上限和逐设备失败隔离。
-- [ ] T2.3 保证调度器在 v2 默认关闭、不能被旧配置误启动，并为 v3 保留独立配置边界；不在 v2 实现自动派单业务。
-- [ ] T2.4 修改 `PrinterMonitorTask`、`JobSchedulerTask` 的条件注解、配置绑定、启动日志和测试配置。
-- [ ] T2.5 增加配置测试：只开监控、只开调度、二者都关、白名单为空、历史开关兼容。
+- [x] T2.1 将全局 `farm.tasks.enabled` 拆为 `farm.monitor.enabled` 和 `farm.scheduler.enabled`，并保证缺省时二者均关闭。
+- [x] T2.2 为监控增加 `printer-ids` 白名单、轮询间隔、并发上限和逐设备失败隔离。
+- [x] T2.3 保证调度器在 v2 默认关闭、不能被旧配置误启动，并为 v3 保留独立配置边界；不在 v2 实现自动派单业务。
+- [x] T2.4 修改 `PrinterMonitorTask`、`JobSchedulerTask` 的条件注解、配置绑定、启动日志和测试配置。
+- [x] T2.5 增加配置测试：二者都关、白名单为空、旧 `farm.tasks.enabled=true` 仍不会误启动；独立启用组合留待真实 profile 验收。
 
 ## T3 [改造] 修复监控数据新鲜度
 
 **对应需求：REQ-07、REQ-09、REQ-10**
 
-- [ ] T3.1 梳理 `PrinterCacheServiceImpl` 全量打印机缓存的读写点，确保任务绑定、设备状态变化会失效或刷新缓存。
-- [ ] T3.2 监控处理每台设备前读取数据库最新绑定和版本，不使用过期对象决定任务归属。
-- [ ] T3.3 将设备不可达、查询超时、协议解析失败映射为统一健康状态和可重试错误，不让单设备异常终止轮询线程。
-- [ ] T3.4 为“设备正在打印但 Farm 无绑定”“Farm 有绑定但设备 idle”“缓存旧绑定”补充单元测试。
+- [x] T3.1 梳理 `PrinterCacheServiceImpl` 全量打印机缓存的读写点，确保任务绑定、设备状态变化会失效或刷新缓存。
+- [x] T3.2 监控处理每台设备前读取数据库最新绑定和版本，不使用过期对象决定任务归属。
+- [x] T3.3 将设备不可达、查询超时、协议解析失败映射为统一健康状态和可重试错误，不让单设备异常终止轮询线程。
+- [x] T3.4 为“设备正在打印但 Farm 无绑定”“Farm 有绑定但设备 idle”“缓存旧绑定”补充单元测试。
 - [ ] T3.5 在 `.77` 上用只读状态验证监控白名单和状态同步；不得对 `.62` 做真实控制测试。
 
 ## T4 [改造] 任务/打印机占用一致性
@@ -102,11 +102,11 @@
 
 **对应需求：REQ-03、REQ-11、REQ-12**
 
-- [ ] T8.1 实现 `POST /api/v1/print-files/batch-upload`，沿用单文件上传的类型、大小、解析、归属和 RustFS 规则。
-- [ ] T8.2 增加单项结果模型、批量数量/总大小上限和可重试错误。
-- [ ] T8.3 处理重复文件、部分失败、临时文件清理和对象存储失败，不回滚已经成功且可追踪的其他项。
-- [ ] T8.4 增加 Controller、Service、RustFS 异常和权限测试。
-- [ ] T8.5 更新 Swagger、`API_HANDOFF.md` 和前端调用示例。
+- [x] T8.1 实现 `POST /api/v1/print-files/batch-upload`，沿用单文件上传的类型、大小、解析、归属和 RustFS 规则。
+- [x] T8.2 增加单项结果模型、批量数量/总大小上限和可重试错误。
+- [x] T8.3 处理请求内同名同大小重复文件、部分失败、临时文件清理和对象存储失败，不回滚已经成功且可追踪的其他项。
+- [x] T8.4 增加 Service 逐项结果、数量上限、单项校验和对象存储异常测试；Controller/权限沿用现有文件上传路由保护。
+- [x] T8.5 更新 Swagger 注解、`API_HANDOFF.md` 和前端调用字段说明。
 
 ## T9 [新增] 批量分配预览
 

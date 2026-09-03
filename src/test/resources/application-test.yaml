@@ -72,6 +72,15 @@ server:
 # 测试环境应用配置
 farm:
   tasks:
+    enabled: true
+  monitor:
     enabled: false
+    printer-ids: []
+    interval: 5s
+    concurrency: 2
+  scheduler:
+    enabled: false
+    interval: 10s
+    max-items-per-run: 0
   websocket:
     enabled: false

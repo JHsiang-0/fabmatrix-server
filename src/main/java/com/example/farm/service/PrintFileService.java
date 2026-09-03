@@ -10,6 +10,7 @@ import com.example.farm.entity.vo.PrintFilePreviewVO;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * 打印文件服务接口。
@@ -65,6 +66,11 @@ public interface PrintFileService extends IService<PrintFile> {
      * @throws BusinessException 当文件为空、解析失败或存储失败时抛出
      */
     PrintFile uploadAndParseFile(MultipartFile file);
+
+    /**
+     * 批量上传并解析文件。每个文件独立处理，允许部分成功并返回逐项原因。
+     */
+    BatchUploadResult batchUploadFiles(List<MultipartFile> files);
 
     /**
      * 删除文件。
@@ -131,6 +137,42 @@ public interface PrintFileService extends IService<PrintFile> {
             this.id = id;
             this.success = success;
             this.reason = reason;
+        }
+    }
+
+    /** 批量上传结果。 */
+    @lombok.Data
+    class BatchUploadResult {
+        private int totalCount;
+        private int successCount;
+        private int failureCount;
+        private List<BatchUploadItemResult> items = new ArrayList<>();
+        private String message;
+    }
+
+    /** 批量上传单项结果。 */
+    @lombok.Data
+    class BatchUploadItemResult {
+        private int index;
+        private Long fileId;
+        private String fileName;
+        private String status;
+        private String errorCode;
+        private String message;
+        private boolean retryable;
+
+        public BatchUploadItemResult() {
+        }
+
+        public BatchUploadItemResult(int index, Long fileId, String fileName, String status,
+                                     String errorCode, String message, boolean retryable) {
+            this.index = index;
+            this.fileId = fileId;
+            this.fileName = fileName;
+            this.status = status;
+            this.errorCode = errorCode;
+            this.message = message;
+            this.retryable = retryable;
         }
     }
 }

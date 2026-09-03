@@ -15,7 +15,8 @@ import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.WebSocketEventPublisher;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
+import com.example.farm.config.PrinterMonitorProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -38,8 +39,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "farm.tasks", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "farm.monitor", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class PrinterMonitorTask {
 
     private final PrinterService printerService;
@@ -47,9 +47,10 @@ public class PrinterMonitorTask {
     private final PrinterProtocolAdapterFactory adapterFactory;
     private final PrintJobService printJobService;
     private final WebSocketEventPublisher eventPublisher;
+    private final PrinterMonitorProperties monitorProperties;
 
     // 并发线程池，用于并行查询多个打印机状态
-    private final ExecutorService executorService = Executors.newFixedThreadPool(10);
+    private final ExecutorService executorService;
     private final AtomicBoolean scanInProgress = new AtomicBoolean();
     private final Map<Long, Boolean> lastOnlineStates = new ConcurrentHashMap<>();
     private final Map<Long, PrinterDeviceStatus> lastPublishedStatuses = new ConcurrentHashMap<>();
@@ -58,6 +59,23 @@ public class PrinterMonitorTask {
     // 慢查询阈值：5秒
     private static final long SLOW_THRESHOLD_MS = 5000;
     private static final long OFFLINE_LOG_INTERVAL_MS = 60_000;
+
+    @Autowired
+    public PrinterMonitorTask(PrinterService printerService,
+                              PrinterCacheService printerCacheService,
+                              PrinterProtocolAdapterFactory adapterFactory,
+                              PrintJobService printJobService,
+                              WebSocketEventPublisher eventPublisher,
+                              PrinterMonitorProperties monitorProperties) {
+        this.printerService = printerService;
+        this.printerCacheService = printerCacheService;
+        this.adapterFactory = adapterFactory;
+        this.printJobService = printJobService;
+        this.eventPublisher = eventPublisher;
+        this.monitorProperties = monitorProperties;
+        int concurrency = Math.max(1, monitorProperties.getConcurrency());
+        this.executorService = Executors.newFixedThreadPool(concurrency);
+    }
 
     @PreDestroy
     public void destroy() {
@@ -80,7 +98,7 @@ public class PrinterMonitorTask {
     /**
      * 每5秒执行一次状态监控
      */
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRateString = "${farm.monitor.interval:5s}")
     public void checkPrinterStatus() {
         if (!scanInProgress.compareAndSet(false, true)) {
             log.debug("跳过重叠的打印机状态巡检");
@@ -89,15 +107,7 @@ public class PrinterMonitorTask {
         long startTime = System.currentTimeMillis();
         
         try {
-            // 优先从Redis获取打印机列表
-            List<Printer> printers = printerCacheService.getAllPrintersFromCache();
-            if (printers == null) {
-                printers = loadPrintersFromDb();
-                if (printers.isEmpty()) {
-                    scanInProgress.set(false);
-                    return;
-                }
-            }
+            List<Printer> printers = loadMonitorPrinters();
 
             if (printers.isEmpty()) {
                 scanInProgress.set(false);
@@ -125,20 +135,6 @@ public class PrinterMonitorTask {
         }
     }
 
-    private List<Printer> loadPrintersFromDb() {
-        long startTime = System.currentTimeMillis();
-        List<Printer> printers = printerService.list();
-        long duration = System.currentTimeMillis() - startTime;
-        
-        LogUtil.slowOperation("loadPrintersFromDb", duration, 1000);
-        
-        if (!printers.isEmpty()) {
-            printerCacheService.cacheAllPrinters(printers);
-            log.info("已从数据库加载打印机列表到缓存: {} 台", printers.size());
-        }
-        return printers;
-    }
-
     private void logScanResult(List<CompletableFuture<PrinterStatusResult>> futures, long startTime) {
         long duration = System.currentTimeMillis() - startTime;
         long onlineCount = futures.stream().map(CompletableFuture::join).filter(r -> r.online).count();
@@ -155,6 +151,13 @@ public class PrinterMonitorTask {
 
     private PrinterStatusResult fetchAndUpdateStatus(Printer printer) {
         Long printerId = printer.getId();
+        // 白名单只决定巡检范围；真正执行设备动作前再次读取数据库，避免使用旧的任务绑定。
+        Printer latestPrinter = printerService.getById(printerId);
+        if (latestPrinter == null) {
+            log.warn("监控设备已不存在，跳过状态同步: printerId={}", printerId);
+            return new PrinterStatusResult(printerId, null, false, "打印机不存在");
+        }
+        printer = latestPrinter;
         String printerName = printer.getName();
         long startTime = System.currentTimeMillis();
 
@@ -177,6 +180,27 @@ public class PrinterMonitorTask {
         }
     }
 
+    /**
+     * 只加载配置白名单中的设备，避免 v2 在没有真实设备时扫描历史设备。
+     */
+    private List<Printer> loadMonitorPrinters() {
+        List<Long> printerIds = monitorProperties.getPrinterIds();
+        if (printerIds == null || printerIds.isEmpty()) {
+            log.debug("打印机监控白名单为空，跳过本轮巡检");
+            return List.of();
+        }
+
+        List<Printer> printers = printerService.listByIds(printerIds);
+        if (printers == null || printers.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Printer> byId = printers.stream()
+                .filter(printer -> printer != null && printer.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(Printer::getId, printer -> printer, (left, right) -> left));
+        return printerIds.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
+    }
+
     private void handlePrinterOnline(Long printerId, String printerName,
                                      PrinterDeviceStatus status, Printer printer, long duration) {
         lastOfflineLogAt.remove(printerId);
@@ -190,10 +214,11 @@ public class PrinterMonitorTask {
         String deviceState = normalizeRawState(status.rawState());
 
         // ========== 核心业务逻辑：农场任务 vs 野生任务 ==========
+        boolean requiresReconciliation = false;
         if ("printing".equals(deviceState)) {
             if (printer.getCurrentJobId() != null) {
                 // 农场任务：同步打印进度
-                syncPrintJobStatus(printer, status);
+                requiresReconciliation = syncPrintJobStatus(printer, status);
             } else {
                 // 野生任务：锁定机器，防止被自动调度抢单
                 if (!"PRINTING".equals(printer.getStatus())) {
@@ -208,11 +233,11 @@ public class PrinterMonitorTask {
             log.info("单机直连打印任务结束，释放机器: {}", printer.getName());
         } else if (printer.getCurrentJobId() != null) {
             // 农场任务：其他状态同步（complete/error/cancelled/paused）
-            syncPrintJobStatus(printer, status);
+            requiresReconciliation = syncPrintJobStatus(printer, status);
         }
 
         // 检查状态变更（保留原有逻辑，更新数据库状态）
-        String newDbStatus = determineDbStatus(status);
+        String newDbStatus = requiresReconciliation ? "ERROR" : determineDbStatus(status);
         if (!newDbStatus.equals(printer.getStatus())) {
             updatePrinterStatus(printer, newDbStatus);
         }
@@ -225,21 +250,22 @@ public class PrinterMonitorTask {
      * 同步打印任务状态（农场任务专用）
      * 根据 Moonraker 状态更新 PrintJob 表，并在任务结束时解绑机器
      */
-    private void syncPrintJobStatus(Printer printer, PrinterDeviceStatus status) {
+    private boolean syncPrintJobStatus(Printer printer, PrinterDeviceStatus status) {
         Long jobId = printer.getCurrentJobId();
         if (jobId == null) {
-            return;
+            return false;
         }
 
         PrintJob job = printJobService.getById(jobId);
         if (job == null) {
             log.warn("同步任务状态失败：任务不存在，jobId={}", jobId);
-            return;
+            return false;
         }
 
         String state = normalizeRawState(status.rawState());
         BigDecimal progress = status.progress();
         boolean jobChanged = false;
+        boolean requiresReconciliation = false;
 
         switch (state) {
             case "printing":
@@ -317,6 +343,22 @@ public class PrinterMonitorTask {
                 }
                 break;
 
+            case "standby", "ready", "idle":
+                // 设备空闲不等于任务完成。对仍处于执行态的 Farm 任务进入人工核对，
+                // 保留绑定以阻止误派单，等待用户重新查询后决定完成、取消或重试。
+                String normalizedJobStatus = PrintJobStatus.normalize(job.getStatus());
+                if (PrintJobStatus.PRINTING.name().equals(normalizedJobStatus)
+                        || PrintJobStatus.PAUSED.name().equals(normalizedJobStatus)
+                        || PrintJobStatus.UPLOADING.name().equals(normalizedJobStatus)) {
+                    if (transitionFromDevice(job, PrintJobStatus.RECONCILING)) {
+                        job.setStatus(PrintJobStatus.RECONCILING.name());
+                        job.setErrorReason("设备已返回空闲，无法确认任务终态，请人工核对");
+                        jobChanged = true;
+                        requiresReconciliation = true;
+                    }
+                }
+                break;
+
             default:
                 break;
         }
@@ -327,6 +369,7 @@ public class PrinterMonitorTask {
                 eventPublisher.publishJobStatus(job);
             }
         }
+        return requiresReconciliation;
     }
 
     private boolean transitionFromDevice(PrintJob job, PrintJobStatus targetStatus) {

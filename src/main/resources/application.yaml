@@ -93,12 +93,23 @@ server:
 
 # 应用自定义配置
 farm:
+  monitor:
+    enabled: false
+    printer-ids: []
+    interval: 5s
+    concurrency: 10
+  scheduler:
+    enabled: false
+    interval: 10s
+    max-items-per-run: 0
   websocket:
     max-connections: 1000
     heartbeat-interval: 30s
   file:
     allowed-types: gcode,g,3mf,stl
     max-file-size: 200MB
+    batch-max-files: 100
+    batch-max-total-size: 1GB
     presigned-url-max-minutes: 120
   security:
     cors-allowed-origins: "*"

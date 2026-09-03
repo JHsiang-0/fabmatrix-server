@@ -46,6 +46,19 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
     private static final int MAX_BATCH_SIZE = 100;
 
+    /**
+     * 绑定任务的写入不能绕过打印机列表缓存，否则其他读路径可能继续看到旧绑定。
+     * 解除绑定使用带条件的 Mapper 方法，由 clearJobBinding 单独负责刷新。
+     */
+    @Override
+    public boolean updateById(Printer entity) {
+        boolean updated = super.updateById(entity);
+        if (updated && entity != null && entity.getCurrentJobId() != null) {
+            printerCacheService.refreshPrinterCache();
+        }
+        return updated;
+    }
+
     private final PrinterCacheService printerCacheService;
     private final MacAddressUtil macAddressUtil;
     private final PrinterProtocolDetector protocolDetector;

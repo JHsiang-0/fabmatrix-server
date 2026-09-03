@@ -70,11 +70,20 @@ server:
 
 # 开发环境应用配置
 farm:
+  monitor:
+    enabled: false
+    printer-ids: []
+  scheduler:
+    enabled: false
+    max-items-per-run: 0
   tasks:
     # 当前没有真实 Klipper 打印机，暂时关闭巡检和自动派单
     enabled: false
   websocket:
     enabled: true
     max-connections: 100
+  file:
+    batch-max-files: 100
+    batch-max-total-size: 250MB
 #  # Moonraker API 模拟器（开发环境使用固定密钥）
 #  moonraker-api-key: dev-moonraker-key

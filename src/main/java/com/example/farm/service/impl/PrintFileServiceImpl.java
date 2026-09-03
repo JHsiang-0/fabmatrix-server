@@ -374,6 +374,66 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         return printFile;
     }
 
+    @Override
+    public PrintFileService.BatchUploadResult batchUploadFiles(List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) {
+            throw new BusinessException(400, "上传文件不能为空");
+        }
+
+        int maxFiles = fileUploadProperties != null && fileUploadProperties.getBatchMaxFiles() != null
+                ? fileUploadProperties.getBatchMaxFiles() : MAX_BATCH_SIZE;
+        if (files.size() > maxFiles) {
+            throw new BusinessException(400, "单次最多上传" + maxFiles + "个文件");
+        }
+
+        long totalSize = files.stream().filter(Objects::nonNull).mapToLong(MultipartFile::getSize).sum();
+        long maxTotalSize = fileUploadProperties != null && fileUploadProperties.getBatchMaxTotalSize() != null
+                ? fileUploadProperties.getBatchMaxTotalSize().toBytes() : 1024L * 1024 * 1024;
+        if (totalSize > maxTotalSize) {
+            throw new BusinessException(400, "批量上传总大小不能超过" + formatDataSize(maxTotalSize));
+        }
+
+        PrintFileService.BatchUploadResult result = new PrintFileService.BatchUploadResult();
+        result.setTotalCount(files.size());
+        Set<String> requestFileFingerprints = new HashSet<>();
+        for (int index = 0; index < files.size(); index++) {
+            MultipartFile file = files.get(index);
+            String fileName = file == null ? null : file.getOriginalFilename();
+            String fingerprint = file == null ? "null" : fileName + "#" + file.getSize();
+            if (!requestFileFingerprints.add(fingerprint)) {
+                result.getItems().add(new PrintFileService.BatchUploadItemResult(
+                        index, null, fileName, "SKIPPED", "DUPLICATE_FILE",
+                        "本次请求中存在同名同大小重复文件", false));
+                result.setFailureCount(result.getFailureCount() + 1);
+                continue;
+            }
+            try {
+                PrintFile saved = uploadAndParseFile(file);
+                result.getItems().add(new PrintFileService.BatchUploadItemResult(
+                        index, saved.getId(), saved.getOriginalName(), "SUCCEEDED", null, "上传成功", false));
+                result.setSuccessCount(result.getSuccessCount() + 1);
+            } catch (StorageException exception) {
+                log.warn("批量上传对象存储失败: index={}, fileName={}, reason={}", index, fileName, exception.getMessage());
+                result.getItems().add(new PrintFileService.BatchUploadItemResult(
+                        index, null, fileName, "FAILED", "STORAGE_UNAVAILABLE", "对象存储服务异常", true));
+                result.setFailureCount(result.getFailureCount() + 1);
+            } catch (BusinessException exception) {
+                log.warn("批量上传文件校验失败: index={}, fileName={}, code={}", index, fileName, exception.getCode());
+                result.getItems().add(new PrintFileService.BatchUploadItemResult(
+                        index, null, fileName, "FAILED", "FILE_VALIDATION_FAILED", exception.getMessage(), false));
+                result.setFailureCount(result.getFailureCount() + 1);
+            } catch (Exception exception) {
+                log.error("批量上传文件失败: index={}, fileName={}", index, fileName, exception);
+                result.getItems().add(new PrintFileService.BatchUploadItemResult(
+                        index, null, fileName, "FAILED", "FILE_UPLOAD_FAILED", "文件上传失败，请稍后重试", true));
+                result.setFailureCount(result.getFailureCount() + 1);
+            }
+        }
+        result.setMessage("批量上传完成：成功 " + result.getSuccessCount() + " 个，失败 "
+                + result.getFailureCount() + " 个");
+        return result;
+    }
+
     /**
      * 数据库写入失败时补偿删除已经上传的对象。对象存储不参与本地事务，不能依赖
      * {@code @Transactional} 自动回滚；清理失败只记录日志，保留原始数据库异常。

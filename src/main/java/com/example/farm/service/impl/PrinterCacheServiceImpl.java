@@ -96,7 +96,12 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
                 return false;
             }
 
-            return printerMapper.updateById(printer) > 0;
+            boolean updated = printerMapper.updateById(printer) > 0;
+            if (updated) {
+                // 状态也属于打印机列表快照的一部分，避免列表缓存继续暴露旧状态。
+                refreshPrinterCache();
+            }
+            return updated;
 
         } catch (Exception e) {
             log.error("更新打印机状态到数据库失败: printerId={}", printerId, e);

@@ -55,6 +55,14 @@ public class PrintFileController {
         return Result.success(PrintFileVO.from(savedFile), "文件上传成功");
     }
 
+    @Operation(summary = "批量上传并解析切片文件", description = "逐项返回结果，允许部分成功；不会自动创建打印任务或启动设备")
+    @PostMapping("/batch-upload")
+    public Result<PrintFileService.BatchUploadResult> batchUploadFiles(
+            @RequestParam("files") List<MultipartFile> files) {
+        PrintFileService.BatchUploadResult result = farmPrintFileService.batchUploadFiles(files);
+        return Result.success(result, result.getMessage());
+    }
+
     /**
      * 分页查询当前用户文件列表。
      */

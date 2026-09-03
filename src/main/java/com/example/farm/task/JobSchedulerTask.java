@@ -26,12 +26,15 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "farm.tasks", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "farm.scheduler", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class JobSchedulerTask {
 
     private final PrintJobService printJobService;
     private final PrinterService printerService;
     private final RedisUtil redisUtil;
+
+    @org.springframework.beans.factory.annotation.Value("${farm.scheduler.max-items-per-run:0}")
+    private int maxItemsPerRun;
 
     // 分布式锁过期时间：10秒
     private static final long LOCK_TTL = 10;
@@ -41,7 +44,7 @@ public class JobSchedulerTask {
     /**
      * 每10秒扫描一次队列进行自动派单
      */
-    @Scheduled(fixedRate = 10000)
+    @Scheduled(fixedRateString = "${farm.scheduler.interval:10s}")
     public void scheduleJobs() {
         String lockKey = RedisKeyConstant.SCHEDULER_LOCK;
         String lockValue = UUID.randomUUID().toString();
@@ -71,6 +74,11 @@ public class JobSchedulerTask {
 
     public void doSchedule() {
         long startTime = System.currentTimeMillis();
+
+        if (maxItemsPerRun <= 0) {
+            log.debug("后台调度未配置可执行项，跳过本轮调度");
+            return;
+        }
         
         try {
             // 获取空闲打印机
@@ -92,7 +100,7 @@ public class JobSchedulerTask {
                     idlePrinters.size(), queuedJobs.size());
 
             // 开始配对
-            int assignCount = Math.min(idlePrinters.size(), queuedJobs.size());
+            int assignCount = Math.min(Math.min(idlePrinters.size(), queuedJobs.size()), maxItemsPerRun);
             int successCount = 0;
 
             for (int i = 0; i < assignCount; i++) {

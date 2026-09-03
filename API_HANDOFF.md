@@ -119,7 +119,7 @@ Service 层仍使用 MyBatis-Plus `Page/IPage`，Controller 已通过 `PageResul
 
 所有 JSON 请求体缺失或为 `null` 时，Controller 统一返回 HTTP 400、`code=400`；批量操作传入空列表同样返回 HTTP 400，不会以服务器内部错误响应。
 
-任务状态已统一为 `QUEUED`、`ASSIGNED`、`READY`、`PRINTING`、`PAUSED`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；调度器只负责进入 `ASSIGNED`，必须在设备调用成功后才进入 `PRINTING`。自动派发由任务 Service 的事务方法重新校验任务为 `QUEUED`、打印机为 `IDLE` 且未绑定其他任务，并在任务和打印机均保存成功后发布 `JOB_STATUS`；任一保存失败不会发布成功事件。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。
+任务状态已统一为 `QUEUED`、`ASSIGNED`、`UPLOADING`、`READY`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；调度器只负责进入 `ASSIGNED`，必须在设备调用成功后才进入 `PRINTING`。自动派发由任务 Service 的事务方法重新校验任务为 `QUEUED`、打印机为 `IDLE` 且未绑定其他任务，并在任务和打印机均保存成功后发布 `JOB_STATUS`；任一保存失败不会发布成功事件。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。设备在任务执行期间异常回到 `idle/standby/ready` 且无法证明完成时，任务进入 `RECONCILING`，保留设备绑定并等待人工核对。
 
 ## 3. 认证接口
 
@@ -213,6 +213,7 @@ POST /api/v1/auth/login
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
 | POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file` | `PrintFileVO`，不含 `rustfsKey`/`safeName`/`fileUrl` |
+| POST | `/print-files/batch-upload` | ADMIN/OPERATOR | Multipart：可重复字段 `files`，最多100个、总大小默认1GB | `BatchUploadResult`，逐项返回 fileId/status/errorCode/retryable；不自动创建设备任务 |
 | POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页和文件筛选 | `PageResult<PrintFileVO>` |
 | GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | `FileNodeVO[]` |
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` |
@@ -245,6 +246,8 @@ POST /api/v1/auth/login
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
+| POST | `/print-jobs/batch/preview` | ADMIN/OPERATOR | v2 计划接口，当前未实现 | 待 T9 完成；预览无副作用 |
+| POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | v2 计划接口，当前未实现 | 待 T10 完成；确认后逐项创建任务 |
 
 ### 4.4 设备控制
 
@@ -263,6 +266,7 @@ POST /api/v1/auth/login
 - 派发、确认安全、启动任务的 ID 必须为正数；`action` 只能是 `START_PRINT` 或 `UPLOAD_ONLY`。`operatorId` 仍兼容接收，但后端忽略其值并使用 JWT 当前用户。
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
+- 批量文件上传接口为 `POST /api/v1/print-files/batch-upload`，使用 `multipart/form-data` 的重复字段 `files`。默认最多100个文件、总大小1GB；开发环境总大小上限250MB。接口逐项返回 `index`、`fileId`、`fileName`、`status`、`errorCode`、`message`、`retryable`，单项失败不回滚其他已成功文件；空列表、数量或总大小超限返回 HTTP 400。
 - 文件上传扩展名从 `farm.file.allowed-types` 读取，默认允许 `gcode,g,3mf,stl`；开发环境上限200MB，生产环境上限1GB。空文件、非法文件名、超限和不支持类型统一返回 HTTP 400；RustFS 失败返回 HTTP 503、业务码 `5003`。
 - 文件上传先写入 RustFS、再保存文件记录；若数据库保存失败，后端会尝试补偿删除已上传的主文件和缩略图对象。补偿删除失败只记录日志，接口仍返回原始保存错误。
 - 删除文件时先清理关联缩略图，再删除主文件对象；任一对象存储删除失败都会保留数据库记录并返回 `503/5003`，避免前端误判删除成功。

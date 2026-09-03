@@ -79,6 +79,7 @@ class PrinterCacheRedisTest {
                 .updatePrinterStatusWithLock(printer);
 
         assertThat(updated).isTrue();
+        verify(redisUtil).delete(RedisKeyConstant.PRINTER_LIST);
     }
 
     @Test

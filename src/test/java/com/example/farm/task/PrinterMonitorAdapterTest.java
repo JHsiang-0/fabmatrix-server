@@ -2,6 +2,7 @@ package com.example.farm.task;
 
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.config.PrinterMonitorProperties;
 import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterDeviceStatus;
 import com.example.farm.protocol.PrinterOperation;
@@ -26,10 +27,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(MockitoExtension.class)
@@ -60,11 +63,12 @@ class PrinterMonitorAdapterTest {
     @Test
     void pollsStatusThroughSelectedAdapter() {
         Printer printer = printer("Klipper");
-        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenReturn(printingStatus());
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
-                eventPublisher);
+                eventPublisher, monitorProperties());
 
         monitorTask.checkPrinterStatus();
 
@@ -76,7 +80,8 @@ class PrinterMonitorAdapterTest {
     @Test
     void treatsAdapterFailureAsOfflineAndClearsCachedStatus() {
         Printer printer = printer("RRF");
-        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenThrow(new PrinterProtocolException(
                 PrinterOperation.GET_STATUS,
@@ -84,7 +89,7 @@ class PrinterMonitorAdapterTest {
                 FailureCategory.TIMEOUT,
                 "设备状态查询超时"));
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
-                eventPublisher);
+                eventPublisher, monitorProperties());
 
         monitorTask.checkPrinterStatus();
 
@@ -96,7 +101,8 @@ class PrinterMonitorAdapterTest {
     @Test
     void doesNotPublishRepeatedOfflineEvents() {
         Printer printer = printer("RRF");
-        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenThrow(new PrinterProtocolException(
                 PrinterOperation.GET_STATUS,
@@ -104,7 +110,7 @@ class PrinterMonitorAdapterTest {
                 FailureCategory.OFFLINE,
                 "设备离线"));
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
-                eventPublisher);
+                eventPublisher, monitorProperties());
 
         monitorTask.checkPrinterStatus();
         verify(eventPublisher, timeout(1000)).publishPrinterOffline(403L, "设备状态查询失败");
@@ -119,7 +125,8 @@ class PrinterMonitorAdapterTest {
         Printer printer = printer("RRF");
         CountDownLatch queryStarted = new CountDownLatch(1);
         CountDownLatch releaseQuery = new CountDownLatch(1);
-        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenAnswer(invocation -> {
             queryStarted.countDown();
@@ -127,7 +134,7 @@ class PrinterMonitorAdapterTest {
             return printingStatus();
         });
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
-                eventPublisher);
+                eventPublisher, monitorProperties());
 
         monitorTask.checkPrinterStatus();
         assertThat(queryStarted.await(1, TimeUnit.SECONDS)).isTrue();
@@ -145,19 +152,80 @@ class PrinterMonitorAdapterTest {
         PrintJob job = new PrintJob();
         job.setId(1001L);
         job.setStatus("PRINTING");
-        when(printerCacheService.getAllPrintersFromCache()).thenReturn(List.of(printer));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenReturn(completedStatus());
         when(printJobService.getById(1001L)).thenReturn(job);
         when(printerService.clearJobBinding(403L, 1001L)).thenReturn(false);
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
-                eventPublisher);
+                eventPublisher, monitorProperties());
 
         monitorTask.checkPrinterStatus();
 
         verify(printJobService, timeout(1000)).getById(1001L);
         verify(printJobService, never()).updateById(any(PrintJob.class));
         verify(eventPublisher, never()).publishJobStatus(any(PrintJob.class));
+    }
+
+    @Test
+    void skipsScanWhenMonitorWhitelistIsEmpty() {
+        PrinterMonitorProperties properties = new PrinterMonitorProperties();
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, properties);
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printerService, never()).listByIds(anyList());
+        verifyNoInteractions(adapterFactory);
+    }
+
+    @Test
+    void refreshesBindingFromDatabaseBeforeDeviceStatusHandling() {
+        Printer listedPrinter = printer("RRF");
+        Printer latestPrinter = printer("RRF");
+        latestPrinter.setCurrentJobId(1001L);
+        latestPrinter.setStatus("PRINTING");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setStatus("PRINTING");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(listedPrinter));
+        when(printerService.getById(403L)).thenReturn(latestPrinter);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(printingStatus());
+        when(printJobService.getById(1001L)).thenReturn(job);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, timeout(1000)).getById(1001L);
+    }
+
+    @Test
+    void doesNotTreatIdleDeviceAsCompletedWhenFarmJobIsPrinting() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        printer.setStatus("PRINTING");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setStatus("PRINTING");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(idleStatus());
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(any(PrintJob.class))).thenReturn(true);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, timeout(1000)).updateById(job);
+        assertThat(job.getStatus()).isEqualTo("RECONCILING");
+        verify(printerService, never()).clearJobBinding(403L, 1001L);
     }
 
     private Printer printer(String firmwareType) {
@@ -168,6 +236,12 @@ class PrinterMonitorAdapterTest {
         printer.setFirmwareType(firmwareType);
         printer.setStatus("IDLE");
         return printer;
+    }
+
+    private PrinterMonitorProperties monitorProperties() {
+        PrinterMonitorProperties properties = new PrinterMonitorProperties();
+        properties.setPrinterIds(List.of(403L));
+        return properties;
     }
 
     private PrinterDeviceStatus printingStatus() {
@@ -193,6 +267,22 @@ class PrinterMonitorAdapterTest {
                 null,
                 "demo.gcode",
                 BigDecimal.valueOf(100),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private PrinterDeviceStatus idleStatus() {
+        return new PrinterDeviceStatus(
+                PrinterStatus.IDLE,
+                "standby",
+                null,
+                null,
+                BigDecimal.ZERO,
                 null,
                 null,
                 null,

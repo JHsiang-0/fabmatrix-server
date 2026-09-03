@@ -26,4 +26,10 @@ public class FileUploadProperties {
 
     /** 预签名下载 URL 最大有效期（分钟）。 */
     private Integer presignedUrlMaxMinutes = 120;
+
+    /** 批量上传最多文件数。 */
+    private Integer batchMaxFiles = 100;
+
+    /** 批量上传请求的总大小上限。 */
+    private DataSize batchMaxTotalSize = DataSize.ofGigabytes(1);
 }

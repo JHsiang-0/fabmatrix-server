@@ -66,7 +66,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 
 ### P1.7：v2 本地版与 v1 服务版部署
 
-- [~] P1.7.1 已抽象文件存储接口，实现 SQLite + 本地文件存储的 Local profile，并完成关键读写集成测试；Windows 安装包仍待完成。
+- [~] P1.7.1 已抽象文件存储接口，实现 SQLite + 本地文件存储的 Local profile，并完成关键读写集成测试；已提供 Java 25 `jpackage` Windows 构建脚本，仍需在 Windows 发布机生成并验收 `.exe`。
 - [x] P1.7.2 已将 Redis 缓存/锁切换为 Local profile 进程内实现，同时保留 Server Edition 的 Redis 实现。
 - [~] P1.7.3 已有 SQLite 初始表结构、幂等索引和可重复初始化，并完成关键 SQLite Mapper 方言测试；已提供带恢复前保留措施的备份/恢复脚本，MySQL 数据导入边界和正式恢复演练仍待完成。
 - [x] P1.7.4 已提供 v1 Server Edition 的 Farm、MySQL、Redis、RustFS 正式 Docker Compose 编排、密钥注入、健康检查和数据卷说明。

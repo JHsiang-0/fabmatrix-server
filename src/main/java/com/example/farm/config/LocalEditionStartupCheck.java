@@ -15,7 +15,7 @@ import java.nio.file.Path;
 public class LocalEditionStartupCheck implements org.springframework.boot.ApplicationRunner {
     private static final long MIN_FREE_BYTES = 100L * 1024 * 1024;
 
-    @Value("${FARM_DATA_DIR:./data}")
+    @Value("${FARM_DATA_DIR:${user.home}/FarmData}")
     private String dataDirectory;
 
     @Override

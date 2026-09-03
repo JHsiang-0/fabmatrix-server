@@ -3,7 +3,7 @@ spring:
     activate:
       on-profile: local
   datasource:
-    url: jdbc:sqlite:${FARM_DATA_DIR:./data}/farm.db
+    url: jdbc:sqlite:${FARM_DATA_DIR:${user.home}/FarmData}/farm.db
     driver-class-name: org.sqlite.JDBC
     hikari:
       maximum-pool-size: 1
@@ -22,7 +22,7 @@ server:
 
 farm:
   local:
-    storage-path: ${FARM_DATA_DIR:./data}/files
+    storage-path: ${FARM_DATA_DIR:${user.home}/FarmData}/files
   monitor:
     enabled: ${FARM_MONITOR_ENABLED:false}
     printer-ids: []

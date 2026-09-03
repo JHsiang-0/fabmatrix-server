@@ -184,7 +184,7 @@
 - [x] T16.1 已抽象 `FileStorage` 接口，实现本地文件存储，并保留 RustFS 实现；下载和打印任务读取只依赖统一端口。
 - [x] T16.2 已增加 SQLite 驱动、Local profile、初始建表和 SQLite 分页方言；自定义 Mapper 的筛选、统计、搜索和 Upsert 分支已由 Local Edition 集成测试覆盖。
 - [x] T16.3 已将打印机缓存、登录保护和单后端锁替换为本地进程实现；Local Edition 启动不要求 Redis。
-- [~] T16.4 已创建数据目录、阻断本地路径穿越、检查可写和最低磁盘空间，并提供带恢复前保留措施的 SQLite+文件备份/恢复脚本；正式恢复演练和迁移检查仍待完成。
+- [~] T16.4 已创建数据目录、阻断本地路径穿越、检查可写和最低磁盘空间，并提供带恢复前保留措施的 SQLite+文件备份/恢复脚本及 Windows jpackage 构建脚本；正式恢复演练和 Windows 安装包验收仍待完成。
 - [~] T16.5 已完成 Local profile 启动、health 探活和关键 Mapper/文件存储集成测试；REST/WebSocket 全契约对比仍待补齐。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署

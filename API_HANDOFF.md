@@ -740,6 +740,8 @@ T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.monitor.enabled=f
 
 数据一致性补充：2026-09-03 已对当前开发库执行一次有备份的幽灵绑定修复。发现任务 `1` 的 `printer_id=289` 不再存在，修复后任务解除打印机绑定并置为 `RECONCILING`，审计记录写入 `farm_binding_repair_audit`，残留孤儿绑定为 0。修复脚本为 `scripts/repair-ghost-bindings.sql`；它不会删除任务、自动派单或调用设备。该结果只代表当前开发库，生产库仍须先备份后单独核对。
 
+同日再次进行 8080 只读冒烟时，发现当前已有 MySQL 数据卷尚未执行 v2 的 07-10 增量迁移，导致任务队列查询因缺少 `farm_print_job.idempotency_key` 返回 500。已先生成 `/tmp/farm-before-v2-migrations-20260903.sql`，再执行 07-10 脚本；07/09/10 的表字段已核对存在，任务队列恢复 HTTP 200。10 号脚本同时修正为基于 `information_schema` 的可重复 MySQL 写法。以后新环境和已有数据卷都必须按 `OPERATIONS.md` 先备份、再执行增量迁移。
+
 ### 9.4 真实打印机
 
 开发环境默认关闭：

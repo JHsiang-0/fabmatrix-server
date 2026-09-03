@@ -14,9 +14,11 @@ import java.util.Set;
 public enum PrintJobStatus {
     QUEUED,
     ASSIGNED,
+    UPLOADING,
     READY,
     PRINTING,
     PAUSED,
+    RECONCILING,
     COMPLETED,
     FAILED,
     CANCELLED;
@@ -84,14 +86,21 @@ public enum PrintJobStatus {
     private static boolean isAllowed(String current, String target) {
         return switch (current) {
             case "QUEUED" -> target.equals("ASSIGNED") || target.equals("CANCELLED");
-            case "ASSIGNED" -> target.equals("READY") || target.equals("PRINTING")
+            case "ASSIGNED" -> target.equals("UPLOADING") || target.equals("READY") || target.equals("PRINTING")
                     || target.equals("QUEUED")
                     || target.equals("CANCELLED");
+            case "UPLOADING" -> target.equals("READY") || target.equals("PRINTING")
+                    || target.equals("FAILED") || target.equals("CANCELLED")
+                    || target.equals("RECONCILING");
             case "READY" -> target.equals("PRINTING") || target.equals("QUEUED")
                     || target.equals("CANCELLED");
             case "PRINTING" -> target.equals("PAUSED") || target.equals("COMPLETED")
-                    || target.equals("FAILED") || target.equals("CANCELLED");
-            case "PAUSED" -> target.equals("PRINTING") || target.equals("CANCELLED");
+                    || target.equals("FAILED") || target.equals("CANCELLED")
+                    || target.equals("RECONCILING");
+            case "PAUSED" -> target.equals("PRINTING") || target.equals("CANCELLED")
+                    || target.equals("RECONCILING");
+            case "RECONCILING" -> target.equals("COMPLETED") || target.equals("FAILED")
+                    || target.equals("CANCELLED") || target.equals("QUEUED");
             case "FAILED" -> target.equals("QUEUED");
             case "COMPLETED", "CANCELLED" -> false;
             default -> false;

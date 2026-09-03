@@ -1,6 +1,8 @@
 package com.example.farm.entity.dto;
 
 import com.example.farm.entity.dto.request.AssignJobRequest;
+import com.example.farm.entity.dto.request.BatchDispatchConfirmRequest;
+import com.example.farm.entity.dto.request.BatchDispatchPreviewRequest;
 import com.example.farm.entity.dto.request.CreateFolderRequest;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
 import jakarta.validation.Validation;
@@ -65,5 +67,24 @@ class InputValidationTest {
         assertThat(validator.validate(assign)).hasSize(2);
         assertThat(validator.validate(folder)).hasSize(2);
         assertThat(validator.validate(start)).hasSize(1);
+    }
+
+    @Test
+    void validatesBatchDispatchBoundsAndRequiredFields() {
+        BatchDispatchPreviewRequest preview = new BatchDispatchPreviewRequest();
+        preview.setStrategy("UNKNOWN");
+        preview.setFileIds(java.util.List.of(0L));
+        preview.setPrinterIds(java.util.List.of());
+
+        BatchDispatchConfirmRequest confirm = new BatchDispatchConfirmRequest();
+        confirm.setPlanId(" ");
+        confirm.setVersion(0L);
+        confirm.setItemIds(java.util.List.of(" "));
+        confirm.setConfirmationToken(" ");
+
+        assertThat(validator.validate(preview)).extracting(v -> v.getPropertyPath().toString())
+                .contains("fileIds[0].<list element>", "printerIds", "strategy");
+        assertThat(validator.validate(confirm)).extracting(v -> v.getPropertyPath().toString())
+                .contains("planId", "version", "itemIds[0].<list element>", "confirmationToken");
     }
 }

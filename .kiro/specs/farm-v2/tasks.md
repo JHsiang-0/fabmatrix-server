@@ -31,8 +31,8 @@
 
 **对应需求：REQ-01、REQ-02、REQ-03、REQ-04、REQ-05、REQ-10**
 
-- [ ] T1.1 将 `MANUAL`、`USER_BATCH`、`UPLOAD_ONLY`、`QUEUE`、`START_AFTER_CONFIRM` 写入统一领域枚举或契约常量；`AUTO_MATCH` 仅作为用户批量策略。
-- [ ] T1.2 统一 `PENDING`、`QUEUED`、`ASSIGNED`、`UPLOADING`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`CANCELLED`、`FAILED` 的迁移规则，解决当前创建任务与调度扫描状态不一致。
+- [x] T1.1 将 `MANUAL`、`USER_BATCH`、`UPLOAD_ONLY`、`QUEUE`、`START_AFTER_CONFIRM` 写入统一领域枚举或契约常量；`AUTO_MATCH` 仅作为用户批量策略。
+- [~] T1.2 已冻结 `QUEUED`、`ASSIGNED`、`UPLOADING`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`CANCELLED`、`FAILED` 状态和基础迁移规则；创建任务与调度扫描的运行时一致性仍待 T2 完成。
 - [ ] T1.3 定义批量上传、预览、确认、逐项结果的 DTO、错误码、幂等字段和上限。
 - [ ] T1.4 定义 REST 分页/统一返回、设备快照、任务状态和 WebSocket 消息版本，补充到 `API_HANDOFF.md` 和 Swagger 设计稿。
 - [ ] T1.5 为每个状态迁移列出发起者、前置条件、数据库变化、设备动作和失败恢复方式。

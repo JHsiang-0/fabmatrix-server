@@ -19,12 +19,16 @@ class PrintJobStatusTest {
     @Test
     void acceptsConfiguredStateFlow() {
         PrintJobStatus.requireTransition("QUEUED", PrintJobStatus.ASSIGNED);
+        PrintJobStatus.requireTransition("ASSIGNED", PrintJobStatus.UPLOADING);
+        PrintJobStatus.requireTransition("UPLOADING", PrintJobStatus.READY);
         PrintJobStatus.requireTransition("ASSIGNED", PrintJobStatus.READY);
         PrintJobStatus.requireTransition("READY", PrintJobStatus.PRINTING);
         PrintJobStatus.requireTransition("PRINTING", PrintJobStatus.PAUSED);
         PrintJobStatus.requireTransition("PAUSED", PrintJobStatus.PRINTING);
         PrintJobStatus.requireTransition("PRINTING", PrintJobStatus.COMPLETED);
         PrintJobStatus.requireTransition("FAILED", PrintJobStatus.QUEUED);
+        PrintJobStatus.requireTransition("PRINTING", PrintJobStatus.RECONCILING);
+        PrintJobStatus.requireTransition("RECONCILING", PrintJobStatus.COMPLETED);
     }
 
     @Test

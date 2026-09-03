@@ -284,7 +284,9 @@
 - [x] T8.1 在真实前端仓库配置 API/WS 地址和环境变量。
   - 验收：已确认真实前端仓库为 `/home/codex/workspace/farm-ui`；`vite.config.js` 提供 `VITE_API_TARGET`、`VITE_WS_TARGET`、`VITE_WS_URL` 和 `VITE_HOST`，开发代理分别覆盖 `/api` 与 `/ws`，生产模式拒绝启用 Mock。
   - 验证：`farm-ui` 执行 `npm run build` 和 `npm run lint` 通过；当前工作区原有 `package*.json` 修改未覆盖。
-- [ ] T8.2 封装 HTTP 客户端、Bearer Token、统一响应和错误处理。
+- [x] T8.2 封装 HTTP 客户端、Bearer Token、统一响应和错误处理。
+  - 验收：`/home/codex/workspace/farm-ui/src/utils/request.js` 统一注入 `Authorization: Bearer <token>`，校验 `{code,message,data,timestamp}` 成功响应，集中处理 401/403/404/409/422/5xx 和网络错误；`src/api/*.js` 只负责路径、参数和数据适配。
+  - 验证：`farm-ui` 执行 `npm test`（1 个测试文件、1 个套件通过）、`npm run build` 和 `npm run lint` 通过；前端工作区原有 lockfile 修改保留未动。
 - [ ] T8.3 完成登录、角色菜单、用户管理和个人资料。
 - [ ] T8.4 完成打印机看板、设备管理和 WebSocket 增量更新。
 - [ ] T8.5 完成文件库、上传、目录、下载、删除和预览。

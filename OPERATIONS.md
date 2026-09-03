@@ -37,7 +37,7 @@ java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server
 
 默认数据目录为 `./data`，其中 `farm.db` 是 SQLite 数据库，`files` 保存 G-code 和缩略图。可用 `FARM_DATA_DIR=D:/FarmData` 指定 Windows 数据根目录。当前 Local Edition 已验证应用启动、`/actuator/health` 探活以及关键 SQLite Mapper/本地文件读写；Windows 安装程序、备份恢复向导和正式发布验收仍未完成。
 
-Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份必须同时保存 `farm.db` 和 `files` 目录，示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataDir D:/FarmData`；恢复时先停止 Farm，再整体替换这两个路径并重新启动。不要只恢复数据库而遗漏文件目录。
+Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份必须同时保存 `farm.db` 和 `files` 目录，示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataDir D:/FarmData`；恢复时先停止 Farm，再使用 `local-restore.ps1 -BackupDir D:/Backups/farm-local-... -DataDir D:/FarmData -Confirm RESTORE`，脚本会先把当前数据移到 `pre-restore-时间戳` 再恢复。Linux 使用 `sh scripts/local-restore.sh <备份目录> <数据目录> RESTORE`。恢复后重新启动并检查 `/actuator/health`、文件列表和任务列表，不要只恢复数据库而遗漏文件目录。
 
 ## 生产启动前检查
 

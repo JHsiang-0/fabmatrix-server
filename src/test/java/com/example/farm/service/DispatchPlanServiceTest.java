@@ -234,6 +234,32 @@ class DispatchPlanServiceTest {
         verify(printJobService, never()).createJob(any(), any());
     }
 
+    @Test
+    void confirmationRejectsTamperedTokenBeforeClaimingPlan() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectBatchIds(List.of(10L))).thenReturn(List.of(file(10L)));
+        when(printerService.listByIds(List.of(564L))).thenReturn(List.of(printer(564L)));
+        when(planMapper.insert(any(DispatchPlan.class))).thenAnswer(invocation -> {
+            capturedPlan = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
+
+        var preview = service().preview(request("QUEUE"));
+        when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan);
+        BatchDispatchConfirmRequest confirm = confirmRequest(preview);
+        confirm.setConfirmationToken(preview.getConfirmationToken() + "-tampered");
+
+        assertThatThrownBy(() -> service().confirm(confirm))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo(403L);
+        verify(planMapper, never()).claimForExecution(any(), any());
+        verify(printJobService, never()).createJob(any(), any());
+    }
+
     private BatchDispatchConfirmRequest confirmRequest(com.example.farm.entity.vo.DispatchPlanPreviewVO preview) {
         BatchDispatchConfirmRequest confirm = new BatchDispatchConfirmRequest();
         confirm.setPlanId(preview.getPlanId());

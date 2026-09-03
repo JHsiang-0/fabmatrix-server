@@ -146,7 +146,7 @@
 - [x] T12.2 广播统一的 `unifiedState`/任务状态，同时保留 `stateSource` 和 `rawState` 作为观测信息，不把原始协议值当作 Farm 最终状态。
 - [x] T12.3 已增加 `version/eventId/sequence`，并约定断线、版本不连续时通过 REST 快照恢复。
 - [x] T12.4 已确认局域网采用 JWT 握手、连接上限和农场级广播；按设备订阅暂不增加。
-- [x] T12.5 已覆盖 WebSocket 序列化、JWT/禁用用户拒绝、连接清理、Ping 和业务异常隔离。
+- [x] T12.5 已覆盖 WebSocket 序列化、JWT/禁用用户拒绝、连接清理、Ping 和业务异常隔离；2026-09-03 对运行中的 8080 实例完成 JWT 握手验证，收到 `version=1`、有效 `eventId/sequence` 的 `SNAPSHOT`，快照包含 49 台设备并正常以关闭码 1000 结束。
 
 ## T13 [前端新增/改造] 前端联调
 

@@ -70,7 +70,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [x] P1.7.2 已将 Redis 缓存/锁切换为 Local profile 进程内实现，同时保留 Server Edition 的 Redis 实现。
 - [~] P1.7.3 已有 SQLite 初始表结构、幂等索引和可重复初始化，并完成关键 SQLite Mapper 方言测试；已提供带恢复前保留措施的备份/恢复脚本，MySQL 数据导入边界和正式恢复演练仍待完成。
 - [x] P1.7.4 已提供 v1 Server Edition 的 Farm、MySQL、Redis、RustFS 正式 Docker Compose 编排、密钥注入、健康检查和数据卷说明。
-- [~] P1.7.5 已补充两种形态的启动、数据目录检查和备份恢复说明；Windows 安装/卸载和正式发布验证仍待完成。
+- [~] P1.7.5 已补充两种形态的启动、数据目录检查、备份恢复说明和 Server Edition 镜像构建记录；Windows 安装/卸载和正式发布验证仍待完成。
 
 ### v3 预留：后台自动派单（不计入 v2 验收）
 

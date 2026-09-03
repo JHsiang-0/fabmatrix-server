@@ -24,7 +24,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml ps
 
 正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机白名单和协议后，只按需启用监控，后台调度不要在 v2 误开启。
 
-正式发布前必须固定并验证 RustFS 镜像版本；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本目前按 02 至 10 的编号顺序执行。
+已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本目前按 02 至 10 的编号顺序执行。
 
 ## v2 Local Edition（Windows/单机）
 
@@ -35,7 +35,7 @@ mvn clean package -DskipTests
 java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server.port=8080
 ```
 
-默认数据目录为 `./data`，其中 `farm.db` 是 SQLite 数据库，`files` 保存 G-code 和缩略图。可用 `FARM_DATA_DIR=D:/FarmData` 指定 Windows 数据根目录。当前 Local Edition 已验证应用启动、`/actuator/health` 探活以及关键 SQLite Mapper/本地文件读写；Windows 安装程序、备份恢复向导和正式发布验收仍未完成。
+默认数据目录为 `./data`，其中 `farm.db` 是 SQLite 数据库，`files` 保存 G-code 和缩略图。可用 `FARM_DATA_DIR=D:/FarmData` 指定 Windows 数据根目录。当前 Local Edition 已验证应用启动、`/actuator/health` 探活、关键 SQLite Mapper/本地文件读写和备份恢复脚本；Windows 安装程序和正式发布验收仍未完成。
 
 Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份必须同时保存 `farm.db` 和 `files` 目录，示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataDir D:/FarmData`；恢复时先停止 Farm，再使用 `local-restore.ps1 -BackupDir D:/Backups/farm-local-... -DataDir D:/FarmData -Confirm RESTORE`，脚本会先把当前数据移到 `pre-restore-时间戳` 再恢复。Linux 使用 `sh scripts/local-restore.sh <备份目录> <数据目录> RESTORE`。恢复后重新启动并检查 `/actuator/health`、文件列表和任务列表，不要只恢复数据库而遗漏文件目录。
 

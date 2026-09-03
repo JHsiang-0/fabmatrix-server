@@ -322,10 +322,11 @@
   - 验收：客户端成功委托和 `StorageException` 转换有测试；文件 Service 继续校验归属、预签名 URL 上限和任务引用删除保护；不连接真实 RustFS。
   - 测试：`RustFsClientTest`、`PrintFileOwnershipTest`；全量 `mvn test` 通过。2026-09-03 使用临时 G-code 通过真实 RustFS 容器完成上传、预览、预签名下载 URL 和删除，清理后文件记录数量恢复为 1。
 - [x] T9.5 补齐 Klipper/RRF Adapter 和 Mock 测试。
-  - 验收：统一 Factory、Klipper/RRF Adapter、状态映射、RRF HTTP 会话/状态/G-code/上传 Mock 均有测试；真实设备联调保留现场验收。
+  - 验收：统一 Factory、Klipper/RRF Adapter、状态映射、RRF HTTP 会话/状态/G-code/上传 Mock 均有测试；真实目标设备的响应级联调已完成，生产 G-code 的物理副作用仍保留现场验收。
   - 测试：`KlipperMoonrakerAdapterTest`、`RrfAdapterTest`、`RrfApiClientTest`、协议 Factory/Detector/Type 测试；全量 `mvn test` 通过。
 - [ ] T9.6 完成上传文件到打印完成的端到端测试。
-  - 说明：必须在真实 MySQL、Redis、RustFS 和至少一台 Klipper/RRF 设备环境执行；当前环境无 Docker socket 和真实打印机，保留现场验收。
+  - 当前条件：真实 MySQL、Redis、RustFS 和 RRF 目标设备 `192.168.0.77` 已可用。已用无运动、无加热探针 G-code 完成上传、创建任务、安全派发、确认、启动和设备回到 `idle` 的请求级验证，但这不等同于完整打印完成链路。
+  - 阻塞与配合：开发环境 `farm.tasks.enabled=false`，尚未在监控任务开启时验证自然完成和 WebSocket 状态变化；当前也没有用户确认可在真实设备执行的运动/加热 G-code。继续验收需要用户提供或确认安全测试文件，并在现场观察设备运动、加热、完成状态及异常时的安全处置。
 - [x] T9.7 核对实体、Mapper、`farm.sql` 和增量 SQL 字段一致性。
   - 验收：已核对 `User`、`Printer`、`PrintFile`、`PrintJob`、`PrinterStatusHistory` 与对应 Mapper、`farm.sql`、`02` 和 `06` 脚本；历史 `V*.sql` 仅作为手工迁移记录，不会被 Spring 自动执行。
   - 结论：新字段 `operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表由增量脚本补齐；状态值、固件类型由 `04`、`05` 规范化。2026-09-03 已在现有 Docker 数据卷完成备份后执行 02–06，并核对记录数量未变化、任务状态已无 `MANUAL`、协议类型已无旧值；完整端到端链路仍待真实设备。
@@ -350,9 +351,10 @@
 - [x] T10.4 用户可上传文件、创建任务、派发、安全确认并启动。
   - 现场证据：仅对真实目标 `192.168.0.77` 通过 Farm 文件库上传无运动/无加热探针 G-code（文件 ID `44`），创建任务（任务 ID `5`），安全派发、现场确认和 `START_PRINT` 均返回 HTTP 200；RRF 随后报告 `state.status=idle`、`lastFileName=0:/gcodes/farm_t10_rrf_probe_0903.gcode`、文件位置已处理完毕。因 dev 监控任务关闭，Farm 完成状态依据该设备只读结果做了精确收尾，未声称自然 WebSocket 完成事件已验证。
 - [~] T10.5 支持暂停、恢复、取消和急停。
-  - 现场证据：仅对真实设备 ID `564`/`192.168.0.77` 验证 RRF `M25`、`M24`、`M0`、`M112`，均返回 `err=0`；Farm 后端暂停和急停路由返回 HTTP 200；`M112` 后使用 `M999` 复位，设备恢复 `idle`。恢复/取消路由在无绑定任务时返回 HTTP 422“打印机当前没有绑定任务”，符合后端安全校验；真实运行中的暂停/恢复/取消状态链路仍待设备提供任务后验证。
+  - 现场证据：仅对真实设备 ID `564`/`192.168.0.77` 验证 RRF `M25`、`M24`、`M0`、`M112`，均返回 `err=0`；Farm 后端暂停和急停路由返回 HTTP 200；`M112` 后使用 `M999` 复位，设备恢复 `idle`。恢复/取消路由在无绑定任务时返回 HTTP 422“打印机当前没有绑定任务”，符合后端安全校验。
+  - 阻塞与配合：当前没有处于真实 `PRINTING` 状态且可观察的任务，因此暂停、恢复、取消的设备状态变化和任务状态链路尚未完成。需要用户提供或确认一份足够长且安全的测试任务，在设备实际运行窗口现场确认暂停、恢复、取消及急停后的状态；急停本身的 RRF 指令响应和复位已验证。
 - [x] T10.6 REST 与 WebSocket 状态正确同步。
-  - 验收：2026-09-03 使用同一管理员会话读取 REST 打印机分页 `total=46`，随后通过真实前端 Vite 代理连接 `/ws/farm-status`，收到 `SNAPSHOT.data.printers` 46 条，数量一致且首条数据未包含 `apiKey`；前端已修复 `data.printers` 快照解析并由测试覆盖。目标 RRF 设备随后登记为 ID `563`；由于开发环境关闭监控任务且未操作真实设备，本次不宣称自然状态增量和完整打印链路已验收。
+  - 验收：2026-09-03 使用同一管理员会话读取 REST 打印机分页 `total=46`，随后通过真实前端 Vite 代理连接 `/ws/farm-status`，收到 `SNAPSHOT.data.printers` 46 条，数量一致且首条数据未包含 `apiKey`；前端已修复 `data.printers` 快照解析并由测试覆盖。随后真实目标 RRF 设备 `192.168.0.77` 登记为 ID `564`，当前设备总数为 48；由于开发环境关闭监控任务且未操作真实设备，本次不宣称自然状态增量和完整打印链路已验收。`192.168.0.62` 的 ID `563` 仅为误输入产生的历史测试记录。
 - [x] T10.7 设备离线不会持续刷异常日志或拖垮监控。
   - 验收：监控任务增加单轮巡检互斥，上一轮未结束时跳过重叠轮次；单台设备离线异常日志按 60 秒限频，恢复在线后重置限频状态；`PrinterMonitorAdapterTest` 5 项通过。当前 dev 环境仍关闭定时任务，未对 48 台设备进行压力轮询。
 - [x] T10.8 文件、任务、用户和设备权限由后端校验。

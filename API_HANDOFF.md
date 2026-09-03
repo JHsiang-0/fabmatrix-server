@@ -379,7 +379,7 @@ T9.3 已完成：登录失败计数使用 `farm:login:fail:{username}`、首次�
 
 T9.4 已完成：RustFS 客户端上传、预签名 URL、删除失败均统一转换为 `StorageException`；文件 Service 额外执行资源归属、过期时间上限和删除前任务引用校验。`RustFsClientTest` 与 `PrintFileOwnershipTest` 使用 mock 覆盖成功委托、异常转换和安全边界，不连接真实 RustFS。
 
-T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选择；适配器测试覆盖协议状态映射、暂停/恢复/取消/急停、上传和不支持能力，RRF HTTP 客户端测试覆盖会话、状态、G-code 与上传请求。真实设备响应和副作用仍需现场验收。
+T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选择；适配器测试覆盖协议状态映射、暂停/恢复/取消/急停、上传和不支持能力，RRF HTTP 客户端测试覆盖会话、状态、G-code 与上传请求。真实目标设备的响应级联调已完成，生产 G-code 的运动、加热和其他物理副作用仍需现场验收。
 
 T9.8 已完成后端基础部分：`GET /actuator/health` 为免认证探活端点且不返回依赖详情，`health/info` 为基础暴露范围；生产环境仍由 `ProductionSafetyValidator` 收紧密钥、CORS 和 Swagger/OpenAPI，且已有配置回归测试。启动顺序、备份、迁移和无真实打印机时关闭任务的要求见 `OPERATIONS.md`。RustFS 和打印机真实连通性仍需现场检查。
 
@@ -709,6 +709,8 @@ mvn test
 T10.1 补充验收：2026-09-03 使用真实管理员会话调用 `/auth/admin/users` 创建、更新、禁用、启用接口均返回 HTTP 200；创建的临时操作员记录 ID `3` 在验收结束时再次禁用，未修改既有账号，密码未写入文档或日志。
 
 真实 RRF 目标 `192.168.0.77` 已由管理员登记为设备 ID `564`、协议 `RRF`、空密码。2026-09-03 仅对该 IP 验证了 `M25/M24/M0/M112`、Farm 上传的无动作探针文件和 `M32` 启动请求，均返回成功；Farm 后端暂停/急停返回 200，无任务时恢复/取消返回 422。探针任务后设备返回 `state.status=idle` 并记录 `lastFileName` 和完成位置；`M112` 后通过 `M999` 复位成功。设备仍返回 `isEmulated=true`、`boardType=unknown`，所以生产任务的运动、加热和宏副作用仍待现场验收。此前 `192.168.0.62` 的 ID `563` 仅为误输入产生的历史测试记录，不作为真实目标。
+
+T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.tasks.enabled=false`，已完成无动作探针和控制接口的响应级验证，但尚未完成真实打印中的自然完成、暂停、恢复、取消及 WebSocket 状态链路。后续需要用户确认一份可安全执行的真实 G-code，并在打印机现场观察运动/加热、暂停恢复取消和急停复位结果；Codex 不能仅凭 HTTP `200` 判定设备物理动作成功。
 
 ### 9.4 真实打印机
 

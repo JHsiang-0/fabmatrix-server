@@ -92,6 +92,17 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 清理指定任务绑定；显式写 NULL，避免 MyBatis-Plus 忽略空字段 -->
+    <update id="clearJobBinding">
+        UPDATE farm_printer
+        SET current_job_id = NULL,
+            is_safe_to_print = FALSE,
+            status = 'IDLE',
+            updated_at = NOW()
+        WHERE id = #{printerId}
+          AND current_job_id = #{jobId}
+    </update>
+
     <!-- 【新增】查询所有未分配位置的打印机（用于数字孪生看板空槽位绑定下拉列表） -->
     <select id="selectUnallocatedPrinters" resultType="com.example.farm.entity.vo.PrinterVO">
         SELECT

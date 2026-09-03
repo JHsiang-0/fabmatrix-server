@@ -149,7 +149,7 @@ class PrinterMonitorAdapterTest {
         when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
         when(adapter.getStatus(any())).thenReturn(completedStatus());
         when(printJobService.getById(1001L)).thenReturn(job);
-        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+        when(printerService.clearJobBinding(403L, 1001L)).thenReturn(false);
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
                 eventPublisher);
 

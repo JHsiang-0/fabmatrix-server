@@ -53,6 +53,15 @@ public interface PrinterService extends IService<Printer> {
     void deletePrinter(Long id);
 
     /**
+     * 清理打印机与指定任务的绑定，并恢复为空闲状态。
+     *
+     * @param printerId 打印机 ID
+     * @param jobId 当前绑定的任务 ID
+     * @return 是否成功清理
+     */
+    boolean clearJobBinding(Long printerId, Long jobId);
+
+    /**
      * 【重构】扫描网段内的 Klipper/RRF 设备，返回带 MAC 地址的详细信息。
      * <p>扫描过程中会识别协议并尝试获取每个设备的 MAC 地址，用于后续 Upsert 操作。</p>
      *

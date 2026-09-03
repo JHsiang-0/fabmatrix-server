@@ -344,11 +344,8 @@ public class PrinterMonitorTask {
     }
 
     private boolean unbindPrinter(Printer printer) {
-        Printer updateEntity = new Printer();
-        updateEntity.setId(printer.getId());
-        updateEntity.setCurrentJobId(null);
-        updateEntity.setIsSafeToPrint(false);
-        if (!printerService.updateById(updateEntity)) {
+        Long jobId = printer.getCurrentJobId();
+        if (jobId == null || !printerService.clearJobBinding(printer.getId(), jobId)) {
             log.error("设备终态同步失败：打印机解绑保存失败，printerId={}, jobId={}",
                     printer.getId(), printer.getCurrentJobId());
             return false;

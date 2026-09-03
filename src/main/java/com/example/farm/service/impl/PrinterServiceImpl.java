@@ -288,6 +288,20 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printerCacheService.refreshPrinterCache();
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean clearJobBinding(Long printerId, Long jobId) {
+        if (printerId == null || jobId == null) {
+            return false;
+        }
+        int affected = baseMapper.clearJobBinding(printerId, jobId);
+        if (affected > 0) {
+            printerCacheService.refreshPrinterCache();
+            return true;
+        }
+        return false;
+    }
+
     // ==================== 扫描与批量操作 ====================
 
     /**

@@ -457,9 +457,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             }
             adapterFactory.getAdapter(printer.getFirmwareType())
                     .cancel(endpointOf(printer, PrinterOperation.CANCEL));
+            if (!printerService.clearJobBinding(printerId, jobId)) {
+                throw new BusinessException("取消打印任务失败：打印机状态保存失败");
+            }
             printer.setCurrentJobId(null);
             printer.setIsSafeToPrint(false);
-            updatePrinterOrThrow(printer, "取消打印任务失败");
+            printer.setStatus("IDLE");
         }
 
         job.setStatus(PrintJobStatus.CANCELLED.name());
@@ -510,7 +513,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 if ("PREPARING".equals(printer.getStatus())) {
                     printer.setStatus("IDLE");
                 }
-                updatePrinterOrThrow(printer, "重新排队任务失败");
+                if (!printerService.clearJobBinding(printer.getId(), jobId)) {
+                    throw new BusinessException("重新排队任务失败：打印机状态保存失败");
+                }
             }
         }
 

@@ -193,7 +193,7 @@ class PrintJobOwnershipTest {
         printer.setStatus("PREPARING");
         printer.setIsSafeToPrint(true);
         when(printerService.getById(403L)).thenReturn(printer);
-        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+        when(printerService.clearJobBinding(403L, 100L)).thenReturn(true);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
 
         printJobService.requeueJob(100L);
@@ -219,7 +219,7 @@ class PrintJobOwnershipTest {
         printer.setCurrentJobId(100L);
         printer.setStatus("PREPARING");
         when(printerService.getById(403L)).thenReturn(printer);
-        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+        when(printerService.clearJobBinding(403L, 100L)).thenReturn(false);
 
         assertThatThrownBy(() -> printJobService.requeueJob(100L))
                 .hasMessage("重新排队任务失败：打印机状态保存失败");

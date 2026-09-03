@@ -96,6 +96,15 @@ public interface PrinterMapper extends BaseMapper<Printer> {
                               @Param("gridCol") Integer gridCol);
 
     /**
+     * 清理打印机与指定任务的绑定，并恢复为空闲状态。
+     *
+     * @param printerId 打印机 ID
+     * @param jobId 当前绑定的任务 ID
+     * @return 影响的行数
+     */
+    int clearJobBinding(@Param("printerId") Long printerId, @Param("jobId") Long jobId);
+
+    /**
      * 【新增】查询所有未分配位置的打印机
      * <p>用于数字孪生看板的空槽位绑定下拉列表</p>
      * <p>查询条件：grid_row IS NULL AND grid_col IS NULL</p>

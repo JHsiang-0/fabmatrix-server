@@ -92,7 +92,7 @@ class PrintJobAdapterTest {
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
-        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+        when(printerService.clearJobBinding(403L, 1001L)).thenReturn(true);
 
         printJobService.cancelJob(1001L);
 
@@ -129,7 +129,7 @@ class PrintJobAdapterTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
-        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+        when(printerService.clearJobBinding(403L, 1001L)).thenReturn(false);
 
         assertThatThrownBy(() -> printJobService.cancelJob(1001L))
                 .hasMessage("取消打印任务失败：打印机状态保存失败");

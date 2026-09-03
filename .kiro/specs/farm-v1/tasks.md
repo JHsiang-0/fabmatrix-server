@@ -290,7 +290,9 @@
 - [x] T8.3 完成登录、角色菜单、用户管理和个人资料。
   - 验收：真实前端 `/home/codex/workspace/farm-ui` 已完成登录、ADMIN/OPERATOR 路由守卫、管理员用户管理，以及 `/profile` 个人中心；个人中心调用 `src/api/user.js` 的 `getProfile/updateProfile/changePassword`，不提交角色字段。
   - 验证：前端 `npm test` 3 项、`npm run build`、`npm run lint` 通过；真实后端账号请求级联调归入 T8.7/T10 验收。
-- [ ] T8.4 完成打印机看板、设备管理和 WebSocket 增量更新。
+- [x] T8.4 完成打印机看板、设备管理和 WebSocket 增量更新。
+  - 验收：`farm-ui/src/components/FarmDashboard.vue`、`src/views/PrinterManage.vue` 和 `src/stores/printer/deviceStore.js` 已接入分页、设备配置、扫描、批量添加、网格位置及角色按钮；`src/stores/printer/realtimeStore.js` 已处理 `SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`，连接使用 `/ws/farm-status?token=<JWT>` 并支持退避重连。
+  - 验证：前端 `npm test` 3 项、`npm run build`、`npm run lint` 通过；真实账号 WebSocket 请求级联调归入 T8.7/T9.9。
 - [ ] T8.5 完成文件库、上传、目录、下载、删除和预览。
 - [ ] T8.6 完成任务队列、安全打印、控制、重试和状态展示。
 - [ ] T8.7 记录每个真实联调接口、请求样例、响应样例和前端文件路径。

@@ -85,9 +85,7 @@ public class RrfApiClient {
                     .headers(headers -> addSessionKey(headers, session))
                     .retrieve()
                     .body(String.class);
-            if (response == null) {
-                throw failure(operation, FailureCategory.PROTOCOL_ERROR, "RRF 未返回 G-code 响应", null);
-            }
+            ensureSuccessfulGcodeResult(response, operation);
         } catch (PrinterProtocolException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -186,6 +184,16 @@ public class RrfApiClient {
         int errorCode = root.path("err").asInt(-1);
         if (errorCode != 0) {
             throw failure(operation, FailureCategory.PROTOCOL_ERROR, "RRF 文件上传失败", null);
+        }
+    }
+
+    private void ensureSuccessfulGcodeResult(String response, PrinterOperation operation) {
+        JsonNode root = parse(response, operation, "解析 RRF G-code 响应失败");
+        int errorCode = root.path("err").asInt(-1);
+        if (errorCode != 0) {
+            FailureCategory category = errorCode == 1
+                    ? FailureCategory.REJECTED : FailureCategory.PROTOCOL_ERROR;
+            throw failure(operation, category, "RRF 设备拒绝执行 G-code", null);
         }
     }
 

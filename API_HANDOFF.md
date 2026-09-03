@@ -637,7 +637,7 @@ Controller -> Service -> `PrinterProtocolAdapter` -> 具体协议客户端。
 
 `RrfApiClient` 已按官方资料实现独立的 HTTP 调用链：使用 `rr_connect?password=...&sessionKey=yes` 建立短会话，使用 `X-Session-Key` 调用 `rr_model`、`rr_gcode` 和 `rr_upload`，操作结束后调用 `rr_disconnect`。状态读取 `state.status`、`job.file.fileName`、文件大小/位置和已确认的任务字段；控制动作使用 `M25`、`M24`、`M0`、`M112`，上传后启动使用 `M32`。
 
-`RrfApiClientTest` 已通过可复现 HTTP Mock 测试，覆盖会话、状态/进度、G-code、原始文件上传和密码错误分类。这里的测试证明协议调用边界和解析逻辑，不等同于真实 RRF 3.7 设备验收。`apiKey` 在 RRF 适配中作为设备密码使用，不能当作长期 session key；真实设备仍需确认固件构建、standalone/SBC 模式、`0:/gcodes` 路径可见性、会话限制以及 `M0/M112/M32` 的现场副作用。
+`RrfApiClientTest` 已通过可复现 HTTP Mock 测试，覆盖会话、状态/进度、G-code、原始文件上传、设备错误码和密码错误分类。这里的测试证明协议调用边界和解析逻辑，不等同于真实 RRF 3.7 物理验收。`apiKey` 在 RRF 适配中作为设备密码使用，不能当作长期 session key；唯一目标 `192.168.0.62` 已完成控制、探针上传和 `M32` 启动请求的响应级验证，但仍需确认固件构建、standalone/SBC 模式、`0:/gcodes` 文件完整可见性、会话限制以及 `M0/M112/M32` 的现场副作用。
 
 禁止在 Controller 中直接注入 `MoonrakerApiClient`，也禁止仅通过修改 URL 假装支持 RRF 3.7。
 
@@ -706,6 +706,8 @@ mvn test
 
 在同一管理员会话中，REST 打印机分页返回 `total=46`，随后通过前端 Vite 代理（本次实际端口 `5174`）连接 WebSocket，`SNAPSHOT.data.printers` 返回 46 条，数量一致；首条快照设备状态为 `OFFLINE`，且未包含 `apiKey`。管理员用户列表中已有 `OPERATOR` 账号；任务分页返回 3 条任务。该结果支持 T10.3、T10.6、T10.8、T10.9 和 T10.10 的代码/请求级验收；由于开发环境关闭监控任务且未操作真实设备，不宣称自然状态增量和完整打印链路已完成。
 
+RRF 目标 `192.168.0.62` 已由管理员登记为设备 ID `563`、协议 `RRF`、空密码。2026-09-03 仅对该 IP 验证了 `M25/M24/M0/M112`、`rr_upload` 无动作探针文件和 `M32` 启动请求，均返回 `err=0`；Farm 后端暂停/急停返回 200，无任务时恢复/取消返回 422。设备响应始终为 `isEmulated=true`、`state.status=off`、无任务，因此这些结果不等同于真实物理打印完成验收。
+
 ### 9.4 真实打印机
 
 开发环境默认关闭：
@@ -732,9 +734,9 @@ farm.tasks.enabled=false
 10. 新建文件夹已正确设置用户归属并校验父目录。
 11. WebSocket 已完成握手鉴权、四类 `type` 消息、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；2026-09-03 已在真实启动的本地后端完成 JWT 握手和 `SNAPSHOT` 请求级验证，前端已完成告警展示和客户端测试，浏览器端完整端到端仍待联调。
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
-13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，尚待真实设备联调。
+13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，并已在唯一目标 `192.168.0.62` 完成控制、上传和启动请求的响应级验证；完整物理打印链路仍待现场验收。
 
-RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。2026-09-03 已对 `192.168.0.62` 完成空密码和只读对象模型探测；该设备响应 `isEmulated=true`、`boardType=unknown`，且未返回 `sessionKey`，后端已兼容此类响应。控制、上传和完整打印链路仍不能视为实机验收。前端真实仓库为 `/home/codex/workspace/farm-ui`。
+RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。2026-09-03 已对 `192.168.0.62` 完成空密码、只读对象模型、控制、上传和启动请求探测；该设备响应 `isEmulated=true`、`boardType=unknown`，且未返回 `sessionKey`，后端已兼容此类响应。控制/上传/启动的响应级验证已完成，但完整物理打印链路仍不能视为实机验收。前端真实仓库为 `/home/codex/workspace/farm-ui`。
 
 ## 11. 前端开发优先顺序
 

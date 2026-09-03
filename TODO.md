@@ -34,7 +34,7 @@
 - [x] 完成真实 RustFS 文件链路冒烟验证：临时 G-code 上传、预览、预签名下载 URL、删除均成功，清理后文件记录数量恢复且未污染现有任务
 - [x] 修复文件上传响应中的 `folder=null` 契约问题：文件对象统一返回布尔值 `folder=false`，并通过 VO 测试和真实上传回归验证
 - [x] 修复打印机录入写入未冻结 `ONLINE` 状态的问题：新增、重新录入和批量扫描入库统一先写 `UNKNOWN`，等待协议探测后再进入实际状态
-- [~] 已对真实目标 `192.168.0.62` 完成 RRF 空密码和只读对象模型探测；该设备返回 `isEmulated=true` 且未返回 `sessionKey`，控制、上传和完整打印链路仍待确认。
+- [x] 已对唯一授权目标 `192.168.0.62` 完成 RRF 空密码、只读对象模型、`M25/M24/M0/M112`、无动作探针上传和 `M32` 启动请求验证；Farm 已登记设备 ID `563`。该设备返回 `isEmulated=true`、`state.status=off` 且无任务，因此真实物理打印完成链路仍不能宣称完成。
 
 ## P0：先修复契约和安全阻塞项
 
@@ -153,7 +153,7 @@ startPrint()
 - [x] 将 `PrintJobServiceImpl` 中的上传、启动、取消设备调用改为 Adapter。
 - [x] 将 `PrinterMonitorTask` 的状态查询改为 Adapter，并将适配器异常纳入离线处理。
 - [x] `firmwareType` 入库值统一为大写 `KLIPPER`、`RRF`，兼容旧数据 `Klipper`；新增迁移脚本 `05-normalize-printer-firmware-type.sql`。
-- [x] 已根据官方协议实现 RRF HTTP 会话、状态、G-code 控制和文件上传；仍需真实设备联调确认具体版本、运行模式、存储路径和宏副作用。
+- [x] 已根据官方协议实现 RRF HTTP 会话、状态、G-code 控制和文件上传；唯一目标 `192.168.0.62` 已完成控制、探针上传和启动请求的响应级验证，但具体运行模式、完整文件可见性和宏/物理副作用仍待现场验收。
 - [x] 不在 Moonraker 客户端中通过替换 URL 假装支持 RRF。
 
 ## P0：WebSocket 实时状态
@@ -421,7 +421,7 @@ WebSocket 快照/离线/任务消息
 第一版不追求 SaaS 化，只满足局域网单农场稳定运行：
 
 - [ ] ADMIN 可以创建和管理 OPERATOR。
-- [ ] ADMIN 可以添加 Klipper 或 RRF 打印机。
+- [x] ADMIN 可以添加 Klipper 或 RRF 打印机；目标 RRF `192.168.0.62` 已登记为设备 ID `563`，完整设备状态和任务链路仍待现场任务验收。
 - [ ] ADMIN/OPERATOR 可以查看设备状态和文件库。
 - [ ] 用户可以上传 G-code、创建任务、派发任务并安全启动。
 - [ ] 可以暂停、恢复、取消和急停。

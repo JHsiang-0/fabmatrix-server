@@ -65,7 +65,7 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(queryParam("gcode", "M25"))
                 .andExpect(header("X-Session-Key", "123"))
-                .andRespond(withSuccess("{\"buff\":1024}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("{\"err\":0,\"buff\":1024}", MediaType.APPLICATION_JSON));
         expectDisconnect();
 
         client.executeGcode(endpoint(), "M25", PrinterOperation.PAUSE);
@@ -84,7 +84,7 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(queryParam("gcode", "M25"))
                 .andExpect(header("X-Session-Key", "123"))
-                .andRespond(withSuccess("{\"buff\":1024}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("{\"err\":0,\"buff\":1024}", MediaType.APPLICATION_JSON));
         expectDisconnect();
 
         client.executeGcode(emptyPasswordEndpoint(), "M25", PrinterOperation.PAUSE);
@@ -140,6 +140,25 @@ class RrfApiClientTest {
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("{\"err\":1}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.executeGcode(endpoint(), "M25", PrinterOperation.PAUSE))
+                .isInstanceOf(PrinterProtocolException.class)
+                .satisfies(error -> {
+                    PrinterProtocolException exception = (PrinterProtocolException) error;
+                    assertThat(exception.getCategory()).isEqualTo(FailureCategory.REJECTED);
+                    assertThat(exception.getOperation()).isEqualTo(PrinterOperation.PAUSE);
+                });
+        server.verify();
+    }
+
+    @Test
+    void rejectsGcodeWhenRrfReturnsAnError() {
+        expectConnect();
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_gcode")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("gcode", "M25"))
+                .andRespond(withSuccess("{\"err\":1}", MediaType.APPLICATION_JSON));
+        expectDisconnect();
 
         assertThatThrownBy(() -> client.executeGcode(endpoint(), "M25", PrinterOperation.PAUSE))
                 .isInstanceOf(PrinterProtocolException.class)

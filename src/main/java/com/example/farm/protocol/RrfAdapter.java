@@ -7,10 +7,10 @@ import org.springframework.stereotype.Component;
 import java.util.Locale;
 
 /**
- * RepRapFirmware 适配器骨架。
+ * RepRapFirmware 协议适配器。
  *
  * <p>该类只负责 RRF 协议边界、错误语义和状态映射，不依赖 Moonraker。
- * 真实 HTTP 调用由后续 RrfApiClient 实现。</p>
+ * 真实 HTTP 调用由 {@link RrfApiClient} 实现，适配器负责统一 Farm 协议边界。</p>
  */
 @Component
 @RequiredArgsConstructor

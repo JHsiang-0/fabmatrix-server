@@ -14,7 +14,7 @@
 - Kiro 执行入口：[PROJECT.md](./PROJECT.md)。执行顺序为 `requirements.md` → `design.md` → `tasks.md` → 单个 Task 实现 → 测试/验收 → 更新任务状态 → 下一个 Task。
 - 项目级规格位于 `.kiro/specs/farm-v1/`；协议适配和 WebSocket 的详细规格位于 `.kiro/specs/printer-protocol-and-websocket/`。
 
-当前仓库只有 Java 后端，没有 Vue、React 或其他前端工程。前端部分记录页面和联调任务，不填写不存在的前端文件路径。
+当前仓库只有 Java 后端；已确认真实前端仓库为 `/home/codex/workspace/farm-ui`。前端代码和测试在该仓库维护，本仓库只记录契约和联调证据。
 
 ## 当前基线
 
@@ -34,7 +34,7 @@
 - [x] 完成真实 RustFS 文件链路冒烟验证：临时 G-code 上传、预览、预签名下载 URL、删除均成功，清理后文件记录数量恢复且未污染现有任务
 - [x] 修复文件上传响应中的 `folder=null` 契约问题：文件对象统一返回布尔值 `folder=false`，并通过 VO 测试和真实上传回归验证
 - [x] 修复打印机录入写入未冻结 `ONLINE` 状态的问题：新增、重新录入和批量扫描入库统一先写 `UNKNOWN`，等待协议探测后再进入实际状态
-- [ ] 增加真实 Klipper/RRF 设备测试
+- [~] 已对真实目标 `192.168.0.62` 完成 RRF 空密码和只读对象模型探测；该设备返回 `isEmulated=true` 且未返回 `sessionKey`，控制、上传和完整打印链路仍待确认。
 
 ## P0：先修复契约和安全阻塞项
 
@@ -160,7 +160,7 @@ startPrint()
 
 - [x] 正式地址统一为 `/ws/farm-status`；必要时短期兼容 `/ws`。
 - [x] 增加连接 Token 校验。
-- [x] 增加连接上限、异常断开和清理机制；连接上限由 `farm.websocket.max-connections` 配置，服务端按 30 秒可配置间隔发送协议级 Ping，失败连接自动清理，真实容器已验证 JWT 握手和 `SNAPSHOT` 快照，前端自动重连仍待真实前端仓库。
+- [x] 增加连接上限、异常断开和清理机制；连接上限由 `farm.websocket.max-connections` 配置，服务端按 30 秒可配置间隔发送协议级 Ping，失败连接自动清理，真实容器已验证 JWT 握手和 `SNAPSHOT` 快照；真实前端已完成自动重连实现，浏览器级联调仍待真实后端运行。
 - [x] 统一消息结构：
 
 ```json
@@ -259,7 +259,7 @@ startPrint()
 - [x] 修复文件列表 `printCount/successRate` 统计口径。
   - 只统计已结束任务；成功率按完成数除以完成数和失败数，排除取消、排队和执行中任务。
 - [x] 明确 RustFS 文件不存在、URL 过期和删除失败的前端提示。
-  - 已在 `API_HANDOFF.md` 固定 `5003/503` 提示、预签名 URL 重新获取一次、对象不一致联系管理员，以及关联任务 `409` 不重试；前端页面实现仍待真实前端仓库。
+  - 已在 `API_HANDOFF.md` 固定 `5003/503` 提示、预签名 URL 重新获取一次、对象不一致联系管理员，以及关联任务 `409` 不重试；真实前端已实现统一下载和错误提示。
 
 ### P1.3 打印任务
 
@@ -392,7 +392,7 @@ startPrint()
 
 ### P2.4 前端体验
 
-- [ ] WebSocket 自动重连和指数退避（待真实前端仓库）。
+- [x] WebSocket 自动重连和指数退避已在 `/home/codex/workspace/farm-ui/src/utils/websocket.js` 与 `src/stores/printer/realtimeStore.js` 实现；浏览器级真实后端联调待 T8.7。
 - [ ] 设备离线、忙碌、网络错误、任务失败分别显示不同提示。
 - [ ] 删除、急停、取消打印增加二次确认。
 - [ ] 任务状态变更增加操作记录提示。

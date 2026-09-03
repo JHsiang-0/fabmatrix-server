@@ -18,6 +18,7 @@ class FarmStatusMessageTest {
         FarmStatusMessage message = FarmStatusMessage.printerStatus(403L,
                 Map.of("status", "PRINTING", "progress", 35.5));
 
+        assertThat(message.version()).isEqualTo("1");
         assertThat(message.type()).isEqualTo("PRINTER_STATUS");
         assertThat(message.printerId()).isEqualTo(403L);
         assertThat(message.timestamp()).isPositive();

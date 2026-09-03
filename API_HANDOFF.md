@@ -581,10 +581,13 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 
 ### 7.2 消息格式
 
+当前消息版本固定为 `version=1`；前端应先按 `version` 分支解析，未知版本应保留 REST 快照兜底。
+
 统一使用：
 
 ```json
 {
+  "version": "1",
   "type": "PRINTER_STATUS",
   "printerId": 403,
   "timestamp": 1756790000000,

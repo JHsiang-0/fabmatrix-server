@@ -14,6 +14,11 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.vo.PrintJobVO;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.DispatchPlanService;
+import com.example.farm.entity.dto.request.BatchDispatchConfirmRequest;
+import com.example.farm.entity.dto.request.BatchDispatchPreviewRequest;
+import com.example.farm.entity.vo.BatchDispatchConfirmVO;
+import com.example.farm.entity.vo.DispatchPlanPreviewVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,6 +40,7 @@ public class PrintJobController {
 
     private final PrintJobService printJobService;
     private final PrinterService printerService;
+    private final DispatchPlanService dispatchPlanService;
 
     /**
      * 查询排队中的任务。
@@ -230,6 +236,21 @@ public class PrintJobController {
         String msg = "START_PRINT".equalsIgnoreCase(action) ? "打印任务已启动" : "文件已上传到机器";
         log.info("现场启动打印成功: jobId={}, operatorId={}, action={}", req.getJobId(), operatorId, action);
         return Result.success(null, msg);
+    }
+
+    @Operation(summary = "批量分配预览", description = "用户主动生成批量方案；不创建任务、不占用打印机、不调用设备写接口")
+    @PostMapping("/batch/preview")
+    public Result<DispatchPlanPreviewVO> previewBatch(@Valid @RequestBody BatchDispatchPreviewRequest request) {
+        request = requireBody(request);
+        return Result.success(dispatchPlanService.preview(request), "批量分配预览生成成功");
+    }
+
+    @Operation(summary = "确认并执行批量分配", description = "重新校验计划后逐项创建任务；默认不绕过安全确认直接启动")
+    @PostMapping("/batch/confirm")
+    public Result<BatchDispatchConfirmVO> confirmBatch(@Valid @RequestBody BatchDispatchConfirmRequest request) {
+        request = requireBody(request);
+        BatchDispatchConfirmVO result = dispatchPlanService.confirm(request);
+        return Result.success(result, "批量分配执行完成");
     }
 
     private <T> T requireBody(T body) {

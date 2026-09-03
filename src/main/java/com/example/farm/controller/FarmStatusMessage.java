@@ -14,17 +14,21 @@ import java.util.Locale;
  * 并拒绝把常见敏感字段带入消息树。</p>
  */
 public record FarmStatusMessage(
+        String version,
         String type,
         Long printerId,
         long timestamp,
         Object data
 ) {
 
+    public static final String CURRENT_VERSION = "1";
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     public FarmStatusMessage {
+        version = version == null || version.isBlank() ? CURRENT_VERSION : version.trim();
         type = normalizeType(type);
         if (timestamp <= 0) {
             throw new IllegalArgumentException("WebSocket timestamp 必须为正数");
@@ -40,6 +44,11 @@ public record FarmStatusMessage(
             throw new IllegalArgumentException("设备消息必须携带正数 printerId");
         }
         rejectSensitiveFields(data);
+    }
+
+    /** 兼容现有服务端调用方的构造函数，统一补充契约版本。 */
+    public FarmStatusMessage(String type, Long printerId, long timestamp, Object data) {
+        this(CURRENT_VERSION, type, printerId, timestamp, data);
     }
 
     public static FarmStatusMessage printerStatus(Long printerId, Object data) {

@@ -383,7 +383,7 @@ T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选�
 
 T9.8 已完成后端基础部分：`GET /actuator/health` 为免认证探活端点且不返回依赖详情，`health/info` 为基础暴露范围；生产环境仍由 `ProductionSafetyValidator` 收紧密钥、CORS 和 Swagger/OpenAPI，且已有配置回归测试。启动顺序、备份、迁移和无真实打印机时关闭任务的要求见 `OPERATIONS.md`。RustFS 和打印机真实连通性仍需现场检查。
 
-T9.9 后端事件部分已完成：`PRINTER_OFFLINE` 使用稳定的 `printerId/status/reason` 数据，连续离线由监控逻辑抑制重复事件；设备恢复时重新发布 `PRINTER_STATUS`。失败任务通过 `JOB_STATUS` 携带 `jobId/status/progress/errorReason`。服务端每 30 秒发送 WebSocket 协议级 Ping，失败连接自动清理，不新增业务消息类型。真实前端 `/home/codex/workspace/farm-ui` 已实现断线重连和指数退避，设备/任务告警展示和浏览器级真实后端联调仍待完成。
+T9.9 已完成：`PRINTER_OFFLINE` 使用稳定的 `printerId/status/reason` 数据，连续离线由监控逻辑抑制重复事件；设备恢复时重新发布 `PRINTER_STATUS`。失败任务通过 `JOB_STATUS` 携带 `jobId/status/progress/errorReason`。服务端每 30 秒发送 WebSocket 协议级 Ping，失败连接自动清理，不新增业务消息类型。真实前端 `/home/codex/workspace/farm-ui` 已实现断线重连、指数退避、离线/失败告警展示和对应自动化测试；浏览器级真实后端端到端仍待完成。
 
 Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更新、文件和任务资源归属、文件删除保护、打印机控制前置校验、协议异常和监控离线处理；Mapper 的真实 MySQL 查询分页、完整设备链路和端到端流程仍需现场环境。
 
@@ -609,7 +609,7 @@ PRINTER_OFFLINE   打印机离线
 JOB_STATUS        任务状态变化
 ```
 
-当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。此前独立 WebSocket 序列化器未注册 Java 时间模块的问题已修复，2026-09-03 真实容器验证 JWT 握手后能收到包含 46 台打印机的 `SNAPSHOT`，`LocalDateTime` 使用 ISO-8601 且无敏感字段；前端自动重连、真实设备事件和告警展示仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
+当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。此前独立 WebSocket 序列化器未注册 Java 时间模块的问题已修复，2026-09-03 真实容器验证 JWT 握手后能收到包含 46 台打印机的 `SNAPSHOT`，`LocalDateTime` 使用 ISO-8601 且无敏感字段；前端已完成自动重连、告警展示和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
 
 ## 8. 打印机协议适配约定
 
@@ -682,6 +682,26 @@ mvn test
 
 测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。2026-09-03 已使用真实 Docker MySQL、Redis、RustFS 启动 dev 应用完成一次冒烟验证：`/actuator/health` 返回 `UP`，管理员登录、`/auth/me`、打印机分页、文件分页和任务队列均返回 200，分页总数与数据库记录一致；临时 G-code 的上传、预览、预签名下载 URL 和删除也均返回 200，清理后文件记录数量恢复。该验证未连接真实 Klipper/RRF 打印机，也未完成上传到打印完成的完整链路。
 
+### 9.3.1 真实本地请求级联调记录（2026-09-03）
+
+运行前提：Docker 仅启动 `farm-mysql`、`farm-redis`、`farm-rustfs`，Java 后端以 `dev` Profile 运行在 `127.0.0.1:8080`；未开启打印机监控任务，因此本次不会轮询或控制 RRF 设备。
+
+请求样例和结果：
+
+| 功能 | 请求样例 | 实际结果 |
+|---|---|---|
+| 健康检查 | `GET /actuator/health` | HTTP 200，`status=UP` |
+| 登录 | `POST /api/v1/auth/login`，JSON `{ "username": "admin", "password": "<本地密码>" }` | HTTP 200，返回 `data.token`、`userId=1`、`role=ADMIN`；密码和 Token 不记录 |
+| 当前用户 | `GET /api/v1/auth/me`，携带 `Authorization: Bearer <JWT>` | HTTP 200，返回用户 ID、用户名和角色 |
+| 打印机分页 | `GET /api/v1/printers/page?pageNum=1&pageSize=5` | HTTP 200，`data.total=46`，本页 5 条 |
+| 文件分页 | `POST /api/v1/print-files/page`，JSON `{ "pageNum": 1, "pageSize": 5 }` | HTTP 200，`data.total=1`，本页 1 条 |
+| 任务队列 | `GET /api/v1/print-jobs/queue` | HTTP 200，返回 2 个队列任务 |
+| 实时状态 | `WS /ws/farm-status?token=<JWT>` | 握手成功，收到 `type=SNAPSHOT`，包含 46 台打印机和有效时间戳 |
+
+前端对应文件：`/home/codex/workspace/farm-ui/src/utils/request.js` 负责 Token 和统一响应处理；`src/api/user.js`、`src/api/printer.js`、`src/api/printFile.js`、`src/api/job.js` 负责 REST；`src/stores/printer/realtimeStore.js` 负责 `/ws/farm-status` 的连接、快照和增量消息。
+
+本次验证是健康、认证、查询和 WebSocket 握手冒烟，不包含 RRF 控制、文件上传到打印机、启动打印、暂停、急停或完整打印完成链路。
+
 ### 9.4 真实打印机
 
 开发环境默认关闭：
@@ -706,7 +726,7 @@ farm.tasks.enabled=false
 8. 返回 VO，禁止直接暴露 `apiKey` 和 `rustfsKey`。
 9. 文件分页已支持名称、材质筛选。
 10. 新建文件夹已正确设置用户归属并校验父目录。
-11. WebSocket 已完成握手鉴权、四类 `type` 消息、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；真实容器网络及前端重连仍待联调。
+11. WebSocket 已完成握手鉴权、四类 `type` 消息、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；2026-09-03 已在真实启动的本地后端完成 JWT 握手和 `SNAPSHOT` 请求级验证，前端已完成告警展示和客户端测试，浏览器端完整端到端仍待联调。
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，尚待真实设备联调。
 
@@ -736,7 +756,7 @@ WebSocket 新消息协议、JWT 握手和协议级 Ping
 RRF 3.7 适配器与可复现 HTTP Mock
 ```
 
-上述接口可以按本文契约直接进行前端联调；真实 RRF/Klipper 设备副作用、真实容器网络和前端自动重连仍属于现场验收项。
+上述接口可以按本文契约直接进行前端联调；真实 RRF/Klipper 设备副作用和浏览器端完整端到端仍属于现场验收项。
 
 ## 12. 后端代码定位与文档来源
 
@@ -809,7 +829,7 @@ src/test/java/com/example/farm/mapper/PrintFileMapperTest.java
 
 - MySQL/RustFS/真实 Redis 联调测试；
 - Klipper 或 RRF 设备测试；
-- 真实前端仓库中的自动重连、指数退避和告警展示测试；
+- 浏览器端真实前端与后端的完整端到端测试；
 - 上传文件到设备完成打印的完整端到端测试。
 
 因此本文中的“现有接口”表示源码中存在，不表示已经完成真实环境验收。

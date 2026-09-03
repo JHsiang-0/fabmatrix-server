@@ -28,9 +28,9 @@
 - [x] JSON 请求体缺失、`null` 和打印机批量空列表统一返回 HTTP 400/业务码400，不再进入 Controller 解引用或返回 500。
 - [x] WebSocket 握手同步检查用户禁用状态；禁用标记或其 Redis 查询异常时拒绝连接，避免既有 JWT 绕过 HTTP 禁用保护。
 - [x] 已执行 `mvn test`：当前全量测试通过，包含上下文、Controller 权限、Service 和协议测试
-- [x] 增加真实 HTTP 接口和权限测试：`SecurityResponseTest` 覆盖核心接口的 401/403、成功委托和健康探针；真实数据库成功链路仍需容器联调
+- [x] 增加真实 HTTP 接口和权限测试：`SecurityResponseTest` 覆盖核心接口的 401/403、成功委托和健康探针；2026-09-03 已使用真实 Docker 依赖和 dev 后端完成登录、用户、打印机分页、文件分页和任务队列请求级冒烟
 - [x] 完成一次现有 Docker 数据卷迁移和 dev HTTP 冒烟验证：迁移前已备份 MySQL、Redis、RustFS；02–06 增量脚本执行成功，健康检查、登录、`/auth/me`、打印机分页、文件分页和任务队列均通过真实容器验证
-- [x] 完成真实 WebSocket 握手和快照冒烟验证：JWT 握手成功后收到 `SNAPSHOT`，包含 46 台打印机，`LocalDateTime` 按 ISO-8601 序列化且未泄漏敏感字段
+- [x] 完成真实 WebSocket 握手和快照冒烟验证：JWT 握手成功后收到 `SNAPSHOT`，包含 46 台打印机，`LocalDateTime` 按 ISO-8601 序列化且未泄漏敏感字段；使用已启动的本地后端完成请求级验证
 - [x] 完成真实 RustFS 文件链路冒烟验证：临时 G-code 上传、预览、预签名下载 URL、删除均成功，清理后文件记录数量恢复且未污染现有任务
 - [x] 修复文件上传响应中的 `folder=null` 契约问题：文件对象统一返回布尔值 `folder=false`，并通过 VO 测试和真实上传回归验证
 - [x] 修复打印机录入写入未冻结 `ONLINE` 状态的问题：新增、重新录入和批量扫描入库统一先写 `UNKNOWN`，等待协议探测后再进入实际状态
@@ -160,7 +160,7 @@ startPrint()
 
 - [x] 正式地址统一为 `/ws/farm-status`；必要时短期兼容 `/ws`。
 - [x] 增加连接 Token 校验。
-- [x] 增加连接上限、异常断开和清理机制；连接上限由 `farm.websocket.max-connections` 配置，服务端按 30 秒可配置间隔发送协议级 Ping，失败连接自动清理，真实容器已验证 JWT 握手和 `SNAPSHOT` 快照；真实前端已完成自动重连实现，浏览器级联调仍待真实后端运行。
+- [x] 增加连接上限、异常断开和清理机制；连接上限由 `farm.websocket.max-connections` 配置，服务端按 30 秒可配置间隔发送协议级 Ping，失败连接自动清理，已验证 JWT 握手和 `SNAPSHOT` 快照；真实前端已完成自动重连、离线/失败告警展示和客户端测试，浏览器级端到端联调仍待完成。
 - [x] 统一消息结构：
 
 ```json
@@ -367,7 +367,7 @@ startPrint()
 - [x] Mapper 测试：已增加 `PrintFileMapperTest`，在 H2 MySQL 模式下覆盖文件筛选/分页、目录权限、任务关联分页和任务计数条件；真实 MySQL 方言、索引执行计划和 Docker 数据卷仍需现场验收。
 - [x] RustFS 测试：已覆盖上传、预签名 URL、删除失败的客户端异常转换，以及文件 Service 的 URL 上限、归属和删除保护；2026-09-03 已用临时 G-code 完成真实 RustFS 容器上传、预览、预签名 URL 和删除冒烟，失败异常映射仍由单元测试覆盖。
 - [x] Redis 测试：已覆盖登录失败计数/锁定、用户禁用标记、打印机状态缓存 TTL 和状态锁竞争；真实 Redis 容器联调待现场环境。
-- [x] WebSocket 测试：已覆盖连接鉴权、快照、Java 时间字段序列化、状态推送、离线事件、失败任务事件和断开清理；真实容器已验证 JWT 握手、46 台设备快照和敏感字段过滤，前端自动重连待真实前端仓库。
+- [x] WebSocket 测试：已覆盖连接鉴权、快照、Java 时间字段序列化、状态推送、离线事件、失败任务事件和断开清理；真实容器已验证 JWT 握手、46 台设备快照和敏感字段过滤；真实前端已补充消息解析、异常重连、主动销毁、快照解析和告警测试。
 - [x] 适配器测试：Klipper 模拟响应、RRF 模拟响应、统一状态映射；RRF HTTP 会话/状态/G-code/上传 Mock 测试已补充。真实设备联调待现场环境。
 - [ ] 端到端测试：上传文件 -> 创建任务 -> 派发 -> 安全确认 -> 启动 -> 完成。
 
@@ -392,7 +392,7 @@ startPrint()
 
 ### P2.4 前端体验
 
-- [x] WebSocket 自动重连和指数退避已在 `/home/codex/workspace/farm-ui/src/utils/websocket.js` 与 `src/stores/printer/realtimeStore.js` 实现；浏览器级真实后端联调待 T8.7。
+- [x] WebSocket 自动重连和指数退避已在 `/home/codex/workspace/farm-ui/src/utils/websocket.js` 与 `src/stores/printer/realtimeStore.js` 实现；真实前端已完成离线/失败告警展示及客户端测试，浏览器级真实后端端到端联调仍待完成。
 - [ ] 设备离线、忙碌、网络错误、任务失败分别显示不同提示。
 - [ ] 删除、急停、取消打印增加二次确认。
 - [ ] 任务状态变更增加操作记录提示。

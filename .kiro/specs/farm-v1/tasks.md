@@ -299,9 +299,10 @@
 - [x] T8.6 完成任务队列、安全打印、控制、重试和状态展示。
   - 验收：真实前端已接入任务创建、队列、派发、安全确认/启动、取消、重试、重新排队和优先级调整；设备恢复/取消分别调用 `/control/{id}/resume`、`/control/{id}/cancel`，未实现的重启按钮已移除。
   - 验证：前端 `npm test` 4 项、`npm run build`、`npm run lint` 通过；真实后端账号和设备动作请求级联调仍归入 T8.7/T9.6/T10，未对 RRF 设备发送控制命令。
-- [~] T8.7 记录每个真实联调接口、请求样例、响应样例和前端文件路径。
-  - 当前进度：已记录真实前端仓库 `/home/codex/workspace/farm-ui`、API/WS 配置、接口模块路径和 RRF 只读探测证据；前端静态验证已通过。
-  - 阻塞：本机 8080 后端当前未监听，Docker socket 也不可用，尚未取得真实登录账号用于 HTTP/WebSocket 请求级联调；不伪造登录、文件或任务响应。
+- [x] T8.7 记录每个真实联调接口、请求样例、响应样例和前端文件路径。
+  - 验收：已记录真实前端仓库 `/home/codex/workspace/farm-ui`、API/WS 配置、接口模块路径，以及本机真实 Docker 依赖和后端的请求级联调证据。
+  - 真实验证（2026-09-03）：`GET /actuator/health` 返回 `UP`；`POST /api/v1/auth/login` 使用本地管理员账号返回 `200`；携带 JWT 的 `GET /api/v1/auth/me`、`GET /api/v1/printers/page?pageNum=1&pageSize=5`、`POST /api/v1/print-files/page` 和 `GET /api/v1/print-jobs/queue` 均返回 `code=200`，分别得到用户信息、46 台打印机、1 个文件和 2 个队列任务；`/ws/farm-status?token=<JWT>` 握手成功并收到 `SNAPSHOT`（46 台打印机，时间戳有效）。Token、密码和设备密钥未写入文档。
+  - 前端定位：`farm-ui/src/utils/request.js`、`src/api/user.js`、`src/api/printer.js`、`src/api/printFile.js`、`src/api/job.js`、`src/stores/printer/realtimeStore.js`。
 
 真实前端仓库已确认位于 `/home/codex/workspace/farm-ui`；后续 T8.x 在该仓库实施，后端仓库只维护接口契约和联调证据。
 
@@ -331,11 +332,12 @@
 - [x] T9.8 增加健康检查、启动依赖和生产运维说明。
   - 验收：`/actuator/health` 免认证且不公开详情；Compose 依赖、生产密钥、备份、迁移和无设备运行要求已记录在 `OPERATIONS.md`。
   - 测试：`SecurityResponseTest` 覆盖健康探针不返回 401/403（当前 36 项）；`ProductionSafetyValidatorTest` 覆盖生产必填密钥、默认密钥、CORS 和 Swagger 开关；全量 `mvn test` 通过。
-- [ ] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
+- [x] T9.9 完善 WebSocket 重连、设备离线告警和任务失败告警。
   - 后端完成：离线/恢复事件抑制与发布、失败任务 `JOB_STATUS.errorReason`、连接失败清理均已有实现和测试。
   - 本 Task 补充：服务端按 30 秒可配置间隔发送协议级 Ping 保活，发送失败清理会话；修复独立 WebSocket `ObjectMapper` 未注册 Java 时间模块导致 `SNAPSHOT` 发送失败的问题，并增加 `LocalDateTime` 回归测试；`WebSocketSecurityTest` 当前 11 项通过，业务消息仍只保留四种冻结类型。
-  - 真实容器验收：2026-09-03 使用 Node WebSocket 客户端完成 JWT 握手，收到 `SNAPSHOT`（46 台打印机，时间戳有效，无 `apiKey/rustfsKey`）；前端自动重连和告警展示仍待真实前端仓库。
-  - 待前端：自动重连和指数退避；当前仓库没有真实前端工程，不能在此完成前端文件改动。
+  - 真实容器验收：2026-09-03 使用 Node WebSocket 客户端完成 JWT 握手，收到 `SNAPSHOT`（46 台打印机，时间戳有效，无 `apiKey/rustfsKey`）；真实前端已实现自动重连和指数退避。
+  - 前端完成：`/home/codex/workspace/farm-ui/src/utils/realtimeAlerts.js` 将离线/失败事件转换为可关闭、按设备或任务去重的看板告警；`realtimeStore.js` 修复 `SNAPSHOT.data.printers` 解析并在恢复/状态变化时清理告警；`tests/websocket.test.js` 和 `tests/utils.test.js` 覆盖消息解析、异常重连、主动销毁、告警和快照结构。
+  - 限制：本 Task 完成请求级和前端自动化验收，不等同于浏览器端完整端到端流程；CORS、预签名 URL 和设备控制仍属于后续验收项。
 
 ## 10. 第一版最终验收
 

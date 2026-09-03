@@ -710,7 +710,7 @@ farm.tasks.enabled=false
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，尚待真实设备联调。
 
-RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。当前实现只覆盖已确认的官方 HTTP/G-code 边界；具体设备响应、存储路径、会话重连和宏副作用仍需真实设备确认，不能把 Mock 测试结果当作实机验收。
+RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。2026-09-03 已对 `192.168.0.62` 完成空密码和只读对象模型探测；该设备响应 `isEmulated=true`、`boardType=unknown`，且未返回 `sessionKey`，后端已兼容此类响应。控制、上传和完整打印链路仍不能视为实机验收。前端真实仓库为 `/home/codex/workspace/farm-ui`。
 
 ## 11. 前端开发优先顺序
 

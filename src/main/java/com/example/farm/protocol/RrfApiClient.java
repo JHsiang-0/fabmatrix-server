@@ -38,7 +38,7 @@ public class RrfApiClient {
     }
 
     public RrfStatusResponse getStatus(PrinterEndpoint endpoint) {
-        requirePassword(endpoint, PrinterOperation.GET_STATUS);
+        requireEndpoint(endpoint, PrinterOperation.GET_STATUS);
         Session session = connect(endpoint, PrinterOperation.GET_STATUS);
         try {
             JsonNode stateResponse = getModel(endpoint, session, "state");
@@ -74,7 +74,7 @@ public class RrfApiClient {
     }
 
     public void executeGcode(PrinterEndpoint endpoint, String gcode, PrinterOperation operation) {
-        requirePassword(endpoint, operation);
+        requireEndpoint(endpoint, operation);
         if (gcode == null || gcode.isBlank()) {
             throw failure(operation, FailureCategory.REJECTED, "RRF G-code 不能为空", null);
         }
@@ -82,7 +82,7 @@ public class RrfApiClient {
         try {
             String response = restClient.get()
                     .uri(uri(endpoint, "/rr_gcode", "gcode", gcode))
-                    .header("X-Session-Key", session.key())
+                    .headers(headers -> addSessionKey(headers, session))
                     .retrieve()
                     .body(String.class);
             if (response == null) {
@@ -99,7 +99,7 @@ public class RrfApiClient {
 
     public void uploadFile(PrinterEndpoint endpoint, Resource file, String filename, boolean startPrint) {
         PrinterOperation operation = startPrint ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE;
-        requirePassword(endpoint, operation);
+        requireEndpoint(endpoint, operation);
         if (file == null) {
             throw failure(operation, FailureCategory.REJECTED, "上传文件不能为空", null);
         }
@@ -108,7 +108,7 @@ public class RrfApiClient {
         try {
             var request = restClient.post()
                     .uri(uri(endpoint, "/rr_upload", "name", "0:/gcodes/" + safeFilename))
-                    .header("X-Session-Key", session.key())
+                    .headers(headers -> addSessionKey(headers, session))
                     .contentType(MediaType.APPLICATION_OCTET_STREAM);
             long contentLength = file.contentLength();
             if (contentLength >= 0) {
@@ -143,10 +143,10 @@ public class RrfApiClient {
                 throw failure(operation, category, "RRF 登录失败", null);
             }
             JsonNode sessionKey = root.get("sessionKey");
-            if (sessionKey == null || sessionKey.isNull() || sessionKey.asText().isBlank()) {
-                throw failure(operation, FailureCategory.PROTOCOL_ERROR, "RRF 登录响应缺少 sessionKey", null);
-            }
-            return new Session(sessionKey.asText());
+            // RRF 模拟器/兼容网关可能在 err=0 时不返回 sessionKey，并允许后续请求不带会话头。
+            // 真正启用会话的设备仍然返回并使用 X-Session-Key。
+            return new Session(sessionKey == null || sessionKey.isNull() || sessionKey.asText().isBlank()
+                    ? null : sessionKey.asText());
         } catch (PrinterProtocolException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -158,7 +158,7 @@ public class RrfApiClient {
         try {
             String response = restClient.get()
                     .uri(uri(endpoint, "/rr_model", "key", key))
-                    .header("X-Session-Key", session.key())
+                    .headers(headers -> addSessionKey(headers, session))
                     .retrieve()
                     .body(String.class);
             return parse(response, PrinterOperation.GET_STATUS, "解析 RRF 对象模型失败");
@@ -173,7 +173,7 @@ public class RrfApiClient {
         try {
             restClient.get()
                     .uri(uri(endpoint, "/rr_disconnect"))
-                    .header("X-Session-Key", session.key())
+                    .headers(headers -> addSessionKey(headers, session))
                     .retrieve()
                     .toBodilessEntity();
         } catch (Exception ignored) {
@@ -237,9 +237,15 @@ public class RrfApiClient {
                 .divide(size, 2, java.math.RoundingMode.HALF_UP);
     }
 
-    private void requirePassword(PrinterEndpoint endpoint, PrinterOperation operation) {
-        if (endpoint == null || endpoint.apiKey() == null || endpoint.apiKey().isBlank()) {
-            throw failure(operation, FailureCategory.REJECTED, "RRF 设备密码未配置", null);
+    private void requireEndpoint(PrinterEndpoint endpoint, PrinterOperation operation) {
+        if (endpoint == null || endpoint.ipAddress() == null || endpoint.ipAddress().isBlank()) {
+            throw failure(operation, FailureCategory.REJECTED, "RRF 设备地址未配置", null);
+        }
+    }
+
+    private void addSessionKey(org.springframework.http.HttpHeaders headers, Session session) {
+        if (session != null && session.key() != null && !session.key().isBlank()) {
+            headers.set("X-Session-Key", session.key());
         }
     }
 

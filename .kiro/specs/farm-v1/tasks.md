@@ -85,6 +85,10 @@
   - 目标：只实现已确认的 HTTP 调用。
   - 验收：已实现 `rr_connect` 会话、`rr_model` 状态、`rr_gcode` 控制和 `rr_upload` 文件上传；可复现协议测试通过，API_HANDOFF 已标注实机限制。
   - 测试：`RrfApiClientTest` 4 个协议测试通过；全量 `mvn test` 共 46 个通过。尚未宣称真实 RRF 3.7 设备联调完成。
+- [x] T2.4 验证真实 RRF 空密码设备并修正客户端边界。
+  - 目标：支持设备明确允许的空密码配置，同时保留会话认证和敏感信息不落日志。
+  - 验收：`192.168.0.62` 的 `rr_connect`、`state/job` 只读探测证据已登记；客户端不再无条件拒绝空密码，并兼容该设备 `err=0` 但不返回 `sessionKey` 的响应；带密码、空密码和无 sessionKey 路径均有自动化测试；控制、上传和完整打印链路仍单独验收。
+  - 测试：`RrfApiClientTest` 6 项通过；全量 `mvn test` 214 项通过，0 errors、0 failures、0 skipped。
 
 ## 3. P0 WebSocket 实时状态
 
@@ -277,7 +281,9 @@
 
 ## 8. P1 前端接入与联调
 
-- [ ] T8.1 在真实前端仓库配置 API/WS 地址和环境变量。
+- [x] T8.1 在真实前端仓库配置 API/WS 地址和环境变量。
+  - 验收：已确认真实前端仓库为 `/home/codex/workspace/farm-ui`；`vite.config.js` 提供 `VITE_API_TARGET`、`VITE_WS_TARGET`、`VITE_WS_URL` 和 `VITE_HOST`，开发代理分别覆盖 `/api` 与 `/ws`，生产模式拒绝启用 Mock。
+  - 验证：`farm-ui` 执行 `npm run build` 和 `npm run lint` 通过；当前工作区原有 `package*.json` 修改未覆盖。
 - [ ] T8.2 封装 HTTP 客户端、Bearer Token、统一响应和错误处理。
 - [ ] T8.3 完成登录、角色菜单、用户管理和个人资料。
 - [ ] T8.4 完成打印机看板、设备管理和 WebSocket 增量更新。
@@ -285,7 +291,7 @@
 - [ ] T8.6 完成任务队列、安全打印、控制、重试和状态展示。
 - [ ] T8.7 记录每个真实联调接口、请求样例、响应样例和前端文件路径。
 
-当前后端仓库没有前端工程；在找到实际前端目录前，不修改不存在的前端文件。
+真实前端仓库已确认位于 `/home/codex/workspace/farm-ui`；后续 T8.x 在该仓库实施，后端仓库只维护接口契约和联调证据。
 
 ## 9. P2 测试、迁移和运维
 

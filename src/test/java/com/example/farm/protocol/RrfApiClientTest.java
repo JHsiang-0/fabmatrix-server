@@ -74,6 +74,51 @@ class RrfApiClientTest {
     }
 
     @Test
+    void allowsEmptyPasswordWhenRrfDeviceDoesNotRequireOne() {
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("password", ""))
+                .andExpect(queryParam("sessionKey", "yes"))
+                .andRespond(withSuccess("{\"err\":0,\"sessionKey\":123}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_gcode")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("gcode", "M25"))
+                .andExpect(header("X-Session-Key", "123"))
+                .andRespond(withSuccess("{\"buff\":1024}", MediaType.APPLICATION_JSON));
+        expectDisconnect();
+
+        client.executeGcode(emptyPasswordEndpoint(), "M25", PrinterOperation.PAUSE);
+
+        server.verify();
+    }
+
+    @Test
+    void supportsSuccessfulRrfResponseWithoutSessionKey() {
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("password", ""))
+                .andRespond(withSuccess("{\"err\":0,\"isEmulated\":true}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "state"))
+                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"off\"}}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "job"))
+                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"filePosition\":0}}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_disconnect")))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("{\"err\":0}", MediaType.APPLICATION_JSON));
+
+        RrfStatusResponse response = client.getStatus(emptyPasswordEndpoint());
+
+        assertThat(response.stateStatus()).isEqualTo("off");
+        server.verify();
+    }
+
+    @Test
     void uploadsRawFileToRrfGcodesDirectory() {
         expectConnect();
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_upload")))
@@ -123,5 +168,9 @@ class RrfApiClientTest {
 
     private PrinterEndpoint endpoint() {
         return new PrinterEndpoint(403L, "192.168.1.80", "device-password", PrinterProtocolType.RRF);
+    }
+
+    private PrinterEndpoint emptyPasswordEndpoint() {
+        return new PrinterEndpoint(403L, "192.168.1.80", "", PrinterProtocolType.RRF);
     }
 }

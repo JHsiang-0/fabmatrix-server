@@ -75,7 +75,7 @@ class LocalEditionMapperTest {
                 """);
 
         Page<PrintFile> page = printFileMapper.selectFilePage(
-                new Page<>(1, 10), 7L, false, null, "Cube", "PLA");
+                new Page<>(1, 10), 7L, false, null, "Cube", "PLA", null);
 
         assertThat(page.getTotal()).isEqualTo(1);
         assertThat(page.getRecords()).singleElement()

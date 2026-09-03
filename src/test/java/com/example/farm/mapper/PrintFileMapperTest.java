@@ -154,7 +154,7 @@ class PrintFileMapperTest {
     @Test
     void operatorFilePageAppliesOwnerNameMaterialAndPagination() {
         Page<PrintFile> page = printFileMapper.selectFilePage(
-                new Page<>(1, 1), 7L, false, null, "Cube", "PLA");
+                new Page<>(1, 1), 7L, false, null, "Cube", "PLA", null);
 
         assertThat(page.getTotal()).isEqualTo(1);
         assertThat(page.getRecords()).singleElement()

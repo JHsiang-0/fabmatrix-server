@@ -56,7 +56,7 @@ class PrintFileQueryTest {
     @Test
     void normalizesFileNameAndMaterialTypeBeforeBuildingQuery() {
         mockUser(1L, "ADMIN");
-        when(printFileMapper.selectFilePage(any(), eq(1L), eq(true), isNull(), eq("cube"), eq("PLA")))
+        when(printFileMapper.selectFilePage(any(), eq(1L), eq(true), isNull(), eq("cube"), eq("PLA"), isNull()))
                 .thenReturn(new Page<>(1, 10));
 
         PrintFileQueryDTO query = new PrintFileQueryDTO();
@@ -66,13 +66,13 @@ class PrintFileQueryTest {
         printFileService.pageFiles(query);
 
         verify(printFileMapper).selectFilePage(any(Page.class), eq(1L), eq(true), isNull(),
-                eq("cube"), eq("PLA"));
+                eq("cube"), eq("PLA"), isNull());
     }
 
     @Test
     void operatorQueryAlwaysIncludesOwnerFilterAndIgnoresRequestedUserId() {
         mockUser(7L, "OPERATOR");
-        when(printFileMapper.selectFilePage(any(), eq(7L), eq(false), isNull(), isNull(), isNull()))
+        when(printFileMapper.selectFilePage(any(), eq(7L), eq(false), isNull(), isNull(), isNull(), isNull()))
                 .thenReturn(new Page<>(1, 10));
 
         PrintFileQueryDTO query = new PrintFileQueryDTO();
@@ -80,7 +80,7 @@ class PrintFileQueryTest {
 
         printFileService.pageFiles(query);
 
-        verify(printFileMapper).selectFilePage(any(Page.class), eq(7L), eq(false), isNull(), isNull(), isNull());
+        verify(printFileMapper).selectFilePage(any(Page.class), eq(7L), eq(false), isNull(), isNull(), isNull(), isNull());
     }
 
     @Test
@@ -90,7 +90,7 @@ class PrintFileQueryTest {
         file.setId(20L);
         Page<PrintFile> page = new Page<>(1, 10);
         page.setRecords(List.of(file));
-        when(printFileMapper.selectFilePage(any(), eq(1L), eq(false), isNull(), isNull(), isNull()))
+        when(printFileMapper.selectFilePage(any(), eq(1L), eq(false), isNull(), isNull(), isNull(), isNull()))
                 .thenReturn(page);
         when(printFileMapper.countPrintJobsByFileId(20L, 1L, "COMPLETED")).thenReturn(2);
         when(printFileMapper.countPrintJobsByFileId(20L, 1L, "FAILED")).thenReturn(1);

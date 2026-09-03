@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
 /**
@@ -32,4 +33,8 @@ public class PrintFileQueryDTO {
 
     @Schema(description = "上传用户ID")
     private Long userId;
+
+    @Schema(description = "父目录 ID；不传或为 null 查询根目录")
+    @Positive(message = "父目录 ID 必须为正数")
+    private Long parentId;
 }

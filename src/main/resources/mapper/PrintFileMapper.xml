@@ -21,6 +21,14 @@
             <if test="materialType != null and materialType != ''">
                 AND UPPER(material_type) = #{materialType}
             </if>
+            <choose>
+                <when test="parentId != null">
+                    AND parent_id = #{parentId}
+                </when>
+                <otherwise>
+                    AND parent_id IS NULL
+                </otherwise>
+            </choose>
         </where>
         ORDER BY created_at DESC
     </select>
@@ -44,6 +52,14 @@
             <if test="materialType != null and materialType != ''">
                 AND UPPER(material_type) = #{materialType}
             </if>
+            <choose>
+                <when test="parentId != null">
+                    AND parent_id = #{parentId}
+                </when>
+                <otherwise>
+                    AND parent_id IS NULL
+                </otherwise>
+            </choose>
         </where>
         ORDER BY created_at DESC
     </select>

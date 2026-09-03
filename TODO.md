@@ -92,7 +92,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 
 ### 批量文件上传
 
-`POST /api/v1/print-files/batch-upload`，`multipart/form-data`，字段 `files` 可重复。返回每个文件的成功/失败结果，不因单个文件失败而隐藏其他结果。
+`POST /api/v1/print-files/batch-upload`，`multipart/form-data`，字段 `files` 可重复，可选 `parentId` 指定虚拟目录。返回每个文件的成功/失败结果，不因单个文件失败而隐藏其他结果。
 
 ### 批量分配预览
 

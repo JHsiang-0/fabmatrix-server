@@ -67,10 +67,16 @@ public interface PrintFileService extends IService<PrintFile> {
      */
     PrintFile uploadAndParseFile(MultipartFile file);
 
+    /** 上传并解析文件到指定虚拟目录；parentId 为 null 时上传到根目录。 */
+    PrintFile uploadAndParseFile(MultipartFile file, Long parentId);
+
     /**
      * 批量上传并解析文件。每个文件独立处理，允许部分成功并返回逐项原因。
      */
     BatchUploadResult batchUploadFiles(List<MultipartFile> files);
+
+    /** 批量上传到指定虚拟目录，允许部分成功。 */
+    BatchUploadResult batchUploadFiles(List<MultipartFile> files, Long parentId);
 
     /**
      * 删除文件。

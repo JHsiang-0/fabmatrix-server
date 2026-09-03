@@ -212,9 +212,9 @@ POST /api/v1/auth/login
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
-| POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file` | `PrintFileVO`，不含 `rustfsKey`/`safeName`/`fileUrl` |
-| POST | `/print-files/batch-upload` | ADMIN/OPERATOR | Multipart：可重复字段 `files`，最多100个、总大小默认1GB | `BatchUploadResult`，逐项返回 fileId/status/errorCode/retryable；不自动创建设备任务 |
-| POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页和文件筛选 | `PageResult<PrintFileVO>` |
+| POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file`、`parentId?` | `PrintFileVO`，不含 `rustfsKey`/`safeName`/`fileUrl` |
+| POST | `/print-files/batch-upload` | ADMIN/OPERATOR | Multipart：可重复字段 `files`、`parentId?`，最多100个、总大小默认1GB | `BatchUploadResult`，逐项返回 fileId/status/errorCode/retryable；不自动创建设备任务 |
+| POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页、`fileName`、`materialType`、`parentId?` | `PageResult<PrintFileVO>` |
 | GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | `FileNodeVO[]` |
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` |
@@ -226,6 +226,8 @@ POST /api/v1/auth/login
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
 
 `POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员始终只能查询本人文件，管理员可通过 `userId` 查询指定用户，不传则查询全部用户。
+
+文件库目录约定：`parentId` 省略或为 `null` 表示根目录；上传和分页查询均支持该字段，指定目录必须属于当前用户（管理员可访问全部目录）。前端不要发送 `keyword`，文件名搜索字段固定为 `fileName`。
 
 `GET /print-files/folder/content` 返回指定目录的直接子节点，排序固定为目录优先、同级创建时间倒序；根目录通过省略 `parentId` 查询。
 

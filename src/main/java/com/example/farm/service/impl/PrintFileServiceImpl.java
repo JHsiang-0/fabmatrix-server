@@ -195,7 +195,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         // 使用显式 Mapper SQL，固定 fileName/materialType 到真实数据库列的映射。
         Page<PrintFile> resultPage = baseMapper.selectFilePage(
-                page, userId, admin, filterUserId, fileName, materialType);
+                page, userId, admin, filterUserId, fileName, materialType, queryDTO.getParentId());
 
         // 统计每个文件的打印次数和成功率
         if (resultPage.getRecords() != null && !resultPage.getRecords().isEmpty()) {
@@ -260,7 +260,16 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PrintFile uploadAndParseFile(MultipartFile file) {
+        return uploadAndParseFile(file, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PrintFile uploadAndParseFile(MultipartFile file, Long parentId) {
         validateUpload(file);
+        if (parentId != null) {
+            requireAccessibleFolder(parentId);
+        }
 
         Long userId = SecurityContextUtil.getCurrentUserId();
         String originalName = file.getOriginalFilename().trim();
@@ -309,6 +318,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         printFile.setFileUrl(fileUrl);
         printFile.setFileSize(file.getSize());
         printFile.setUserId(userId);
+        printFile.setParentId(parentId);
         printFile.setCreatedAt(LocalDateTime.now());
 
         printFile.setEstTime(meta.getEstimatedPrintTimeSeconds());
@@ -376,8 +386,16 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Override
     public PrintFileService.BatchUploadResult batchUploadFiles(List<MultipartFile> files) {
+        return batchUploadFiles(files, null);
+    }
+
+    @Override
+    public PrintFileService.BatchUploadResult batchUploadFiles(List<MultipartFile> files, Long parentId) {
         if (files == null || files.isEmpty()) {
             throw new BusinessException(400, "上传文件不能为空");
+        }
+        if (parentId != null) {
+            requireAccessibleFolder(parentId);
         }
 
         int maxFiles = fileUploadProperties != null && fileUploadProperties.getBatchMaxFiles() != null
@@ -408,7 +426,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 continue;
             }
             try {
-                PrintFile saved = uploadAndParseFile(file);
+                PrintFile saved = uploadAndParseFile(file, parentId);
                 result.getItems().add(new PrintFileService.BatchUploadItemResult(
                         index, saved.getId(), saved.getOriginalName(), "SUCCEEDED", null, "上传成功", false));
                 result.setSuccessCount(result.getSuccessCount() + 1);

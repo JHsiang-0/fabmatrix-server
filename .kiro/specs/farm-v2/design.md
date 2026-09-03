@@ -7,10 +7,10 @@
 ```text
 手动单任务：选择文件/打印机 → 创建任务 → 派发 → 安全确认 → 上传或启动
 用户批量操作：选择文件/打印机 → 生成预览 → 用户确认 → 逐项执行 → 返回逐项结果
-后台自动派单：定时扫描 → 生成计划 → 前端确认 → 逐项执行（默认关闭）
+v3 预留：后台自动派单（不属于 v2）
 ```
 
-三个流程共用任务、设备能力、锁、状态和错误模型。Controller 不直接判断 Klipper 或 RRF 的细节。
+v2 的两个流程共用任务、设备能力、锁、状态和错误模型。Controller 不直接判断 Klipper 或 RRF 的细节。后台自动派单暂不进入 v2 状态机。
 
 ## 2. 当前代码基线与改造原因
 
@@ -31,15 +31,15 @@ farm:
     concurrency: 10
   scheduler:
     enabled: false
-    require-confirmation: true
     interval: 10s
-    max-items-per-run: 20
+    max-items-per-run: 0
 ```
 
 兼容迁移策略：
 
 - 保留读取旧 `farm.tasks.enabled` 的过渡兼容，但新配置优先。
 - 旧开关不能让 `scheduler` 在新配置缺省时意外开启；生产环境不再使用 `matchIfMissing=true` 作为自动派单默认值。
+- v2 不暴露调度器设置 API，也不在前端显示后台派单开关；`scheduler` 仅作为关闭状态的安全隔离配置和 v3 预留。
 - `printer-ids` 为空时，`monitor` 默认不轮询，除非明确配置了“全部已启用设备”模式并记录告警。
 - 设备监控和调度器分别记录启动、停止和每轮处理摘要。
 
@@ -52,7 +52,7 @@ farm:
 ```text
 DispatchPlan
 - id
-- mode: MANUAL | USER_BATCH | BACKGROUND_AUTO
+- mode: MANUAL | USER_BATCH
 - strategy: ONE_TO_ONE | ROUND_ROBIN | AUTO_MATCH
 - action: UPLOAD_ONLY | QUEUE | START_AFTER_CONFIRM
 - status: PREVIEWED | CONFIRMED | EXECUTING | COMPLETED | PARTIAL_FAILED | EXPIRED | CANCELLED
@@ -157,9 +157,9 @@ POST /api/v1/print-jobs/batch/confirm
 
 确认接口负责校验计划、重新检查资源和原子占用，然后执行 `UPLOAD_ONLY` 或 `QUEUE`。`START_AFTER_CONFIRM` 仍要对每台设备执行安全确认；建议初版由前端继续调用现有单项 `safe/confirm` 和 `safe/start`，批量接口仅负责返回逐项任务 ID 与执行状态。
 
-### 5.5 可选自动派单设置
+### 5.5 v2 不提供后台自动派单接口
 
-建议由 ADMIN 使用以下接口管理后台能力：
+以下接口不属于 v2，不实现、不在 Swagger 和前端契约中发布，留作 v3 重新评审：
 
 ```text
 GET /api/v1/dispatch/settings
@@ -168,7 +168,7 @@ POST /api/v1/dispatch/preview
 POST /api/v1/dispatch/confirm
 ```
 
-这些接口复用 `DispatchPlan`。开关关闭时，预览可以供用户主动调用，但定时器不能执行；确认仍必须记录确认人和计划版本。是否允许管理员预先授权某种策略，需要在实现前明确写入权限测试，不能用隐式默认行为代替。
+v3 如重新启用，应复用 `DispatchPlan`，并重新确定管理员授权、前端确认、审计和执行规则。不能用隐式默认行为代替明确授权。
 
 ## 6. 批量匹配算法
 
@@ -275,4 +275,4 @@ WebSocket 使用 `/ws/farm-status`。目标消息格式：
 2. 上线单任务手动流程回归和批量上传。
 3. 上线预览/确认和逐项执行。
 4. 前端完成手动流程联调后，再以白名单设备启用监控。
-5. 最后以默认关闭状态交付后台自动派单，经过前端确认、权限和并发验收后才允许管理员打开。
+5. 后台自动派单不作为 v2 发布能力，后续另立 v3 规格；v2 只验收其不会被误启动。

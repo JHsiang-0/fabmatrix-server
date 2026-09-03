@@ -740,6 +740,8 @@ T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.monitor.enabled=f
 
 2026-09-03 现场补充：使用 `.77` 和无运动/无加热/无挤出的等待文件完成任务 6 的暂停、恢复、取消控制验证，以及任务 7 的设备端完成验证。任务 7 在 RRF 读取为 `idle`、`job.timesLeft` 为空后，Farm 任务精确收尾为 `COMPLETED`、进度 100% 并解绑。由于 `farm.monitor.enabled=false`，暂停后的 Farm 状态和完成状态没有由监控任务自然写回；临时开启监控不会自动开启 scheduler，但仍未作为最终自然同步验收环境。任务 6 取消后 RRF 对长等待命令短暂保持 `processing`，随后对 `.77` 执行 `M112`/`M999` 复位为 `idle`；该行为需要在隔离队列和监控开启后继续确认。
 
+2026-09-03 `.88` 只读监控补充：当前监控白名单切换为 Farm 打印机 ID `565`（`192.168.0.88`），协议为 RRF。后端重启后通过 `/api/v1/printers/by-ip/192.168.0.88` 读取到 `status=IDLE`，直接读取 `GET /rr_model?key=state` 返回 HTTP 200、RRF `status=idle`、`machineMode=FFF`。本次仅验证网络、协议读取和监控状态同步，没有执行上传、启动、暂停、取消或急停。
+
 数据一致性补充：2026-09-03 已对当前开发库执行一次有备份的幽灵绑定修复。发现任务 `1` 的 `printer_id=289` 不再存在，修复后任务解除打印机绑定并置为 `RECONCILING`，审计记录写入 `farm_binding_repair_audit`，残留孤儿绑定为 0。修复脚本为 `scripts/repair-ghost-bindings.sql`；它不会删除任务、自动派单或调用设备。该结果只代表当前开发库，生产库仍须先备份后单独核对。
 
 同日再次进行 8080 只读冒烟时，发现当前已有 MySQL 数据卷尚未执行 v2 的 07-10 增量迁移，导致任务队列查询因缺少 `farm_print_job.idempotency_key` 返回 500。已先生成 `/tmp/farm-before-v2-migrations-20260903.sql`，再执行 07-10 脚本；07/09/10 的表字段已核对存在，任务队列恢复 HTTP 200。10 号脚本同时修正为基于 `information_schema` 的可重复 MySQL 写法。以后新环境和已有数据卷都必须按 `OPERATIONS.md` 先备份、再执行增量迁移。

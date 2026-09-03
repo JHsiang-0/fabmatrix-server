@@ -25,6 +25,9 @@ import java.util.Locale;
 @Component
 public class RrfApiClient {
 
+    private static final int STATUS_MAX_ATTEMPTS = 2;
+    private static final long STATUS_RETRY_BACKOFF_MILLIS = 100L;
+
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
@@ -39,8 +42,27 @@ public class RrfApiClient {
 
     public RrfStatusResponse getStatus(PrinterEndpoint endpoint) {
         requireEndpoint(endpoint, PrinterOperation.GET_STATUS);
-        Session session = connect(endpoint, PrinterOperation.GET_STATUS);
+        PrinterProtocolException lastFailure = null;
+        for (int attempt = 1; attempt <= STATUS_MAX_ATTEMPTS; attempt++) {
+            try {
+                return getStatusOnce(endpoint);
+            } catch (PrinterProtocolException exception) {
+                lastFailure = exception;
+                if (attempt == STATUS_MAX_ATTEMPTS || !isTransient(exception)) {
+                    throw exception;
+                }
+                sleepBeforeStatusRetry();
+            }
+        }
+        throw lastFailure;
+    }
+
+    private RrfStatusResponse getStatusOnce(PrinterEndpoint endpoint) {
+        boolean connected = false;
+        Session session = null;
         try {
+            session = connect(endpoint, PrinterOperation.GET_STATUS);
+            connected = true;
             JsonNode stateResponse = getModel(endpoint, session, "state");
             JsonNode jobResponse = getModel(endpoint, session, "job");
 
@@ -74,7 +96,27 @@ public class RrfApiClient {
         } catch (Exception exception) {
             throw failure(PrinterOperation.GET_STATUS, classify(exception), "解析 RRF 状态失败", exception);
         } finally {
-            disconnect(endpoint, session);
+            if (connected) {
+                disconnect(endpoint, session);
+            }
+        }
+    }
+
+    /**
+     * 状态读取是幂等的，允许一次短暂重连；控制命令不复用该策略，避免网络超时后重复执行命令。
+     */
+    private boolean isTransient(PrinterProtocolException exception) {
+        return exception.getCategory() == FailureCategory.OFFLINE
+                || exception.getCategory() == FailureCategory.TIMEOUT;
+    }
+
+    private void sleepBeforeStatusRetry() {
+        try {
+            Thread.sleep(STATUS_RETRY_BACKOFF_MILLIS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw failure(PrinterOperation.GET_STATUS, FailureCategory.UNKNOWN,
+                    "RRF 状态重试被中断", exception);
         }
     }
 

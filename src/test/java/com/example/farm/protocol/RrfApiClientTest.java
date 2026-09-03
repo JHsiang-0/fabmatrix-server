@@ -8,6 +8,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
+import java.net.ConnectException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,6 +18,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
 import static org.hamcrest.Matchers.startsWith;
@@ -60,6 +62,31 @@ class RrfApiClientTest {
         assertThat(response.timesLeft()).isEqualByComparingTo("12");
         assertThat(response.lastFileCancelled()).isFalse();
         assertThat(response.lastFileAborted()).isFalse();
+        server.verify();
+    }
+
+    @Test
+    void retriesStatusAfterTransientConnectionFailure() {
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
+                .andExpect(method(GET))
+                .andRespond(withException(new ConnectException("device temporarily unavailable")));
+        expectConnect();
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "state"))
+                .andExpect(header("X-Session-Key", "123"))
+                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"idle\"}}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "job"))
+                .andExpect(header("X-Session-Key", "123"))
+                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{}}", MediaType.APPLICATION_JSON));
+        expectDisconnect();
+
+        RrfStatusResponse response = client.getStatus(endpoint());
+
+        assertThat(response.stateStatus()).isEqualTo("idle");
         server.verify();
     }
 

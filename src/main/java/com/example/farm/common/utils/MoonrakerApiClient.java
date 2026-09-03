@@ -18,6 +18,9 @@ import java.time.Duration;
 @Component
 public class MoonrakerApiClient {
 
+    private static final int STATUS_MAX_ATTEMPTS = 2;
+    private static final long STATUS_RETRY_BACKOFF_MILLIS = 100L;
+
     private final RestClient restClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -40,6 +43,20 @@ public class MoonrakerApiClient {
     // ... 下面的所有业务方法 (getPrinterStatus, emergencyStop 等) 完全保持不变 ...
 
     public MoonrakerStatusDTO getPrinterStatus(String ipAddress) {
+        for (int attempt = 1; attempt <= STATUS_MAX_ATTEMPTS; attempt++) {
+            MoonrakerStatusDTO status = getPrinterStatusOnce(ipAddress);
+            if (status != null || attempt == STATUS_MAX_ATTEMPTS) {
+                return status;
+            }
+            sleepBeforeStatusRetry();
+        }
+        return null;
+    }
+
+    /**
+     * 单次状态查询。状态查询是幂等的，允许一次短暂重连；控制命令不自动重试，避免重复执行。
+     */
+    private MoonrakerStatusDTO getPrinterStatusOnce(String ipAddress) {
         // 使用新的对象级查询 URL，获取更全面的打印机数据
         String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&extruder&heater_bed&display_status", ipAddress);
 
@@ -97,6 +114,15 @@ public class MoonrakerApiClient {
             log.debug("打印机状态探测失败: 设备IP={}，可能是连接拒绝或超时", ipAddress);
         }
         return null;
+    }
+
+    private void sleepBeforeStatusRetry() {
+        try {
+            Thread.sleep(STATUS_RETRY_BACKOFF_MILLIS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            log.debug("打印机状态重试被中断");
+        }
     }
 
     /**

@@ -742,6 +742,10 @@ T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.monitor.enabled=f
 
 2026-09-03 `.88` 只读监控补充：当前监控白名单切换为 Farm 打印机 ID `565`（`192.168.0.88`），协议为 RRF。后端重启后通过 `/api/v1/printers/by-ip/192.168.0.88` 读取到 `status=IDLE`，直接读取 `GET /rr_model?key=state` 返回 HTTP 200、RRF `status=idle`、`machineMode=FFF`。本次仅验证网络、协议读取和监控状态同步，没有执行上传、启动、暂停、取消或急停。
 
+2026-09-03 本地业务联调补充：运行中的 dev 后端完成 health、登录、`/auth/me`、打印机分页、文件分页、文件预览、任务队列和批量预览验证，均返回成功；批量预览返回 `planId/version/confirmationToken`，未创建任务、占用打印机或调用设备。临时单文件上传和批量上传各成功 1 项，随后通过文件删除接口清理，未残留本次测试文件。该记录覆盖本地存储/对象存储和批量计划的请求级链路，不代表真实设备控制验收。
+
+同日补充校验：前端 `npx eslint src --no-cache`、`npm test`（13 项）和 `npm run build` 均通过；`docker compose --env-file .env.server.example -f docker-compose.server.yml config -q` 与开发版 `docker-compose.yml config -q` 均通过。Server Edition 配置校验使用示例值，仅证明 Compose 结构和变量引用完整，不代表示例密钥可直接用于生产。
+
 数据一致性补充：2026-09-03 已对当前开发库执行一次有备份的幽灵绑定修复。发现任务 `1` 的 `printer_id=289` 不再存在，修复后任务解除打印机绑定并置为 `RECONCILING`，审计记录写入 `farm_binding_repair_audit`，残留孤儿绑定为 0。修复脚本为 `scripts/repair-ghost-bindings.sql`；它不会删除任务、自动派单或调用设备。该结果只代表当前开发库，生产库仍须先备份后单独核对。
 
 同日再次进行 8080 只读冒烟时，发现当前已有 MySQL 数据卷尚未执行 v2 的 07-10 增量迁移，导致任务队列查询因缺少 `farm_print_job.idempotency_key` 返回 500。已先生成 `/tmp/farm-before-v2-migrations-20260903.sql`，再执行 07-10 脚本；07/09/10 的表字段已核对存在，任务队列恢复 HTTP 200。10 号脚本同时修正为基于 `information_schema` 的可重复 MySQL 写法。以后新环境和已有数据卷都必须按 `OPERATIONS.md` 先备份、再执行增量迁移。

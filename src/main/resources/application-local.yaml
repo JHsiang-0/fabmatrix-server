@@ -1,0 +1,41 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:sqlite:${FARM_DATA_DIR:./data}/farm.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 1
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/migration/local-schema.sql
+
+server:
+  port: ${SERVER_PORT:8080}
+
+farm:
+  local:
+    storage-path: ${FARM_DATA_DIR:./data}/files
+  monitor:
+    enabled: ${FARM_MONITOR_ENABLED:false}
+    printer-ids: []
+  scheduler:
+    enabled: false
+    max-items-per-run: 0
+  websocket:
+    enabled: ${FARM_WEBSOCKET_ENABLED:true}
+  security:
+    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}

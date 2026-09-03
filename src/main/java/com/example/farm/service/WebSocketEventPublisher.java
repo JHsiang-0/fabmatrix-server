@@ -21,7 +21,26 @@ public class WebSocketEventPublisher {
         if (printerId == null || status == null) {
             return;
         }
-        FarmStatusMessage message = FarmStatusMessage.printerStatus(printerId, status);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("unifiedState", status.status());
+        data.put("state", status.rawState());
+        data.put("systemMessage", status.systemMessage());
+        data.put("filename", status.filename());
+        data.put("progress", status.progress());
+        data.put("toolTemperature", status.toolTemperature());
+        data.put("toolTarget", status.toolTarget());
+        data.put("bedTemperature", status.bedTemperature());
+        data.put("bedTarget", status.bedTarget());
+        data.put("printDuration", status.printDuration());
+        data.put("totalDuration", status.totalDuration());
+        data.put("filamentUsed", status.filamentUsed());
+        data.put("filePosition", status.filePosition());
+        data.put("fileSize", status.fileSize());
+        data.put("timesLeft", status.timesLeft());
+        data.put("lastFileCancelled", status.lastFileCancelled());
+        data.put("lastFileAborted", status.lastFileAborted());
+        data.put("stateSource", "DEVICE_POLL");
+        FarmStatusMessage message = FarmStatusMessage.printerStatus(printerId, data);
         publishAfterCommit(() -> broadcastPrinterStatus(message));
     }
 
@@ -41,6 +60,7 @@ public class WebSocketEventPublisher {
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("jobId", job.getId());
+        data.put("currentJobId", job.getId());
         data.put("status", job.getStatus());
         data.put("progress", job.getProgress());
         data.put("errorReason", job.getErrorReason());

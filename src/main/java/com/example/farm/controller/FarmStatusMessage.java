@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.util.Locale;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Farm WebSocket 对外消息契约。
@@ -16,6 +18,8 @@ import java.util.Locale;
 public record FarmStatusMessage(
         String version,
         String type,
+        String eventId,
+        long sequence,
         Long printerId,
         long timestamp,
         Object data
@@ -26,10 +30,17 @@ public record FarmStatusMessage(
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private static final AtomicLong SEQUENCE = new AtomicLong();
 
     public FarmStatusMessage {
         version = version == null || version.isBlank() ? CURRENT_VERSION : version.trim();
         type = normalizeType(type);
+        if (eventId == null || eventId.isBlank()) {
+            throw new IllegalArgumentException("WebSocket eventId 不能为空");
+        }
+        if (sequence <= 0) {
+            throw new IllegalArgumentException("WebSocket sequence 必须为正数");
+        }
         if (timestamp <= 0) {
             throw new IllegalArgumentException("WebSocket timestamp 必须为正数");
         }
@@ -48,7 +59,7 @@ public record FarmStatusMessage(
 
     /** 兼容现有服务端调用方的构造函数，统一补充契约版本。 */
     public FarmStatusMessage(String type, Long printerId, long timestamp, Object data) {
-        this(CURRENT_VERSION, type, printerId, timestamp, data);
+        this(CURRENT_VERSION, type, UUID.randomUUID().toString(), nextSequence(), printerId, timestamp, data);
     }
 
     public static FarmStatusMessage printerStatus(Long printerId, Object data) {
@@ -69,6 +80,10 @@ public record FarmStatusMessage(
     public static FarmStatusMessage snapshot(Object data) {
         return new FarmStatusMessage(FarmStatusMessageType.SNAPSHOT.name(), null,
                 System.currentTimeMillis(), data);
+    }
+
+    private static long nextSequence() {
+        return SEQUENCE.updateAndGet(previous -> previous == Long.MAX_VALUE ? 1 : previous + 1);
     }
 
     private static String normalizeType(String value) {

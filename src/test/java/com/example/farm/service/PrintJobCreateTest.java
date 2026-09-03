@@ -94,6 +94,43 @@ class PrintJobCreateTest {
     }
 
     @Test
+    void returnsExistingJobForRepeatedCreateWithSameIdempotencyKey() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        AtomicReference<PrintJob> created = stubInsert(false);
+        when(printJobMapper.selectByIdempotencyKey(1L, "client-001"))
+                .thenAnswer(invocation -> created.get());
+
+        PrintJobCreateDTO request = request(null);
+        request.setIdempotencyKey(" client-001 ");
+
+        Long first = printJobService.createJob(request);
+        Long repeated = printJobService.createJob(request);
+
+        assertThat(repeated).isEqualTo(first);
+        verify(printJobMapper).insert(any(PrintJob.class));
+    }
+
+    @Test
+    void rejectsReuseOfIdempotencyKeyForDifferentPayload() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        AtomicReference<PrintJob> created = stubInsert(false);
+        when(printJobMapper.selectByIdempotencyKey(1L, "client-002"))
+                .thenAnswer(invocation -> created.get());
+
+        PrintJobCreateDTO first = request(null);
+        first.setIdempotencyKey("client-002");
+        printJobService.createJob(first);
+
+        PrintJobCreateDTO different = request(null);
+        different.setFileId(21L);
+        different.setIdempotencyKey("client-002");
+        assertThatThrownBy(() -> printJobService.createJob(different))
+                .extracting("code").isEqualTo(409L);
+    }
+
+    @Test
     void specifiedIdlePrinterReceivesAssignedJobWithoutStartingIt() {
         mockUser(1L, "OPERATOR");
         when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
@@ -103,7 +140,7 @@ class PrintJobCreateTest {
         printer.setName("Printer-403");
         printer.setStatus("IDLE");
         when(printerService.getById(403L)).thenReturn(printer);
-        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+        when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(true);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
 
         Long jobId = printJobService.createJob(request(403L));
@@ -126,11 +163,11 @@ class PrintJobCreateTest {
         printer.setName("Printer-403");
         printer.setStatus("IDLE");
         when(printerService.getById(403L)).thenReturn(printer);
-        when(printerService.updateById(any(Printer.class))).thenReturn(false);
+        when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(false);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
 
         assertThatThrownBy(() -> printJobService.createJob(request(403L)))
-                .hasMessage("派发任务失败：打印机状态保存失败");
+                .hasMessage("打印机已被其他请求占用或状态已变化");
 
         assertThat(created.get().getStatus()).isEqualTo("ASSIGNED");
         verify(eventPublisher, never()).publishJobStatus(any());
@@ -148,8 +185,8 @@ class PrintJobCreateTest {
         printer.setStatus("IDLE");
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(true);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
-        when(printerService.updateById(any(Printer.class))).thenReturn(true);
 
         assertThat(printJobService.assignQueuedJob(1001L, 403L)).isTrue();
 
@@ -160,7 +197,7 @@ class PrintJobCreateTest {
         assertThat(printer.getIsSafeToPrint()).isFalse();
         var order = inOrder(printJobMapper, printerService, eventPublisher);
         order.verify(printJobMapper).updateById(job);
-        order.verify(printerService).updateById(printer);
+        order.verify(printerService).bindJobIfIdle(403L, 1001L);
         order.verify(eventPublisher).publishJobStatus(job);
     }
 
@@ -193,8 +230,8 @@ class PrintJobCreateTest {
         printer.setStatus("IDLE");
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(false);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
-        when(printerService.updateById(any(Printer.class))).thenReturn(false);
 
         assertThatThrownBy(() -> printJobService.assignQueuedJob(1001L, 403L))
                 .hasMessage("自动派发任务失败：打印机状态保存失败");

@@ -64,7 +64,7 @@ tasks.md
 - 当前设备协议实现为 Klipper/Moonraker
 - 目标设备协议为 Klipper/Moonraker 与 RRF 3.7
 - v1 Server Edition 使用 Docker Compose 编排 Farm、MySQL、Redis、RustFS
-- v2 Local Edition 规划使用 SQLite 与 Windows 本地文件存储，不依赖 Docker
+- v2 Local Edition 已具备 SQLite、本地文件存储和进程内缓存/锁的基础 profile；完整 Windows 发布包和备份恢复仍待验收
 - 开发环境默认端口 `8080`
 - 开发环境默认关闭定时监控任务，避免没有真实打印机时持续报错
 
@@ -103,7 +103,7 @@ tasks.md
 2. 完成登录权限、打印机看板、文件库、任务队列和安全打印页面；
 3. 完成 WebSocket 自动重连、离线/失败告警和真实接口联调记录。
 
-当前仓库没有前端工程，不在此创建虚假的前端路径或实现记录。
+实际前端工程位于 `/home/codex/workspace/farm-ui`；当前前端已有单任务基础页面、批量上传/预览/确认页面和 WebSocket 序号断档恢复，单任务安全流程完整串联及浏览器端真实端到端仍待验收。
 
 ### P2 体验项
 
@@ -116,7 +116,7 @@ WebSocket 重连展示、确认弹窗、上传取消/重试、操作提示、空
 - 打印机协议类型只使用 `KLIPPER`、`RRF`；未知协议不得回退到 Klipper。
 - Controller 不直接调用具体设备协议客户端。
 - 不把 API Key、JWT、密码、RustFS key 或数据库密钥写入响应、WebSocket 或日志。
-- 没有真实打印机时保持 `farm.tasks.enabled=false`，使用 Mock/Stub 做自动化测试。
+- 没有真实打印机时保持 `farm.monitor.enabled=false` 和 `farm.scheduler.enabled=false`，使用 Mock/Stub 做自动化测试。
 - 不使用 `docker compose down -v`，不重建或删除已有 Docker 数据卷。
 - 数据库变更必须提供作用范围、备份要求和可回滚 SQL。
 - 每个 Task 完成后必须测试、更新任务状态、同步接口文档并创建本地提交。

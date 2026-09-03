@@ -88,12 +88,12 @@ public enum PrintJobStatus {
             case "QUEUED" -> target.equals("ASSIGNED") || target.equals("CANCELLED");
             case "ASSIGNED" -> target.equals("UPLOADING") || target.equals("READY") || target.equals("PRINTING")
                     || target.equals("QUEUED")
-                    || target.equals("CANCELLED");
+                    || target.equals("CANCELLED") || target.equals("RECONCILING");
             case "UPLOADING" -> target.equals("READY") || target.equals("PRINTING")
                     || target.equals("FAILED") || target.equals("CANCELLED")
                     || target.equals("RECONCILING");
-            case "READY" -> target.equals("PRINTING") || target.equals("QUEUED")
-                    || target.equals("CANCELLED");
+            case "READY" -> target.equals("UPLOADING") || target.equals("PRINTING")
+                    || target.equals("QUEUED") || target.equals("CANCELLED") || target.equals("RECONCILING");
             case "PRINTING" -> target.equals("PAUSED") || target.equals("COMPLETED")
                     || target.equals("FAILED") || target.equals("CANCELLED")
                     || target.equals("RECONCILING");

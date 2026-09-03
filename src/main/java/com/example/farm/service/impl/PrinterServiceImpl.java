@@ -315,6 +315,20 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         return false;
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean bindJobIfIdle(Long printerId, Long jobId) {
+        if (printerId == null || jobId == null) {
+            return false;
+        }
+        int affected = baseMapper.bindJobIfIdle(printerId, jobId);
+        if (affected > 0) {
+            printerCacheService.refreshPrinterCache();
+            return true;
+        }
+        return false;
+    }
+
     // ==================== 扫描与批量操作 ====================
 
     /**

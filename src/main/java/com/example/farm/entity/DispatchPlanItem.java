@@ -17,6 +17,8 @@ public class DispatchPlanItem {
     private Long fileId;
     private Long printerId;
     private Long jobId;
+    /** 预览时资源关键字段的摘要，确认时用于发现设备或文件已变化。 */
+    private String resourceFingerprint;
     private String status;
     private String reasonCode;
     private String message;

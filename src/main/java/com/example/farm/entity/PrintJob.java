@@ -58,6 +58,10 @@ public class PrintJob implements Serializable {
     @Schema(description = "发起任务的用户 ID")
     private Long userId;
 
+    /** 客户端创建请求幂等键；同一用户下重复键返回首次创建的任务。 */
+    @TableField("idempotency_key")
+    private String idempotencyKey;
+
     /**
      * 现场操作员 ID（确认安全、启动打印时记录）
      */

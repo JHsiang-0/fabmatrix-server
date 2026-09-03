@@ -73,6 +73,9 @@ public interface PrintJobService extends IService<PrintJob> {
      */
     Long createJob(PrintJobCreateDTO req, Long userId);
 
+    /** 带客户端幂等键创建任务。 */
+    Long createJob(PrintJobCreateDTO req, Long userId, String idempotencyKey);
+
     /**
      * 派发任务并启动打印。
      *

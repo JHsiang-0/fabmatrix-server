@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -26,4 +27,8 @@ public class PrintJobCreateDTO {
     @Schema(description = "可选目标打印机 ID；传入后只派发不直接启动")
     @Positive(message = "打印机 ID 必须为正数")
     private Long printerId;
+
+    @Schema(description = "客户端幂等键；同一用户重复提交时返回首次任务")
+    @Size(max = 100, message = "幂等键长度不能超过100")
+    private String idempotencyKey;
 }

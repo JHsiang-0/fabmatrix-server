@@ -5,11 +5,15 @@ import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import org.apache.ibatis.reflection.MetaObject;
+import org.apache.ibatis.mapping.DatabaseIdProvider;
+import org.apache.ibatis.mapping.VendorDatabaseIdProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.Properties;
 
 /**
  * MyBatis-Plus 统一配置类 (包含分页插件与时间自动填充)
@@ -18,13 +22,27 @@ import java.time.LocalDateTime;
 public class MybatisPlusConfig {
 
     /**
+     * 让自定义 Mapper SQL 可以按 MySQL/SQLite 选择方言；没有专用分支的 H2 测试继续使用默认语句。
+     */
+    @Bean
+    public DatabaseIdProvider databaseIdProvider() {
+        VendorDatabaseIdProvider provider = new VendorDatabaseIdProvider();
+        Properties properties = new Properties();
+        properties.setProperty("MySQL", "mysql");
+        properties.setProperty("SQLite", "sqlite");
+        provider.setProperties(properties);
+        return provider;
+    }
+
+    /**
      * 1. 注册分页插件
      */
     @Bean
-    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+    public MybatisPlusInterceptor mybatisPlusInterceptor(Environment environment) {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // 指定数据库类型为 MySQL
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        DbType dbType = environment.acceptsProfiles(org.springframework.core.env.Profiles.of("local"))
+                ? DbType.SQLITE : DbType.MYSQL;
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(dbType));
         return interceptor;
     }
 

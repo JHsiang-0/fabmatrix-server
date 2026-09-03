@@ -89,6 +89,9 @@ public interface PrintFileService extends IService<PrintFile> {
      */
     org.springframework.core.io.InputStreamResource downloadFile(Long id);
 
+    /** Local Edition 受保护的内部文件流入口，按安全 key 再次执行当前用户归属校验。 */
+    org.springframework.core.io.InputStreamResource downloadBySafeName(String safeName);
+
     /**
      * 批量删除文件。
      *

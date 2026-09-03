@@ -12,9 +12,11 @@ v3 预留：后台自动派单（不属于 v2）
 
 v2 的两个流程共用任务、设备能力、锁、状态和错误模型。Controller 不直接判断 Klipper 或 RRF 的细节。后台自动派单暂不进入 v2 状态机。
 
+Local Edition 与 Server Edition 共用以上业务接口。Local profile 通过 `FileStorage` 切换到本地文件目录、通过进程内缓存/锁替代 Redis，并由 MyBatis `DatabaseIdProvider` 为 SQLite 的筛选、统计、搜索和 Upsert SQL 选择专用方言；Server Edition 继续使用 MySQL、Redis 和 RustFS。
+
 ## 2. 当前代码基线与改造原因
 
-当前实现中的 `PrinterMonitorTask` 和 `JobSchedulerTask` 都由 `farm.tasks.enabled` 控制，导致监控和调度无法独立启停；`JobSchedulerTask` 还按 `QUEUED` 扫描，而当前创建任务主要是 `PENDING`。此外，监控从 Redis 的打印机全量缓存读取可变的任务绑定，任务绑定变化后存在读取旧值的风险。
+历史实现中的 `PrinterMonitorTask` 和 `JobSchedulerTask` 曾都由 `farm.tasks.enabled` 控制，导致监控和调度无法独立启停；v2 已拆分为两个独立开关，且创建任务与调度扫描统一使用 `QUEUED`。监控从 Redis 的打印机全量缓存读取可变的任务绑定也已改为每台设备处理前读取数据库最新值。
 
 RRF 适配器已经具备基础 HTTP/命令能力，但当前状态解析主要依赖 `state.status`、文件位置和大小；RRF 的 `idle` 既可能是未打印，也可能是刚结束、取消或急停后的状态，不能直接映射为任务完成。因此 v2 先稳定状态和边界，再实现批量功能。
 
@@ -87,7 +89,23 @@ DispatchPlanItem
 
 RRF 目标状态至少保留 `idle`、`processing`、`paused`、`pausing`、`halted`，并保存 `fileName`、`fileSize`、`filePosition`、`timesLeft`、`lastFileCancelled`、`lastFileAborted`、查询时间和原始响应摘要。`idle` 只有在完成证据或取消/急停已确认时才能结束任务，否则进入 `RECONCILING` 或保持中间态。
 
-## 5. API 设计
+## 5. 状态迁移执行表
+
+| 迁移 | 发起者 | 前置条件 | 数据库变化 | 设备动作 | 失败恢复 |
+|---|---|---|---|---|---|
+| `QUEUED -> ASSIGNED` | 用户安全派发/兼容调度入口 | 任务可见且为 `QUEUED`；打印机 `IDLE` 且无绑定 | 任务写入 `printer_id/status`，打印机通过条件更新写入 `current_job_id/status=PREPARING` | 无 | 任一写入失败事务回滚；占用条件失败返回 409 |
+| `ASSIGNED -> READY` | 用户调用安全启动接口 `UPLOAD_ONLY` | 当前用户/操作者有效，任务已绑定，设备可访问 | 任务写入 `READY`，安全标记清除 | 上传文件，不启动 | 设备失败保持已派发状态；数据库失败事务回滚并记录错误 |
+| `ASSIGNED -> PRINTING` | 用户安全确认后启动 | `is_safe_to_print=true`，任务和设备绑定 | 任务写入 `PRINTING/operator_id/started_at`，打印机写入 `PRINTING` 并清除安全标记 | 上传并启动 | 设备调用失败不伪造打印中；状态保存失败回滚数据库，需人工核对设备 |
+| `PRINTING -> PAUSED` | 用户暂停或设备观测 | 任务处于打印中 | 任务/打印机写入暂停状态 | 暂停命令（设备观测路径不发送命令） | 命令或写库失败返回错误，保持可重试 |
+| `PAUSED -> PRINTING` | 用户恢复或设备观测 | 任务绑定且状态允许 | 任务/打印机写入打印中 | 恢复命令（设备观测路径不发送命令） | 失败不发布成功事件 |
+| 执行态 `-> COMPLETED` | 设备监控 | `complete` 或 idle 且有 100%/文件位置完成证据 | 先解绑打印机，再写任务完成时间/进度 | 无 | 解绑失败保留绑定，下一轮重试；不发布完成事件 |
+| 执行态 `-> CANCELLED` | 用户取消/设备明确取消 | 状态允许；设备绑定时先成功取消 | 设备解绑后写任务取消 | 取消命令或设备明确取消 | 设备调用失败不伪造取消；解绑失败回滚并重试 |
+| 执行态 `-> RECONCILING` | 监控 idle/halted/急停 | 无法确认完成或取消 | 保留绑定，任务进入人工核对，设备急停时打印机为 `ERROR` | 急停命令后必须重新查询 | 人工核对后完成、失败、取消或重新排队；不自动释放设备 |
+| `FAILED -> QUEUED` | 用户重试 | 任务为失败且用户有权访问 | 清除设备/执行字段并重新入队 | 不调用设备 | 重试请求可安全重复校验状态 |
+
+状态同步原则：设备命令的 HTTP 成功只代表“请求发送成功”，不代表物理动作或最终任务状态成功；最终状态由数据库写入和后续监控证据共同决定。
+
+## 6. API 设计
 
 ### 5.1 已有接口的兼容原则
 
@@ -157,6 +175,8 @@ POST /api/v1/print-jobs/batch/confirm
 
 确认接口负责校验计划、重新检查资源和原子占用，然后执行 `UPLOAD_ONLY` 或 `QUEUE`。`START_AFTER_CONFIRM` 仍要对每台设备执行安全确认；建议初版由前端继续调用现有单项 `safe/confirm` 和 `safe/start`，批量接口仅负责返回逐项任务 ID 与执行状态。
 
+计划确认先通过 `UPDATE ... WHERE status='PREVIEWED'` 原子把计划认领为 `EXECUTING`，只有认领成功的请求可以创建任务；失败请求读取已持久化结果并作为重复确认返回。每个明细确认前重新读取文件和打印机，并比较预览时保存的资源摘要。
+
 ### 5.5 v2 不提供后台自动派单接口
 
 以下接口不属于 v2，不实现、不在 Swagger 和前端契约中发布，留作 v3 重新评审：
@@ -170,7 +190,7 @@ POST /api/v1/dispatch/confirm
 
 v3 如重新启用，应复用 `DispatchPlan`，并重新确定管理员授权、前端确认、审计和执行规则。不能用隐式默认行为代替明确授权。
 
-## 6. 批量匹配算法
+## 7. 批量匹配算法
 
 1. 校验文件列表、打印机列表、用户权限、文件状态和协议能力。
 2. 读取数据库中最新的任务绑定、设备状态和占用版本。
@@ -182,13 +202,13 @@ v3 如重新启用，应复用 `DispatchPlan`，并重新确定管理员授权�
 5. 确认时使用数据库条件更新或乐观锁原子占用打印机，再创建任务；失败项释放本次未成功占用并返回逐项结果。
 6. 重复确认根据 `planId + version` 返回第一次结果，不重复调用设备上传或启动。
 
-## 7. 监控设计
+## 8. 监控设计
 
 `PrinterMonitorTask` 只处理 `monitor.printer-ids` 中的设备；每轮先获得数据库最新绑定，再调用对应协议适配器。Redis 只作为加速缓存，不作为任务绑定的唯一事实来源。设备查询失败更新健康信息和错误摘要，采用逐设备隔离与有限重试。
 
 监控只负责“观测和同步”，不负责创建用户未确认的任务，不负责把普通 `PENDING` 任务变成已派发。`JobSchedulerTask` 只在 `scheduler.enabled=true` 时工作，并且必须明确处理的状态集合，不能继续依赖 `PENDING/QUEUED` 的历史不一致。
 
-## 8. 协议适配设计
+## 9. 协议适配设计
 
 统一接口建议包括：
 
@@ -205,7 +225,7 @@ boolean isReachable(Printer printer);
 
 `MoonrakerAdapter` 和 `RrfAdapter` 各自负责原始 HTTP/命令、超时、错误转换和状态解析。服务层只依赖统一结果，并根据 `observedState` 和 `commandResult` 更新 Farm 状态。RRF 急停后必须重新查询/重连确认，不能仅以 `M112` HTTP 返回成功作为任务完成。
 
-## 9. 安全与权限
+## 10. 安全与权限
 
 - `/batch/preview`、`/batch/confirm` 和设置接口必须走 JWT；设置接口仅 ADMIN，业务批量操作按 ADMIN/OPERATOR 规则校验。
 - 服务层从当前登录用户取得操作者，不信任请求体中的 `operatorId`。
@@ -213,16 +233,17 @@ boolean isReachable(Printer printer);
 - 执行日志记录 `planId`、`itemId`、用户、设备、文件、动作和结果，不记录令牌原文。
 - 上传目录、RustFS、数据库和 Redis 的敏感配置只从环境变量/配置注入，不写入文档示例中的真实密钥。
 
-## 10. WebSocket 与前端协作
+## 11. WebSocket 与前端协作
 
 WebSocket 使用 `/ws/farm-status`。目标消息格式：
 
 ```json
 {
-  "version": 1,
-  "eventType": "PRINTER_STATUS_CHANGED",
+  "version": "1",
+  "type": "PRINTER_STATUS",
   "eventId": "evt-uuid",
-  "occurredAt": "2026-09-03T10:20:30.123+08:00",
+  "sequence": 42,
+  "timestamp": 1756866030123,
   "printerId": 564,
   "jobId": 7,
   "data": {
@@ -236,7 +257,7 @@ WebSocket 使用 `/ws/farm-status`。目标消息格式：
 
 前端收到事件后更新局部状态；连接建立、断线重连或事件版本不连续时，重新请求 REST 页面快照。批量执行使用 REST 返回的逐项结果，WebSocket 只补充设备/任务状态变化。
 
-## 11. 数据库与发布策略
+## 12. 数据库与发布策略
 
 ### 11.1 当前数据库的适用范围
 
@@ -254,11 +275,11 @@ WebSocket 使用 `/ws/farm-status`。目标消息格式：
 
 第一阶段根据实际代码和现有数据增加以下能力：
 
-1. `farm_print_job` 增加 `version`、`idempotency_key`、期望动作/状态、最后设备命令结果和状态来源字段；原有文件参数继续作为任务快照保留。
+1. 当前 v2 先为 `farm_print_job` 增加可空 `idempotency_key` 及 `(user_id,idempotency_key)` 唯一索引；任务状态和设备观测字段暂通过现有字段及 `RECONCILING` 表达。只有后续验收证明需要，才增量加入更细的期望动作/命令结果字段。
 2. `farm_printer` 增加 `state_version`、`last_seen_at`、`last_raw_state`/错误摘要和状态来源字段；Redis 只做缓存。
 3. 增加 `farm_dispatch_plan`、`farm_dispatch_plan_item`，保存批量预览内容、版本、确认摘要、过期时间、逐项执行状态和重试次数。
 4. 增加 `farm_job_event` 或等价操作事件表，记录状态迁移和设备动作，满足重启恢复、审计和问题定位。
-5. 派发确认时在事务内锁定打印机行（或使用后续新增的唯一活动绑定表），检查活动任务，再更新任务和打印机投影；不能依赖 Redis 锁单独保证数据库一致性。
+5. 派发确认时由 Redis 锁减少跨客户端竞争，并在事务内使用 `current_job_id IS NULL AND status='IDLE'` 条件更新锁定打印机行，再更新任务投影；不能依赖 Redis 锁单独保证数据库一致性。
 
 如果后续并发量或状态复杂度证明 `current_job_id` 双写难以维护，再增加 `farm_printer_job_binding` 作为唯一活动绑定事实来源，保留旧字段作为过渡投影，完成数据校验后再下线旧字段。这个升级不需要删除历史打印任务。
 
@@ -269,7 +290,7 @@ WebSocket 使用 `/ws/farm-status`。目标消息格式：
 - 不删除 `farm_print_job` 历史记录，不用重建数据卷解决结构问题，不执行 `docker compose down -v`。
 - 每次迁移同时更新实体、Mapper、Service、测试数据和 `API_HANDOFF.md`。
 
-## 12. v2 双部署形态
+## 13. v2 双部署形态
 
 ### 12.1 v1 Server Edition
 

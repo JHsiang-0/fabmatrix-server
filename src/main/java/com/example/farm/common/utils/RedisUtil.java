@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -18,12 +20,14 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
+@Profile("!local")
 public class RedisUtil {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
 
-    public RedisUtil(RedisTemplate<String, String> redisTemplate, ObjectMapper objectMapper) {
+    public RedisUtil(RedisTemplate<String, String> redisTemplate,
+                     @Qualifier("redisObjectMapper") ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
     }

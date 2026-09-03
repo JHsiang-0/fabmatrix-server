@@ -236,8 +236,8 @@ POST /api/v1/auth/login
 | GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | `PrintJobVO[]` |
 | POST | `/print-jobs/page` | ADMIN/OPERATOR | JSON：分页、状态、打印机、时间 | `PageResult<PrintJobVO>` |
 | GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | `PrintJobVO` |
-| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID |
-| POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID（兼容，deprecated） |
+| POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?,idempotencyKey?` | 新任务 ID；同一用户同一幂等键重复请求返回原任务 |
+| POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority,printerId?,idempotencyKey?` | 新任务 ID（兼容，deprecated） |
 | DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务（Service 统一校验、设备控制和解绑） |
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | 失败任务重新入队 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | 已派发任务重新入队 |
@@ -246,8 +246,8 @@ POST /api/v1/auth/login
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
-| POST | `/print-jobs/batch/preview` | ADMIN/OPERATOR | v2 计划接口，当前未实现 | 待 T9 完成；预览无副作用 |
-| POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | v2 计划接口，当前未实现 | 待 T10 完成；确认后逐项创建任务 |
+| POST | `/print-jobs/batch/preview` | ADMIN/OPERATOR | `fileIds,printerIds,strategy,action` | `DispatchPlanPreviewVO`；预览无副作用 |
+| POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | `planId,version,itemIds,confirmationToken` | `BatchDispatchConfirmVO`；逐项创建任务并返回结果 |
 
 ### 4.4 设备控制
 
@@ -262,6 +262,7 @@ POST /api/v1/auth/login
 
 - 打印机名称最多100个字符；IP 必须为 IPv4；MAC 支持冒号或连字符格式；固件类型只能是 `KLIPPER` 或 `RRF`（大小写兼容）；网格范围为行 `1-4`、列 `1-12`。
 - 创建任务的 `fileId` 必须为正数，`priority` 范围为 `0-100`。
+- 创建任务的 `idempotencyKey` 可选，最大 100 个字符；同一用户同一键必须对应相同的文件、打印机和优先级，否则返回 HTTP 409、业务码 `409`。
 - 用户名和邮箱可用性检查的 Query 参数不能为空或只包含空格，否则返回 HTTP 400、业务码 `400`。
 - 派发、确认安全、启动任务的 ID 必须为正数；`action` 只能是 `START_PRINT` 或 `UPLOAD_ONLY`。`operatorId` 仍兼容接收，但后端忽略其值并使用 JWT 当前用户。
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
@@ -488,6 +489,7 @@ ASSIGNED    已分配打印机，等待安全确认/启动
 READY       文件已上传到设备，等待开始
 PRINTING    打印中
 PAUSED      已暂停
+RECONCILING 设备结果未知，等待人工核对
 COMPLETED   已完成
 FAILED      失败
 CANCELLED   已取消
@@ -504,7 +506,7 @@ FAILED -> QUEUED（重试）
 ```
 
 废弃状态：`PENDING`、`PREPARING` 作为任务状态、`CANCELED`。`PREPARING` 只可用于打印机状态。
-设备上报取消时允许 `PRINTING -> CANCELLED`；用户通过当前任务删除接口取消打印中的任务仍返回 HTTP 422。
+设备上报取消时允许 `PRINTING -> CANCELLED`；设备上报急停或 idle 但没有终态证据时进入 `RECONCILING`，保留打印机绑定；用户通过当前任务删除接口取消打印中的任务仍返回 HTTP 422。
 
 已有 Docker 数据卷不会自动执行新增 SQL。升级已有数据库前请先备份，然后手动执行：
 
@@ -512,6 +514,9 @@ FAILED -> QUEUED（重试）
 mysql -u root -p farm < src/main/resources/db/migration/04-normalize-print-job-status.sql
 mysql -u root -p farm < src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
 mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-history.sql
+mysql -u root -p farm < src/main/resources/db/migration/07-v2-dispatch-plan.sql
+mysql -u root -p farm < src/main/resources/db/migration/08-v2-atomic-printer-binding.sql
+mysql -u root -p farm < src/main/resources/db/migration/09-v2-print-job-idempotency.sql
 ```
 
 `02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
@@ -581,7 +586,7 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 
 ### 7.2 消息格式
 
-当前消息版本固定为 `version=1`；前端应先按 `version` 分支解析，未知版本应保留 REST 快照兜底。
+当前消息版本固定为 `version=1`；前端应先按 `version` 分支解析，未知版本应保留 REST 快照兜底。每条业务消息还带唯一 `eventId` 和单进程递增 `sequence`；重连后不能依赖 sequence 连续，必须重新请求 REST 快照。前端在已连接期间发现 sequence 断档时，也应重新请求打印机 REST 快照恢复当前状态，不能伪造缺失事件。
 
 统一使用：
 
@@ -589,6 +594,8 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 {
   "version": "1",
   "type": "PRINTER_STATUS",
+  "eventId": "evt-uuid",
+  "sequence": 42,
   "printerId": 403,
   "timestamp": 1756790000000,
   "data": {
@@ -607,6 +614,8 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 }
 ```
 
+服务端当前实际发送的顶层字段为 `version`、`type`、`eventId`、`sequence`、`printerId`、`timestamp`、`data`；`eventId` 每条消息唯一，`sequence` 为单进程递增值。客户端重连或发现版本/序列不连续时，应重新请求 REST 快照。
+
 消息类型冻结为：
 
 ```text
@@ -616,7 +625,7 @@ PRINTER_OFFLINE   打印机离线
 JOB_STATUS        任务状态变化
 ```
 
-当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。此前独立 WebSocket 序列化器未注册 Java 时间模块的问题已修复，2026-09-03 真实容器验证 JWT 握手后能收到包含 46 台打印机的 `SNAPSHOT`，`LocalDateTime` 使用 ISO-8601 且无敏感字段；前端已完成自动重连、告警展示和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
+当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。此前独立 WebSocket 序列化器未注册 Java 时间模块的问题已修复，2026-09-03 真实容器验证 JWT 握手后能收到包含 46 台打印机的 `SNAPSHOT`，`LocalDateTime` 使用 ISO-8601 且无敏感字段；前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
 
 ## 8. 打印机协议适配约定
 
@@ -677,9 +686,17 @@ src/main/resources/db/migration/03-remove-customer-role.sql
 src/main/resources/db/migration/04-normalize-print-job-status.sql
 src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
 src/main/resources/db/migration/06-add-printer-status-history.sql
+src/main/resources/db/migration/07-v2-dispatch-plan.sql
+src/main/resources/db/migration/08-v2-atomic-printer-binding.sql
+src/main/resources/db/migration/09-v2-print-job-idempotency.sql
+src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql
 ```
 
 已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。2026-09-03 已在当前开发 Docker 数据卷完成一次备份后迁移：记录数量保持为用户 2、打印机 46、文件 1、任务 3；旧任务状态 `MANUAL` 已规范为 `QUEUED`，旧协议值 `Klipper` 已规范为 `KLIPPER`，新增字段和 `farm_printer_status_history` 已核对存在。该记录不代表生产环境已迁移，生产仍须按 `OPERATIONS.md` 执行并保留备份。
+
+### 9.2.1 Local Edition
+
+使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
 
 ### 9.3 测试环境
 
@@ -705,28 +722,29 @@ mvn test
 | 任务队列 | `GET /api/v1/print-jobs/queue` | HTTP 200，返回 2 个队列任务 |
 | 实时状态 | `WS /ws/farm-status?token=<JWT>` | 握手成功，收到 `type=SNAPSHOT`，包含 46 台打印机和有效时间戳 |
 
-前端对应文件：`/home/codex/workspace/farm-ui/src/utils/request.js` 负责 Token 和统一响应处理；`src/api/user.js`、`src/api/printer.js`、`src/api/printFile.js`、`src/api/job.js` 负责 REST；`src/stores/printer/realtimeStore.js` 负责 `/ws/farm-status` 的连接、快照和增量消息。
+前端对应文件：`/home/codex/workspace/farm-ui/src/utils/request.js` 负责 Token 和统一响应处理；`src/api/user.js`、`src/api/printer.js`、`src/api/printFile.js`、`src/api/job.js` 负责 REST；`src/views/BatchDispatch.vue` 负责用户确认的批量上传/预览/派发；`src/stores/printer/realtimeStore.js` 负责 `/ws/farm-status` 的连接、快照、增量消息和断档恢复。
 
 本次验证是健康、认证、查询和 WebSocket 握手冒烟，不包含 RRF 控制、文件上传到打印机、启动打印、暂停、急停或完整打印完成链路。
 
 ### 9.3.2 第一版只读验收补充（2026-09-03）
 
-在同一管理员会话中，REST 打印机分页返回 `total=46`，随后通过前端 Vite 代理（本次实际端口 `5174`）连接 WebSocket，`SNAPSHOT.data.printers` 返回 46 条，数量一致；首条快照设备状态为 `OFFLINE`，且未包含 `apiKey`。管理员用户列表中已有 `OPERATOR` 账号；任务分页返回 3 条任务。该结果支持 T10.3、T10.6、T10.8、T10.9 和 T10.10 的代码/请求级验收；由于开发环境关闭监控任务且未操作真实设备，不宣称自然状态增量和完整打印链路已完成。
+在同一管理员会话中，REST 打印机分页返回 `total=46`，随后通过前端 Vite 代理（本次实际端口 `5174`）连接 WebSocket，`SNAPSHOT.data.printers` 返回 46 条，数量一致；首条快照设备状态为 `OFFLINE`，且未包含 `apiKey`。管理员用户列表中已有 `OPERATOR` 账号；任务分页返回 3 条任务。前端批量派发页面已完成构建，sequence 处理和断档恢复纯函数测试通过；该结果支持 T10.3、T10.6、T10.8、T10.9 和 T10.10 的代码/请求级验收；由于开发环境关闭监控任务且未操作真实设备，不宣称自然状态增量和完整打印链路已完成。
 
 T10.1 补充验收：2026-09-03 使用真实管理员会话调用 `/auth/admin/users` 创建、更新、禁用、启用接口均返回 HTTP 200；创建的临时操作员记录 ID `3` 在验收结束时再次禁用，未修改既有账号，密码未写入文档或日志。
 
 真实 RRF 目标 `192.168.0.77` 已由管理员登记为设备 ID `564`、协议 `RRF`、空密码。2026-09-03 仅对该 IP 验证了 `M25/M24/M0/M112`、Farm 上传的无动作探针文件和 `M32` 启动请求，均返回成功；Farm 后端暂停/急停返回 200，无任务时恢复/取消返回 422。探针任务后设备返回 `state.status=idle` 并记录 `lastFileName` 和完成位置；`M112` 后通过 `M999` 复位成功。设备仍返回 `isEmulated=true`、`boardType=unknown`，所以生产任务的运动、加热和宏副作用仍待现场验收。此前 `192.168.0.62` 的 ID `563` 仅为误输入产生的历史测试记录，不作为真实目标。
 
-T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.tasks.enabled=false`，已完成无动作探针和控制接口的响应级验证，但尚未完成真实打印中的自然完成、暂停、恢复、取消及 WebSocket 状态链路。后续需要用户确认一份可安全执行的真实 G-code，并在打印机现场观察运动/加热、暂停恢复取消和急停复位结果；Codex 不能仅凭 HTTP `200` 判定设备物理动作成功。
+T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，已完成无动作探针和控制接口的响应级验证，但尚未完成真实打印中的自然完成、暂停、恢复、取消及 WebSocket 状态链路。后续需要用户确认一份可安全执行的真实 G-code，并在打印机现场观察运动/加热、暂停恢复取消和急停复位结果；Codex 不能仅凭 HTTP `200` 判定设备物理动作成功。
 
-2026-09-03 现场补充：使用 `.77` 和无运动/无加热/无挤出的等待文件完成任务 6 的暂停、恢复、取消控制验证，以及任务 7 的设备端完成验证。任务 7 在 RRF 读取为 `idle`、`job.timesLeft` 为空后，Farm 任务精确收尾为 `COMPLETED`、进度 100% 并解绑。由于 `farm.tasks.enabled=false`，暂停后的 Farm 状态和完成状态没有由监控任务自然写回；临时开启监控会同时启用自动调度，可能处理其他历史队列任务，因此未作为最终自然同步验收环境。任务 6 取消后 RRF 对长等待命令短暂保持 `processing`，随后对 `.77` 执行 `M112`/`M999` 复位为 `idle`；该行为需要在隔离队列和监控开启后继续确认。
+2026-09-03 现场补充：使用 `.77` 和无运动/无加热/无挤出的等待文件完成任务 6 的暂停、恢复、取消控制验证，以及任务 7 的设备端完成验证。任务 7 在 RRF 读取为 `idle`、`job.timesLeft` 为空后，Farm 任务精确收尾为 `COMPLETED`、进度 100% 并解绑。由于 `farm.monitor.enabled=false`，暂停后的 Farm 状态和完成状态没有由监控任务自然写回；临时开启监控不会自动开启 scheduler，但仍未作为最终自然同步验收环境。任务 6 取消后 RRF 对长等待命令短暂保持 `processing`，随后对 `.77` 执行 `M112`/`M999` 复位为 `idle`；该行为需要在隔离队列和监控开启后继续确认。
 
 ### 9.4 真实打印机
 
 开发环境默认关闭：
 
 ```yaml
-farm.tasks.enabled=false
+farm.monitor.enabled=false
+farm.scheduler.enabled=false
 ```
 
 没有真实打印机时不要打开监控任务，否则会持续访问不存在的设备。当前 Moonraker 模拟接口只在 `dev/test` Profile 加载，不代表完整 Klipper 或 RRF 模拟器。
@@ -747,7 +765,7 @@ farm.tasks.enabled=false
 8. 返回 VO，禁止直接暴露 `apiKey` 和 `rustfsKey`。
 9. 文件分页已支持名称、材质筛选。
 10. 新建文件夹已正确设置用户归属并校验父目录。
-11. WebSocket 已完成握手鉴权、四类 `type` 消息、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；2026-09-03 已在真实启动的本地后端完成 JWT 握手和 `SNAPSHOT` 请求级验证，前端已完成告警展示和客户端测试，浏览器端完整端到端仍待联调。
+11. WebSocket 已完成握手鉴权、四类 `type` 消息、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；2026-09-03 已在真实启动的本地后端完成 JWT 握手和 `SNAPSHOT` 请求级验证，前端已完成告警展示、序号断档恢复和客户端测试，浏览器端完整端到端仍待联调。
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，并已在真实目标 `192.168.0.77` 完成控制、上传、Farm 安全任务和启动请求的响应级验证；完整生产任务物理链路仍待现场验收。
 

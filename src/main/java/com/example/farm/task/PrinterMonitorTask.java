@@ -258,8 +258,14 @@ public class PrinterMonitorTask {
 
         PrintJob job = printJobService.getById(jobId);
         if (job == null) {
-            log.warn("同步任务状态失败：任务不存在，jobId={}", jobId);
-            return false;
+            log.error("发现幽灵绑定：打印机绑定的任务不存在，保留绑定并标记设备 ERROR: printerId={}, jobId={}",
+                    printer.getId(), jobId);
+            return true;
+        }
+        if (!java.util.Objects.equals(job.getPrinterId(), printer.getId())) {
+            log.error("发现幽灵绑定：任务反向绑定不一致，保留绑定并标记设备 ERROR: printerId={}, jobId={}, jobPrinterId={}",
+                    printer.getId(), jobId, job.getPrinterId());
+            return true;
         }
 
         String state = normalizeRawState(status.rawState());
@@ -344,19 +350,27 @@ public class PrinterMonitorTask {
                 break;
 
             case "standby", "ready", "idle":
-                // 设备空闲不等于任务完成。对仍处于执行态的 Farm 任务进入人工核对，
-                // 保留绑定以阻止误派单，等待用户重新查询后决定完成、取消或重试。
-                String normalizedJobStatus = PrintJobStatus.normalize(job.getStatus());
-                if (PrintJobStatus.PRINTING.name().equals(normalizedJobStatus)
-                        || PrintJobStatus.PAUSED.name().equals(normalizedJobStatus)
-                        || PrintJobStatus.UPLOADING.name().equals(normalizedJobStatus)) {
-                    if (transitionFromDevice(job, PrintJobStatus.RECONCILING)) {
-                        job.setStatus(PrintJobStatus.RECONCILING.name());
-                        job.setErrorReason("设备已返回空闲，无法确认任务终态，请人工核对");
-                        jobChanged = true;
-                        requiresReconciliation = true;
-                    }
+                // RRF 的 idle/standby 可能表示尚未开始，也可能表示刚完成、取消或中止。
+                // 只有设备提供了明确证据才结束 Farm 任务，否则保留绑定并进入人工核对。
+                if (Boolean.TRUE.equals(status.lastFileCancelled())) {
+                    jobChanged = finishJobFromDevice(printer, job, PrintJobStatus.CANCELLED,
+                            "设备报告最近一次文件已取消");
+                } else if (Boolean.TRUE.equals(status.lastFileAborted())) {
+                    jobChanged = finishJobFromDevice(printer, job, PrintJobStatus.FAILED,
+                            "设备报告最近一次文件已中止");
+                } else if (hasCompletionEvidence(status)) {
+                    jobChanged = finishJobFromDevice(printer, job, PrintJobStatus.COMPLETED, null);
+                } else {
+                    requiresReconciliation = reconcileIdleJob(job);
+                    jobChanged = requiresReconciliation;
                 }
+                break;
+
+            case "halted":
+                // 急停/故障后的设备状态不能自动视为完成；保留绑定，等待人工确认和后续处理。
+                requiresReconciliation = reconcileIdleJob(job,
+                        "设备处于 halted 状态，任务结果需要人工确认");
+                jobChanged = requiresReconciliation;
                 break;
 
             default:
@@ -370,6 +384,57 @@ public class PrinterMonitorTask {
             }
         }
         return requiresReconciliation;
+    }
+
+    private boolean hasCompletionEvidence(PrinterDeviceStatus status) {
+        if (status.progress() != null && status.progress().compareTo(BigDecimal.valueOf(100)) >= 0) {
+            return true;
+        }
+        if (status.filePosition() != null && status.fileSize() != null
+                && status.fileSize().signum() > 0
+                && status.filePosition().compareTo(status.fileSize()) >= 0) {
+            return true;
+        }
+        return status.timesLeft() != null && status.timesLeft().signum() == 0
+                && status.filePosition() != null && status.filePosition().signum() > 0;
+    }
+
+    private boolean finishJobFromDevice(Printer printer, PrintJob job,
+                                        PrintJobStatus target, String errorReason) {
+        if (!transitionFromDevice(job, target)) {
+            return false;
+        }
+        job.setStatus(target.name());
+        if (target == PrintJobStatus.COMPLETED) {
+            job.setProgress(BigDecimal.valueOf(100));
+        }
+        job.setCompletedAt(LocalDateTime.now());
+        job.setErrorReason(errorReason);
+        if (!unbindPrinter(printer)) {
+            return false;
+        }
+        log.info("设备终态同步完成，已解绑机器: jobId={}, printerId={}, status={}",
+                job.getId(), printer.getId(), target);
+        return true;
+    }
+
+    private boolean reconcileIdleJob(PrintJob job) {
+        return reconcileIdleJob(job, "设备已返回空闲，无法确认任务终态，请人工核对");
+    }
+
+    private boolean reconcileIdleJob(PrintJob job, String reason) {
+        String normalizedJobStatus = PrintJobStatus.normalize(job.getStatus());
+        if (PrintJobStatus.PRINTING.name().equals(normalizedJobStatus)
+                || PrintJobStatus.PAUSED.name().equals(normalizedJobStatus)
+                || PrintJobStatus.UPLOADING.name().equals(normalizedJobStatus)
+                || PrintJobStatus.READY.name().equals(normalizedJobStatus)) {
+            if (transitionFromDevice(job, PrintJobStatus.RECONCILING)) {
+                job.setStatus(PrintJobStatus.RECONCILING.name());
+                job.setErrorReason(reason);
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean transitionFromDevice(PrintJob job, PrintJobStatus targetStatus) {

@@ -151,6 +151,7 @@ class PrinterMonitorAdapterTest {
         printer.setCurrentJobId(1001L);
         PrintJob job = new PrintJob();
         job.setId(1001L);
+        job.setPrinterId(403L);
         job.setStatus("PRINTING");
         when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
         when(printerService.getById(403L)).thenReturn(printer);
@@ -188,6 +189,7 @@ class PrinterMonitorAdapterTest {
         latestPrinter.setStatus("PRINTING");
         PrintJob job = new PrintJob();
         job.setId(1001L);
+        job.setPrinterId(403L);
         job.setStatus("PRINTING");
 
         when(printerService.listByIds(anyList())).thenReturn(List.of(listedPrinter));
@@ -210,6 +212,7 @@ class PrinterMonitorAdapterTest {
         printer.setStatus("PRINTING");
         PrintJob job = new PrintJob();
         job.setId(1001L);
+        job.setPrinterId(403L);
         job.setStatus("PRINTING");
 
         when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
@@ -226,6 +229,58 @@ class PrinterMonitorAdapterTest {
         verify(printJobService, timeout(1000)).updateById(job);
         assertThat(job.getStatus()).isEqualTo("RECONCILING");
         verify(printerService, never()).clearJobBinding(403L, 1001L);
+    }
+
+    @Test
+    void completesIdleRrfJobOnlyWithCompletionEvidence() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        printer.setStatus("PRINTING");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PRINTING");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(
+                PrinterStatus.IDLE, "idle", null, "demo.gcode", BigDecimal.valueOf(100),
+                null, null, null, null, null, null, null,
+                BigDecimal.valueOf(1000), BigDecimal.valueOf(1000), BigDecimal.ZERO,
+                false, false));
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printerService.clearJobBinding(403L, 1001L)).thenReturn(true);
+        when(printJobService.updateById(any(PrintJob.class))).thenReturn(true);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printerService, timeout(1000)).clearJobBinding(403L, 1001L);
+        verify(printJobService, timeout(1000)).updateById(job);
+        assertThat(job.getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void keepsGhostBindingAndMarksPrinterForReconciliation() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(9999L);
+        printer.setStatus("PRINTING");
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(idleStatus());
+        when(printJobService.getById(9999L)).thenReturn(null);
+        when(printerCacheService.updatePrinterStatusWithLock(any(Printer.class))).thenReturn(true);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printerCacheService, timeout(1000)).updatePrinterStatusWithLock(any(Printer.class));
+        verify(printerService, never()).clearJobBinding(any(), any());
+        assertThat(printer.getCurrentJobId()).isEqualTo(9999L);
     }
 
     private Printer printer(String firmwareType) {

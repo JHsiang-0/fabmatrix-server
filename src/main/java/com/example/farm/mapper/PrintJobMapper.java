@@ -20,6 +20,9 @@ import java.time.LocalDateTime;
 @Mapper
 public interface PrintJobMapper extends BaseMapper<PrintJob> {
 
+    PrintJob selectByIdempotencyKey(@Param("userId") Long userId,
+                                    @Param("idempotencyKey") String idempotencyKey);
+
     /**
      * 按文件分页查询任务，权限条件在 SQL 层固定。
      */

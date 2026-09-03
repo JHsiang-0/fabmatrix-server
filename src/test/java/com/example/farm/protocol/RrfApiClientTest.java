@@ -46,7 +46,7 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(queryParam("key", "job"))
                 .andExpect(header("X-Session-Key", "123"))
-                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"file\":{\"fileName\":\"demo.gcode\",\"size\":1000},\"filePosition\":425}}",
+                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"file\":{\"fileName\":\"demo.gcode\",\"size\":1000},\"filePosition\":425,\"timesLeft\":12,\"lastFileCancelled\":false,\"lastFileAborted\":false}}",
                         MediaType.APPLICATION_JSON));
         expectDisconnect();
 
@@ -55,6 +55,11 @@ class RrfApiClientTest {
         assertThat(response.stateStatus()).isEqualTo("processing");
         assertThat(response.filename()).isEqualTo("demo.gcode");
         assertThat(response.progress()).isEqualByComparingTo("42.50");
+        assertThat(response.filePosition()).isEqualByComparingTo("425");
+        assertThat(response.fileSize()).isEqualByComparingTo("1000");
+        assertThat(response.timesLeft()).isEqualByComparingTo("12");
+        assertThat(response.lastFileCancelled()).isFalse();
+        assertThat(response.lastFileAborted()).isFalse();
         server.verify();
     }
 

@@ -2,47 +2,64 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.PrinterMapper">
 
-    <!-- 根据 MAC 地址查询打印机 -->
     <select id="selectByMacAddress" resultType="com.example.farm.entity.Printer">
         SELECT * FROM farm_printer WHERE mac_address = #{macAddress} LIMIT 1
     </select>
 
-    <!-- 根据 IP 地址查询打印机 -->
     <select id="selectByIpAddress" resultType="com.example.farm.entity.Printer">
         SELECT * FROM farm_printer WHERE ip_address = #{ipAddress} LIMIT 1
     </select>
 
-    <!-- 释放被占用的 IP 地址（将对应设备的 IP 设为 NULL，状态设为 OFFLINE） -->
     <update id="releaseIpAddress">
         UPDATE farm_printer
         SET ip_address = NULL,
             status = 'OFFLINE',
-            updated_at = NOW()
+            updated_at = CURRENT_TIMESTAMP
         WHERE ip_address = #{ipAddress}
           AND (mac_address IS NULL OR mac_address != #{excludeMac})
     </update>
 
-    <!-- 基于 MAC 地址的 Upsert 操作：存在则更新，不存在则插入 -->
+    <!-- MySQL Server Edition -->
     <insert id="upsertByMacAddress">
         INSERT INTO farm_printer (
             name, ip_address, mac_address, firmware_type, api_key, status,
             current_material, nozzle_size, machine_number, grid_row, grid_col,
             created_at, updated_at
         ) VALUES (
-                    #{name}, #{ipAddress}, #{macAddress}, #{firmwareType}, #{apiKey}, #{status},
-                    #{currentMaterial}, #{nozzleSize}, #{machineNumber}, #{gridRow}, #{gridCol},
-                    NOW(), NOW()
-                )
-            ON DUPLICATE KEY UPDATE
-                                 ip_address = VALUES(ip_address),
-                                 status = VALUES(status),
-                                 firmware_type = VALUES(firmware_type),
-                                 api_key = VALUES(api_key),
-                                 machine_number = VALUES(machine_number),
-                                 updated_at = NOW()
+            #{name}, #{ipAddress}, #{macAddress}, #{firmwareType}, #{apiKey}, #{status},
+            #{currentMaterial}, #{nozzleSize}, #{machineNumber}, #{gridRow}, #{gridCol},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON DUPLICATE KEY UPDATE
+            ip_address = VALUES(ip_address),
+            status = VALUES(status),
+            firmware_type = VALUES(firmware_type),
+            api_key = VALUES(api_key),
+            machine_number = VALUES(machine_number),
+            updated_at = CURRENT_TIMESTAMP
     </insert>
 
-    <!-- 批量 Upsert 操作 -->
+    <!-- SQLite Local Edition -->
+    <insert id="upsertByMacAddress" databaseId="sqlite">
+        INSERT INTO farm_printer (
+            name, ip_address, mac_address, firmware_type, api_key, status,
+            current_material, nozzle_size, machine_number, grid_row, grid_col,
+            created_at, updated_at
+        ) VALUES (
+            #{name}, #{ipAddress}, #{macAddress}, #{firmwareType}, #{apiKey}, #{status},
+            #{currentMaterial}, #{nozzleSize}, #{machineNumber}, #{gridRow}, #{gridCol},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT(mac_address) DO UPDATE SET
+            ip_address = excluded.ip_address,
+            status = excluded.status,
+            firmware_type = excluded.firmware_type,
+            api_key = excluded.api_key,
+            machine_number = excluded.machine_number,
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <!-- MySQL Server Edition -->
     <insert id="batchUpsert">
         INSERT INTO farm_printer (
             name, ip_address, mac_address, firmware_type, api_key, status,
@@ -53,28 +70,48 @@
             (
             #{item.name}, #{item.ipAddress}, #{item.macAddress}, #{item.firmwareType}, #{item.apiKey}, #{item.status},
             #{item.currentMaterial}, #{item.nozzleSize}, #{item.machineNumber}, #{item.gridRow}, #{item.gridCol},
-            NOW(), NOW()
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
         </foreach>
         ON DUPLICATE KEY UPDATE
-        ip_address = VALUES(ip_address),
-        status = VALUES(status),
-        firmware_type = VALUES(firmware_type),
-        api_key = VALUES(api_key),
-        machine_number = VALUES(machine_number),
-        updated_at = NOW()
+            ip_address = VALUES(ip_address),
+            status = VALUES(status),
+            firmware_type = VALUES(firmware_type),
+            api_key = VALUES(api_key),
+            machine_number = VALUES(machine_number),
+            updated_at = CURRENT_TIMESTAMP
     </insert>
 
-    <!-- 更新打印机的 IP 和状态（用于 DHCP 重新分配后的设备上线） -->
+    <insert id="batchUpsert" databaseId="sqlite">
+        INSERT INTO farm_printer (
+            name, ip_address, mac_address, firmware_type, api_key, status,
+            current_material, nozzle_size, machine_number, grid_row, grid_col,
+            created_at, updated_at
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.name}, #{item.ipAddress}, #{item.macAddress}, #{item.firmwareType}, #{item.apiKey}, #{item.status},
+            #{item.currentMaterial}, #{item.nozzleSize}, #{item.machineNumber}, #{item.gridRow}, #{item.gridCol},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        </foreach>
+        ON CONFLICT(mac_address) DO UPDATE SET
+            ip_address = excluded.ip_address,
+            status = excluded.status,
+            firmware_type = excluded.firmware_type,
+            api_key = excluded.api_key,
+            machine_number = excluded.machine_number,
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
     <update id="updateIpAndStatusByMac">
         UPDATE farm_printer
         SET ip_address = #{ipAddress},
             status = #{status},
-            updated_at = NOW()
+            updated_at = CURRENT_TIMESTAMP
         WHERE mac_address = #{macAddress}
     </update>
 
-    <!-- 统计当前数据库中的 MAC 地址数量 -->
     <select id="countByMacAddresses" resultType="java.lang.Long">
         SELECT COUNT(*) FROM farm_printer
         WHERE mac_address IN
@@ -83,43 +120,56 @@
         </foreach>
     </select>
 
-    <!-- 【新增】更新打印机物理位置坐标（用于数字孪生看板拖拽） -->
     <update id="updatePrinterPosition">
         UPDATE farm_printer
         SET grid_row = #{gridRow},
             grid_col = #{gridCol},
-            updated_at = NOW()
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
-    <!-- 清理指定任务绑定；显式写 NULL，避免 MyBatis-Plus 忽略空字段 -->
     <update id="clearJobBinding">
         UPDATE farm_printer
         SET current_job_id = NULL,
             is_safe_to_print = FALSE,
             status = 'IDLE',
-            updated_at = NOW()
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = #{printerId}
           AND current_job_id = #{jobId}
     </update>
 
-    <!-- 【新增】查询所有未分配位置的打印机（用于数字孪生看板空槽位绑定下拉列表） -->
+    <update id="bindJobIfIdle">
+        UPDATE farm_printer
+        SET current_job_id = #{jobId},
+            is_safe_to_print = FALSE,
+            status = 'PREPARING',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{printerId}
+          AND current_job_id IS NULL
+          AND status = 'IDLE'
+    </update>
+
     <select id="selectUnallocatedPrinters" resultType="com.example.farm.entity.vo.PrinterVO">
-        SELECT
-            id,
-            name,
-            machine_number AS machineNumber,
-            ip_address AS ipAddress,
-            mac_address AS macAddress,
-            status
+        SELECT id, name, machine_number AS machineNumber,
+               ip_address AS ipAddress, mac_address AS macAddress, status
         FROM farm_printer
-        WHERE grid_row IS NULL
-          AND grid_col IS NULL
+        WHERE grid_row IS NULL AND grid_col IS NULL
         <if test="keyword != null and keyword != ''">
-            AND (
-                name LIKE CONCAT('%', #{keyword}, '%')
-                OR machine_number LIKE CONCAT('%', #{keyword}, '%')
-            )
+            AND (name LIKE CONCAT('%', #{keyword}, '%')
+                 OR machine_number LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectUnallocatedPrinters" databaseId="sqlite"
+            resultType="com.example.farm.entity.vo.PrinterVO">
+        SELECT id, name, machine_number AS machineNumber,
+               ip_address AS ipAddress, mac_address AS macAddress, status
+        FROM farm_printer
+        WHERE grid_row IS NULL AND grid_col IS NULL
+        <if test="keyword != null and keyword != ''">
+            AND (name LIKE '%' || #{keyword} || '%'
+                 OR machine_number LIKE '%' || #{keyword} || '%')
         </if>
         ORDER BY created_at DESC
     </select>

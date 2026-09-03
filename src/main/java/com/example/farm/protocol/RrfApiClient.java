@@ -62,7 +62,12 @@ public class RrfApiClient {
                     null,
                     decimal(job, "duration"),
                     decimal(file, "printTime"),
-                    decimal(job, "rawExtrusion")
+                    decimal(job, "rawExtrusion"),
+                    filePosition(job),
+                    fileSize,
+                    decimal(job, "timesLeft"),
+                    booleanValue(job, "lastFileCancelled"),
+                    booleanValue(job, "lastFileAborted")
             );
         } catch (PrinterProtocolException exception) {
             throw exception;
@@ -243,6 +248,15 @@ public class RrfApiClient {
         }
         return position.multiply(BigDecimal.valueOf(100))
                 .divide(size, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal filePosition(JsonNode job) {
+        return decimal(job, "filePosition");
+    }
+
+    private Boolean booleanValue(JsonNode parent, String field) {
+        JsonNode value = parent.path(field);
+        return value.isMissingNode() || value.isNull() ? null : value.asBoolean();
     }
 
     private void requireEndpoint(PrinterEndpoint endpoint, PrinterOperation operation) {

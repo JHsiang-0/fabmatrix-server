@@ -41,6 +41,9 @@ class PrintFileMapperTest {
     private PrintJobMapper printJobMapper;
 
     @Autowired
+    private PrinterMapper printerMapper;
+
+    @Autowired
     private PrintFileService printFileService;
 
     @BeforeEach
@@ -91,6 +94,21 @@ class PrintFileMapperTest {
                     est_time INT,
                     material_type VARCHAR(20),
                     nozzle_size DECIMAL(3, 2)
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE farm_printer (
+                    id BIGINT PRIMARY KEY,
+                    name VARCHAR(50) NOT NULL,
+                    ip_address VARCHAR(50),
+                    mac_address VARCHAR(50),
+                    firmware_type VARCHAR(20) NOT NULL,
+                    api_key VARCHAR(255),
+                    status VARCHAR(20) NOT NULL,
+                    is_safe_to_print BOOLEAN NOT NULL DEFAULT FALSE,
+                    current_job_id BIGINT,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
                 )
                 """);
 
@@ -167,6 +185,16 @@ class PrintFileMapperTest {
     }
 
     @Test
+    void printerBindingUpdateIsAtomicAndRejectsSecondJob() {
+        jdbcTemplate.update("INSERT INTO farm_printer (id, name, firmware_type, status, current_job_id) VALUES (1, 'P1', 'RRF', 'IDLE', NULL)");
+
+        assertThat(printerMapper.bindJobIfIdle(1L, 101L)).isEqualTo(1);
+        assertThat(printerMapper.bindJobIfIdle(1L, 102L)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT current_job_id FROM farm_printer WHERE id=1", Long.class))
+                .isEqualTo(101L);
+    }
+
+    @Test
     void printJobCountSupportsUserAndStatusFilters() {
         assertThat(printFileMapper.countPrintJobsByFileId(1L, null, null)).isEqualTo(2);
         assertThat(printFileMapper.countPrintJobsByFileId(1L, 7L, null)).isEqualTo(1);
@@ -184,6 +212,7 @@ class PrintFileMapperTest {
     }
 
     private void dropTables() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS farm_printer");
         jdbcTemplate.execute("DROP TABLE IF EXISTS farm_print_job");
         jdbcTemplate.execute("DROP TABLE IF EXISTS farm_print_file");
     }

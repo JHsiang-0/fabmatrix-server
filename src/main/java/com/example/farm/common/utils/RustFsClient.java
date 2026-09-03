@@ -1,9 +1,11 @@
 package com.example.farm.common.utils;
 
 import com.example.farm.common.exception.StorageException;
+import com.example.farm.common.storage.FileStorage;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -29,7 +31,8 @@ import java.util.UUID;
 
 @Slf4j
 @Component
-public class RustFsClient {
+@Profile("!local")
+public class RustFsClient implements FileStorage {
 
     @Value("${rustfs.endpoint}")
     private String endpoint;

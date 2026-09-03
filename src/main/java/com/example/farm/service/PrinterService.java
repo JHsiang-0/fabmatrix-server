@@ -61,6 +61,9 @@ public interface PrinterService extends IService<Printer> {
      */
     boolean clearJobBinding(Long printerId, Long jobId);
 
+    /** 以数据库条件更新原子绑定空闲打印机。 */
+    boolean bindJobIfIdle(Long printerId, Long jobId);
+
     /**
      * 【重构】扫描网段内的 Klipper/RRF 设备，返回带 MAC 地址的详细信息。
      * <p>扫描过程中会识别协议并尝试获取每个设备的 MAC 地址，用于后续 Upsert 操作。</p>

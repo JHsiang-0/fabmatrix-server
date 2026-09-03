@@ -104,6 +104,9 @@ public interface PrinterMapper extends BaseMapper<Printer> {
      */
     int clearJobBinding(@Param("printerId") Long printerId, @Param("jobId") Long jobId);
 
+    /** 仅在打印机仍为空闲且未绑定任务时建立占用关系，避免先查后写的竞态。 */
+    int bindJobIfIdle(@Param("printerId") Long printerId, @Param("jobId") Long jobId);
+
     /**
      * 【新增】查询所有未分配位置的打印机
      * <p>用于数字孪生看板的空槽位绑定下拉列表</p>

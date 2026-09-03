@@ -5,7 +5,7 @@
 1. 启动基础设施：`docker compose up -d`。
 2. 检查 MySQL、Redis、RustFS：`docker compose ps`。
 3. 等待 Compose 中 MySQL 和 Redis 的 `healthy` 状态，再启动应用：`mvn spring-boot:run`。
-4. 无真实打印机时保持 `farm.tasks.enabled=false`；有真实设备并确认协议配置后再启用监控任务。
+4. 无真实打印机时保持 `farm.monitor.enabled=false` 和 `farm.scheduler.enabled=false`；有真实设备并确认协议配置后再启用监控任务。
 
 应用默认使用 `dev` profile，HTTP 端口为 `8080`。健康探针为 `GET /actuator/health`，只返回整体状态，不公开依赖详情；`info` 端点需要登录。
 
@@ -22,9 +22,22 @@ docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 docker compose --env-file .env.server -f docker-compose.server.yml ps
 ```
 
-正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_TASKS_ENABLED` 默认是 `false`；确认真实打印机白名单和协议后，再单独启用监控。当前 v1 的监控/调度仍共用旧开关，后台调度不要在正式环境误开启。
+正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机白名单和协议后，只按需启用监控，后台调度不要在 v2 误开启。
 
-正式发布前必须固定并验证 RustFS 镜像版本；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。
+正式发布前必须固定并验证 RustFS 镜像版本；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本目前按 02 至 10 的编号顺序执行。
+
+## v2 Local Edition（Windows/单机）
+
+Local Edition 使用 SQLite 和本地文件目录，不需要启动 Docker、MySQL、Redis 或 RustFS：
+
+```bash
+mvn clean package -DskipTests
+java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server.port=8080
+```
+
+默认数据目录为 `./data`，其中 `farm.db` 是 SQLite 数据库，`files` 保存 G-code 和缩略图。可用 `FARM_DATA_DIR=D:/FarmData` 指定 Windows 数据根目录。当前 Local Edition 已验证应用启动、`/actuator/health` 探活以及关键 SQLite Mapper/本地文件读写；Windows 安装程序、备份恢复向导和正式发布验收仍未完成。
+
+Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份必须同时保存 `farm.db` 和 `files` 目录，示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataDir D:/FarmData`；恢复时先停止 Farm，再整体替换这两个路径并重新启动。不要只恢复数据库而遗漏文件目录。
 
 ## 生产启动前检查
 
@@ -35,7 +48,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml ps
 - `JWT_SECRET_KEY` 和 `ADMIN_SECRET_KEY` 已更换且妥善保存；
 - `MYSQL_PASSWORD`、`REDIS_PASSWORD`、`RUSTFS_ACCESS_KEY`、`RUSTFS_SECRET_KEY` 已配置；
 - `farm.security.cors-allowed-origins` 只包含实际客户端来源；
-- `farm.tasks.enabled` 仅在设备网络和协议适配器已验证后开启；
+  - `farm.monitor.enabled` 仅在设备网络和协议适配器已验证后开启；`farm.scheduler.enabled` 在 v2 保持关闭；
 - 上传目录/对象存储桶可写，磁盘和 RustFS 容量有监控。
 
 ### 密钥轮换策略
@@ -89,7 +102,11 @@ for migration in \
   src/main/resources/db/migration/03-remove-customer-role.sql \
   src/main/resources/db/migration/04-normalize-print-job-status.sql \
   src/main/resources/db/migration/05-normalize-printer-firmware-type.sql \
-  src/main/resources/db/migration/06-add-printer-status-history.sql; do
+  src/main/resources/db/migration/06-add-printer-status-history.sql \
+  src/main/resources/db/migration/07-v2-dispatch-plan.sql \
+  src/main/resources/db/migration/08-v2-atomic-printer-binding.sql \
+  src/main/resources/db/migration/09-v2-print-job-idempotency.sql \
+  src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done

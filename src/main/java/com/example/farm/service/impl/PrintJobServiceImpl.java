@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
+import com.example.farm.common.constant.RedisKeyConstant;
 import com.example.farm.common.utils.LogUtil;
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
@@ -27,12 +29,16 @@ import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -42,9 +48,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private final PrintJobMapper farmPrintJobMapper;
     private final PrintFileMapper printFileMapper;
     private final PrinterService printerService;
-    private final RustFsClient rustFsClient;
+    private final FileStorage rustFsClient;
     private final PrinterProtocolAdapterFactory adapterFactory;
     private final WebSocketEventPublisher eventPublisher;
+
+    /** 单元测试可不提供 Redis；正式运行由 Server Edition 注入并作为跨客户端占用锁。 */
+    @Autowired(required = false)
+    private RedisUtil redisUtil;
 
     @Override
     public PrintJobMapper getBaseMapper() {
@@ -90,6 +100,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean assignQueuedJob(Long jobId, Long printerId) {
+        return withPrinterLock(printerId, () -> doAssignQueuedJob(jobId, printerId));
+    }
+
+    private boolean doAssignQueuedJob(Long jobId, Long printerId) {
         PrintJob job = this.getById(jobId);
         if (job == null || !PrintJobStatus.QUEUED.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
             return false;
@@ -110,12 +124,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("自动派发任务失败：任务状态保存失败");
         }
 
+        if (!printerService.bindJobIfIdle(printerId, job.getId())) {
+            throw new BusinessException("自动派发任务失败：打印机状态保存失败");
+        }
         printer.setStatus("PREPARING");
         printer.setCurrentJobId(job.getId());
         printer.setIsSafeToPrint(false);
-        if (!printerService.updateById(printer)) {
-            throw new BusinessException("自动派发任务失败：打印机状态保存失败");
-        }
 
         eventPublisher.publishJobStatus(job);
         LogUtil.dataChange("任务自动派发", "FarmPrintJob", job.getId(),
@@ -151,20 +165,46 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Transactional(rollbackFor = Exception.class)
     public Long createJob(PrintJobCreateDTO req) {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
-        return createJob(req, currentUserId);
+        return createJob(req, currentUserId, req == null ? null : req.getIdempotencyKey());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createJob(PrintJobCreateDTO req, Long userId) {
+        return createJob(req, userId, req == null ? null : req.getIdempotencyKey());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createJob(PrintJobCreateDTO req, Long userId, String idempotencyKey) {
+        if (req == null) {
+            throw new BusinessException("创建任务请求不能为空");
+        }
         if (userId == null) {
             throw new BusinessException("用户未登录，无法创建任务");
+        }
+        String normalizedKey = idempotencyKey == null ? null : idempotencyKey.trim();
+        if (normalizedKey != null && normalizedKey.isBlank()) {
+            normalizedKey = null;
+        }
+        if (normalizedKey != null) {
+            PrintJob existing = farmPrintJobMapper.selectByIdempotencyKey(userId, normalizedKey);
+            if (existing != null) {
+                Integer requestedPriority = req.getPriority() == null ? 0 : req.getPriority();
+                if (!Objects.equals(existing.getFileId(), req.getFileId())
+                        || !Objects.equals(existing.getPrinterId(), req.getPrinterId())
+                        || !Objects.equals(existing.getPriority(), requestedPriority)) {
+                    throw new BusinessException(409, "幂等键已用于其他创建请求");
+                }
+                return existing.getId();
+            }
         }
 
         validateUsableFile(req.getFileId(), userId);
 
         PrintJob job = new PrintJob();
         job.setUserId(userId);
+        job.setIdempotencyKey(normalizedKey);
         job.setFileId(req.getFileId());
         job.setPriority(req.getPriority() != null ? req.getPriority() : 0);
         job.setProgress(BigDecimal.ZERO);
@@ -202,6 +242,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean assignAndStartPrint(Long jobId, Long printerId) {
+        return withPrinterLock(printerId, () -> doAssignAndStartPrint(jobId, printerId));
+    }
+
+    private boolean doAssignAndStartPrint(Long jobId, Long printerId) {
         PrintJob job = getAccessibleJob(jobId);
         Printer printer = printerService.getById(printerId);
 
@@ -220,9 +264,14 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setPrinterId(printerId);
         job.setStatus(PrintJobStatus.ASSIGNED.name());
         updateJobOrThrow(job, "派发打印任务失败");
+        if (!printerService.bindJobIfIdle(printerId, jobId)) {
+            throw new BusinessException(409, "打印机已被其他请求占用或状态已变化");
+        }
         printer.setCurrentJobId(jobId);
         printer.setStatus("PREPARING");
-        updatePrinterOrThrow(printer, "派发打印任务失败");
+        PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.UPLOADING);
+        job.setStatus(PrintJobStatus.UPLOADING.name());
+        updateJobOrThrow(job, "上传文件到打印机失败");
         eventPublisher.publishJobStatus(job);
 
         // 从切片文件获取工艺参数，做材料与喷嘴校验
@@ -273,6 +322,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignJob(Long jobId, Long printerId) {
+        withPrinterLock(printerId, () -> {
+            doAssignJob(jobId, printerId);
+            return null;
+        });
+    }
+
+    private void doAssignJob(Long jobId, Long printerId) {
         PrintJob job = getAccessibleJob(jobId);
         Printer printer = printerService.getById(printerId);
 
@@ -301,9 +357,11 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         updateJobOrThrow(job, "派发任务失败");
 
         // 行为：将目标 Printer 的 is_safe_to_print 重置为 false（防范风险）
+        if (!printerService.bindJobIfIdle(printerId, jobId)) {
+            throw new BusinessException(409, "打印机已被其他请求占用或状态已变化");
+        }
         printer.setIsSafeToPrint(false);
         printer.setCurrentJobId(jobId);
-        updatePrinterOrThrow(printer, "派发任务失败");
         eventPublisher.publishJobStatus(job);
 
         LogUtil.bizInfo("任务派发（安全模式）", "任务ID", jobId, "打印机ID", printerId, "打印机名称", printer.getName());
@@ -375,6 +433,14 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("热床未确认安全，禁止打印！请先在现场确认清理完毕后再试");
         }
 
+        // 设备动作前先记录上传阶段；请求返回成功不等于设备已经完成最终动作。
+        if (PrintJobStatus.ASSIGNED.name().equals(normalizedStatus)
+                || PrintJobStatus.READY.name().equals(normalizedStatus)) {
+            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.UPLOADING);
+            job.setStatus(PrintJobStatus.UPLOADING.name());
+            updateJobOrThrow(job, "上传文件到打印机失败");
+        }
+
         // 获取文件信息
         PrintFile fileRecord = printFileMapper.selectById(job.getFileId());
         if (fileRecord == null) {
@@ -397,6 +463,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                         .uploadFile(endpointOf(printer, startPrint
                                 ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE),
                                 fileStream, filename, startPrint);
+            } catch (BusinessException exception) {
+                throw exception;
             } catch (com.example.farm.protocol.PrinterProtocolException exception) {
                 throw exception;
         } catch (Exception e) {
@@ -424,7 +492,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.info("现场启动打印成功: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
         } else {
             // UPLOAD_ONLY: 仅上传文件，状态改为 READY（就绪待机）
-            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
+            if (!PrintJobStatus.READY.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+                PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
+            }
             job.setStatus(PrintJobStatus.READY.name());
             job.setOperatorId(operatorId);
             updateJobOrThrow(job, "上传文件到打印机失败");
@@ -443,7 +513,22 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Transactional(rollbackFor = Exception.class)
     public void cancelJob(Long jobId) {
         PrintJob job = getAccessibleJob(jobId);
+        if (job.getPrinterId() != null) {
+            withPrinterLock(job.getPrinterId(), () -> {
+                doCancelJob(jobId);
+                return null;
+            });
+            return;
+        }
+        doCancelJob(jobId);
+    }
+
+    private void doCancelJob(Long jobId) {
+        PrintJob job = getAccessibleJob(jobId);
         String status = PrintJobStatus.normalize(job.getStatus());
+        if (PrintJobStatus.CANCELLED.name().equals(status)) {
+            return;
+        }
         PrintJobStatus.requireTransition(status, PrintJobStatus.CANCELLED);
 
         Long printerId = job.getPrinterId();
@@ -474,8 +559,25 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Transactional(rollbackFor = Exception.class)
     public void retryJob(Long jobId) {
         PrintJob job = getAccessibleJob(jobId);
+        if (job.getPrinterId() != null) {
+            withPrinterLock(job.getPrinterId(), () -> {
+                doRetryJob(jobId);
+                return null;
+            });
+            return;
+        }
+        doRetryJob(jobId);
+    }
+
+    private void doRetryJob(Long jobId) {
+        PrintJob job = getAccessibleJob(jobId);
         String status = PrintJobStatus.normalize(job.getStatus());
+        if (PrintJobStatus.QUEUED.name().equals(status)) {
+            return;
+        }
         PrintJobStatus.requireTransition(status, PrintJobStatus.QUEUED);
+
+        clearBindingBeforeRequeue(job);
 
         job.setPrinterId(null);
         job.setOperatorId(null);
@@ -492,7 +594,22 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Transactional(rollbackFor = Exception.class)
     public void requeueJob(Long jobId) {
         PrintJob job = getAccessibleJob(jobId);
+        if (job.getPrinterId() != null) {
+            withPrinterLock(job.getPrinterId(), () -> {
+                doRequeueJob(jobId);
+                return null;
+            });
+            return;
+        }
+        doRequeueJob(jobId);
+    }
+
+    private void doRequeueJob(Long jobId) {
+        PrintJob job = getAccessibleJob(jobId);
         String status = PrintJobStatus.normalize(job.getStatus());
+        if (PrintJobStatus.QUEUED.name().equals(status)) {
+            return;
+        }
         if (!(PrintJobStatus.ASSIGNED.name().equals(status)
                 || PrintJobStatus.READY.name().equals(status))) {
             throw new BusinessException(422, "只有已派发或已就绪任务可以重新排队");
@@ -529,6 +646,28 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setStatus(PrintJobStatus.QUEUED.name());
         updateJobAndPublish(job);
         log.info("重新排队打印任务成功: jobId={}, 原状态={}", jobId, status);
+    }
+
+    private void clearBindingBeforeRequeue(PrintJob job) {
+        Long printerId = job.getPrinterId();
+        if (printerId == null) {
+            return;
+        }
+        Printer printer = printerService.getById(printerId);
+        if (printer == null) {
+            // 任务可能保留了已删除设备的历史 ID；设备已不存在时没有运行时绑定可释放，
+            // 允许失败任务重新入队，并通过日志保留该数据修复线索。
+            log.warn("重试任务发现关联打印机已不存在，将清除历史设备 ID: jobId={}, printerId={}",
+                    job.getId(), printerId);
+            return;
+        }
+        if (printer.getCurrentJobId() != null && !Objects.equals(printer.getCurrentJobId(), job.getId())) {
+            throw new BusinessException(409, "打印机当前绑定其他任务");
+        }
+        if (Objects.equals(printer.getCurrentJobId(), job.getId())
+                && !printerService.clearJobBinding(printerId, job.getId())) {
+            throw new BusinessException("重新排队任务失败：打印机状态保存失败");
+        }
     }
 
     @Override
@@ -571,6 +710,28 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("派发任务失败：打印机仍绑定任务，printerId={}, currentJobId={}",
                     printer.getId(), printer.getCurrentJobId());
             throw new BusinessException(409, "打印机当前已绑定任务，无法派发");
+        }
+    }
+
+    private <T> T withPrinterLock(Long printerId, Supplier<T> action) {
+        if (redisUtil == null) {
+            return action.get();
+        }
+        if (printerId == null || printerId <= 0) {
+            throw new BusinessException(400, "打印机 ID 必须为正数");
+        }
+        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
+        String lockValue = UUID.randomUUID().toString();
+        boolean locked = redisUtil.tryLock(lockKey, lockValue, 30, TimeUnit.SECONDS);
+        if (!locked) {
+            throw new BusinessException(409, "打印机正在被其他请求操作");
+        }
+        try {
+            return action.get();
+        } finally {
+            if (lockValue.equals(redisUtil.getLockValue(lockKey))) {
+                redisUtil.unlock(lockKey);
+            }
         }
     }
 

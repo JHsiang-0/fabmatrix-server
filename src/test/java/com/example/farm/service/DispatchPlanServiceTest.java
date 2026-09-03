@@ -1,6 +1,5 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.entity.DispatchPlanItem;
 import com.example.farm.entity.DispatchPlan;
 import com.example.farm.entity.PrintFile;
@@ -20,11 +19,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.farm.common.exception.BusinessException;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
@@ -44,8 +46,6 @@ class DispatchPlanServiceTest {
     private PrinterService printerService;
     @Mock
     private PrintJobService printJobService;
-    @Mock
-    private RedisUtil redisUtil;
 
     @AfterEach
     void clearSecurityContext() {
@@ -60,7 +60,10 @@ class DispatchPlanServiceTest {
         when(printFileMapper.selectBatchIds(List.of(10L))).thenReturn(List.of(file));
         when(printerService.listByIds(List.of(564L))).thenReturn(List.of(printer));
         when(planMapper.insert(any(com.example.farm.entity.DispatchPlan.class))).thenReturn(1);
-        when(itemMapper.insert(any(DispatchPlanItem.class))).thenReturn(1);
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
 
         BatchDispatchPreviewRequest request = request("QUEUE");
         request.setStrategy("ONE_TO_ONE");
@@ -110,7 +113,7 @@ class DispatchPlanServiceTest {
         });
         when(itemMapper.selectList(any())).thenAnswer(invocation -> List.of(capturedItem));
         when(itemMapper.updateById(any(DispatchPlanItem.class))).thenReturn(1);
-        when(redisUtil.tryLock(any(), any(), any(Long.class), any())).thenReturn(true);
+        when(planMapper.claimForExecution(any(), any())).thenReturn(1);
         when(printJobService.createJob(any(), any())).thenReturn(9001L);
 
         var preview = service().preview(request("QUEUE"));
@@ -137,9 +140,112 @@ class DispatchPlanServiceTest {
         verify(printJobService).createJob(any(), any());
     }
 
+    @Test
+    void concurrentConfirmationReturnsStoredResultWithoutCreatingSecondJob() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectBatchIds(anyList())).thenReturn(List.of(file(10L)));
+        Printer printer = printer(564L);
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(planMapper.insert(any(DispatchPlan.class))).thenAnswer(invocation -> {
+            capturedPlan = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.selectList(any())).thenAnswer(invocation -> List.of(capturedItem));
+        when(planMapper.claimForExecution(any(), any())).thenReturn(0);
+        DispatchPlan executing = new DispatchPlan();
+        executing.setId("dp-race");
+        executing.setStatus("EXECUTING");
+        when(planMapper.selectById(any())).thenReturn(executing);
+
+        var preview = service().preview(request("QUEUE"));
+        BatchDispatchConfirmRequest confirm = new BatchDispatchConfirmRequest();
+        confirm.setPlanId(preview.getPlanId());
+        confirm.setVersion(preview.getVersion());
+        confirm.setItemIds(List.of(capturedItem.getId()));
+        confirm.setConfirmationToken(preview.getConfirmationToken());
+        when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan, executing);
+
+        var result = service().confirm(confirm);
+
+        assertThat(result.getRepeated()).isTrue();
+        verify(printJobService, never()).createJob(any(), any());
+    }
+
+    @Test
+    void confirmationRejectsResourceChangedAfterPreview() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectBatchIds(anyList())).thenReturn(List.of(file(10L)));
+        Printer printer = printer(564L);
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(564L)).thenReturn(printer);
+        when(planMapper.insert(any(DispatchPlan.class))).thenAnswer(invocation -> {
+            capturedPlan = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.selectList(any())).thenAnswer(invocation -> List.of(capturedItem));
+        when(planMapper.claimForExecution(any(), any())).thenReturn(1);
+        when(itemMapper.updateById(any(DispatchPlanItem.class))).thenReturn(1);
+
+        var preview = service().preview(request("QUEUE"));
+        printer.setCurrentMaterial("PETG");
+        BatchDispatchConfirmRequest confirm = confirmRequest(preview);
+        when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan);
+
+        var result = service().confirm(confirm);
+
+        assertThat(result.getStatus()).isEqualTo("PARTIAL_FAILED");
+        assertThat(result.getItems()).singleElement().satisfies(item -> {
+            assertThat(item.getStatus()).isEqualTo("RETRYABLE");
+            assertThat(item.getReasonCode()).isEqualTo("RESOURCE_CHANGED");
+        });
+        verify(printJobService, never()).createJob(any(), any());
+    }
+
+    @Test
+    void expiredPreviewCannotBeConfirmed() {
+        mockUser(1L, "OPERATOR");
+        when(printFileMapper.selectBatchIds(anyList())).thenReturn(List.of(file(10L)));
+        Printer printer = printer(564L);
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(planMapper.insert(any(DispatchPlan.class))).thenAnswer(invocation -> {
+            capturedPlan = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
+        var preview = service().preview(request("QUEUE"));
+        capturedPlan.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan);
+
+        assertThatThrownBy(() -> service().confirm(confirmRequest(preview)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo(409L);
+        assertThat(capturedPlan.getStatus()).isEqualTo("EXPIRED");
+        verify(printJobService, never()).createJob(any(), any());
+    }
+
+    private BatchDispatchConfirmRequest confirmRequest(com.example.farm.entity.vo.DispatchPlanPreviewVO preview) {
+        BatchDispatchConfirmRequest confirm = new BatchDispatchConfirmRequest();
+        confirm.setPlanId(preview.getPlanId());
+        confirm.setVersion(preview.getVersion());
+        confirm.setItemIds(List.of(capturedItem.getId()));
+        confirm.setConfirmationToken(preview.getConfirmationToken());
+        return confirm;
+    }
+
     private DispatchPlanServiceImpl service() {
         return new DispatchPlanServiceImpl(planMapper, itemMapper, printFileMapper,
-                printerService, printJobService, redisUtil);
+                printerService, printJobService);
     }
 
     private DispatchPlanItem capturedItem;

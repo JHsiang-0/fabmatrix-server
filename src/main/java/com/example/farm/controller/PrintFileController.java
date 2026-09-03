@@ -26,6 +26,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -137,6 +140,19 @@ public class PrintFileController {
             @RequestParam(value = "expires", required = false, defaultValue = "60") Integer expires) {
         String presignedUrl = farmPrintFileService.getPresignedThumbnailUrl(id, expires);
         return Result.success(presignedUrl, "获取缩略图链接成功");
+    }
+
+    /**
+     * Local Edition 的受保护文件流入口。Server Edition 不依赖该地址，
+     * 但保留同一 REST 下载契约，避免把 Windows 磁盘路径泄露给客户端。
+     */
+    @Operation(summary = "读取本地文件流", description = "Local Edition 内部下载入口，按当前用户权限校验")
+    @GetMapping("/storage")
+    public ResponseEntity<InputStreamResource> downloadLocalFile(@RequestParam("key") String key) {
+        InputStreamResource resource = farmPrintFileService.downloadBySafeName(key);
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(resource);
     }
 
     /**

@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.exception.StorageException;
 import com.example.farm.common.utils.GCodeParser;
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
@@ -49,7 +49,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     private static final int MAX_BATCH_SIZE = 100;
     private static final int MAX_FILENAME_LENGTH = 255;
 
-    private final RustFsClient rustFsClient;
+    private final FileStorage rustFsClient;
     private final FileUploadProperties fileUploadProperties;
 
     @Override
@@ -499,6 +499,25 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Override
     public org.springframework.core.io.InputStreamResource downloadFile(Long id) {
         PrintFile file = getAccessibleFile(id);
+        return rustFsClient.getFileStream(file.getSafeName());
+    }
+
+    @Override
+    public org.springframework.core.io.InputStreamResource downloadBySafeName(String safeName) {
+        if (safeName == null || safeName.isBlank()) {
+            throw new BusinessException(400, "文件 key 不能为空");
+        }
+        PrintFile file = this.getOne(new LambdaQueryWrapper<PrintFile>()
+                .eq(PrintFile::getSafeName, safeName)
+                .or()
+                .eq(PrintFile::getThumbnailUrl, "local://" + safeName));
+        if (file == null || Boolean.TRUE.equals(file.getIsFolder())) {
+            throw new BusinessException(404, "文件不存在");
+        }
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        if (!SecurityContextUtil.isAdmin() && !Objects.equals(file.getUserId(), currentUserId)) {
+            throw new BusinessException(404, "文件不存在");
+        }
         return rustFsClient.getFileStream(file.getSafeName());
     }
 

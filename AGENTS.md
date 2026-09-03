@@ -84,7 +84,7 @@ mvn clean
 
 - `application.yaml` 默认激活 `dev`。
 - `dev` 使用本机映射的 MySQL、Redis、RustFS，端口通常为 `8080`。
-- `dev` 中 `farm.tasks.enabled=false`，没有真实 Klipper 打印机时不要打开，否则监控任务会轮询不存在的设备并产生错误日志。
+- `dev` 中 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，没有真实打印机时不要打开监控，否则会轮询不存在的设备并产生错误日志。
 - `test` 使用 H2，关闭调度任务和 WebSocket，服务端口为随机端口。
 - `prod` 使用环境变量配置敏感信息，端口默认为 `8080`，生产环境调度任务默认会启用（任务条件缺省时 `matchIfMissing=true`）。
 
@@ -237,7 +237,7 @@ SpringDoc 默认可访问：`http://localhost:8080/swagger-ui.html`。Swagger �
 
 - `PrinterMonitorTask` 每 5 秒轮询打印机，并通过 `WebSocketServer` 广播状态。
 - `JobSchedulerTask` 每 10 秒扫描任务，使用 Redis 分布式锁避免多实例重复调度。
-- 两个任务都受 `farm.tasks.enabled` 控制。
+- 监控任务受 `farm.monitor.enabled` 控制，后台调度任务受 `farm.scheduler.enabled` 控制；二者相互独立且 v2 默认关闭。
 - Redis 停止、连接工厂已停止或打印机不可达时，可能出现 Lettuce 或 Moonraker 异常；没有真实打印机时保持 dev 任务关闭。
 - WebSocket 地址为 `/ws/farm-status`，握手必须携带 `/ws/farm-status?token=<JWT>`（兼容 `access_token` 参数）；缺少、无效或过期 Token 的连接会被拒绝。认证通过后当前仍是农场级状态广播，不是按用户或打印机细分的订阅通道。
 - `WebSocketConfig` 受 `farm.websocket.enabled` 控制，测试环境已关闭。

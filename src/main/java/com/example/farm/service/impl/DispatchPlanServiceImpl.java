@@ -1,9 +1,7 @@
 package com.example.farm.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.example.farm.common.constant.RedisKeyConstant;
 import com.example.farm.common.exception.BusinessException;
-import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.DispatchPlan;
 import com.example.farm.entity.DispatchPlanItem;
@@ -45,7 +43,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 批量计划实现。预览阶段只读业务资源并写入计划快照；确认阶段重新读取资源，
@@ -58,14 +55,12 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
 
     private static final int MAX_ITEMS = 100;
     private static final long PLAN_TTL_MINUTES = 15;
-    private static final long LOCK_TTL_SECONDS = 30;
 
     private final DispatchPlanMapper planMapper;
     private final DispatchPlanItemMapper itemMapper;
     private final PrintFileMapper printFileMapper;
     private final PrinterService printerService;
     private final PrintJobService printJobService;
-    private final RedisUtil redisUtil;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -160,10 +155,17 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             return storedResult(plan, allItems, requestedIds, true);
         }
 
+        LocalDateTime confirmedAt = LocalDateTime.now();
+        if (planMapper.claimForExecution(plan.getId(), confirmedAt) <= 0) {
+            DispatchPlan latest = planMapper.selectById(plan.getId());
+            if (latest == null) {
+                throw new BusinessException(404, "批量计划不存在");
+            }
+            return storedResult(latest, allItems, requestedIds, true);
+        }
         plan.setStatus(DispatchPlanStatus.EXECUTING.name());
-        plan.setConfirmedAt(LocalDateTime.now());
-        plan.setUpdatedAt(plan.getConfirmedAt());
-        planMapper.updateById(plan);
+        plan.setConfirmedAt(confirmedAt);
+        plan.setUpdatedAt(confirmedAt);
 
         Map<Long, PrintFile> files = loadFiles(allItems.stream().map(DispatchPlanItem::getFileId).toList());
         Map<Long, Printer> printers = loadPrinters(allItems.stream().map(DispatchPlanItem::getPrinterId)
@@ -201,14 +203,11 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             failItem(item, "PRINTER_STATE_CHANGED", "打印机已离线、忙碌或已被占用", true);
             return;
         }
-
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, latest.getId());
-        String lockValue = UUID.randomUUID().toString();
-        boolean locked = redisUtil.tryLock(lockKey, lockValue, LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-        if (!locked) {
-            failItem(item, "PRINTER_OCCUPIED", "打印机正在被其他请求操作", true);
+        if (!Objects.equals(item.getResourceFingerprint(), resourceFingerprint(file, latest))) {
+            failItem(item, "RESOURCE_CHANGED", "预览后文件或打印机资源已变化，请重新预览", true);
             return;
         }
+
         try {
             Printer checked = printerService.getById(latest.getId());
             if (checked == null || !isAvailable(checked)) {
@@ -241,10 +240,6 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             log.warn("执行批量计划明细失败: planId={}, itemId={}, printerId={}",
                     plan.getId(), item.getId(), item.getPrinterId(), exception);
             failItem(item, "BATCH_EXECUTION_FAILED", "执行失败，请重试该明细", true);
-        } finally {
-            if (lockValue.equals(redisUtil.getLockValue(lockKey))) {
-                redisUtil.unlock(lockKey);
-            }
         }
     }
 
@@ -263,6 +258,7 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             item.setPlanId(plan.getId());
             item.setFileId(fileId);
             item.setPrinterId(printer == null ? null : printer.getId());
+            item.setResourceFingerprint(resourceFingerprint(file, printer));
             item.setStatus(DispatchPlanItemStatus.PENDING.name());
             item.setAttemptCount(0);
             item.setCreatedAt(plan.getCreatedAt());
@@ -410,6 +406,20 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 不可用", e);
         }
+    }
+
+    private String resourceFingerprint(PrintFile file, Printer printer) {
+        String value = String.join("|",
+                file == null ? "missing" : String.valueOf(file.getId()),
+                file == null ? "" : String.valueOf(file.getCreatedAt()),
+                file == null ? "" : String.valueOf(file.getSafeName()),
+                printer == null ? "missing" : String.valueOf(printer.getId()),
+                printer == null ? "" : String.valueOf(printer.getUpdatedAt()),
+                printer == null ? "" : String.valueOf(printer.getStatus()),
+                printer == null ? "" : String.valueOf(printer.getCurrentJobId()),
+                printer == null ? "" : String.valueOf(printer.getCurrentMaterial()),
+                printer == null ? "" : String.valueOf(printer.getNozzleSize()));
+        return sha256(value);
     }
 
     private DispatchPlan planSuccess(DispatchPlan plan) { return plan; }

@@ -43,6 +43,20 @@ class RrfAdapterTest {
     }
 
     @Test
+    void preservesRrfTerminalEvidenceInUnifiedSnapshot() {
+        PrinterDeviceStatus result = adapter().toDeviceStatus(new RrfStatusResponse(
+                "idle", null, "demo.gcode", BigDecimal.valueOf(100), null, null,
+                null, null, null, null, null, BigDecimal.valueOf(1000),
+                BigDecimal.valueOf(1000), BigDecimal.ZERO, false, false));
+
+        assertThat(result.filePosition()).isEqualByComparingTo("1000");
+        assertThat(result.fileSize()).isEqualByComparingTo("1000");
+        assertThat(result.timesLeft()).isEqualByComparingTo("0");
+        assertThat(result.lastFileCancelled()).isFalse();
+        assertThat(result.lastFileAborted()).isFalse();
+    }
+
+    @Test
     void routesPauseThroughRrfClientAndPreservesUnsupportedError() {
         PrinterProtocolException unsupported = new PrinterProtocolException(
                 PrinterOperation.PAUSE, PrinterProtocolType.RRF,

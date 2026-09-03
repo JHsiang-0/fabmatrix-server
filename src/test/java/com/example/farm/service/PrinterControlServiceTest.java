@@ -37,6 +37,7 @@ class PrinterControlServiceTest {
         Printer printer = printer();
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
+        when(printerService.updateById(printer)).thenReturn(true);
 
         new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).pause(403L);
 
@@ -78,6 +79,52 @@ class PrinterControlServiceTest {
         assertThat(job.getStatus()).isEqualTo("PRINTING");
         verify(eventPublisher).publishJobStatus(job);
         assertThat(printer.getStatus()).isEqualTo("PRINTING");
+    }
+
+    @Test
+    void pausesCurrentJobAndPersistsPausedStateAfterDeviceAccepts() {
+        Printer printer = printer();
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PRINTING");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(job)).thenReturn(true);
+        when(printerService.updateById(printer)).thenReturn(true);
+
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).pause(403L);
+
+        verify(adapter).pause(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
+        assertThat(job.getStatus()).isEqualTo("PAUSED");
+        assertThat(printer.getStatus()).isEqualTo("PAUSED");
+        verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
+    void emergencyStopMovesBoundJobToReconciliationAndPrinterToError() {
+        Printer printer = printer();
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PRINTING");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(job)).thenReturn(true);
+        when(printerService.updateById(printer)).thenReturn(true);
+
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher)
+                .emergencyStop(403L);
+
+        verify(adapter).emergencyStop(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
+        assertThat(job.getStatus()).isEqualTo("RECONCILING");
+        assertThat(printer.getStatus()).isEqualTo("ERROR");
+        assertThat(printer.getIsSafeToPrint()).isFalse();
+        verify(eventPublisher).publishJobStatus(job);
     }
 
     @Test

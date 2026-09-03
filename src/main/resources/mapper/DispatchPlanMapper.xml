@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.farm.mapper.DispatchPlanMapper">
+
+    <!-- 依赖数据库条件更新，保证重复确认只有一个请求能进入执行阶段。 -->
+    <update id="claimForExecution">
+        UPDATE farm_dispatch_plan
+        SET status = 'EXECUTING',
+            confirmed_at = #{confirmedAt},
+            updated_at = #{confirmedAt}
+        WHERE id = #{planId}
+          AND status = 'PREVIEWED'
+    </update>
+
+</mapper>

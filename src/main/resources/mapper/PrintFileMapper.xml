@@ -25,6 +25,29 @@
         ORDER BY created_at DESC
     </select>
 
+    <!-- SQLite 不支持 MySQL CONCAT；其它条件保持与默认语句一致。 -->
+    <select id="selectFilePage" databaseId="sqlite" resultType="com.example.farm.entity.PrintFile">
+        SELECT *
+        FROM farm_print_file
+        <where>
+            <choose>
+                <when test="admin and filterUserId != null">
+                    user_id = #{filterUserId}
+                </when>
+                <when test="!admin">
+                    user_id = #{userId}
+                </when>
+            </choose>
+            <if test="fileName != null and fileName != ''">
+                AND original_name LIKE '%' || #{fileName} || '%'
+            </if>
+            <if test="materialType != null and materialType != ''">
+                AND UPPER(material_type) = #{materialType}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
     <!-- 文件目录树节点查询：权限条件在 SQL 层再次固定。 -->
     <select id="selectAccessibleFileTree" resultType="com.example.farm.entity.PrintFile">
         SELECT *

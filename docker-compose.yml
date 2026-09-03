@@ -20,6 +20,9 @@ services:
       - ./src/main/resources/db/migration/05-normalize-printer-firmware-type.sql:/docker-entrypoint-initdb.d/05-normalize-printer-firmware-type.sql:ro
       - ./src/main/resources/db/migration/06-add-printer-status-history.sql:/docker-entrypoint-initdb.d/06-add-printer-status-history.sql:ro
       - ./src/main/resources/db/migration/07-v2-dispatch-plan.sql:/docker-entrypoint-initdb.d/07-v2-dispatch-plan.sql:ro
+      - ./src/main/resources/db/migration/08-v2-atomic-printer-binding.sql:/docker-entrypoint-initdb.d/08-v2-atomic-printer-binding.sql:ro
+      - ./src/main/resources/db/migration/09-v2-print-job-idempotency.sql:/docker-entrypoint-initdb.d/09-v2-print-job-idempotency.sql:ro
+      - ./src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql:/docker-entrypoint-initdb.d/10-v2-dispatch-resource-fingerprint.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci

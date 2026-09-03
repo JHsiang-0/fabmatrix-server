@@ -1,8 +1,12 @@
 # Farm 项目执行目标
 
-版本：v1.0
+版本：v2.0
 
-更新时间：2026-09-02
+更新时间：2026-09-03
+
+当前执行规格：`.kiro/specs/farm-v2/`
+
+业务基线：手动上传、手动选择打印机和手动启动是默认主流程；批量分配是用户发起并确认的操作；后台自动派单是可选能力，默认关闭，不能在用户不知情的情况下自动启动任务。`farm-v1` 仅作为已完成基础能力和历史验收记录保留。
 
 ## 1. 项目目标
 
@@ -36,12 +40,13 @@ tasks.md
 下一个 Task
 ```
 
-对应文件：
+对应文件（当前 v2）：
 
 - 全局项目目标：`PROJECT.md`
-- 项目需求规格：`.kiro/specs/farm-v1/requirements.md`
-- 项目技术设计：`.kiro/specs/farm-v1/design.md`
-- 可执行任务清单：`.kiro/specs/farm-v1/tasks.md`
+- 项目需求规格：`.kiro/specs/farm-v2/requirements.md`
+- 项目技术设计：`.kiro/specs/farm-v2/design.md`
+- 可执行任务清单：`.kiro/specs/farm-v2/tasks.md`
+- v1 历史规格：`.kiro/specs/farm-v1/`
 - 协议适配详细需求：`.kiro/specs/printer-protocol-and-websocket/requirements.md`
 - 协议适配详细设计：`.kiro/specs/printer-protocol-and-websocket/design.md`
 

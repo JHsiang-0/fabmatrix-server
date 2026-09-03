@@ -12,7 +12,7 @@
 
 Farm 是一个运行在局域网内的本地 3D 打印农场管理系统：一个服务端管理多台打印机，多个浏览器或客户端连接服务端。
 
-本项目的最终执行目标是：按照 [TODO.md](./TODO.md) 逐项完成第一版农场管理能力，并使真实代码、API 交接文档、测试结果和任务状态保持一致。
+本项目的当前执行目标是：按照 [TODO.md](./TODO.md) 逐项完成 v2 农场管理能力，并使真实代码、API 交接文档、测试结果和任务状态保持一致。
 
 当前产品不做 SaaS 化，不引入手机号注册、邮箱验证、公开注册、多租户、联网账号中心或复杂 RBAC。角色只保留 `ADMIN` 和 `OPERATOR`。
 
@@ -61,8 +61,7 @@ tasks.md
 - RustFS S3 兼容对象存储
 - JWT 认证，角色为 `ADMIN`、`OPERATOR`
 - Maven、JaCoCo
-- 当前设备协议实现为 Klipper/Moonraker
-- 目标设备协议为 Klipper/Moonraker 与 RRF 3.7
+- 当前设备协议通过统一适配器支持 Klipper/Moonraker 与 RRF 3.7
 - v1 Server Edition 使用 Docker Compose 编排 Farm、MySQL、Redis、RustFS
 - v2 Local Edition 已具备 SQLite、本地文件存储和进程内缓存/锁的基础 profile；完整 Windows 发布包和备份恢复仍待验收
 - 开发环境默认端口 `8080`
@@ -70,7 +69,7 @@ tasks.md
 
 ## 4. 当前完成基线
 
-当前源码已经完成 P0.1–P0.6、协议适配基础、WebSocket 后端、打印机/文件/任务/用户相关 P1 后端，以及主要的测试、迁移和运维加固。对应证据以 `TODO.md`、`.kiro/specs/farm-v1/tasks.md`、`API_HANDOFF.md` 和测试报告为准，不能只依赖提交记录。
+当前源码已经完成 P0.1–P0.5，P0.6 的主要代码和测试，以及协议适配基础、WebSocket 后端、打印机/文件/任务/用户相关 P1 后端和主要迁移/运维加固；真实设备、浏览器端到端和发布环境仍有验收项。当前 v2 证据以 `TODO.md`、`.kiro/specs/farm-v2/tasks.md`、`API_HANDOFF.md` 和测试报告为准；`.kiro/specs/farm-v1/` 仅作为历史记录，不能只依赖提交记录。
 
 已完成的后端范围包括：
 
@@ -99,9 +98,9 @@ tasks.md
 
 ### 真实前端工程
 
-1. 配置 API/WS 地址、HTTP 客户端、Bearer Token 和统一错误处理；
-2. 完成登录权限、打印机看板、文件库、任务队列和安全打印页面；
-3. 完成 WebSocket 自动重连、离线/失败告警和真实接口联调记录。
+1. 完成真实后端环境下的浏览器端到端回归；
+2. 补齐批量逐项安全启动、异常提示和完整契约类型覆盖；
+3. 完成真实设备事件、WebSocket/REST 一致性和发布环境联调记录。
 
 实际前端工程位于 `/home/codex/workspace/farm-ui`；当前前端已有单任务基础页面、批量上传/预览/确认页面和 WebSocket 序号断档恢复，单任务安全流程完整串联及浏览器端真实端到端仍待验收。
 

@@ -211,18 +211,18 @@ Authorization: Bearer <token>
 
 SpringDoc 默认可访问：`http://localhost:8080/swagger-ui.html`。Swagger 和 `/v3/api-docs` 当前公开，生产环境是否公开应根据局域网边界另行决定。
 
-`API_DOCUMENT.md` 是手工文档，可能落后于代码；以 Controller 和 `SecurityConfig` 为准。当前文档中关于匿名注册的旧说明需要按实际权限理解。
+`API_HANDOFF.md` 是当前接口交接文档；接口以 Controller、`SecurityConfig` 和 `/v3/api-docs` 为准。历史 API 文档不再维护。
 
 ## 10. 打印机协议与任务流程
 
-当前设备通信实现是 Klipper/Moonraker：
+当前设备通信通过统一协议适配器支持 Klipper/Moonraker 与 RRF 3.7：
 
 - `MoonrakerApiClient` 默认访问打印机的 7125 端口。
-- 状态查询、暂停、取消、急停、文件上传等调用 Moonraker HTTP API。
+- Klipper 的状态查询、暂停、取消、急停、文件上传等调用 Moonraker HTTP API；RRF 由独立 RRF 客户端处理。
 - `PrinterServiceImpl` 支持按 MAC 地址 Upsert，处理 DHCP 导致的 IP 变化。
 - 扫描接口当前也是围绕 Klipper/Moonraker 7125 端口设计。
 
-当前项目还不能通过修改 `firmwareType` 自动支持 RRF 3.7。若接入 RRF，应增加协议适配层，例如按设备协议选择 Klipper/Moonraker 适配器或 RRF HTTP 适配器；不要在现有 Moonraker 客户端中简单替换 URL。
+当前项目已通过 `PrinterProtocolAdapterFactory` 按 `firmwareType` 选择 Klipper/Moonraker 或 RRF 适配器。新增协议必须增加独立适配器和协议客户端，不得在现有 Moonraker 客户端中只替换 URL。
 
 安全打印流程是：
 
@@ -231,7 +231,7 @@ SpringDoc 默认可访问：`http://localhost:8080/swagger-ui.html`。Swagger �
 3. 现场操作员调用启动接口，后端校验 `is_safe_to_print` 后才真正启动。
 4. 启动后记录 `operator_id`，并清除安全确认标记。
 
-注意：创建任务当前使用 `PENDING`，而自动调度器只查询 `QUEUED`。如果要重新启用自动派单，必须先明确任务状态设计并补充测试，不能只打开配置开关。
+注意：当前创建任务和队列统一使用 `QUEUED`；v2 后台调度器保持关闭。未来若在 v3 重新启用自动派单，必须先明确任务状态、权限、幂等和恢复设计，不能只打开配置开关。
 
 ## 11. 定时任务、Redis 与 WebSocket
 
@@ -258,17 +258,17 @@ SpringDoc 默认可访问：`http://localhost:8080/swagger-ui.html`。Swagger �
 
 ## 14. 测试与已知限制
 
-当前 `src/test` 主要是 Spring 上下文测试，测试环境使用 H2，关闭 Redis 相关真实操作、定时任务和 WebSocket。测试启动时可能看到 H2 没有完整业务表、RustFS 网络访问受限等警告，但应以最终测试结果为准；新增功能应尽量补充真实的 Controller 权限测试和 Service 单元测试。
+测试环境使用 H2，关闭 Redis 相关真实操作、定时任务和 WebSocket；当前测试已包含上下文、Controller 权限/参数、Service 归属/状态、协议适配和 WebSocket 生命周期等覆盖。测试启动时可能看到 H2 没有完整业务表、RustFS 网络访问受限等警告，但应以最终测试结果为准；新增功能仍应补充针对性测试。
 
 后续修改优先关注：
 
-1. ADMIN/OPERATOR 接口的 401/403 集成测试；
-2. 任务状态 `PENDING` 与 `QUEUED` 的统一；
-3. WebSocket 的身份认证、连接上限和断线处理；
-4. RRF 与 Klipper 的协议适配；
-5. 生产环境 CORS、Swagger、JWT 密钥和管理员敏感接口的收敛；
-6. 文件、任务和打印机资源的服务层归属校验；
-7. MySQL 迁移脚本的可重复执行和版本管理。
+1. 跨进程任务幂等、设备占用和服务重启恢复；
+2. RRF/Klipper 真实生命周期、监控自然同步和物理动作验收；
+3. WebSocket 与 REST 一致性及浏览器端端到端联调；
+4. 生产环境 CORS、Swagger、JWT 密钥和管理员敏感接口的最终复核；
+5. Windows Local Edition 安装包、备份恢复和卸载验收；
+6. Server Edition 全新卷初始化、备份恢复、容器重启和发布验收；
+7. 文件、任务和打印机资源边界的持续回归。
 
 ## 15. 修改工作规范
 

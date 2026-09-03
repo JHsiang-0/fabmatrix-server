@@ -1,6 +1,6 @@
 # 3D 打印农场管理系统 - MAC Upsert 重构总结
 
-> **历史重构记录（不用于当前联调）**：本文记录早期重构过程，文件名、类名、状态和部分接口示例可能已演进。当前接口、字段和状态请以 [`API_HANDOFF.md`](./API_HANDOFF.md) 及当前源码为准；当前物理位置接口为 `PUT /api/v1/printers/positions`，设备新录入状态为 `UNKNOWN`，不是 `ONLINE`。
+> **历史重构记录（不用于当前联调）**：本文记录早期重构过程，文件名、类名、状态和部分接口示例可能已演进。当前接口、字段和状态请以 [`API_HANDOFF.md`](../../API_HANDOFF.md) 及当前源码为准；当前物理位置接口为 `PUT /api/v1/printers/positions`，设备新录入状态为 `UNKNOWN`，不是 `ONLINE`。
 
 ## 📋 重构背景
 

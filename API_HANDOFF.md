@@ -1,12 +1,12 @@
 # Farm 前后端接口交接与契约文档
 
-版本：v1.0
+版本：v2.0
 更新时间：2026-09-03
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
-> 本文以当前 Java 源码为准。标记为“现有”的接口已经有 Controller；标记为“规划”的接口是前后端同步开发前冻结的目标契约，当前尚未全部实现。前端不得把规划接口当成当前可调用接口。
+> 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。
 
-项目执行入口：[PROJECT.md](./PROJECT.md)；Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v1/`。
+项目执行入口：[PROJECT.md](./PROJECT.md)；Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v2/`。
 
 ## 1. 产品边界
 
@@ -37,7 +37,7 @@ Swagger:  http://<server-host>:8080/swagger-ui.html
 WebSocket: ws://<server-host>:8080/ws/farm-status
 ```
 
-正式 WebSocket 地址确定为 `/ws/farm-status`。`/ws` 是历史约定，不作为新前端地址；如果已有前端无法立即修改，后端可在兼容阶段额外提供 `/ws` 别名。
+正式 WebSocket 地址为 `/ws/farm-status`。当前代码没有实现 `/ws` 别名，前端不得连接 `/ws`。
 
 ### 2.2 统一返回结构
 
@@ -119,7 +119,7 @@ Service 层仍使用 MyBatis-Plus `Page/IPage`，Controller 已通过 `PageResul
 
 所有 JSON 请求体缺失或为 `null` 时，Controller 统一返回 HTTP 400、`code=400`；批量操作传入空列表同样返回 HTTP 400，不会以服务器内部错误响应。
 
-任务状态已统一为 `QUEUED`、`ASSIGNED`、`UPLOADING`、`READY`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；调度器只负责进入 `ASSIGNED`，必须在设备调用成功后才进入 `PRINTING`。自动派发由任务 Service 的事务方法重新校验任务为 `QUEUED`、打印机为 `IDLE` 且未绑定其他任务，并在任务和打印机均保存成功后发布 `JOB_STATUS`；任一保存失败不会发布成功事件。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。设备在任务执行期间异常回到 `idle/standby/ready` 且无法证明完成时，任务进入 `RECONCILING`，保留设备绑定并等待人工核对。
+任务状态已统一为 `QUEUED`、`ASSIGNED`、`UPLOADING`、`READY`、`PRINTING`、`PAUSED`、`RECONCILING`、`COMPLETED`、`FAILED`、`CANCELLED`。新建任务进入 `QUEUED`；v2 后台调度器默认关闭，用户手动派发或 v3 未来启用的调度流程必须先进入 `ASSIGNED`，设备调用成功后才进入 `PRINTING`。手动派发由任务 Service 重新校验任务为 `QUEUED`、打印机为 `IDLE` 且未绑定其他任务，并在任务和打印机均保存成功后发布 `JOB_STATUS`；任一保存失败不会发布成功事件。非法状态流转返回 HTTP 422、`code=422`。历史数据库中的 `PENDING`、`MANUAL` 会兼容转换为 `QUEUED`，`CANCELED` 会转换为 `CANCELLED`。设备在任务执行期间异常回到 `idle/standby/ready` 且无法证明完成时，任务进入 `RECONCILING`，保留设备绑定并等待人工核对。
 
 ## 3. 认证接口
 
@@ -186,9 +186,9 @@ POST /api/v1/auth/login
 
 `GET /auth/me` 从 Bearer JWT 的当前用户 ID 读取用户资料，不需要也不接受路径参数；前端登录成功后可直接调用该接口初始化用户状态。用户资料和管理员用户分页统一返回 `UserVO`，字段只有 `id,username,role,email,phone,createdAt,updatedAt`，不包含 `passwordHash`。
 
-## 4. 当前已有业务接口
+## 4. 当前正式业务接口（与 Controller 一一对应）
 
-以下接口以当前 Controller 为准，均使用 `Result<T>` 包装。
+以下接口以当前 Controller 为准；除 Local Edition 的文件流入口 `GET /print-files/storage` 外，均使用 `Result<T>` 包装。
 
 ### 4.1 打印机
 
@@ -220,9 +220,10 @@ POST /api/v1/auth/login
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` |
 | GET | `/print-files/{id}/thumbnail` | ADMIN/OPERATOR | Query：`expires`，单位分钟 | 短期预签名缩略图 URL 或 null |
 | GET | `/print-files/{id}/download` | ADMIN/OPERATOR | Query：`expires` | 预签名 URL 字符串 |
+| GET | `/print-files/storage` | ADMIN/OPERATOR | Query：`key` | Local Edition 受保护文件流（`text/plain`） |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
-| GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId` | `PrintFileVO[]` |
+| GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId?` | `PrintFileVO[]` |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
 
 `POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员始终只能查询本人文件，管理员可通过 `userId` 查询指定用户，不传则查询全部用户。
@@ -268,13 +269,29 @@ POST /api/v1/auth/login
 - 用户名和邮箱可用性检查的 Query 参数不能为空或只包含空格，否则返回 HTTP 400、业务码 `400`。
 - 派发、确认安全、启动任务的 ID 必须为正数；`action` 只能是 `START_PRINT` 或 `UPLOAD_ONLY`。`operatorId` 仍兼容接收，但后端忽略其值并使用 JWT 当前用户。
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
+
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
 - 批量文件上传接口为 `POST /api/v1/print-files/batch-upload`，使用 `multipart/form-data` 的重复字段 `files`。默认最多100个文件、总大小1GB；开发环境总大小上限250MB。接口逐项返回 `index`、`fileId`、`fileName`、`status`、`errorCode`、`message`、`retryable`，单项失败不回滚其他已成功文件；空列表、数量或总大小超限返回 HTTP 400。
 - 文件上传扩展名从 `farm.file.allowed-types` 读取，默认允许 `gcode,g,3mf,stl`；开发环境上限200MB，生产环境上限1GB。空文件、非法文件名、超限和不支持类型统一返回 HTTP 400；RustFS 失败返回 HTTP 503、业务码 `5003`。
 - 文件上传先写入 RustFS、再保存文件记录；若数据库保存失败，后端会尝试补偿删除已上传的主文件和缩略图对象。补偿删除失败只记录日志，接口仍返回原始保存错误。
 - 删除文件时先清理关联缩略图，再删除主文件对象；任一对象存储删除失败都会保留数据库记录并返回 `503/5003`，避免前端误判删除成功。
 
-## 5. 已完成接口与冻结后的目标规范
+### 4.6 开发环境 Moonraker 兼容接口
+
+以下路由由 [MoonrakerMockController](src/main/java/com/example/farm/controller/MoonrakerMockController.java) 提供，只有 `dev`、`test` Profile 加载，用于兼容 OrcaSlicer 等工具，不属于 `/api/v1` Farm 业务 API，也不使用 `Result<T>` 返回格式。配置了 `farm.moonraker-api-key` 时，所有路由都要求 `X-Api-Key` 请求头；未配置时仅适合本地开发。
+
+| 方法 | 地址 | 请求参数 | 返回格式 |
+|---|---|---|---|
+| GET | `/server/info` | Header：`X-Api-Key?` | Moonraker `{"result":{...}}` |
+| GET | `/printer/info` | Header：`X-Api-Key?` | Moonraker `{"result":{...}}` |
+| GET | `/machine/update/status` | Header：`X-Api-Key?` | Moonraker `{"result":{...}}` |
+| POST | `/server/files/upload` | Multipart：`file`；Query：`print?`；Header：`X-Api-Key?` | Moonraker `{"result":{"item":{...}}}` |
+| GET | `/server/files` | Header：`X-Api-Key?` | Moonraker `{"result":[]}` |
+| DELETE | `/server/files/{filename:.+}` | Path：`filename`；Header：`X-Api-Key?` | Moonraker `{"result":{"deleted":"..."}}` |
+
+该模拟控制器返回固定或简化的兼容数据，不代表真实 Klipper 或 RRF 设备能力；生产 Profile 不加载。
+
+## 5. 已完成接口补充契约
 
 ### 5.1 打印机详情和控制
 
@@ -578,7 +595,7 @@ mysql -u root -p farm < src/main/resources/db/migration/09-v2-print-job-idempote
 ws://<server-host>:8080/ws/farm-status
 ```
 
-规划中的连接方式：
+连接时必须携带登录返回的 JWT：
 
 ```text
 ws://<server-host>:8080/ws/farm-status?token=<JWT>
@@ -627,7 +644,7 @@ PRINTER_OFFLINE   打印机离线
 JOB_STATUS        任务状态变化
 ```
 
-当前已冻结消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。此前独立 WebSocket 序列化器未注册 Java 时间模块的问题已修复，2026-09-03 真实容器验证 JWT 握手后能收到包含 46 台打印机的 `SNAPSHOT`，`LocalDateTime` 使用 ISO-8601 且无敏感字段；前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
+当前已实现消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。2026-09-03 的历史容器冒烟曾收到 46 台打印机的快照，后续当前实例验证为 49 台；两者均为当时数据库设备数量，不属于固定契约。前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
 
 ## 8. 打印机协议适配约定
 
@@ -843,13 +860,14 @@ PrintJobServiceImpl
 PrinterCacheServiceImpl
 ```
 
-设备协议当前集中在：
+设备协议客户端位于：
 
 ```text
 src/main/java/com/example/farm/common/utils/MoonrakerApiClient.java
+src/main/java/com/example/farm/protocol/RrfApiClient.java
 ```
 
-该类是 RRF 适配改造的替换点，后续应由 `PrinterProtocolAdapter` 调用，而不是由 Controller 直接调用。
+`MoonrakerApiClient` 和 `RrfApiClient` 由 `PrinterProtocolAdapterFactory` 选择的具体适配器调用；Controller 不直接调用协议客户端。
 
 ### 12.3 Swagger/OpenAPI
 
@@ -860,9 +878,9 @@ http://localhost:8080/swagger-ui.html
 http://localhost:8080/v3/api-docs
 ```
 
-Swagger 反映的是当前 Controller，不会自动包含本文的规划接口。规划接口实现后，必须同步补充 OpenAPI 的请求体、响应体、枚举和 Bearer Token 配置。
+Swagger 反映当前 Controller 上的 OpenAPI 注解；WebSocket `@ServerEndpoint` 不会作为 REST OpenAPI 路由展示。本文第 4 节正式 API 与当前 Controller 对应，批量接口的请求体、响应体、枚举和 Bearer Token 说明已同步。新增或修改 Controller 后，必须同步本文并检查 `/v3/api-docs`。
 
-仓库中的 `API_DOCUMENT.md` 是历史手工文档，存在匿名注册、任务创建地址和 WebSocket 文件名等过期内容；接口联调以本文和实际 Controller 为准。
+本文是当前唯一的接口交接文档；接口联调以本文、实际 Controller、`SecurityConfig` 和 `/v3/api-docs` 为准。
 
 ### 12.4 测试状态
 

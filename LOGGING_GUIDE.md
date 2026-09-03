@@ -36,7 +36,7 @@
 LogUtil.bizInfo("JOB_CREATE", "fileId", fileId, "userId", userId);
 
 // 记录数据变更
-LogUtil.dataChange("STATUS_CHANGE", "FarmPrinter", printerId, "OFFLINE -> ONLINE");
+LogUtil.dataChange("STATUS_CHANGE", "FarmPrinter", printerId, "OFFLINE -> IDLE");
 
 // 记录慢操作
 LogUtil.slowOperation("fetchPrinterStatus", durationMs, 5000);

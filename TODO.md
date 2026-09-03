@@ -84,7 +84,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [ ] P2.2 增加设备心跳、最后在线时间、错误码、重连退避和监控告警。
 - [x] P2.3 WebSocket 已具备版本、eventId/sequence、JWT 鉴权、连接上限、断线重连和 REST 快照兜底；按设备订阅暂不纳入本地农场 v2。
 - [ ] P2.4 增加真实数据库迁移、接口权限集成测试、批量接口测试和 RRF/Klipper 协议回归测试。
-- [ ] P2.5 更新 `API_HANDOFF.md`、Swagger 和运维文档，使实现、前端契约和任务状态一致。
+- [~] P2.5 已按当前 Controller、`SecurityConfig` 和 OpenAPI 注解收口 `API_HANDOFF.md`，移除过期历史 API 文档；WebSocket、开发 Mock 路由、Local 存储入口和 v3 自动派单边界已明确。Swagger/OpenAPI 与运维文档仍需单独完成最终发布复核。
 
 ## 四、目标 API 契约（新增部分）
 
@@ -131,4 +131,4 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 
 ## 六、执行顺序
 
-下一阶段从 `farm-v2/tasks.md` 的 T1 开始，顺序为：先冻结契约，再拆分监控/调度边界，随后修复状态一致性和 RRF 生命周期，完成单任务和批量业务，再实现 Local Edition 与 Server Edition 发布验证。后台自动派单移出 v2，另列为 v3 规划。
+当前继续按照 `.kiro/specs/farm-v2/tasks.md` 中未完成的 `[~]`、`[ ]` 任务推进：优先完成真实设备监控/生命周期和跨进程恢复验收，再完成前端浏览器端到端联调、Windows Local Edition 安装恢复演练及 Server Edition 正式发布验收。后台自动派单已移出 v2，另列为 v3 规划。

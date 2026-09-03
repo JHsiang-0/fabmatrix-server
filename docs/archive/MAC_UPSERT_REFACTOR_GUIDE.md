@@ -1,6 +1,6 @@
 # 3D 打印农场管理系统 - MAC 地址 Upsert 机制重构指南
 
-> **历史重构指南（不用于当前联调）**：本文用于说明 MAC Upsert 的历史背景和思路，示例可能早于当前 Controller/DTO。当前接口和状态以 [`API_HANDOFF.md`](./API_HANDOFF.md) 与当前源码为准；特别是新录入设备先写 `UNKNOWN`，等待协议探测后再更新实际状态。
+> **历史重构指南（不用于当前联调）**：本文用于说明 MAC Upsert 的历史背景和思路，示例可能早于当前 Controller/DTO。当前接口和状态以 [`API_HANDOFF.md`](../../API_HANDOFF.md) 与当前源码为准；特别是新录入设备先写 `UNKNOWN`，等待协议探测后再更新实际状态。
 
 ## 📋 重构概述
 
@@ -258,8 +258,8 @@ curl -X POST http://localhost:8080/api/v1/printers/add \
 
 ## 📚 相关文档
 
-- [API_DOCUMENT.md](API_DOCUMENT.md) - API 详细文档
-- [LOGGING_GUIDE.md](LOGGING_GUIDE.md) - 日志规范
+- [API_HANDOFF.md](../../API_HANDOFF.md) - 当前 API 交接文档
+- [LOGGING_GUIDE.md](../../LOGGING_GUIDE.md) - 日志规范
 
 ---
 

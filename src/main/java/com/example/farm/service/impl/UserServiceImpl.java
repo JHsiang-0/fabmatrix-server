@@ -19,6 +19,7 @@ import com.example.farm.entity.dto.UserLoginDTO;
 import com.example.farm.entity.dto.UserQueryDTO;
 import com.example.farm.entity.dto.UserRegisterDTO;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
 import com.example.farm.entity.vo.UserVO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.service.UserService;
@@ -42,6 +43,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final PasswordEncoder passwordEncoder;
     private final LoginProtectUtil loginProtectUtil;
+
+    /**
+     * Local Edition 首次安装允许初始化管理员；Server Edition 使用初始化 SQL 中的管理员账号。
+     */
+    @Value("${farm.security.first-admin-setup-enabled:false}")
+    private boolean firstAdminSetupEnabled;
+
+    /**
+     * Local Edition 是单后端进程，多客户端请求仍可能同时到达；锁住首次初始化窗口，避免并发创建多个管理员。
+     */
+    private final Object firstAdminSetupLock = new Object();
 
     @Value("${jwt.expire-time:604800000}")
     private Long jwtExpireTime;
@@ -99,6 +111,55 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         log.info("用户登录成功: username={}", user.getUsername());
         return result;
+    }
+
+    @Override
+    public FirstAdminSetupStatusDTO getFirstAdminSetupStatus() {
+        boolean initialized = count() > 0;
+        return new FirstAdminSetupStatusDTO(initialized, firstAdminSetupEnabled && !initialized);
+    }
+
+    @Override
+    @Transactional
+    public LoginResultDTO setupFirstAdmin(UserRegisterDTO setupDTO) {
+        if (!firstAdminSetupEnabled) {
+            throw new BusinessException(404, "首次管理员初始化未开启");
+        }
+
+        synchronized (firstAdminSetupLock) {
+            if (count() > 0) {
+                throw new BusinessException(409, "系统已完成初始化，请登录后由管理员创建账号");
+            }
+            if (!setupDTO.isPasswordMatch()) {
+                throw new BusinessException("两次输入的密码不一致");
+            }
+            if (isUsernameExists(setupDTO.getUsername())) {
+                throw new BusinessException("用户名已被使用");
+            }
+
+            User admin = new User();
+            admin.setUsername(setupDTO.getUsername());
+            admin.setPasswordHash(passwordEncoder.encode(setupDTO.getPassword()));
+            admin.setEmail(setupDTO.getEmail());
+            admin.setPhone(setupDTO.getPhone());
+            admin.setRole(ROLE_ADMIN);
+
+            if (!save(admin)) {
+                throw new BusinessException("管理员创建失败");
+            }
+
+            LoginResultDTO result = new LoginResultDTO(
+                    JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole()),
+                    jwtExpireTime / 1000,
+                    admin.getId(),
+                    admin.getUsername(),
+                    admin.getRole()
+            );
+            result.setEmail(admin.getEmail());
+            result.setPhone(admin.getPhone());
+            log.info("首次管理员初始化成功: userId={}, username={}", admin.getId(), admin.getUsername());
+            return result;
+        }
     }
 
     @Override

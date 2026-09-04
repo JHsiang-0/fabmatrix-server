@@ -22,6 +22,22 @@ public interface UserService extends IService<User> {
     LoginResultDTO login(UserLoginDTO loginDTO);
 
     /**
+     * 查询首次管理员初始化状态。
+     *
+     * @return 初始化状态
+     */
+    FirstAdminSetupStatusDTO getFirstAdminSetupStatus();
+
+    /**
+     * 在没有任何用户时创建首个管理员，并返回登录 Token。
+     *
+     * @param setupDTO 首个管理员账号和密码
+     * @return 管理员登录结果
+     * @throws BusinessException 当初始化未开启或系统已经初始化时抛出
+     */
+    LoginResultDTO setupFirstAdmin(UserRegisterDTO setupDTO);
+
+    /**
      * 用户注册。
      *
      * @param registerDTO 注册参数

@@ -33,6 +33,7 @@ farm:
     enabled: ${FARM_WEBSOCKET_ENABLED:true}
   security:
     cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+    first-admin-setup-enabled: true
 
 springdoc:
   api-docs:

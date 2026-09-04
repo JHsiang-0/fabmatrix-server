@@ -6,6 +6,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.User;
 import com.example.farm.entity.dto.ChangePasswordDTO;
+import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
 import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.entity.dto.PasswordMigrateResultDTO;
 import com.example.farm.entity.dto.PasswordStatusResultDTO;
@@ -55,6 +56,19 @@ public class UserController {
     public Result<LoginResultDTO> login(@Valid @RequestBody UserLoginDTO loginDTO) {
         loginDTO = requireBody(loginDTO);
         return Result.success(userService.login(loginDTO), "登录成功");
+    }
+
+    @Operation(summary = "查询首次管理员初始化状态", description = "仅用于首次安装页面判断是否需要创建管理员，不返回任何敏感信息")
+    @GetMapping("/setup/status")
+    public Result<FirstAdminSetupStatusDTO> getFirstAdminSetupStatus() {
+        return Result.success(userService.getFirstAdminSetupStatus(), "获取初始化状态成功");
+    }
+
+    @Operation(summary = "创建首次管理员", description = "仅当系统没有任何用户且 Local Edition 开启首次初始化时可用；成功后直接返回管理员 Token")
+    @PostMapping("/setup/admin")
+    public Result<LoginResultDTO> setupFirstAdmin(@Valid @RequestBody UserRegisterDTO setupDTO) {
+        setupDTO = requireBody(setupDTO);
+        return Result.success(userService.setupFirstAdmin(setupDTO), "管理员初始化成功");
     }
 
     @Operation(summary = "管理员创建操作员")

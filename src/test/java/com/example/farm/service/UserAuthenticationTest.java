@@ -2,6 +2,7 @@ package com.example.farm.service;
 
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.LoginProtectUtil;
+import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.entity.User;
 import com.example.farm.entity.dto.ChangePasswordDTO;
 import com.example.farm.entity.dto.UserRegisterDTO;
@@ -22,9 +23,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 @ExtendWith(MockitoExtension.class)
 class UserAuthenticationTest {
@@ -138,6 +141,71 @@ class UserAuthenticationTest {
 
         assertThatThrownBy(() -> userService.register(request))
                 .hasMessage("用户创建失败");
+    }
+
+    @Test
+    void firstAdminSetupCreatesAdminAndReturnsToken() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
+        ReflectionTestUtils.setField(userService, "jwtExpireTime", 604800000L);
+        ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "test-secret-key");
+        ReflectionTestUtils.setField(JwtUtils.class, "STATIC_EXPIRE_TIME", 604800000L);
+        when(passwordEncoder.encode("Admin123")).thenReturn("encoded-admin-password");
+        doAnswer(invocation -> {
+            User admin = invocation.getArgument(0);
+            admin.setId(1L);
+            return 1;
+        }).when(userMapper).insert(any(User.class));
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("admin");
+        request.setPassword("Admin123");
+        request.setConfirmPassword("Admin123");
+
+        var result = userService.setupFirstAdmin(request);
+
+        assertThat(result.getToken()).isNotBlank();
+        assertThat(result.getUserId()).isEqualTo(1L);
+        assertThat(result.getRole()).isEqualTo("ADMIN");
+        var insertedUser = forClass(User.class);
+        verify(userMapper).insert(insertedUser.capture());
+        assertThat(insertedUser.getValue().getUsername()).isEqualTo("admin");
+        assertThat(insertedUser.getValue().getRole()).isEqualTo("ADMIN");
+        assertThat(insertedUser.getValue().getPasswordHash()).isEqualTo("encoded-admin-password");
+    }
+
+    @Test
+    void firstAdminSetupRejectsWhenAUserAlreadyExists() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
+        when(userMapper.selectCount(any())).thenReturn(1L);
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("admin");
+        request.setPassword("Admin123");
+        request.setConfirmPassword("Admin123");
+
+        assertThatThrownBy(() -> userService.setupFirstAdmin(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("系统已完成初始化，请登录后由管理员创建账号")
+                .extracting("code")
+                .isEqualTo(409L);
+        verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    void firstAdminSetupIsDisabledOutsideLocalEdition() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", false);
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("admin");
+        request.setPassword("Admin123");
+        request.setConfirmPassword("Admin123");
+
+        assertThatThrownBy(() -> userService.setupFirstAdmin(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("首次管理员初始化未开启")
+                .extracting("code")
+                .isEqualTo(404L);
+        verify(userMapper, never()).insert(any(User.class));
     }
 
     @Test

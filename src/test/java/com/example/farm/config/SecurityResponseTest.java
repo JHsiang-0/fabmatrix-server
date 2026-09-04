@@ -2,6 +2,8 @@ package com.example.farm.config;
 
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
+import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
@@ -164,6 +166,48 @@ class SecurityResponseTest {
                 .andExpect(jsonPath("$.data").value(2));
 
         verify(userService).register(any());
+    }
+
+    @Test
+    void firstAdminSetupStatusIsPublic() throws Exception {
+        when(userService.getFirstAdminSetupStatus())
+                .thenReturn(new FirstAdminSetupStatusDTO(false, true));
+
+        mockMvc.perform(get("/api/v1/auth/setup/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.initialized").value(false))
+                .andExpect(jsonPath("$.data.setupAvailable").value(true));
+    }
+
+    @Test
+    void firstAdminSetupIsPublicAndReturnsLoginResult() throws Exception {
+        when(userService.setupFirstAdmin(any())).thenReturn(
+                new LoginResultDTO("setup-token", 604800L, 1L, "admin", "ADMIN"));
+
+        mockMvc.perform(post("/api/v1/auth/setup/admin")
+                        .contentType("application/json")
+                        .content("{\"username\":\"admin\",\"password\":\"Admin123\","
+                                + "\"confirmPassword\":\"Admin123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.token").value("setup-token"))
+                .andExpect(jsonPath("$.data.role").value("ADMIN"));
+
+        verify(userService).setupFirstAdmin(any());
+    }
+
+    @Test
+    void firstAdminSetupReturnsConflictAfterInitialization() throws Exception {
+        when(userService.setupFirstAdmin(any()))
+                .thenThrow(new BusinessException(409, "系统已完成初始化，请登录后由管理员创建账号"));
+
+        mockMvc.perform(post("/api/v1/auth/setup/admin")
+                        .contentType("application/json")
+                        .content("{\"username\":\"admin\",\"password\":\"Admin123\","
+                                + "\"confirmPassword\":\"Admin123\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(409));
     }
 
     @Test

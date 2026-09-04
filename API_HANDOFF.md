@@ -161,6 +161,21 @@ POST /api/v1/auth/login
 
 登录失败契约：账号不存在、密码错误、账号已锁定统一返回 HTTP 401、业务码 `401`；账号被管理员禁用返回 HTTP 403、业务码 `403`。失败次数由 Redis 记录，连续失败 5 次后锁定 15 分钟；Redis 不可用时返回 HTTP 503、业务码 `5002`。Bearer Token 无效或过期返回 HTTP 401、业务码 `401`，禁用用户携带既有 Token 访问业务接口返回 HTTP 403、业务码 `403`。
 
+### 3.1.1 Local Edition 首次管理员初始化
+
+Local Edition 全新数据目录没有预置管理员账号。前端首次打开时先调用：
+
+| 方法 | 地址 | 权限 | 请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/auth/setup/status` | 免认证 | 无 | `Result<FirstAdminSetupStatusDTO>` |
+| POST | `/auth/setup/admin` | 免认证（仅首次） | 用户注册 DTO | `Result<LoginResultDTO>` |
+
+`FirstAdminSetupStatusDTO` 字段：`initialized` 表示数据库是否已有用户，`setupAvailable` 表示当前是否允许创建首个管理员。Local Edition 开启该能力，其他 Profile 默认关闭。
+
+创建请求复用 `UserRegisterDTO`：用户名 3-20 位，只能使用字母、数字、下划线；密码 6-20 位且必须包含大小写字母和数字；`confirmPassword` 必须一致。服务端固定将首个用户创建为 `ADMIN`，密码只保存 BCrypt 哈希，不提供固定默认密码。
+
+创建成功后直接返回登录结果（包含 `data.token`、`userId`、`username`、`role=ADMIN`），前端可以直接保存 Token。创建成功后再次调用初始化接口返回 HTTP 409、业务码 `409`；如果初始化能力未开启返回 HTTP 404、业务码 `404`。服务层会在数据库写入前再次检查用户数量，并在单进程内串行化初始化请求。
+
 ### 3.2 用户管理
 
 | 方法 | 地址 | 权限 | 请求 | 返回 |

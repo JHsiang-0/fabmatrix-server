@@ -53,6 +53,8 @@ public class SecurityConfig {
                                         403, "没有相关权限")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/login").permitAll()
+                        // Local Edition 首次安装时允许查询状态并创建唯一的首个管理员；服务层会再次检查开关和用户数量。
+                        .requestMatchers("/api/v1/auth/setup/status", "/api/v1/auth/setup/admin").permitAll()
                         // 本地农场不开放匿名注册，操作员账号由管理员创建
                         .requestMatchers("/api/v1/auth/register").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/check-username").hasRole("ADMIN")

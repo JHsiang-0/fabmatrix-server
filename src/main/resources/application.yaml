@@ -113,6 +113,8 @@ farm:
     presigned-url-max-minutes: 120
   security:
     cors-allowed-origins: "*"
+    # 首次管理员初始化默认关闭，仅由 Local Edition 显式开启。
+    first-admin-setup-enabled: false
   # Moonraker API 模拟器配置（切片软件连接密钥）
   moonraker-api-key: ${MOONRAKER_API_KEY:}
 

@@ -763,6 +763,8 @@ T9.6/T10.5 现场协作前提：当前开发环境保持 `farm.monitor.enabled=f
 
 同日补充校验：前端 `npx eslint src --no-cache`、`npm test`（13 项）和 `npm run build` 均通过；`docker compose --env-file .env.server.example -f docker-compose.server.yml config -q` 与开发版 `docker-compose.yml config -q` 均通过。Server Edition 配置校验使用示例值，仅证明 Compose 结构和变量引用完整，不代表示例密钥可直接用于生产。
 
+2026-09-03 `.77` v2 现场链路补充（Farm 打印机 ID `564`）：使用文件 `farm_rrf_completion_acceptance.gcode`（116 字节，仅注释、`G90`、`M83`、`G4 P20000`，无移动/加热/挤出）创建 `jobId=8`，完成安全派发、确认、上传和启动；RRF 曾返回 `processing`（进度约 91.38%），随后回到 `idle`，由于没有足够终态证据，Farm 正确将任务置为 `RECONCILING`，之后清理为 `CANCELLED` 并解除当前绑定。使用 `farm_rrf_control_acceptance.gcode`（110 字节，`G4 P180000`）创建 `jobId=9`，真实验证结果如下：安全创建/派发/确认/启动均 HTTP 200；`processing -> paused` 的暂停返回 200 且任务为 `PAUSED`；`paused -> processing` 的恢复返回 200 且任务为 `PRINTING`；取消返回 200、任务为 `CANCELLED` 且 Farm 当前绑定解除，但设备因长 `G4` 尚未立即停止，随后仍短暂返回 `processing`，不能把取消 HTTP 200 解释为设备已停止。对该残留执行一次急停，接口返回 HTTP 503，但 RRF 随后进入 `starting`，约十余秒后恢复 `idle`，监控状态历史记录了 `PRINTING(90%) -> PREPARING(starting) -> IDLE`，Farm 打印机最终为 `IDLE` 且 `currentJobId=null`。本次没有发送会导致运动、加热或挤出的 G-code，也没有使用 `.62`；正常生产文件的物理打印、取消即时停止语义和浏览器 WebSocket 实时展示仍未验收。
+
 数据一致性补充：2026-09-03 已对当前开发库执行一次有备份的幽灵绑定修复。发现任务 `1` 的 `printer_id=289` 不再存在，修复后任务解除打印机绑定并置为 `RECONCILING`，审计记录写入 `farm_binding_repair_audit`，残留孤儿绑定为 0。修复脚本为 `scripts/repair-ghost-bindings.sql`；它不会删除任务、自动派单或调用设备。该结果只代表当前开发库，生产库仍须先备份后单独核对。
 
 同日再次进行 8080 只读冒烟时，发现当前已有 MySQL 数据卷尚未执行 v2 的 07-10 增量迁移，导致任务队列查询因缺少 `farm_print_job.idempotency_key` 返回 500。已先生成 `/tmp/farm-before-v2-migrations-20260903.sql`，再执行 07-10 脚本；07/09/10 的表字段已核对存在，任务队列恢复 HTTP 200。10 号脚本同时修正为基于 `information_schema` 的可重复 MySQL 写法。以后新环境和已有数据卷都必须按 `OPERATIONS.md` 先备份、再执行增量迁移。
@@ -825,6 +827,10 @@ RRF 3.7 适配器与可复现 HTTP Mock
 ```
 
 上述接口可以按本文契约直接进行前端联调；真实 RRF/Klipper 设备副作用和浏览器端完整端到端仍属于现场验收项。
+
+### v3 规划提示（当前不作为 v2 接口契约）
+
+当前后端仍采用 Farm 主动读取设备状态，WebSocket 仅负责 Farm 到客户端的推送。v3 如优化设备同步，应增加“命令请求/设备确认”语义：控制接口返回成功只代表设备接受请求，取消或急停不得在未确认设备停止前立即释放绑定；长时间 G-code 阻塞时应进入可恢复中间态并记录确认超时。监控可按空闲、打印中、离线状态自适应轮询，并在控制操作后短时加密确认；若某种固件或网关提供可靠事件上报，再通过协议适配器接入，轮询仍保留为心跳和一致性兜底。该规划不改变 v2 手动上传、手动分配、现场确认和手动启动的接口。
 
 ## 12. 后端代码定位与文档来源
 

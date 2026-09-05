@@ -1,5 +1,5 @@
 # ===========================================
-# 3D打印农场管理系统 - 基础配置
+# FabMatrix 3D 打印生产管理系统 - 基础配置
 # ===========================================
 
 spring:
@@ -7,7 +7,7 @@ spring:
     active: dev  # 默认激活开发环境
 
   application:
-    name: 3d-printer-farm
+    name: fabmatrix-server
 
   output:
     ansi:

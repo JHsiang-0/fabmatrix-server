@@ -9,10 +9,10 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.example</groupId>
-    <artifactId>Farm</artifactId>
+    <artifactId>fabmatrix-server</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>Farm</name>
-    <description>Farm</description>
+    <name>FabMatrix Server</name>
+    <description>FabMatrix 3D 打印生产管理服务</description>
     <url/>
     <licenses>
         <license/>

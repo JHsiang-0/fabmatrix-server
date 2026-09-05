@@ -15,8 +15,10 @@ import com.example.farm.entity.vo.FileNodeVO;
 import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.PrintFileService;
+import com.example.farm.service.AuditLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -51,6 +53,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private final FileStorage rustFsClient;
     private final FileUploadProperties fileUploadProperties;
+
+    @Autowired(required = false)
+    private AuditLogService auditLogService;
 
     @Override
     public List<PrintFile> getFolderContent(Long parentId) {
@@ -380,6 +385,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             cleanupUploadedObjects(safeName, uploadedThumbnailUrl);
             throw exception;
         }
+        recordSuccess("FILE_UPLOAD", "FILE", printFile.getId(), printFile.getOriginalName());
         log.info("切片文件入库成功: fileId={}, userId={}, safeName={}", printFile.getId(), userId, safeName);
         return printFile;
     }
@@ -484,6 +490,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (!this.removeById(target.getId())) {
             throw new BusinessException("文件记录删除失败");
         }
+        recordSuccess("FILE_DELETE", "FILE", target.getId(), target.getOriginalName());
         log.info("print file deleted from rustfs and db: fileId={}, userId={}", id, userId);
     }
 
@@ -568,6 +575,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 if (!this.removeById(target.getId())) {
                     throw new BusinessException("数据库记录删除失败");
                 }
+                recordSuccess("FILE_DELETE", "FILE", target.getId(), target.getOriginalName());
                 result.getItems().add(new PrintFileService.BatchDeleteItemResult(id, true, "删除成功"));
                 result.setDeletedCount(result.getDeletedCount() + 1);
             } catch (BusinessException e) {
@@ -588,6 +596,12 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         log.info("批量删除文件完成: userId={}, deletedCount={}, failedCount={}",
                 userId, result.getDeletedCount(), result.getFailedCount());
         return result;
+    }
+
+    private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
+        if (auditLogService != null) {
+            auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
+        }
     }
 
     private void validateUpload(MultipartFile file) {

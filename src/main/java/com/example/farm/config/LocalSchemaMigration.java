@@ -21,6 +21,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        createAuditLogTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_dispatch_plan", "retry_key", "VARCHAR(128)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_plan_id", "VARCHAR(64)");
@@ -28,6 +29,27 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_dispatch_plan_item", "recovery_action", "VARCHAR(64)");
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_dispatch_plan_created_retry_key "
                 + "ON farm_dispatch_plan(created_by, retry_key)");
+    }
+
+    private void createAuditLogTableIfMissing() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id INTEGER,
+                    actor_username VARCHAR(50),
+                    actor_role VARCHAR(20),
+                    action VARCHAR(64) NOT NULL,
+                    target_type VARCHAR(32) NOT NULL,
+                    target_id VARCHAR(64),
+                    target_label VARCHAR(200),
+                    result VARCHAR(16) NOT NULL,
+                    error_code VARCHAR(32),
+                    occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    trace_id VARCHAR(64)
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_audit_occurred_id "
+                + "ON farm_audit_log(occurred_at, id)");
     }
 
     private void addColumnIfMissing(String table, String column, String definition) {

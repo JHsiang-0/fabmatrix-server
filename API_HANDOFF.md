@@ -203,6 +203,16 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 禁用/启用接口成功返回更新后的 `UserVO`，重复操作幂等；管理员不能禁用自己（HTTP 409、业务码 `409`），目标不存在返回 HTTP 404。禁用账号的登录返回 HTTP 403、业务码 `403`，携带既有 JWT 的 REST 请求也返回 403。Redis 禁用缓存只用于失效辅助，数据库状态查询失败时认证请求返回服务不可用，不得放行。
 
+### 3.3 操作审计日志（T205）
+
+| 方法 | 地址 | 权限 | Query 参数 | 返回 |
+|---|---|---|---|---|
+| GET | `/auth/admin/audit-logs` | ADMIN | `pageNum`、`pageSize`、`actorId`、`action`、`targetType`、`targetId`、`result`、`from`、`to` | `Result<PageResult<AuditLogVO>>` |
+
+`pageNum` 默认为 `1`，`pageSize` 默认为 `20`，范围为 `1-100`。`result` 只能是 `SUCCESS` 或 `FAILURE`；时间参数使用 ISO-8601 本地时间。服务端固定按 `occurredAt DESC, id DESC` 排序，操作者从服务端认证上下文获取，不接受前端传入的 actor。
+
+`AuditLogVO` 字段固定为 `id,actorId,actorUsername,actorRole,action,targetType,targetId,targetLabel,result,errorCode,occurredAt,traceId`。审计记录不保存或返回密码、JWT/API key、管理员密钥、RustFS key、预签名 URL、请求体、响应体或堆栈。登录成功使用服务端已校验的用户快照；登录失败仅在已有认证链路能安全获得用户名时记录。当前最小实现记录登录失败、批量派发部分失败和失败项恢复，其他跨设备/外部存储异常不强行写失败事件，以免覆盖原始业务错误。
+
 ## 4. 当前正式业务接口（与 Controller 一一对应）
 
 以下接口以当前 Controller 为准；除 Local Edition 的文件流入口 `GET /print-files/storage` 外，均使用 `Result<T>` 包装。

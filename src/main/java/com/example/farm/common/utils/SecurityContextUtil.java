@@ -73,6 +73,11 @@ public class SecurityContextUtil {
             return null;
         }
         
+        // JWT 认证过滤器将用户 ID 放在 principal、用户名放在 credentials；优先读取后者。
+        Object credentials = authentication.getCredentials();
+        if (credentials instanceof String username && !username.isBlank()) {
+            return username;
+        }
         return authentication.getName();
     }
 

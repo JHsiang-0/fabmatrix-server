@@ -25,6 +25,7 @@ import com.example.farm.mapper.DispatchPlanItemMapper;
 import com.example.farm.mapper.DispatchPlanMapper;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.DispatchPlanService;
+import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +63,9 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
     private final PrintFileMapper printFileMapper;
     private final PrinterService printerService;
     private final PrintJobService printJobService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AuditLogService auditLogService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -169,7 +173,10 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             }
             retryItems.add(item);
         }
-        return persistPreview(plan, retryItems, files, printers, confirmationToken);
+        DispatchPlanPreviewVO result = persistPreview(plan, retryItems, files, printers, confirmationToken);
+        recordSuccess("BATCH_FAILURE_RECOVERY", "DISPATCH_PLAN", sourcePlanId,
+                "批量计划 " + sourcePlanId);
+        return result;
     }
 
     private DispatchPlan newPlan(String strategy, String action, Long userId,
@@ -239,6 +246,7 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public BatchDispatchConfirmVO confirm(BatchDispatchConfirmRequest request) {
         if (request == null) {
             throw new BusinessException(400, "确认请求不能为空");
@@ -302,6 +310,12 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         plan.setStatus(failed ? DispatchPlanStatus.PARTIAL_FAILED.name() : DispatchPlanStatus.COMPLETED.name());
         plan.setUpdatedAt(LocalDateTime.now());
         planMapper.updateById(plan);
+        if (failed) {
+            recordFailure("BATCH_DISPATCH", "DISPATCH_PLAN", plan.getId(), "批量计划 " + plan.getId(),
+                    "PARTIAL_FAILED");
+        } else {
+            recordSuccess("BATCH_DISPATCH", "DISPATCH_PLAN", plan.getId(), "批量计划 " + plan.getId());
+        }
         return storedResult(plan, allItems, requestedIds, false);
     }
 
@@ -579,4 +593,17 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
     }
 
     private DispatchPlan planSuccess(DispatchPlan plan) { return plan; }
+
+    private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
+        if (auditLogService != null) {
+            auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
+        }
+    }
+
+    private void recordFailure(String action, String targetType, Object targetId, String targetLabel,
+                               String errorCode) {
+        if (auditLogService != null) {
+            auditLogService.recordFailure(action, targetType, targetId, targetLabel, errorCode);
+        }
+    }
 }

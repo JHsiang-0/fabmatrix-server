@@ -75,3 +75,24 @@ CREATE TABLE IF NOT EXISTS farm_dispatch_plan_item (
     started_at TIMESTAMP, completed_at TIMESTAMP, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS farm_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id INTEGER,
+    actor_username VARCHAR(50),
+    actor_role VARCHAR(20),
+    action VARCHAR(64) NOT NULL,
+    target_type VARCHAR(32) NOT NULL,
+    target_id VARCHAR(64),
+    target_label VARCHAR(200),
+    result VARCHAR(16) NOT NULL,
+    error_code VARCHAR(32),
+    occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    trace_id VARCHAR(64)
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_occurred_id ON farm_audit_log(occurred_at, id);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON farm_audit_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON farm_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_target ON farm_audit_log(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_audit_result ON farm_audit_log(result);

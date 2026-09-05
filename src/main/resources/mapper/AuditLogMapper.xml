@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.farm.mapper.AuditLogMapper">
+
+    <select id="selectAuditLogPage" resultType="com.example.farm.entity.vo.AuditLogVO">
+        SELECT
+            id,
+            actor_id,
+            actor_username,
+            actor_role,
+            action,
+            target_type,
+            target_id,
+            target_label,
+            result,
+            error_code,
+            occurred_at,
+            trace_id
+        FROM farm_audit_log
+        <where>
+            <if test="query.actorId != null">AND actor_id = #{query.actorId}</if>
+            <if test="query.action != null and query.action != ''">AND action = #{query.action}</if>
+            <if test="query.targetType != null and query.targetType != ''">AND target_type = #{query.targetType}</if>
+            <if test="query.targetId != null and query.targetId != ''">AND target_id = #{query.targetId}</if>
+            <if test="query.result != null and query.result != ''">AND result = #{query.result}</if>
+            <if test="query.from != null">AND occurred_at &gt;= #{query.from}</if>
+            <if test="query.to != null">AND occurred_at &lt;= #{query.to}</if>
+        </where>
+        ORDER BY occurred_at DESC, id DESC
+    </select>
+</mapper>

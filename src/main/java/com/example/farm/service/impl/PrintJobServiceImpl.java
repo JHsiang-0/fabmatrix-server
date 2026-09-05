@@ -24,6 +24,7 @@ import com.example.farm.protocol.PrinterOperation;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.PrintJobService;
+import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private final PrinterProtocolAdapterFactory adapterFactory;
     private final WebSocketEventPublisher eventPublisher;
 
+    @Autowired(required = false)
+    private AuditLogService auditLogService;
+
     /** 单元测试可不提供 Redis；正式运行由 Server Edition 注入并作为跨客户端占用锁。 */
     @Autowired(required = false)
     private RedisUtil redisUtil;
@@ -74,6 +78,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (!this.save(job)) {
             throw new BusinessException("提交打印任务失败：任务记录保存失败");
         }
+        recordSuccess("JOB_CREATE", "JOB", job.getId(), "打印任务 #" + job.getId());
         log.info("提交打印任务成功: jobId={}, userId={}, fileId={}, priority={}", job.getId(), userId, fileId, job.getPriority());
         return job.getId();
     }
@@ -227,6 +232,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (req.getPrinterId() != null) {
             assignJob(job.getId(), req.getPrinterId());
         }
+        recordSuccess("JOB_CREATE", "JOB", job.getId(), "打印任务 #" + job.getId());
         LogUtil.dataChange("创建打印任务", "FarmPrintJob", job.getId(),
                 String.format("用户=%d，文件ID=%d", userId, req.getFileId()));
         return job.getId();
@@ -320,6 +326,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         eventPublisher.publishJobStatus(job);
 
         LogUtil.dataChange("启动打印任务", "FarmPrintJob", job.getId(), "已分配到打印机: " + printer.getName());
+        recordSuccess("JOB_ASSIGN_AND_START", "JOB", job.getId(), "打印任务 #" + job.getId());
         return true;
     }
 
@@ -373,6 +380,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         eventPublisher.publishJobStatus(job);
 
         LogUtil.bizInfo("任务派发（安全模式）", "任务ID", jobId, "打印机ID", printerId, "打印机名称", printer.getName());
+        recordSuccess("JOB_SAFE_ASSIGN", "JOB", jobId, "打印任务 #" + jobId);
         log.info("派发任务成功（已重置安全标记）: jobId={}, printerId={}", jobId, printerId);
     }
 
@@ -396,6 +404,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         String operatorInfo = operatorId != null ? "operatorId=" + operatorId : "operator=system";
         LogUtil.bizInfo("现场确认安全", "打印机ID", printerId, "打印机名称", printer.getName(), "操作员", operatorInfo);
+        recordSuccess("JOB_SAFE_CONFIRM", "PRINTER", printerId, printer.getName());
         log.info("现场确认打印机安全: printerId={}, operatorId={}", printerId, operatorId);
     }
 
@@ -496,6 +505,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             updatePrinterOrThrow(printer, "启动打印失败");
             eventPublisher.publishJobStatus(job);
 
+            recordSuccess("JOB_START", "JOB", jobId, "打印任务 #" + jobId);
             LogUtil.bizInfo("现场启动打印", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
             log.info("现场启动打印成功: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
         } else {
@@ -512,6 +522,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             updatePrinterOrThrow(printer, "上传文件到打印机失败");
             eventPublisher.publishJobStatus(job);
 
+            recordSuccess("JOB_UPLOAD", "JOB", jobId, "打印任务 #" + jobId);
             LogUtil.bizInfo("文件上传到机器（待机）", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
             log.info("文件已上传到机器（待机）: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
         }
@@ -560,6 +571,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         job.setStatus(PrintJobStatus.CANCELLED.name());
         updateJobAndPublish(job);
+        recordSuccess("JOB_CANCEL", "JOB", jobId, "打印任务 #" + jobId);
         log.info("取消打印任务成功: jobId={}, 原状态={}", jobId, status);
     }
 
@@ -595,6 +607,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setProgress(BigDecimal.ZERO);
         job.setStatus(PrintJobStatus.QUEUED.name());
         updateJobAndPublish(job);
+        recordSuccess("JOB_RETRY", "JOB", jobId, "打印任务 #" + jobId);
         log.info("重试打印任务成功: jobId={}, 原状态={}", jobId, status);
     }
 
@@ -653,6 +666,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setProgress(BigDecimal.ZERO);
         job.setStatus(PrintJobStatus.QUEUED.name());
         updateJobAndPublish(job);
+        recordSuccess("JOB_REQUEUE", "JOB", jobId, "打印任务 #" + jobId);
         log.info("重新排队打印任务成功: jobId={}, 原状态={}", jobId, status);
     }
 
@@ -693,6 +707,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (!this.updateById(job)) {
             throw new BusinessException("任务优先级更新失败");
         }
+        recordSuccess("JOB_PRIORITY_UPDATE", "JOB", jobId, "打印任务 #" + jobId);
         log.info("修改打印任务优先级成功: jobId={}, priority={}", jobId, request.getPriority());
     }
 
@@ -710,6 +725,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private void updatePrinterOrThrow(Printer printer, String operation) {
         if (!printerService.updateById(printer)) {
             throw new BusinessException(operation + "：打印机状态保存失败");
+        }
+    }
+
+    private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
+        if (auditLogService != null) {
+            auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
         }
     }
 

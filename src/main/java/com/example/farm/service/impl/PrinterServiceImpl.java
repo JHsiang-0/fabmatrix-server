@@ -17,9 +17,11 @@ import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterProtocolDetector;
 import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -43,6 +45,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @RequiredArgsConstructor
 public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> implements PrinterService {
+
+    @Autowired(required = false)
+    private AuditLogService auditLogService;
 
     private static final int MAX_BATCH_SIZE = 100;
 
@@ -119,6 +124,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
         // 刷新缓存
         printerCacheService.refreshPrinterCache();
+        Printer persisted = getByIpAddress(ipAddress);
+        recordSuccess("PRINTER_CREATE", "PRINTER", persisted == null ? null : persisted.getId(),
+                persisted == null ? dto.getName() : persisted.getName());
     }
 
     /**
@@ -276,6 +284,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                 existingPrinter.getId(), existingPrinter.getName(), existingPrinter.getIpAddress(),
                 dto.getGridRow(), dto.getGridCol());
 
+        recordSuccess("PRINTER_UPDATE", "PRINTER", existingPrinter.getId(), existingPrinter.getName());
+
         printerCacheService.refreshPrinterCache();
     }
 
@@ -296,6 +306,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         if (!this.removeById(id)) {
             throw new BusinessException("删除打印机失败");
         }
+        recordSuccess("PRINTER_DELETE", "PRINTER", id, printer.getName());
         log.info("删除打印机成功：id={}, name={}", id, printer.getName());
 
         printerCacheService.refreshPrinterCache();
@@ -712,6 +723,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                 int affected = baseMapper.updatePrinterPosition(update.getId(), gridRow, gridCol);
                 if (affected > 0) {
                     successCount++;
+                    recordSuccess("PRINTER_POSITION_UPDATE", "PRINTER", printer.getId(), printer.getName());
                     log.debug("更新设备位置成功：id={}, gridRow={}, gridCol={}",
                             update.getId(), gridRow, gridCol);
                 } else {
@@ -727,6 +739,12 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
         log.info("批量更新位置完成：成功 {} 台，失败 {} 台", successCount, failCount);
         return successCount;
+    }
+
+    private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
+        if (auditLogService != null) {
+            auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
+        }
     }
 
     // ==================== 未分配位置设备查询 ====================

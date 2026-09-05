@@ -22,6 +22,7 @@ import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
 import com.example.farm.entity.vo.UserVO;
 import com.example.farm.mapper.UserMapper;
+import com.example.farm.service.AuditLogService;
 import com.example.farm.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final PasswordEncoder passwordEncoder;
     private final LoginProtectUtil loginProtectUtil;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AuditLogService auditLogService;
+
     /**
      * Local Edition 首次安装允许初始化管理员；Server Edition 使用初始化 SQL 中的管理员账号。
      */
@@ -65,17 +69,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         if (loginProtectUtil.isLocked(username)) {
             long remainingMinutes = loginProtectUtil.getRemainingLockTime(username);
+            recordLoginFailure(username, null, "ACCOUNT_LOCKED");
             throw authenticationFailure("账号已锁定，请 " + remainingMinutes + " 分钟后重试");
         }
 
         User user = findByUsername(username);
         if (user == null) {
             loginProtectUtil.recordLoginFail(username);
+            recordLoginFailure(username, null, "INVALID_CREDENTIALS");
             throw authenticationFailure("账号或密码错误");
         }
 
         if (Boolean.FALSE.equals(user.getEnabled())
                 || (user.getEnabled() == null && loginProtectUtil.isUserDisabled(user.getId()))) {
+            recordLoginFailure(user.getUsername(), user.getId(), "ACCOUNT_DISABLED");
             throw new BusinessException(ResultCode.FORBIDDEN.getCode(), "用户已被禁用，请联系管理员");
         }
 
@@ -86,8 +93,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             int failCount = loginProtectUtil.recordLoginFail(username);
             int remainingAttempts = 5 - failCount;
             if (remainingAttempts > 0) {
+                recordLoginFailure(user.getUsername(), user.getId(), "INVALID_CREDENTIALS");
                 throw authenticationFailure("账号或密码错误，还剩 " + remainingAttempts + " 次机会");
             }
+            recordLoginFailure(user.getUsername(), user.getId(), "ACCOUNT_LOCKED");
             throw authenticationFailure("账号已锁定，请 15 分钟后重试");
         }
 
@@ -110,6 +119,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         result.setEmail(user.getEmail());
         result.setPhone(user.getPhone());
 
+        recordLoginSuccess(user.getId(), user.getUsername(), user.getRole());
         log.info("用户登录成功: username={}", user.getUsername());
         return result;
     }
@@ -159,6 +169,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             );
             result.setEmail(admin.getEmail());
             result.setPhone(admin.getPhone());
+            recordLoginSuccess(admin.getId(), admin.getUsername(), admin.getRole());
             log.info("首次管理员初始化成功: userId={}, username={}", admin.getId(), admin.getUsername());
             return result;
         }
@@ -188,6 +199,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (!save(newUser)) {
             throw new BusinessException("用户创建失败");
         }
+        recordSuccess("USER_CREATE", "USER", newUser.getId(), newUser.getUsername());
         log.info("用户注册成功: username={}, id={}", newUser.getUsername(), newUser.getId());
         return newUser.getId();
     }
@@ -247,6 +259,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         updateUserOrThrow(user, "用户信息更新失败");
+        recordSuccess("USER_UPDATE", "USER", user.getId(), user.getUsername());
         log.info("用户信息更新成功: username={}", user.getUsername());
     }
 
@@ -305,6 +318,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         loginProtectUtil.disableUser(userId);
         loginProtectUtil.clearLoginFail(user.getUsername());
+        recordSuccess("USER_DISABLE", "USER", user.getId(), user.getUsername());
         log.info("用户已被禁用: targetUserId={}, adminId={}", userId, adminId);
         return UserVO.from(user);
     }
@@ -323,6 +337,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             updateUserOrThrow(user, "用户启用失败");
         }
         loginProtectUtil.enableUser(userId);
+        recordSuccess("USER_ENABLE", "USER", user.getId(), user.getUsername());
         log.info("用户已被启用: targetUserId={}, adminId={}", userId, adminId);
         return UserVO.from(user);
     }
@@ -392,6 +407,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private BusinessException authenticationFailure(String message) {
         return new BusinessException(ResultCode.UNAUTHORIZED.getCode(), message);
+    }
+
+    private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
+        if (auditLogService != null) {
+            auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
+        }
+    }
+
+    private void recordLoginFailure(String username, Long targetId, String errorCode) {
+        if (auditLogService != null) {
+            auditLogService.recordLoginFailure(username, targetId, errorCode);
+        }
+    }
+
+    private void recordLoginSuccess(Long actorId, String username, String role) {
+        if (auditLogService != null) {
+            auditLogService.recordLoginSuccess(actorId, username, role);
+        }
     }
 
     private void updateUserOrThrow(User user, String operation) {

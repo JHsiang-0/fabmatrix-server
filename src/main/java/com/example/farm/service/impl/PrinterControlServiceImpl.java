@@ -13,6 +13,7 @@ import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolException;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.PrinterControlService;
+import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.WebSocketEventPublisher;
@@ -38,6 +39,9 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     private final PrinterProtocolAdapterFactory adapterFactory;
     private final PrintJobService printJobService;
     private final WebSocketEventPublisher eventPublisher;
+
+    @Autowired(required = false)
+    private AuditLogService auditLogService;
 
     @Autowired(required = false)
     private RedisUtil redisUtil;
@@ -72,6 +76,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
         if (!printerService.updateById(printer)) {
             throw new BusinessException("急停后更新打印机状态失败");
         }
+        recordSuccess("CONTROL_EMERGENCY_STOP", "PRINTER", printerId, printer.getName());
         log.warn("急停执行成功，设备已标记为 ERROR，等待人工核对: printerId={}, jobId={}", printerId, jobId);
     }
 
@@ -104,6 +109,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
         if (!printerService.updateById(printer)) {
             throw new BusinessException("暂停后更新打印机状态失败");
         }
+        recordSuccess("CONTROL_PAUSE", "PRINTER", printerId, printer.getName());
         log.info("暂停打印执行成功: printerId={}", printerId);
     }
 
@@ -142,6 +148,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
             throw new BusinessException("恢复打印后更新打印机状态失败");
         }
         eventPublisher.publishJobStatus(job);
+        recordSuccess("CONTROL_RESUME", "PRINTER", printerId, printer.getName());
         log.info("恢复打印执行成功: printerId={}, jobId={}", printerId, jobId);
     }
 
@@ -236,6 +243,12 @@ public class PrinterControlServiceImpl implements PrinterControlService {
             log.warn("打印机协议选择失败: printerId={}, operation={}, protocol={}",
                     endpoint.printerId(), operation, endpoint.protocolType());
             throw new BusinessException(422, "打印机协议暂不支持当前操作");
+        }
+    }
+
+    private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
+        if (auditLogService != null) {
+            auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
         }
     }
 }

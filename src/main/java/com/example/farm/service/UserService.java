@@ -87,7 +87,7 @@ public interface UserService extends IService<User> {
      * @param adminId 管理员 ID
      * @throws BusinessException 当用户不存在或试图禁用当前登录账号时抛出
      */
-    void disableUser(Long userId, Long adminId);
+    UserVO disableUser(Long userId, Long adminId);
 
     /**
      * 启用用户。
@@ -96,7 +96,7 @@ public interface UserService extends IService<User> {
      * @param adminId 管理员 ID
      * @throws BusinessException 当用户不存在时抛出
      */
-    void enableUser(Long userId, Long adminId);
+    UserVO enableUser(Long userId, Long adminId);
 
     /**
      * 判断用户名是否已存在。

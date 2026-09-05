@@ -74,7 +74,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw authenticationFailure("账号或密码错误");
         }
 
-        if (loginProtectUtil.isUserDisabled(user.getId())) {
+        if (Boolean.FALSE.equals(user.getEnabled())
+                || (user.getEnabled() == null && loginProtectUtil.isUserDisabled(user.getId()))) {
             throw new BusinessException(ResultCode.FORBIDDEN.getCode(), "用户已被禁用，请联系管理员");
         }
 
@@ -143,6 +144,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             admin.setEmail(setupDTO.getEmail());
             admin.setPhone(setupDTO.getPhone());
             admin.setRole(ROLE_ADMIN);
+            admin.setEnabled(true);
 
             if (!save(admin)) {
                 throw new BusinessException("管理员创建失败");
@@ -181,6 +183,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         newUser.setEmail(registerDTO.getEmail());
         newUser.setPhone(registerDTO.getPhone());
         newUser.setRole(ROLE_OPERATOR);
+        newUser.setEnabled(true);
 
         if (!save(newUser)) {
             throw new BusinessException("用户创建失败");
@@ -251,7 +254,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public UserVO getCurrentUser(Long userId) {
         User user = getById(userId);
         if (user == null) {
-            throw new BusinessException("用户不存在");
+            throw new BusinessException(404, "用户不存在");
         }
         return UserVO.from(user);
     }
@@ -273,6 +276,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (StringUtils.isNotBlank(queryDTO.getEmail())) {
             wrapper.like(User::getEmail, queryDTO.getEmail());
         }
+        if (queryDTO.getEnabled() != null) {
+            wrapper.eq(User::getEnabled, queryDTO.getEnabled());
+        }
 
         wrapper.orderByDesc(User::getCreatedAt);
         IPage<User> result = page(page, wrapper);
@@ -283,32 +289,42 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     @Transactional
-    public void disableUser(Long userId, Long adminId) {
+    public UserVO disableUser(Long userId, Long adminId) {
         User user = getById(userId);
         if (user == null) {
-            throw new BusinessException("用户不存在");
+            throw new BusinessException(404, "用户不存在");
         }
         if (userId.equals(adminId)) {
-            throw new BusinessException("不能禁用当前登录账号");
+            throw new BusinessException(409, "不能禁用当前登录账号");
         }
 
         assertAdmin(adminId);
+        if (!Boolean.FALSE.equals(user.getEnabled())) {
+            user.setEnabled(false);
+            updateUserOrThrow(user, "用户禁用失败");
+        }
         loginProtectUtil.disableUser(userId);
         loginProtectUtil.clearLoginFail(user.getUsername());
         log.info("用户已被禁用: targetUserId={}, adminId={}", userId, adminId);
+        return UserVO.from(user);
     }
 
     @Override
     @Transactional
-    public void enableUser(Long userId, Long adminId) {
+    public UserVO enableUser(Long userId, Long adminId) {
         User user = getById(userId);
         if (user == null) {
-            throw new BusinessException("用户不存在");
+            throw new BusinessException(404, "用户不存在");
         }
 
         assertAdmin(adminId);
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
+            user.setEnabled(true);
+            updateUserOrThrow(user, "用户启用失败");
+        }
         loginProtectUtil.enableUser(userId);
         log.info("用户已被启用: targetUserId={}, adminId={}", userId, adminId);
+        return UserVO.from(user);
     }
 
     @Override

@@ -27,6 +27,9 @@ public class UserVO implements Serializable {
     @Schema(description = "角色：ADMIN 或 OPERATOR")
     private String role;
 
+    @Schema(description = "账号是否启用")
+    private Boolean enabled;
+
     @Schema(description = "邮箱")
     private String email;
 
@@ -47,6 +50,7 @@ public class UserVO implements Serializable {
         vo.id = user.getId();
         vo.username = user.getUsername();
         vo.role = user.getRole();
+        vo.enabled = user.getEnabled() == null || user.getEnabled();
         vo.email = user.getEmail();
         vo.phone = user.getPhone();
         vo.createdAt = user.getCreatedAt();

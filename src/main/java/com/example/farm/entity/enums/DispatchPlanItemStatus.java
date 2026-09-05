@@ -8,5 +8,6 @@ public enum DispatchPlanItemStatus {
     READY,
     SUCCEEDED,
     FAILED,
-    RETRYABLE
+    RETRYABLE,
+    RECOVERY_REQUIRED
 }

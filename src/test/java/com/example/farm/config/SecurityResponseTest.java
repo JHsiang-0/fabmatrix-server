@@ -232,7 +232,7 @@ class SecurityResponseTest {
 
     @Test
     void adminCanDisableUser() throws Exception {
-        doNothing().when(userService).disableUser(2L, 1L);
+        when(userService.disableUser(2L, 1L)).thenReturn(new com.example.farm.entity.vo.UserVO());
 
         mockMvc.perform(post("/api/v1/auth/admin/users/2/disable")
                         .with(authentication(adminAuthentication())))
@@ -244,7 +244,7 @@ class SecurityResponseTest {
 
     @Test
     void adminCanEnableUser() throws Exception {
-        doNothing().when(userService).enableUser(2L, 1L);
+        when(userService.enableUser(2L, 1L)).thenReturn(new com.example.farm.entity.vo.UserVO());
 
         mockMvc.perform(post("/api/v1/auth/admin/users/2/enable")
                         .with(authentication(adminAuthentication())))

@@ -139,18 +139,16 @@ public class UserController {
 
     @Operation(summary = "管理员禁用用户")
     @PostMapping("/admin/users/{userId}/disable")
-    public Result<String> disableUser(@PathVariable Long userId) {
+    public Result<UserVO> disableUser(@PathVariable Long userId) {
         Long adminId = SecurityContextUtil.getCurrentUserId();
-        userService.disableUser(userId, adminId);
-        return Result.success(null, "用户已禁用");
+        return Result.success(userService.disableUser(userId, adminId), "用户已禁用");
     }
 
     @Operation(summary = "管理员启用用户")
     @PostMapping("/admin/users/{userId}/enable")
-    public Result<String> enableUser(@PathVariable Long userId) {
+    public Result<UserVO> enableUser(@PathVariable Long userId) {
         Long adminId = SecurityContextUtil.getCurrentUserId();
-        userService.enableUser(userId, adminId);
-        return Result.success(null, "用户已启用");
+        return Result.success(userService.enableUser(userId, adminId), "用户已启用");
     }
 
     @Operation(summary = "管理员批量迁移明文密码")

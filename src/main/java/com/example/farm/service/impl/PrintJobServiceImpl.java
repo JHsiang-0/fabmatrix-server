@@ -162,6 +162,14 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
+    public PrintJob getByIdempotencyKey(Long userId, String idempotencyKey) {
+        if (userId == null || idempotencyKey == null || idempotencyKey.isBlank()) {
+            return null;
+        }
+        return farmPrintJobMapper.selectByIdempotencyKey(userId, idempotencyKey);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createJob(PrintJobCreateDTO req) {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();

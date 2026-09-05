@@ -59,6 +59,11 @@ public class User implements Serializable {
     @Schema(description = "角色权限：ADMIN(管理员), OPERATOR(操作员)")
     private String role;
 
+    /** 持久化的账号启用状态；数据库是授权真源。 */
+    @TableField("enabled")
+    @Schema(description = "账号是否启用")
+    private Boolean enabled = true;
+
     /**
      * 邮箱
      */

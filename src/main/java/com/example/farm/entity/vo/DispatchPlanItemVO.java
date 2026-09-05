@@ -17,6 +17,9 @@ public class DispatchPlanItemVO {
     private String reasonCode;
     private String message;
     private Long jobId;
+    private String sourcePlanId;
+    private String sourceItemId;
+    private String recoveryAction;
     private Integer attemptCount;
     private Boolean retryable;
 
@@ -29,8 +32,11 @@ public class DispatchPlanItemVO {
         vo.reasonCode = item.getReasonCode();
         vo.message = item.getMessage();
         vo.jobId = item.getJobId();
+        vo.sourcePlanId = item.getSourcePlanId();
+        vo.sourceItemId = item.getSourceItemId();
+        vo.recoveryAction = item.getRecoveryAction();
         vo.attemptCount = item.getAttemptCount();
-        vo.retryable = "RETRYABLE".equals(item.getStatus());
+        vo.retryable = "RETRYABLE".equals(item.getStatus()) && item.getJobId() == null;
         vo.canExecute = "PENDING".equals(item.getStatus()) && item.getPrinterId() != null
                 && item.getReasonCode() == null;
         return vo;

@@ -182,10 +182,10 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 |---|---|---|---|---|
 | POST | `/auth/register` | ADMIN | 用户注册 DTO | `Result<Long>` |
 | POST | `/auth/admin/users` | ADMIN | 用户注册 DTO | `Result<Long>` |
-| GET | `/auth/admin/users` | ADMIN | `pageNum,pageSize,username,role,email` | `PageResult<UserVO>`，不包含密码 |
+| GET | `/auth/admin/users` | ADMIN | `pageNum,pageSize,username,role,email,enabled?` | `PageResult<UserVO>`，不包含密码 |
 | PUT | `/auth/admin/users/{userId}` | ADMIN | 用户更新 DTO | `Result<null>` |
-| POST | `/auth/admin/users/{userId}/disable` | ADMIN | Path ID | `Result<null>` |
-| POST | `/auth/admin/users/{userId}/enable` | ADMIN | Path ID | `Result<null>` |
+| POST | `/auth/admin/users/{userId}/disable` | ADMIN | Path ID | `Result<UserVO>` |
+| POST | `/auth/admin/users/{userId}/enable` | ADMIN | Path ID | `Result<UserVO>` |
 | POST | `/auth/admin/migrate-passwords` | ADMIN | Header：`X-Admin-Secret` | `Result<PasswordMigrateResultDTO>` |
 | GET | `/auth/admin/password-status` | ADMIN | Header：`X-Admin-Secret` | `Result<PasswordStatusResultDTO>` |
 | GET | `/auth/check-username` | ADMIN | Query：`username`，不能为空或纯空格 | `Result<Boolean>` |
@@ -199,7 +199,9 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 管理员密码迁移和状态检查接口只接受 `X-Admin-Secret` 请求头，不接受 URL 查询参数，避免管理员密钥进入浏览器、代理或访问日志。
 
-`GET /auth/me` 从 Bearer JWT 的当前用户 ID 读取用户资料，不需要也不接受路径参数；前端登录成功后可直接调用该接口初始化用户状态。用户资料和管理员用户分页统一返回 `UserVO`，字段只有 `id,username,role,email,phone,createdAt,updatedAt`，不包含 `passwordHash`。
+`GET /auth/me` 从 Bearer JWT 的当前用户 ID 读取用户资料，不需要也不接受路径参数；前端登录成功后可直接调用该接口初始化用户状态。用户资料和管理员用户分页统一返回 `UserVO`，字段为 `id,username,role,enabled,email,phone,createdAt,updatedAt`，不包含 `passwordHash`。`enabled` 是数据库 `farm_user.enabled` 的权威值，缺省为 `true`。
+
+禁用/启用接口成功返回更新后的 `UserVO`，重复操作幂等；管理员不能禁用自己（HTTP 409、业务码 `409`），目标不存在返回 HTTP 404。禁用账号的登录返回 HTTP 403、业务码 `403`，携带既有 JWT 的 REST 请求也返回 403。Redis 禁用缓存只用于失效辅助，数据库状态查询失败时认证请求返回服务不可用，不得放行。
 
 ## 4. 当前正式业务接口（与 Controller 一一对应）
 
@@ -266,6 +268,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
 | POST | `/print-jobs/batch/preview` | ADMIN/OPERATOR | `fileIds,printerIds,strategy,action` | `DispatchPlanPreviewVO`；预览无副作用 |
 | POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | `planId,version,itemIds,confirmationToken` | `BatchDispatchConfirmVO`；逐项创建任务并返回结果 |
+| POST | `/print-jobs/batch/retry-preview` | ADMIN/OPERATOR | `sourcePlanId,sourceItemIds,retryKey` | `DispatchPlanPreviewVO`；仅恢复无 `jobId` 的 `RETRYABLE` 项 |
 
 ### 4.4 设备控制
 
@@ -404,17 +407,17 @@ T6.8 当前已完成任务 Service 的状态/归属/设备调用测试、任务�
 
 T7.1 已完成：`GET /auth/me` 要求登录，从 JWT 当前用户读取资料并返回脱敏 `UserVO`；未携带或无效 Token 返回 HTTP 401、业务码 `401`。原 `/auth/{userId}/profile` 保留用于兼容，前端新代码优先使用 `/auth/me`。
 
-T7.2 已完成：用户资料和管理员分页不再直接返回持久化实体 `User`，统一映射为 `UserVO`，从类型层面排除 `passwordHash`；密码哈希仍只在 Service 内部用于登录和密码迁移。
+T7.2 已完成：用户资料和管理员分页不再直接返回持久化实体 `User`，统一映射为 `UserVO`，从类型层面排除 `passwordHash`；`enabled` 来自 `farm_user` 持久化字段；密码哈希仍只在 Service 内部用于登录和密码迁移。
 
-T7.3 已完成：管理员创建操作员、更新用户角色、禁用和启用接口均有 Controller 集成测试；OPERATOR 调用上述 ADMIN-only 路由统一返回 HTTP 403、业务码 `403`。
+T7.3 已完成：管理员创建操作员、更新用户角色、禁用和启用接口均有 Controller 集成测试；启停返回 `UserVO`，重复操作幂等，禁用自己返回 409；OPERATOR 调用上述 ADMIN-only 路由统一返回 HTTP 403、业务码 `403`。
 
-T7.4 已完成：登录失败、Redis 锁定、禁用用户和无效 Token 的 HTTP/业务码已统一；认证失败为 401，禁用用户为 403，Redis 故障仍映射为 503/5002。失败原因只返回稳定业务提示，不返回密码或 Token 内容。
+T7.4 已完成：登录失败、Redis 锁定、数据库启停状态、禁用用户和无效 Token 的 HTTP/业务码已统一；认证失败为 401，禁用用户为 403，用户状态查询故障返回 503/5001，Redis 故障仍映射为 503/5002。失败原因只返回稳定业务提示，不返回密码或 Token 内容。
 
 T7.5 已完成：第一版不实现服务端 logout。原因是当前产品为本地单服务，未引入 Token 黑名单和会话存储；前端退出时删除 Token、用户信息和 WebSocket 连接即可。若未来需要主动吊销 Token，再单独冻结黑名单/Token 版本契约。
 
 T9.1 已完成：核心认证路由集成测试覆盖打印机、文件、任务和用户管理入口的匿名 401，以及打印机和用户管理 ADMIN-only 操作的 OPERATOR 403；管理员用户管理成功委托路径也已覆盖。真实数据库成功响应仍需容器环境联调。
 
-T9.3 已完成：登录失败计数使用 `farm:login:fail:{username}`、首次写入 15 分钟过期；5 次及以上视为锁定；禁用标记使用 `farm:user:disabled:{userId}`；打印机状态缓存 TTL 为 10 秒，状态锁 TTL 为 5 秒。Redis 单元测试覆盖 key、TTL、锁未获取时不写库和禁用标记生命周期；真实 Redis 容器联调仍待现场环境。
+T9.3 已完成：登录失败计数使用 `farm:login:fail:{username}`、首次写入 15 分钟过期；5 次及以上视为锁定；用户启停以 `farm_user.enabled` 为真源，`farm:user:disabled:{userId}` 仅作缓存失效辅助；打印机状态缓存 TTL 为 10 秒，状态锁 TTL 为 5 秒。Redis 单元测试覆盖 key、TTL、锁未获取时不写库和禁用缓存生命周期；真实 Redis 容器联调仍待现场环境。
 
 T9.4 已完成：RustFS 客户端上传、预签名 URL、删除失败均统一转换为 `StorageException`；文件 Service 额外执行资源归属、过期时间上限和删除前任务引用校验。`RustFsClientTest` 与 `PrintFileOwnershipTest` 使用 mock 覆盖成功委托、异常转换和安全边界，不连接真实 RustFS。
 
@@ -616,7 +619,7 @@ ws://<server-host>:8080/ws/farm-status
 ws://<server-host>:8080/ws/farm-status?token=<JWT>
 ```
 
-WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用查询参数传递：`/ws/farm-status?token=<JWT>`；缺少、无效或过期 Token 的连接会被服务端拒绝。服务端还会检查 Redis 中的用户禁用标记：已禁用用户不能使用既有 JWT 建立 WebSocket 连接；禁用状态查询异常时同样拒绝连接，不允许鉴权依赖故障时放行。WebSocket 握手在升级后无法返回 REST JSON，客户端应将关闭视为鉴权失败并重新请求 `/auth/me` 或重新登录。当前连接仍是农场级广播，后续如需按打印机订阅再增加细粒度隔离。
+WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用查询参数传递：`/ws/farm-status?token=<JWT>`；缺少、无效或过期 Token 的连接会被服务端拒绝。服务端以数据库 `farm_user.enabled` 为准检查账号状态：已禁用用户不能使用既有 JWT 建立 WebSocket 连接；状态查询异常时同样拒绝连接，不允许鉴权依赖故障时放行。WebSocket 握手在升级后无法返回 REST JSON，客户端应将关闭视为鉴权失败并重新请求 `/auth/me` 或重新登录。当前连接仍是农场级广播，后续如需按打印机订阅再增加细粒度隔离。
 
 ### 7.2 消息格式
 

@@ -54,6 +54,9 @@ public interface PrintJobService extends IService<PrintJob> {
      */
     PrintJob getAccessibleJob(Long jobId);
 
+    /** 查询批量执行使用的确定性幂等键对应任务。 */
+    PrintJob getByIdempotencyKey(Long userId, String idempotencyKey);
+
     /**
      * 创建打印任务（用户从上下文中获取）。
      *

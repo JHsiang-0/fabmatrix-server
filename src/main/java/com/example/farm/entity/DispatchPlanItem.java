@@ -17,6 +17,10 @@ public class DispatchPlanItem {
     private Long fileId;
     private Long printerId;
     private Long jobId;
+    /** 恢复计划来源，用于审计和前端回溯。 */
+    private String sourcePlanId;
+    private String sourceItemId;
+    private String recoveryAction;
     /** 预览时资源关键字段的摘要，确认时用于发现设备或文件已变化。 */
     private String resourceFingerprint;
     private String status;

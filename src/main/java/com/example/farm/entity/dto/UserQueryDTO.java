@@ -32,4 +32,7 @@ public class UserQueryDTO {
 
     @Schema(description = "邮箱")
     private String email;
+
+    @Schema(description = "账号是否启用；不传表示全部")
+    private Boolean enabled;
 }

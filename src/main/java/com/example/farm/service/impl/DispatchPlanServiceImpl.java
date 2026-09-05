@@ -11,6 +11,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.BatchDispatchConfirmRequest;
 import com.example.farm.entity.dto.request.BatchDispatchPreviewRequest;
+import com.example.farm.entity.dto.request.BatchDispatchRetryPreviewRequest;
 import com.example.farm.entity.enums.DispatchAction;
 import com.example.farm.entity.enums.DispatchMode;
 import com.example.farm.entity.enums.DispatchPlanItemStatus;
@@ -72,23 +73,127 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         List<Long> fileIds = distinctIds(request.getFileIds(), "文件 ID");
         List<Long> printerIds = distinctIds(request.getPrinterIds(), "打印机 ID");
 
-        Map<Long, PrintFile> files = loadFiles(fileIds);
+        Map<Long, PrintFile> files = loadFiles(fileIds, userId);
         Map<Long, Printer> printers = loadPrinters(printerIds);
+        String confirmationToken = UUID.randomUUID().toString() + UUID.randomUUID();
+        DispatchPlan plan = newPlan(strategy.name(), action.name(), userId, null, confirmationToken);
+        List<DispatchPlanItem> items = buildItems(plan, fileIds, printerIds, files, printers, strategy);
+        return persistPreview(plan, items, files, printers, confirmationToken);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public DispatchPlanPreviewVO retryPreview(BatchDispatchRetryPreviewRequest request) {
+        if (request == null) {
+            throw new BusinessException(400, "恢复预览请求不能为空");
+        }
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        String sourcePlanId = request.getSourcePlanId() == null ? null : request.getSourcePlanId().trim();
+        String retryKey = request.getRetryKey() == null ? null : request.getRetryKey().trim();
+        if (sourcePlanId == null || sourcePlanId.isBlank() || retryKey == null || retryKey.isBlank()
+                || request.getSourceItemIds() == null || request.getSourceItemIds().isEmpty()) {
+            throw new BusinessException(400, "来源计划、失败项和恢复幂等键不能为空");
+        }
+        if (request.getSourceItemIds().size() > MAX_ITEMS) {
+            throw new BusinessException(400, "单次最多恢复100个计划明细");
+        }
+        String retryKeyHash = sha256(retryKey);
+        DispatchPlan existing = planMapper.selectByCreatedByAndRetryKey(userId, retryKeyHash);
+        if (existing != null) {
+            return storedPreview(existing);
+        }
+
+        DispatchPlan sourcePlan = planMapper.selectById(sourcePlanId);
+        if (sourcePlan == null || (!SecurityContextUtil.isAdmin()
+                && !Objects.equals(sourcePlan.getCreatedBy(), userId))) {
+            throw new BusinessException(404, "批量计划不存在");
+        }
+        List<String> sourceItemIds = request.getSourceItemIds().stream().distinct().toList();
+        if (sourceItemIds.size() != request.getSourceItemIds().size()) {
+            throw new BusinessException(400, "来源计划明细不能重复");
+        }
+        List<DispatchPlanItem> sourceItems = itemMapper.selectList(Wrappers.<DispatchPlanItem>lambdaQuery()
+                .eq(DispatchPlanItem::getPlanId, sourcePlanId));
+        Map<String, DispatchPlanItem> sourceById = new HashMap<>();
+        sourceItems.forEach(item -> sourceById.put(item.getId(), item));
+        if (sourceItemIds.stream().anyMatch(id -> !sourceById.containsKey(id))) {
+            throw new BusinessException(404, "批量计划明细不存在");
+        }
+
+        List<Long> fileIds = sourceItemIds.stream().map(id -> sourceById.get(id).getFileId()).toList();
+        List<Long> printerIds = sourceItemIds.stream().map(id -> sourceById.get(id).getPrinterId())
+                .filter(Objects::nonNull).distinct().toList();
+        Map<Long, PrintFile> files = loadFiles(fileIds, userId);
+        Map<Long, Printer> printers = loadPrinters(printerIds);
+        DispatchPlan plan = newPlan(sourcePlan.getStrategy(), sourcePlan.getAction(), userId,
+                retryKeyHash, null);
+        String confirmationToken = sha256(retryKeyHash + ":" + plan.getId());
+        plan.setConfirmationTokenHash(sha256(confirmationToken));
+        List<DispatchPlanItem> retryItems = new ArrayList<>();
+        for (String sourceItemId : sourceItemIds) {
+            DispatchPlanItem source = sourceById.get(sourceItemId);
+            if (!DispatchPlanItemStatus.RETRYABLE.name().equals(source.getStatus())) {
+                throw new BusinessException(422, "只有 RETRYABLE 失败项可以恢复");
+            }
+            DispatchPlanItem item = new DispatchPlanItem();
+            item.setId("dpi_" + UUID.randomUUID().toString().replace("-", ""));
+            item.setPlanId(plan.getId());
+            item.setFileId(source.getFileId());
+            item.setPrinterId(source.getPrinterId());
+            item.setSourcePlanId(sourcePlanId);
+            item.setSourceItemId(sourceItemId);
+            item.setAttemptCount(0);
+            item.setCreatedAt(plan.getCreatedAt());
+            item.setUpdatedAt(plan.getCreatedAt());
+            if (source.getJobId() != null) {
+                source.setStatus("RECOVERY_REQUIRED");
+                source.setRecoveryAction("OPEN_EXISTING_JOB");
+                source.setMessage("已有任务已创建，请打开既有任务进行恢复");
+                item.setJobId(source.getJobId());
+                item.setStatus("RECOVERY_REQUIRED");
+                item.setRecoveryAction("OPEN_EXISTING_JOB");
+                item.setMessage("已有任务已创建，请打开既有任务进行恢复");
+                item.setCompletedAt(LocalDateTime.now());
+                itemMapper.updateById(source);
+            } else {
+                PrintFile file = files.get(source.getFileId());
+                Printer printer = printers.get(source.getPrinterId());
+                item.setResourceFingerprint(resourceFingerprint(file, printer));
+                item.setStatus(DispatchPlanItemStatus.PENDING.name());
+                String[] conflict = conflict(file, printer, parseStrategy(sourcePlan.getStrategy()),
+                        printerIds.size(), retryItems.size());
+                if (conflict != null) {
+                    item.setReasonCode(conflict[0]);
+                    item.setMessage(conflict[1]);
+                }
+            }
+            retryItems.add(item);
+        }
+        return persistPreview(plan, retryItems, files, printers, confirmationToken);
+    }
+
+    private DispatchPlan newPlan(String strategy, String action, Long userId,
+                                 String retryKey, String confirmationToken) {
         DispatchPlan plan = new DispatchPlan();
         plan.setId("dp_" + UUID.randomUUID().toString().replace("-", ""));
         plan.setMode(DispatchMode.USER_BATCH.name());
-        plan.setStrategy(strategy.name());
-        plan.setAction(action.name());
+        plan.setStrategy(strategy);
+        plan.setAction(action);
         plan.setStatus(DispatchPlanStatus.PREVIEWED.name());
         plan.setVersion(1L);
-        String confirmationToken = UUID.randomUUID().toString() + UUID.randomUUID();
-        plan.setConfirmationTokenHash(sha256(confirmationToken));
+        plan.setConfirmationTokenHash(sha256(confirmationToken == null
+                ? sha256(retryKey + ":" + plan.getId()) : confirmationToken));
+        plan.setRetryKey(retryKey);
         plan.setCreatedBy(userId);
         plan.setCreatedAt(LocalDateTime.now());
         plan.setUpdatedAt(plan.getCreatedAt());
         plan.setExpiresAt(plan.getCreatedAt().plusMinutes(PLAN_TTL_MINUTES));
+        return plan;
+    }
 
-        List<DispatchPlanItem> items = buildItems(plan, fileIds, printerIds, files, printers, strategy);
+    private DispatchPlanPreviewVO persistPreview(DispatchPlan plan, List<DispatchPlanItem> items,
+                                                  Map<Long, PrintFile> files, Map<Long, Printer> printers,
+                                                  String confirmationToken) {
         if (planMapper.insert(planSuccess(plan)) <= 0) {
             throw new BusinessException("保存批量预览计划失败");
         }
@@ -97,7 +202,24 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
                 throw new BusinessException("保存批量预览明细失败");
             }
         }
+        return previewResult(plan, items, files, printers, confirmationToken);
+    }
 
+    private DispatchPlanPreviewVO storedPreview(DispatchPlan plan) {
+        List<DispatchPlanItem> items = itemMapper.selectList(Wrappers.<DispatchPlanItem>lambdaQuery()
+                .eq(DispatchPlanItem::getPlanId, plan.getId()));
+        Map<Long, PrintFile> files = loadFiles(items.stream().map(DispatchPlanItem::getFileId)
+                .filter(Objects::nonNull).toList(), plan.getCreatedBy());
+        Map<Long, Printer> printers = loadPrinters(items.stream().map(DispatchPlanItem::getPrinterId)
+                .filter(Objects::nonNull).distinct().toList());
+        String confirmationToken = plan.getRetryKey() == null
+                ? null : sha256(plan.getRetryKey() + ":" + plan.getId());
+        return previewResult(plan, items, files, printers, confirmationToken);
+    }
+
+    private DispatchPlanPreviewVO previewResult(DispatchPlan plan, List<DispatchPlanItem> items,
+                                                Map<Long, PrintFile> files, Map<Long, Printer> printers,
+                                                String confirmationToken) {
         DispatchPlanPreviewVO response = new DispatchPlanPreviewVO();
         response.setPlanId(plan.getId());
         response.setVersion(plan.getVersion());
@@ -218,6 +340,7 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             create.setFileId(file.getId());
             create.setPrinterId(checked.getId());
             create.setPriority(0);
+            create.setIdempotencyKey(batchIdempotencyKey(plan, item));
             Long jobId = printJobService.createJob(create, userId);
             item.setJobId(jobId);
             item.setAttemptCount((item.getAttemptCount() == null ? 0 : item.getAttemptCount()) + 1);
@@ -239,8 +362,33 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         } catch (Exception exception) {
             log.warn("执行批量计划明细失败: planId={}, itemId={}, printerId={}",
                     plan.getId(), item.getId(), item.getPrinterId(), exception);
-            failItem(item, "BATCH_EXECUTION_FAILED", "执行失败，请重试该明细", true);
+            String idempotencyKey = batchIdempotencyKey(plan, item);
+            PrintJob existing = printJobService.getByIdempotencyKey(userId, idempotencyKey);
+            if (existing != null) {
+                item.setJobId(existing.getId());
+                item.setStatus("RECOVERY_REQUIRED");
+                item.setRecoveryAction("OPEN_EXISTING_JOB");
+                item.setReasonCode("JOB_ALREADY_CREATED");
+                item.setMessage("任务已创建但执行未完成，请打开既有任务进行恢复");
+                item.setCompletedAt(LocalDateTime.now());
+                itemMapper.updateById(item);
+            } else {
+                failItem(item, "BATCH_EXECUTION_FAILED", "执行失败，请重新预览该明细",
+                        isRetryableFailure(exception));
+            }
         }
+    }
+
+    private String batchIdempotencyKey(DispatchPlan plan, DispatchPlanItem item) {
+        return "batch:" + plan.getId() + ":" + plan.getVersion() + ":" + item.getId();
+    }
+
+    private boolean isRetryableFailure(Exception exception) {
+        if (!(exception instanceof BusinessException businessException)) {
+            return false;
+        }
+        long code = businessException.getCode();
+        return code == 409 || code == 503 || code == 10001 || code == 5002 || code == 5004;
     }
 
     private List<DispatchPlanItem> buildItems(DispatchPlan plan, List<Long> fileIds, List<Long> printerIds,
@@ -313,9 +461,17 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
     }
 
     private Map<Long, PrintFile> loadFiles(List<Long> ids) {
+        return loadFiles(ids, null);
+    }
+
+    private Map<Long, PrintFile> loadFiles(List<Long> ids, Long userId) {
         Map<Long, PrintFile> result = new HashMap<>();
         if (ids == null) return result;
-        printFileMapper.selectBatchIds(ids).forEach(file -> result.put(file.getId(), file));
+        printFileMapper.selectBatchIds(ids).forEach(file -> {
+            if (userId == null || SecurityContextUtil.isAdmin() || Objects.equals(file.getUserId(), userId)) {
+                result.put(file.getId(), file);
+            }
+        });
         return result;
     }
 

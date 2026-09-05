@@ -125,9 +125,10 @@
 - [x] T10.1 实现 `POST /api/v1/print-jobs/batch/confirm`，重新校验计划、权限和设备状态。
 - [x] T10.2 通过打印机 Redis 锁逐项锁定并创建任务；`QUEUE`/`START_AFTER_CONFIRM` 默认不调用设备启动。
 - [x] T10.3 返回每项的 `jobId`、`printerId`、状态、错误码、消息、尝试次数和重试标识。
-- [x] T10.4 实现重复确认幂等、部分成功和计划终态；失败项标记为 `FAILED/RETRYABLE`。
+- [x] T10.4 实现重复确认幂等、部分成功和计划终态；失败项标记为 `FAILED/RETRYABLE`；批量任务使用确定性幂等键，已有任务的异常结果标记 `RECOVERY_REQUIRED`。
 - [x] T10.5 前端可通过现有单项安全确认和启动接口继续完成需要打印的项目。
 - [~] T10.6 已覆盖预览无副作用、资源变化部分失败、过期计划和重复/并发确认基础测试；WebSocket/REST 一致性和真实跨进程恢复仍待补齐。
+- [x] T104 批量失败项恢复：增加 `POST /api/v1/print-jobs/batch/retry-preview`，仅允许 `RETRYABLE && jobId IS NULL` 项重新预览；已有 `jobId` 的项固定为 `RECOVERY_REQUIRED/OPEN_EXISTING_JOB`，并保留来源计划/明细审计关联。
 
 ## T11 [-] 延期至 v3：后台自动派单
 

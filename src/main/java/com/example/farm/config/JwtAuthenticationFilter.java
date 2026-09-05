@@ -45,10 +45,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     String username = jwt.getClaim("username").asString();
                     String role = jwt.getClaim("role").asString();
 
-                    if (userId != null && loginProtectUtil.isUserDisabled(userId)) {
-                        logger.warn("访问被拒绝：用户已被禁用，userId=" + userId);
-                        renderJson(response, HttpServletResponse.SC_FORBIDDEN, 403, "用户已被禁用，请联系管理员");
-                        return;
+                    if (userId != null) {
+                        try {
+                            if (loginProtectUtil.isUserDisabled(userId)) {
+                                logger.warn("访问被拒绝：用户已被禁用，userId=" + userId);
+                                renderJson(response, HttpServletResponse.SC_FORBIDDEN, 403, "用户已被禁用，请联系管理员");
+                                return;
+                            }
+                        } catch (RuntimeException exception) {
+                            logger.warn("访问被拒绝：用户状态校验不可用，userId=" + userId, exception);
+                            renderJson(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, 5001,
+                                    "用户状态暂时无法确认，请稍后重试");
+                            return;
+                        }
                     }
 
                     UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

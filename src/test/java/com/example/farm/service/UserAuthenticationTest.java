@@ -76,7 +76,6 @@ class UserAuthenticationTest {
     void loginFailsWhenLegacyPasswordMigrationAffectsNoRows() {
         User user = user(1L, "admin", "Admin123");
         when(userMapper.selectOne(any(), eq(true))).thenReturn(user);
-        when(loginProtectUtil.isUserDisabled(1L)).thenReturn(false);
         when(userMapper.updateById(any(User.class))).thenReturn(0);
 
         assertThatThrownBy(() -> userService.login(login("admin", "Admin123")))
@@ -87,8 +86,8 @@ class UserAuthenticationTest {
     @Test
     void disabledAccountReturnsForbiddenBusinessCode() {
         User user = user(1L, "admin", "$2a$10$hash");
+        user.setEnabled(false);
         when(userMapper.selectOne(any(), eq(true))).thenReturn(user);
-        when(loginProtectUtil.isUserDisabled(1L)).thenReturn(true);
 
         BusinessException error = catchBusinessException(() -> userService.login(login("admin", "Admin123")));
 

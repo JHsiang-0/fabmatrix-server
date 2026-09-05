@@ -6,6 +6,7 @@ import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.request.BatchDispatchConfirmRequest;
 import com.example.farm.entity.dto.request.BatchDispatchPreviewRequest;
+import com.example.farm.entity.dto.request.BatchDispatchRetryPreviewRequest;
 import com.example.farm.mapper.DispatchPlanItemMapper;
 import com.example.farm.mapper.DispatchPlanMapper;
 import com.example.farm.mapper.PrintFileMapper;
@@ -29,6 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -258,6 +262,52 @@ class DispatchPlanServiceTest {
                 .extracting("code").isEqualTo(403L);
         verify(planMapper, never()).claimForExecution(any(), any());
         verify(printJobService, never()).createJob(any(), any());
+    }
+
+    @Test
+    void retryPreviewOnlyCopiesRetryableItemsAndRecordsExistingJobRecovery() {
+        mockUser(1L, "OPERATOR");
+        DispatchPlan sourcePlan = new DispatchPlan();
+        sourcePlan.setId("source-plan");
+        sourcePlan.setCreatedBy(1L);
+        sourcePlan.setStrategy("ONE_TO_ONE");
+        sourcePlan.setAction("QUEUE");
+        DispatchPlanItem sourceItem = new DispatchPlanItem();
+        sourceItem.setId("source-item");
+        sourceItem.setPlanId(sourcePlan.getId());
+        sourceItem.setFileId(10L);
+        sourceItem.setPrinterId(564L);
+        sourceItem.setStatus("RETRYABLE");
+        sourceItem.setJobId(9001L);
+
+        when(planMapper.selectByCreatedByAndRetryKey(anyLong(), anyString())).thenReturn(null);
+        when(planMapper.selectById(sourcePlan.getId())).thenReturn(sourcePlan);
+        when(itemMapper.selectList(any())).thenReturn(List.of(sourceItem));
+        when(printFileMapper.selectBatchIds(anyList())).thenReturn(List.of(file(10L)));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer(564L)));
+        when(planMapper.insert(any(DispatchPlan.class))).thenReturn(1);
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenReturn(1);
+        when(itemMapper.updateById(any(DispatchPlanItem.class))).thenReturn(1);
+
+        BatchDispatchRetryPreviewRequest request = new BatchDispatchRetryPreviewRequest();
+        request.setSourcePlanId(sourcePlan.getId());
+        request.setSourceItemIds(List.of(sourceItem.getId()));
+        request.setRetryKey("retry-source-item");
+
+        var result = service().retryPreview(request);
+
+        assertThat(result.getPlanId()).startsWith("dp_");
+        assertThat(result.getItems()).singleElement().satisfies(item -> {
+            assertThat(item.getSourcePlanId()).isEqualTo(sourcePlan.getId());
+            assertThat(item.getSourceItemId()).isEqualTo(sourceItem.getId());
+            assertThat(item.getJobId()).isEqualTo(9001L);
+            assertThat(item.getStatus()).isEqualTo("RECOVERY_REQUIRED");
+            assertThat(item.getRecoveryAction()).isEqualTo("OPEN_EXISTING_JOB");
+            assertThat(item.getRetryable()).isFalse();
+        });
+        assertThat(sourceItem.getStatus()).isEqualTo("RECOVERY_REQUIRED");
+        verify(printJobService, never()).createJob(any(), any());
+        verify(itemMapper).updateById(eq(sourceItem));
     }
 
     private BatchDispatchConfirmRequest confirmRequest(com.example.farm.entity.vo.DispatchPlanPreviewVO preview) {

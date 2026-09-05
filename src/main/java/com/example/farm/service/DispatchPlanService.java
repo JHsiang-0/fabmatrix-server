@@ -2,6 +2,7 @@ package com.example.farm.service;
 
 import com.example.farm.entity.dto.request.BatchDispatchConfirmRequest;
 import com.example.farm.entity.dto.request.BatchDispatchPreviewRequest;
+import com.example.farm.entity.dto.request.BatchDispatchRetryPreviewRequest;
 import com.example.farm.entity.vo.BatchDispatchConfirmVO;
 import com.example.farm.entity.vo.DispatchPlanPreviewVO;
 
@@ -10,4 +11,6 @@ public interface DispatchPlanService {
     DispatchPlanPreviewVO preview(BatchDispatchPreviewRequest request);
 
     BatchDispatchConfirmVO confirm(BatchDispatchConfirmRequest request);
+
+    DispatchPlanPreviewVO retryPreview(BatchDispatchRetryPreviewRequest request);
 }

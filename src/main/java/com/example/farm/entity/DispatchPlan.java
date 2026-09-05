@@ -19,6 +19,8 @@ public class DispatchPlan {
     private String status;
     private Long version;
     private String confirmationTokenHash;
+    /** 失败项恢复请求的幂等键摘要；普通预览为空。 */
+    private String retryKey;
     private Long createdBy;
     private LocalDateTime expiresAt;
     private LocalDateTime confirmedAt;

@@ -15,4 +15,7 @@ public interface DispatchPlanMapper extends BaseMapper<DispatchPlan> {
      */
     int claimForExecution(@Param("planId") String planId,
                           @Param("confirmedAt") LocalDateTime confirmedAt);
+
+    DispatchPlan selectByCreatedByAndRetryKey(@Param("createdBy") Long createdBy,
+                                              @Param("retryKey") String retryKey);
 }

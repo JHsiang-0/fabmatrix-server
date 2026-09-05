@@ -12,4 +12,12 @@
           AND status = 'PREVIEWED'
     </update>
 
+    <select id="selectByCreatedByAndRetryKey" resultType="com.example.farm.entity.DispatchPlan">
+        SELECT *
+        FROM farm_dispatch_plan
+        WHERE created_by = #{createdBy}
+          AND retry_key = #{retryKey}
+        LIMIT 1
+    </select>
+
 </mapper>

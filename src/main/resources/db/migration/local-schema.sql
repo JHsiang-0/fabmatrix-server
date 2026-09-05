@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS farm_user (
     username VARCHAR(50) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'OPERATOR',
+    enabled INTEGER NOT NULL DEFAULT 1,
     email VARCHAR(100), phone VARCHAR(20),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS farm_printer_status_history (
 CREATE TABLE IF NOT EXISTS farm_dispatch_plan (
     id VARCHAR(64) PRIMARY KEY, mode VARCHAR(20) NOT NULL, strategy VARCHAR(30) NOT NULL,
     action VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+    retry_key VARCHAR(128),
     confirmation_token_hash VARCHAR(128) NOT NULL, created_by INTEGER NOT NULL,
     expires_at TIMESTAMP NOT NULL, confirmed_at TIMESTAMP, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -68,6 +70,7 @@ CREATE TABLE IF NOT EXISTS farm_dispatch_plan (
 CREATE TABLE IF NOT EXISTS farm_dispatch_plan_item (
     id VARCHAR(64) PRIMARY KEY, plan_id VARCHAR(64) NOT NULL, file_id INTEGER,
     printer_id INTEGER, job_id INTEGER, resource_fingerprint VARCHAR(64), status VARCHAR(30) NOT NULL,
+    source_plan_id VARCHAR(64), source_item_id VARCHAR(64), recovery_action VARCHAR(64),
     reason_code VARCHAR(64), message VARCHAR(255), attempt_count INTEGER NOT NULL DEFAULT 0,
     started_at TIMESTAMP, completed_at TIMESTAMP, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

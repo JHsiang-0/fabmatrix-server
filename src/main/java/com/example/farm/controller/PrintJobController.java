@@ -17,6 +17,7 @@ import com.example.farm.service.PrinterService;
 import com.example.farm.service.DispatchPlanService;
 import com.example.farm.entity.dto.request.BatchDispatchConfirmRequest;
 import com.example.farm.entity.dto.request.BatchDispatchPreviewRequest;
+import com.example.farm.entity.dto.request.BatchDispatchRetryPreviewRequest;
 import com.example.farm.entity.vo.BatchDispatchConfirmVO;
 import com.example.farm.entity.vo.DispatchPlanPreviewVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -251,6 +252,14 @@ public class PrintJobController {
         request = requireBody(request);
         BatchDispatchConfirmVO result = dispatchPlanService.confirm(request);
         return Result.success(result, "批量分配执行完成");
+    }
+
+    @Operation(summary = "批量失败项恢复预览", description = "仅允许无任务 ID 的 RETRYABLE 明细重新生成预览；已有任务的失败项返回恢复提示")
+    @PostMapping("/batch/retry-preview")
+    public Result<DispatchPlanPreviewVO> retryPreviewBatch(
+            @Valid @RequestBody BatchDispatchRetryPreviewRequest request) {
+        request = requireBody(request);
+        return Result.success(dispatchPlanService.retryPreview(request), "批量失败项恢复预览生成成功");
     }
 
     private <T> T requireBody(T body) {

@@ -1,9 +1,11 @@
 package com.example.farm.common.utils;
 
 import com.example.farm.common.constant.RedisKeyConstant;
-import lombok.RequiredArgsConstructor;
+import com.example.farm.entity.User;
+import com.example.farm.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.concurrent.TimeUnit;
 
@@ -13,10 +15,20 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class LoginProtectUtil {
 
     private final RedisUtil redisUtil;
+    private final UserMapper userMapper;
+
+    public LoginProtectUtil(RedisUtil redisUtil) {
+        this(redisUtil, null);
+    }
+
+    @Autowired
+    public LoginProtectUtil(RedisUtil redisUtil, UserMapper userMapper) {
+        this.redisUtil = redisUtil;
+        this.userMapper = userMapper;
+    }
 
     // 最大允许失败次数
     private static final int MAX_FAIL_COUNT = 5;
@@ -115,7 +127,11 @@ public class LoginProtectUtil {
      */
     public void disableUser(Long userId) {
         String key = RedisKeyConstant.getKey(RedisKeyConstant.USER_DISABLED, userId);
-        redisUtil.setString(key, "1");
+        try {
+            redisUtil.setString(key, "1");
+        } catch (RuntimeException exception) {
+            log.warn("用户禁用缓存失效失败，数据库状态仍作为真源: userId={}", userId, exception);
+        }
     }
 
     /**
@@ -123,13 +139,21 @@ public class LoginProtectUtil {
      */
     public void enableUser(Long userId) {
         String key = RedisKeyConstant.getKey(RedisKeyConstant.USER_DISABLED, userId);
-        redisUtil.delete(key);
+        try {
+            redisUtil.delete(key);
+        } catch (RuntimeException exception) {
+            log.warn("用户启用缓存失效失败，数据库状态仍作为真源: userId={}", userId, exception);
+        }
     }
 
     /**
      * 检查用户是否已被禁用。
      */
     public boolean isUserDisabled(Long userId) {
+        if (userMapper != null) {
+            User user = userMapper.selectById(userId);
+            return user == null || Boolean.FALSE.equals(user.getEnabled());
+        }
         String key = RedisKeyConstant.getKey(RedisKeyConstant.USER_DISABLED, userId);
         return redisUtil.hasKey(key);
     }

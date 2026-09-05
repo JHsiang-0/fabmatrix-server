@@ -112,7 +112,8 @@ for migration in \
   src/main/resources/db/migration/07-v2-dispatch-plan.sql \
   src/main/resources/db/migration/08-v2-atomic-printer-binding.sql \
   src/main/resources/db/migration/09-v2-print-job-idempotency.sql \
-  src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql; do
+  src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql \
+  src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done

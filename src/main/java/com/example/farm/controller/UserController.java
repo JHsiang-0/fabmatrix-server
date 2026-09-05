@@ -17,11 +17,14 @@ import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.vo.UserVO;
 import com.example.farm.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,6 +44,7 @@ import java.security.MessageDigest;
  */
 @Slf4j
 @Tag(name = "用户管理")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -52,6 +56,7 @@ public class UserController {
     private String adminSecretKey;
 
     @Operation(summary = "用户登录")
+    @SecurityRequirements
     @PostMapping("/login")
     public Result<LoginResultDTO> login(@Valid @RequestBody UserLoginDTO loginDTO) {
         loginDTO = requireBody(loginDTO);
@@ -59,12 +64,14 @@ public class UserController {
     }
 
     @Operation(summary = "查询首次管理员初始化状态", description = "仅用于首次安装页面判断是否需要创建管理员，不返回任何敏感信息")
+    @SecurityRequirements
     @GetMapping("/setup/status")
     public Result<FirstAdminSetupStatusDTO> getFirstAdminSetupStatus() {
         return Result.success(userService.getFirstAdminSetupStatus(), "获取初始化状态成功");
     }
 
     @Operation(summary = "创建首次管理员", description = "仅当系统没有任何用户且 Local Edition 开启首次初始化时可用；成功后直接返回管理员 Token")
+    @SecurityRequirements
     @PostMapping("/setup/admin")
     public Result<LoginResultDTO> setupFirstAdmin(@Valid @RequestBody UserRegisterDTO setupDTO) {
         setupDTO = requireBody(setupDTO);
@@ -123,7 +130,7 @@ public class UserController {
 
     @Operation(summary = "管理员查询用户列表")
     @GetMapping("/admin/users")
-    public Result<PageResult<UserVO>> pageUsers(@Valid UserQueryDTO queryDTO) {
+    public Result<PageResult<UserVO>> pageUsers(@Valid @ParameterObject UserQueryDTO queryDTO) {
         return Result.success(PageResult.from(userService.pageUsers(queryDTO)));
     }
 

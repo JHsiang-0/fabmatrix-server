@@ -21,9 +21,11 @@ import com.example.farm.service.PrinterStatusHistoryService;
 import com.example.farm.service.PrinterStatisticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -38,6 +40,7 @@ import java.util.List;
 @RequestMapping("/api/v1/printers")
 @RequiredArgsConstructor
 @Tag(name = "打印机管理", description = "打印机资产与状态管理相关接口")
+@SecurityRequirement(name = "bearerAuth")
 public class PrinterController {
 
     private final PrinterService printerService;
@@ -53,7 +56,7 @@ public class PrinterController {
      */
     @Operation(summary = "分页查询打印机列表", description = "支持按名称和状态筛选的分页查询")
     @GetMapping("/page")
-    public Result<PageResult<PrinterVO>> getPrinterPage(@Valid PrinterQueryDTO queryDTO) {
+    public Result<PageResult<PrinterVO>> getPrinterPage(@Valid @ParameterObject PrinterQueryDTO queryDTO) {
         return Result.success(PageResult.from(printerService.pagePrinters(queryDTO), PrinterVO::from));
     }
 
@@ -66,7 +69,7 @@ public class PrinterController {
     @Operation(summary = "分页查询打印机状态历史", description = "查询持久化状态样本，按记录时间倒序返回")
     @GetMapping("/{id}/history")
     public Result<PageResult<PrinterStatusHistoryVO>> getPrinterHistory(
-            @PathVariable Long id, @Valid PrinterHistoryQueryDTO queryDTO) {
+            @PathVariable Long id, @Valid @ParameterObject PrinterHistoryQueryDTO queryDTO) {
         return Result.success(PageResult.from(
                 printerStatusHistoryService.page(id, queryDTO), PrinterStatusHistoryVO::from));
     }
@@ -74,7 +77,7 @@ public class PrinterController {
     @Operation(summary = "获取打印机任务统计", description = "按任务创建时间统计指定打印机的任务数量和时长")
     @GetMapping("/{id}/statistics")
     public Result<PrinterStatisticsVO> getPrinterStatistics(
-            @PathVariable Long id, PrinterStatisticsQueryDTO queryDTO) {
+            @PathVariable Long id, @ParameterObject PrinterStatisticsQueryDTO queryDTO) {
         return Result.success(printerStatisticsService.getStatistics(id, queryDTO));
     }
 

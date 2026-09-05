@@ -13,20 +13,20 @@ import java.math.BigDecimal;
 @Schema(name = "PrintFilePreviewVO", description = "打印文件安全预览信息")
 public class PrintFilePreviewVO {
 
-    private Long id;
-    private String originalName;
-    private Long fileSize;
-    private Integer estTime;
-    private String materialType;
-    private BigDecimal nozzleSize;
-    private BigDecimal filamentWeight;
-    private BigDecimal filamentLength;
-    private Integer nozzleTemp;
-    private Integer bedTemp;
-    private BigDecimal layerHeight;
-    private Integer firstLayerNozzleTemp;
-    private Integer firstLayerBedTemp;
-    private BigDecimal firstLayerHeight;
+    @Schema(description = "文件 ID") private Long id;
+    @Schema(description = "文件原始名称") private String originalName;
+    @Schema(description = "文件大小，单位字节") private Long fileSize;
+    @Schema(description = "预计打印时长，单位秒") private Integer estTime;
+    @Schema(description = "耗材类型") private String materialType;
+    @Schema(description = "喷嘴直径，单位毫米") private BigDecimal nozzleSize;
+    @Schema(description = "耗材重量，单位克") private BigDecimal filamentWeight;
+    @Schema(description = "耗材长度，单位米") private BigDecimal filamentLength;
+    @Schema(description = "喷嘴温度，单位摄氏度") private Integer nozzleTemp;
+    @Schema(description = "热床温度，单位摄氏度") private Integer bedTemp;
+    @Schema(description = "层高，单位毫米") private BigDecimal layerHeight;
+    @Schema(description = "首层喷嘴温度，单位摄氏度") private Integer firstLayerNozzleTemp;
+    @Schema(description = "首层热床温度，单位摄氏度") private Integer firstLayerBedTemp;
+    @Schema(description = "首层层高，单位毫米") private BigDecimal firstLayerHeight;
 
     public static PrintFilePreviewVO from(PrintFile file) {
         PrintFilePreviewVO vo = new PrintFilePreviewVO();

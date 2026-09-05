@@ -15,9 +15,11 @@ import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.service.PrintFileService;
 import com.example.farm.service.PrintJobService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,6 +39,7 @@ import java.util.List;
  * 打印文件管理接口。
  */
 @Tag(name = "打印文件管理")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/print-files")
@@ -93,7 +96,7 @@ public class PrintFileController {
     @Operation(summary = "查询文件关联任务", description = "按文件 ID 分页查询任务，并按当前用户权限隔离")
     @GetMapping("/{id}/jobs")
     public Result<PageResult<PrintJobVO>> getFileJobs(
-            @PathVariable Long id, @Valid FileJobsQueryDTO queryDTO) {
+            @PathVariable Long id, @Valid @ParameterObject FileJobsQueryDTO queryDTO) {
         return Result.success(PageResult.from(
                 printJobService.queryJobsByFileId(id, queryDTO), PrintJobVO::from));
     }

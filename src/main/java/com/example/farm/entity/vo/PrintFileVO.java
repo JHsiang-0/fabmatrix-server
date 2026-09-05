@@ -15,27 +15,27 @@ import java.time.LocalDateTime;
 @Schema(name = "PrintFileVO", description = "打印文件安全响应对象")
 public class PrintFileVO implements Serializable {
 
-    private Long id;
-    private Long parentId;
+    @Schema(description = "文件或目录 ID") private Long id;
+    @Schema(description = "父目录 ID；根目录为 null") private Long parentId;
     @Schema(description = "是否为目录")
     private Boolean folder;
-    private String originalName;
-    private Long fileSize;
-    private Long userId;
-    private LocalDateTime createdAt;
-    private Integer estTime;
-    private String materialType;
-    private BigDecimal nozzleSize;
-    private BigDecimal filamentWeight;
-    private BigDecimal filamentLength;
-    private Integer nozzleTemp;
-    private Integer bedTemp;
-    private BigDecimal layerHeight;
-    private Integer firstLayerNozzleTemp;
-    private Integer firstLayerBedTemp;
-    private BigDecimal firstLayerHeight;
-    private Integer printCount;
-    private BigDecimal successRate;
+    @Schema(description = "文件原始名称") private String originalName;
+    @Schema(description = "文件大小，单位字节") private Long fileSize;
+    @Schema(description = "上传用户 ID") private Long userId;
+    @Schema(description = "创建时间") private LocalDateTime createdAt;
+    @Schema(description = "预计打印时长，单位秒") private Integer estTime;
+    @Schema(description = "耗材类型") private String materialType;
+    @Schema(description = "喷嘴直径，单位毫米") private BigDecimal nozzleSize;
+    @Schema(description = "耗材重量，单位克") private BigDecimal filamentWeight;
+    @Schema(description = "耗材长度，单位米") private BigDecimal filamentLength;
+    @Schema(description = "喷嘴温度，单位摄氏度") private Integer nozzleTemp;
+    @Schema(description = "热床温度，单位摄氏度") private Integer bedTemp;
+    @Schema(description = "层高，单位毫米") private BigDecimal layerHeight;
+    @Schema(description = "首层喷嘴温度，单位摄氏度") private Integer firstLayerNozzleTemp;
+    @Schema(description = "首层热床温度，单位摄氏度") private Integer firstLayerBedTemp;
+    @Schema(description = "首层层高，单位毫米") private BigDecimal firstLayerHeight;
+    @Schema(description = "已结束任务打印次数") private Integer printCount;
+    @Schema(description = "成功率，百分比 0-100") private BigDecimal successRate;
 
     public static PrintFileVO from(PrintFile file) {
         if (file == null) {

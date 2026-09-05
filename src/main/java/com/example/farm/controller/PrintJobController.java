@@ -21,6 +21,7 @@ import com.example.farm.entity.dto.request.BatchDispatchRetryPreviewRequest;
 import com.example.farm.entity.vo.BatchDispatchConfirmVO;
 import com.example.farm.entity.vo.DispatchPlanPreviewVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ import java.util.List;
  * 打印任务管理接口。
  */
 @Tag(name = "打印任务管理")
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @Slf4j
 @RequestMapping("/api/v1/print-jobs")

@@ -3,6 +3,7 @@ package com.example.farm.controller;
 import com.example.farm.common.api.Result;
 import com.example.farm.service.PrinterControlService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/control")
 @RequiredArgsConstructor
 @Tag(name = "打印机控制", description = "打印机硬件控制相关接口")
+@SecurityRequirement(name = "bearerAuth")
 public class PrinterControlController {
 
     private final PrinterControlService printerControlService;

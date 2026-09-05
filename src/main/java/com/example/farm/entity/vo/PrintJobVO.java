@@ -15,19 +15,19 @@ import java.time.LocalDateTime;
 @Schema(name = "PrintJobVO", description = "打印任务安全响应对象")
 public class PrintJobVO implements Serializable {
 
-    private Long id;
-    private Long fileId;
-    private Long printerId;
-    private Long userId;
-    private Long operatorId;
-    private Integer priority;
-    private String status;
-    private BigDecimal progress;
-    private LocalDateTime startedAt;
-    private LocalDateTime completedAt;
-    private String errorReason;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    @Schema(description = "任务 ID") private Long id;
+    @Schema(description = "切片文件 ID") private Long fileId;
+    @Schema(description = "绑定打印机 ID；排队任务为 null") private Long printerId;
+    @Schema(description = "发起任务的用户 ID") private Long userId;
+    @Schema(description = "现场操作员用户 ID") private Long operatorId;
+    @Schema(description = "任务优先级，范围 0-100") private Integer priority;
+    @Schema(description = "任务状态：QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED、RECONCILING、COMPLETED、FAILED、CANCELLED") private String status;
+    @Schema(description = "打印进度，范围 0-100") private BigDecimal progress;
+    @Schema(description = "开始时间") private LocalDateTime startedAt;
+    @Schema(description = "完成时间") private LocalDateTime completedAt;
+    @Schema(description = "失败或核对原因；无原因时为 null") private String errorReason;
+    @Schema(description = "创建时间") private LocalDateTime createdAt;
+    @Schema(description = "更新时间") private LocalDateTime updatedAt;
 
     public static PrintJobVO from(PrintJob job) {
         if (job == null) {

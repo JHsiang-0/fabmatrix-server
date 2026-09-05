@@ -1,15 +1,21 @@
 package com.example.farm.common.api;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 /**
  * 全局统一返回结果类
  */
 @Data
+@Schema(name = "Result", description = "REST 统一返回结构")
 public class Result<T> {
+    @Schema(description = "业务状态码；成功为 200")
     private long code;
+    @Schema(description = "面向用户的结果说明")
     private String message;
+    @Schema(description = "业务数据；无数据时为 null")
     private T data;
+    @Schema(description = "Unix epoch 毫秒时间戳")
     private long timestamp; // 时间戳，IoT 系统必备
 
     protected Result() {

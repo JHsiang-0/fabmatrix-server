@@ -19,6 +19,7 @@ public class PrintFileVO implements Serializable {
     @Schema(description = "父目录 ID；根目录为 null") private Long parentId;
     @Schema(description = "是否为目录")
     private Boolean folder;
+    @Schema(description = "是否为系统默认目录") private Boolean isDefault;
     @Schema(description = "文件原始名称") private String originalName;
     @Schema(description = "文件大小，单位字节") private Long fileSize;
     @Schema(description = "上传用户 ID") private Long userId;
@@ -46,6 +47,7 @@ public class PrintFileVO implements Serializable {
         vo.parentId = file.getParentId();
         // 数据库旧记录或刚上传的实体可能尚未填充默认值；对外契约始终返回布尔值。
         vo.folder = Boolean.TRUE.equals(file.getIsFolder());
+        vo.isDefault = Boolean.TRUE.equals(file.getIsDefaultFolder());
         vo.originalName = file.getOriginalName();
         vo.fileSize = file.getFileSize();
         vo.userId = file.getUserId();

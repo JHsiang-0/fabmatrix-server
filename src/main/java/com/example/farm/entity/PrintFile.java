@@ -43,6 +43,13 @@ public class PrintFile {
     private Boolean isFolder;
 
     /**
+     * 系统为用户建立的“我的文件夹”标识。默认目录是不可删除的一级目录。
+     */
+    @TableField("is_default_folder")
+    @Schema(description = "是否为系统默认目录")
+    private Boolean isDefaultFolder;
+
+    /**
      * 对象存储真实路径（如 farm/uploads/xxx.gcode）
      */
     @TableField("rustfs_key")

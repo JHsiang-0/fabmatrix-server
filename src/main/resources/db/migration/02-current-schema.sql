@@ -68,6 +68,10 @@ CALL farm_add_column_if_missing(
     'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否为文件夹（0-文件，1-文件夹）'' AFTER `parent_id`'
 )$$
 CALL farm_add_column_if_missing(
+    'farm_print_file', 'is_default_folder',
+    'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否为用户系统默认目录（0-否，1-是）'' AFTER `is_folder`'
+)$$
+CALL farm_add_column_if_missing(
     'farm_print_file', 'rustfs_key',
     'VARCHAR(500) NULL DEFAULT NULL COMMENT ''对象存储真实路径（如 farm/uploads/xxx.gcode）'' AFTER `is_folder`'
 )$$

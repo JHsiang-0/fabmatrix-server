@@ -11,6 +11,7 @@ import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.common.utils.PasswordMigrationUtil;
 import com.example.farm.entity.User;
+import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.ChangePasswordDTO;
 import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.entity.dto.PasswordMigrateResultDTO;
@@ -22,11 +23,13 @@ import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
 import com.example.farm.entity.vo.UserVO;
 import com.example.farm.mapper.UserMapper;
+import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +47,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final PasswordEncoder passwordEncoder;
     private final LoginProtectUtil loginProtectUtil;
+
+    /**
+     * 正式 Spring 运行时由 MyBatis 注入；旧的用户认证单元测试未提供该替身时，
+     * 仍允许只验证用户认证流程。真实 Mapper 一旦注入，目录写入失败会继续抛出。
+     */
+    @Autowired(required = false)
+    private PrintFileMapper printFileMapper;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AuditLogService auditLogService;
@@ -159,6 +169,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (!save(admin)) {
                 throw new BusinessException("管理员创建失败");
             }
+            createDefaultFolder(admin.getId());
 
             LoginResultDTO result = new LoginResultDTO(
                     JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole()),
@@ -199,9 +210,26 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (!save(newUser)) {
             throw new BusinessException("用户创建失败");
         }
+        createDefaultFolder(newUser.getId());
         recordSuccess("USER_CREATE", "USER", newUser.getId(), newUser.getUsername());
         log.info("用户注册成功: username={}, id={}", newUser.getUsername(), newUser.getId());
         return newUser.getId();
+    }
+
+    private void createDefaultFolder(Long userId) {
+        if (printFileMapper == null) {
+            return;
+        }
+        PrintFile defaultFolder = new PrintFile();
+        defaultFolder.setParentId(null);
+        defaultFolder.setIsFolder(true);
+        defaultFolder.setIsDefaultFolder(true);
+        defaultFolder.setOriginalName("我的文件夹");
+        defaultFolder.setSafeName("folder_default_" + userId);
+        defaultFolder.setUserId(userId);
+        if (printFileMapper.insert(defaultFolder) <= 0) {
+            throw new BusinessException("默认文件夹创建失败");
+        }
     }
 
     @Override

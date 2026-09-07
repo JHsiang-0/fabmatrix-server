@@ -89,7 +89,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         Map<Long, FileNodeVO> nodes = new LinkedHashMap<>();
         Map<Long, PrintFile> filesById = new LinkedHashMap<>();
         for (PrintFile file : files) {
-            if (file.getId() == null) {
+            if (file.getId() == null || !Boolean.TRUE.equals(file.getIsFolder())) {
                 continue;
             }
             nodes.put(file.getId(), FileNodeVO.from(file));
@@ -102,13 +102,25 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             if (node == null) {
                 continue;
             }
-            if (file.getParentId() == null
-                    || !nodes.containsKey(file.getParentId())
-                    || createsCycle(file, filesById)) {
+            if (hasInvalidFolderPath(file, filesById)) {
+                log.warn("忽略异常文件夹树节点: folderId={}, parentId={}, userId={}",
+                        file.getId(), file.getParentId(), file.getUserId());
+                continue;
+            }
+            int level = getFolderLevel(file, filesById);
+            if (level < 1 || level > 2) {
+                log.warn("忽略超过两级的文件夹树节点: folderId={}, level={}", file.getId(), level);
+                continue;
+            }
+            node.setLevel(level);
+            if (file.getParentId() == null) {
                 roots.add(node);
                 continue;
             }
-            nodes.get(file.getParentId()).getChildren().add(node);
+            FileNodeVO parent = nodes.get(file.getParentId());
+            if (parent != null) {
+                parent.getChildren().add(node);
+            }
         }
         return roots;
     }
@@ -122,7 +134,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         return PrintFilePreviewVO.from(file);
     }
 
-    private boolean createsCycle(PrintFile file, Map<Long, PrintFile> filesById) {
+    private boolean hasInvalidFolderPath(PrintFile file, Map<Long, PrintFile> filesById) {
         Set<Long> visited = new HashSet<>();
         Long ancestorId = file.getParentId();
         while (ancestorId != null) {
@@ -131,11 +143,32 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             }
             PrintFile ancestor = filesById.get(ancestorId);
             if (ancestor == null) {
-                return false;
+                return true;
+            }
+            if (!Objects.equals(file.getUserId(), ancestor.getUserId())) {
+                return true;
             }
             ancestorId = ancestor.getParentId();
         }
         return false;
+    }
+
+    private int getFolderLevel(PrintFile file, Map<Long, PrintFile> filesById) {
+        int level = 1;
+        Set<Long> visited = new HashSet<>();
+        Long ancestorId = file.getParentId();
+        while (ancestorId != null) {
+            if (!visited.add(ancestorId)) {
+                return -1;
+            }
+            PrintFile ancestor = filesById.get(ancestorId);
+            if (ancestor == null) {
+                return -1;
+            }
+            level++;
+            ancestorId = ancestor.getParentId();
+        }
+        return level;
     }
 
     @Override
@@ -146,33 +179,36 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             throw new BusinessException(400, "文件夹名称不能为空");
         }
 
-        if (parentId != null) {
-            requireAccessibleFolder(parentId);
+        PrintFile parent = parentId == null ? null : requireFolderParent(parentId);
+
+        String normalizedFolderName = folderName.trim();
+        if (normalizedFolderName.length() > 100 || containsUnsafeFilenameCharacter(normalizedFolderName)) {
+            throw new BusinessException(400, "文件夹名称长度或格式不正确");
         }
 
         // 检查同名文件夹是否已存在（复用 originalName 字段存储文件夹名称）
         LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PrintFile::getIsFolder, true)
-                .eq(PrintFile::getOriginalName, folderName);
+                .eq(PrintFile::getOriginalName, normalizedFolderName);
 
         if (parentId == null) {
             wrapper.isNull(PrintFile::getParentId);
         } else {
             wrapper.eq(PrintFile::getParentId, parentId);
         }
-        if (!SecurityContextUtil.isAdmin()) {
-            wrapper.eq(PrintFile::getUserId, currentUserId);
-        }
+        // 新目录始终归当前用户所有，管理员也不能借此把不同用户的目录视为同级空间。
+        wrapper.eq(PrintFile::getUserId, currentUserId);
 
         PrintFile existing = this.getOne(wrapper, false);
         if (existing != null) {
-            throw new BusinessException("该目录下已存在同名文件夹");
+            throw new BusinessException(409, "该目录下已存在同名文件夹");
         }
 
         PrintFile folder = new PrintFile();
         folder.setParentId(parentId);
         folder.setIsFolder(true);
-        folder.setOriginalName(folderName); // 复用 originalName 字段存储文件夹名称
+        folder.setIsDefaultFolder(false);
+        folder.setOriginalName(normalizedFolderName); // 复用 originalName 字段存储文件夹名称
         folder.setSafeName("folder_" + System.currentTimeMillis()); // 文件夹占位符
         folder.setUserId(currentUserId);
         folder.setCreatedAt(LocalDateTime.now());
@@ -180,7 +216,8 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (!this.save(folder)) {
             throw new BusinessException("创建文件夹失败");
         }
-        log.info("创建虚拟文件夹成功: folderId={}, parentId={}, name={}", folder.getId(), parentId, folderName);
+        log.info("创建文件夹成功: folderId={}, parentId={}, level={}, name={}",
+                folder.getId(), parentId, parent == null ? 1 : 2, normalizedFolderName);
         return folder;
     }
 
@@ -188,6 +225,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     public Page<PrintFile> pageFiles(PrintFileQueryDTO queryDTO) {
         if (queryDTO == null) {
             throw new BusinessException(400, "文件查询参数不能为空");
+        }
+        if (queryDTO.getParentId() != null) {
+            requirePageFolderParent(queryDTO.getParentId());
         }
         Long userId = SecurityContextUtil.getCurrentUserId();
         Page<PrintFile> page = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize());
@@ -200,7 +240,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         // 使用显式 Mapper SQL，固定 fileName/materialType 到真实数据库列的映射。
         Page<PrintFile> resultPage = baseMapper.selectFilePage(
-                page, userId, admin, filterUserId, fileName, materialType, queryDTO.getParentId());
+                page, userId, admin, filterUserId, fileName, materialType, queryDTO.getParentId(), queryDTO.getFolder());
 
         // 统计每个文件的打印次数和成功率
         if (resultPage.getRecords() != null && !resultPage.getRecords().isEmpty()) {
@@ -272,11 +312,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Transactional(rollbackFor = Exception.class)
     public PrintFile uploadAndParseFile(MultipartFile file, Long parentId) {
         validateUpload(file);
-        if (parentId != null) {
-            requireAccessibleFolder(parentId);
-        }
-
         Long userId = SecurityContextUtil.getCurrentUserId();
+        Long resolvedParentId = resolveUploadParent(parentId, userId).getId();
+        requireUploadParent(resolvedParentId);
         String originalName = file.getOriginalFilename().trim();
         String safeName = System.currentTimeMillis() + "_" + originalName;
 
@@ -323,7 +361,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         printFile.setFileUrl(fileUrl);
         printFile.setFileSize(file.getSize());
         printFile.setUserId(userId);
-        printFile.setParentId(parentId);
+        printFile.setParentId(resolvedParentId);
+        printFile.setIsFolder(false);
+        printFile.setIsDefaultFolder(false);
         printFile.setCreatedAt(LocalDateTime.now());
 
         printFile.setEstTime(meta.getEstimatedPrintTimeSeconds());
@@ -400,10 +440,6 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (files == null || files.isEmpty()) {
             throw new BusinessException(400, "上传文件不能为空");
         }
-        if (parentId != null) {
-            requireAccessibleFolder(parentId);
-        }
-
         int maxFiles = fileUploadProperties != null && fileUploadProperties.getBatchMaxFiles() != null
                 ? fileUploadProperties.getBatchMaxFiles() : MAX_BATCH_SIZE;
         if (files.size() > maxFiles) {
@@ -416,6 +452,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (totalSize > maxTotalSize) {
             throw new BusinessException(400, "批量上传总大小不能超过" + formatDataSize(maxTotalSize));
         }
+
+        Long resolvedParentId = resolveUploadParent(parentId, SecurityContextUtil.getCurrentUserId()).getId();
+        requireUploadParent(resolvedParentId);
 
         PrintFileService.BatchUploadResult result = new PrintFileService.BatchUploadResult();
         result.setTotalCount(files.size());
@@ -432,7 +471,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 continue;
             }
             try {
-                PrintFile saved = uploadAndParseFile(file, parentId);
+                PrintFile saved = uploadAndParseFile(file, resolvedParentId);
                 result.getItems().add(new PrintFileService.BatchUploadItemResult(
                         index, saved.getId(), saved.getOriginalName(), "SUCCEEDED", null, "上传成功", false));
                 result.setSuccessCount(result.getSuccessCount() + 1);
@@ -670,6 +709,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private void ensureDeletable(PrintFile file) {
         if (Boolean.TRUE.equals(file.getIsFolder())) {
+            if (Boolean.TRUE.equals(file.getIsDefaultFolder())) {
+                throw new BusinessException(422, "默认目录不可删除");
+            }
             throw new BusinessException(422, "目录不能通过文件删除接口删除");
         }
         Integer jobCount = baseMapper.countPrintJobsByFileId(file.getId(), null, null);
@@ -685,11 +727,95 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         rustFsClient.deleteFileByObjectUrl(file.getThumbnailUrl());
     }
 
-    private void requireAccessibleFolder(Long folderId) {
-        PrintFile folder = getAccessibleFile(folderId);
+    private PrintFile requireAccessibleFolder(Long folderId) {
+        PrintFile folder = baseMapper.selectById(folderId);
+        if (folder == null) {
+            throw new BusinessException(404, "父文件夹不存在");
+        }
+        if (!SecurityContextUtil.isAdmin()
+                && !Objects.equals(folder.getUserId(), SecurityContextUtil.getCurrentUserId())) {
+            throw new BusinessException(403, "无权访问该文件夹");
+        }
         if (!Boolean.TRUE.equals(folder.getIsFolder())) {
             throw new BusinessException(422, "父级资源不是文件夹");
         }
+        return folder;
+    }
+
+    private PrintFile resolveUploadParent(Long parentId, Long userId) {
+        if (parentId != null) {
+            return requireUploadParent(parentId);
+        }
+
+        LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(PrintFile::getUserId, userId)
+                .eq(PrintFile::getIsFolder, true)
+                .eq(PrintFile::getIsDefaultFolder, true)
+                .isNull(PrintFile::getParentId);
+        List<PrintFile> defaults = this.list(wrapper);
+        if (defaults == null || defaults.size() != 1) {
+            throw new BusinessException(422, "默认文件夹不可用，请先完成目录迁移");
+        }
+        return defaults.get(0);
+    }
+
+    private void requirePageFolderParent(Long folderId) {
+        PrintFile folder = requireAccessibleFolder(folderId);
+        int level = getFolderLevelForQuery(folder);
+        if (level < 1 || level > 2) {
+            throw new BusinessException(422, "文件夹最多支持两级目录");
+        }
+    }
+
+    private int getFolderLevelForQuery(PrintFile folder) {
+        if (folder.getParentId() == null) {
+            return 1;
+        }
+        PrintFile parent = baseMapper.selectById(folder.getParentId());
+        if (parent == null || !Boolean.TRUE.equals(parent.getIsFolder())
+                || !Objects.equals(parent.getUserId(), folder.getUserId())
+                || parent.getParentId() != null) {
+            return -1;
+        }
+        return 2;
+    }
+
+    private PrintFile requireFolderParent(Long folderId) {
+        PrintFile folder = requireAccessibleFolder(folderId);
+        assertOwnedFolder(folder);
+        int level = getFolderLevelFromStorage(folder);
+        if (level < 1 || level >= 2) {
+            throw new BusinessException(422, "文件夹最多支持两级目录");
+        }
+        return folder;
+    }
+
+    private PrintFile requireUploadParent(Long folderId) {
+        PrintFile folder = requireAccessibleFolder(folderId);
+        assertOwnedFolder(folder);
+        int level = getFolderLevelFromStorage(folder);
+        if (level < 1 || level > 2) {
+            throw new BusinessException(422, "文件夹层级数据异常");
+        }
+        return folder;
+    }
+
+    private void assertOwnedFolder(PrintFile folder) {
+        if (!Objects.equals(folder.getUserId(), SecurityContextUtil.getCurrentUserId())) {
+            throw new BusinessException(403, "无权访问该文件夹");
+        }
+    }
+
+    private int getFolderLevelFromStorage(PrintFile folder) {
+        if (folder.getParentId() == null) {
+            return 1;
+        }
+        PrintFile parent = requireAccessibleFolder(folder.getParentId());
+        assertOwnedFolder(parent);
+        if (!Boolean.TRUE.equals(parent.getIsFolder()) || parent.getParentId() != null) {
+            return -1;
+        }
+        return 2;
     }
 
     private String extractHeadAndTail(MultipartFile file) {

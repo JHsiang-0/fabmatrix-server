@@ -84,7 +84,7 @@ public class PrintFileController {
     /**
      * 获取当前用户可访问的完整文件目录树。
      */
-    @Operation(summary = "获取文件目录树", description = "返回完整目录树，不分页；目录和文件节点均包含 children 数组")
+    @Operation(summary = "获取文件目录树", description = "返回真实文件夹组成的完整目录树，不分页；不返回文件节点或虚拟根节点，最多两级，并包含 level、isDefault、userId")
     @GetMapping("/tree")
     public Result<List<FileNodeVO>> getFileTree() {
         return Result.success(farmPrintFileService.getFileTree(), "获取文件目录树成功");
@@ -174,11 +174,12 @@ public class PrintFileController {
     }
 
     // =============================================
-    // 虚拟目录管理接口
+    // 目录管理接口：默认目录为每个用户的真实一级目录，目录最多两级。
     // =============================================
 
     /**
-     * 获取指定目录下的文件和文件夹列表。
+     * 获取指定目录下的直接子节点（兼容接口）。文件库主界面使用 page 接口并传 folder=false，
+     * 只展示当前目录的直接文件。
      *
      * @param parentId 父目录ID（不传或传null表示根目录）
      * @return 目录内容列表（文件夹在前，文件按时间倒序）
@@ -191,7 +192,7 @@ public class PrintFileController {
     }
 
     /**
-     * 创建虚拟文件夹。
+     * 创建文件夹。parentId 为空创建一级目录；指定一级目录创建二级目录，默认目录不可删除、重命名或移动。
      *
      * @param req 创建请求（parentId, folderName）
      * @return 创建的文件夹信息

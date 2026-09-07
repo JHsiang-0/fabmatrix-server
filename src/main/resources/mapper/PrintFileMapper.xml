@@ -21,6 +21,9 @@
             <if test="materialType != null and materialType != ''">
                 AND UPPER(material_type) = #{materialType}
             </if>
+            <if test="folder != null">
+                AND is_folder = #{folder}
+            </if>
             <choose>
                 <when test="parentId != null">
                     AND parent_id = #{parentId}
@@ -52,6 +55,9 @@
             <if test="materialType != null and materialType != ''">
                 AND UPPER(material_type) = #{materialType}
             </if>
+            <if test="folder != null">
+                AND is_folder = #{folder}
+            </if>
             <choose>
                 <when test="parentId != null">
                     AND parent_id = #{parentId}
@@ -64,13 +70,14 @@
         ORDER BY created_at DESC
     </select>
 
-    <!-- 文件目录树节点查询：权限条件在 SQL 层再次固定。 -->
+    <!-- 文件目录树只返回真实目录节点；文件内容由 page(folder=false) 直接分页查询。 -->
     <select id="selectAccessibleFileTree" resultType="com.example.farm.entity.PrintFile">
         SELECT *
         FROM farm_print_file
         <where>
+            is_folder = 1
             <if test="!admin">
-                user_id = #{userId}
+                AND user_id = #{userId}
             </if>
         </where>
         ORDER BY is_folder DESC, created_at DESC, id ASC

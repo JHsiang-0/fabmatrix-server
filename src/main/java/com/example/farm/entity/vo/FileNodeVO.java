@@ -24,6 +24,15 @@ public class FileNodeVO {
     @Schema(description = "是否为目录")
     private Boolean folder;
 
+    @Schema(description = "目录层级，一级为1，二级为2")
+    private Integer level;
+
+    @Schema(description = "是否为系统默认目录")
+    private Boolean isDefault;
+
+    @Schema(description = "目录所属用户ID")
+    private Long userId;
+
     @Schema(description = "目录名或文件原始名")
     private String name;
 
@@ -44,6 +53,8 @@ public class FileNodeVO {
         node.id = file.getId();
         node.parentId = file.getParentId();
         node.folder = Boolean.TRUE.equals(file.getIsFolder());
+        node.isDefault = Boolean.TRUE.equals(file.getIsDefaultFolder());
+        node.userId = file.getUserId();
         node.name = file.getOriginalName();
         node.fileSize = node.folder ? null : file.getFileSize();
         node.materialType = node.folder ? null : file.getMaterialType();

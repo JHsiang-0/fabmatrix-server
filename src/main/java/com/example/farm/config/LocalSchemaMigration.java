@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /** 为已有 Local Edition SQLite 数据库补齐新增字段，重复启动安全。 */
@@ -29,6 +30,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_dispatch_plan_item", "recovery_action", "VARCHAR(64)");
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_dispatch_plan_created_retry_key "
                 + "ON farm_dispatch_plan(created_by, retry_key)");
+        migratePrintFileDefaultFolders();
     }
 
     private void createAuditLogTableIfMissing() {
@@ -64,6 +66,73 @@ public class LocalSchemaMigration implements CommandLineRunner {
         if (!columns.contains(column)) {
             jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
             log.info("Local SQLite schema migration added column: {}.{}", table, column);
+        }
+    }
+
+    private void migratePrintFileDefaultFolders() {
+        addColumnIfMissing("farm_print_file", "is_default_folder", "INTEGER NOT NULL DEFAULT 0");
+
+        List<Integer> duplicateUsers = jdbcTemplate.queryForList("""
+                SELECT user_id
+                FROM farm_print_file
+                WHERE is_folder = 1 AND is_default_folder = 1 AND user_id IS NOT NULL
+                GROUP BY user_id
+                HAVING COUNT(*) > 1
+                """, Integer.class);
+        if (duplicateUsers.isEmpty()) {
+            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_print_file_default_folder_user "
+                    + "ON farm_print_file(user_id) WHERE is_folder = 1 AND is_default_folder = 1");
+        } else {
+            log.warn("SQLite default folder uniqueness index skipped for duplicate users: {}", duplicateUsers);
+        }
+
+        List<Integer> userIds = jdbcTemplate.queryForList(
+                "SELECT id FROM farm_user WHERE id IS NOT NULL", Integer.class);
+        for (Integer userId : userIds) {
+            List<Integer> defaults = jdbcTemplate.queryForList("""
+                    SELECT id
+                    FROM farm_print_file
+                    WHERE user_id = ? AND is_folder = 1 AND is_default_folder = 1
+                    ORDER BY id
+                    """, Integer.class, userId);
+            if (defaults.size() > 1) {
+                log.warn("SQLite user has duplicate default folders; migration skipped: userId={}, folderIds={}",
+                        userId, defaults);
+                continue;
+            }
+
+            Integer defaultId = defaults.isEmpty() ? null : defaults.get(0);
+            if (defaultId == null) {
+                Integer sameNameCount = jdbcTemplate.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM farm_print_file
+                        WHERE user_id = ? AND parent_id IS NULL AND is_folder = 1
+                          AND is_default_folder = 0 AND original_name = ?
+                        """, Integer.class, userId, "我的文件夹");
+                if (sameNameCount != null && sameNameCount > 0) {
+                    log.warn("SQLite default folder skipped because root folder name conflicts: userId={}", userId);
+                    continue;
+                }
+                jdbcTemplate.update("""
+                        INSERT INTO farm_print_file
+                            (parent_id, is_folder, is_default_folder, original_name, safe_name, user_id)
+                        VALUES (NULL, 1, 1, ?, ?, ?)
+                        """, "我的文件夹", "folder_default_" + userId, userId);
+                defaultId = jdbcTemplate.queryForObject("""
+                        SELECT id
+                        FROM farm_print_file
+                        WHERE user_id = ? AND is_folder = 1 AND is_default_folder = 1
+                        ORDER BY id DESC LIMIT 1
+                        """, Integer.class, userId);
+            }
+
+            if (defaultId != null) {
+                jdbcTemplate.update("""
+                        UPDATE farm_print_file
+                        SET parent_id = ?
+                        WHERE user_id = ? AND parent_id IS NULL AND is_folder = 0
+                        """, defaultId, userId);
+            }
         }
     }
 }

@@ -241,8 +241,8 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 |---|---|---|---|---|
 | POST | `/print-files/upload` | ADMIN/OPERATOR | Multipart：`file`、`parentId?` | `PrintFileVO`，不含 `rustfsKey`/`safeName`/`fileUrl` |
 | POST | `/print-files/batch-upload` | ADMIN/OPERATOR | Multipart：可重复字段 `files`、`parentId?`，最多100个、总大小默认1GB | `BatchUploadResult`，逐项返回 fileId/status/errorCode/retryable；不自动创建设备任务 |
-| POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页、`fileName`、`materialType`、`parentId?` | `PageResult<PrintFileVO>` |
-| GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | `FileNodeVO[]` |
+| POST | `/print-files/page` | ADMIN/OPERATOR | JSON：分页、`fileName`、`materialType`、`parentId?`、`folder?` | `PageResult<PrintFileVO>` |
+| GET | `/print-files/tree` | ADMIN/OPERATOR | 无 | 仅真实文件夹组成的 `FileNodeVO[]` |
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` |
 | GET | `/print-files/{id}/thumbnail` | ADMIN/OPERATOR | Query：`expires`，单位分钟 | 短期预签名缩略图 URL 或 null |
@@ -255,7 +255,9 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 `POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员始终只能查询本人文件，管理员可通过 `userId` 查询指定用户，不传则查询全部用户。
 
-文件库目录约定：`parentId` 省略或为 `null` 表示根目录；上传和分页查询均支持该字段，指定目录必须属于当前用户（管理员可访问全部目录）。前端不要发送 `keyword`，文件名搜索字段固定为 `fileName`。
+文件库目录约定：目录树只返回真实文件夹节点；每个用户都有唯一的一级默认目录“我的文件夹”，目录最多两级。上传时 `parentId` 省略或为 `null` 会归入当前用户的默认目录；分页查询的 `parentId` 省略或为 `null` 仍表示根目录兼容查询。指定目录必须存在、为文件夹且属于当前用户（管理员可读取全部目录，但创建/上传仍按目标目录归属校验）。前端不要发送 `keyword`，文件名搜索字段固定为 `fileName`。
+
+文件列表页面查询直接文件时必须发送 `folder=false`；该条件由数据库分页 SQL 执行，返回结果不包含目录且 `total` 与结果范围一致。省略 `folder` 仅用于旧客户端的文件/目录混合兼容行为，不应作为新文件库界面的默认请求。
 
 `GET /print-files/folder/content` 返回指定目录的直接子节点，排序固定为目录优先、同级创建时间倒序；根目录通过省略 `parentId` 查询。
 
@@ -449,7 +451,7 @@ Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更�
 
 文件接口按当前登录用户隔离资源；`OPERATOR` 只能访问本人文件，`ADMIN` 可查看和管理全部文件。管理员分页查询可通过 `userId` 筛选指定用户，不传时查询全部。
 
-`GET /print-files/tree` 当前冻结为返回完整树，不分页、不接受必填参数；若以后传入 `parentId`，只作为从指定目录开始的兼容扩展。`FileNodeVO` 字段为：`id`、`parentId`、`folder`、`name`、`fileSize`、`materialType`、`createdAt`、`children`。目录和文件均返回 `children` 数组，文件节点数组为空；`name` 为目录名或文件原始名。节点按目录优先、同级创建时间倒序排列。操作员只获得本人节点，管理员获得全部节点；孤立节点按根节点返回，避免前端丢失数据。
+`GET /print-files/tree` 当前冻结为返回真实文件夹完整树，不分页、不接受必填参数；不返回文件节点，也不返回虚拟 `__root__` 节点。`FileNodeVO` 字段为：`id`、`parentId`、`folder=true`、`name`、`level`、`isDefault`、`userId`、`createdAt`、`children`。节点最多两级，操作员只获得本人节点，管理员获得全部可读节点。异常孤儿、循环或超深目录不会被静默当作根节点；迁移/启动校验会输出诊断并要求先处理数据。默认目录不可删除、重命名或移动。
 
 `GET /print-files/{id}/jobs` 先校验文件对当前用户可见，再按 `file_id` 分页查询关联任务；操作员只能看到自己发起的任务，管理员可看到该文件的全部任务。`pageNum` 范围为 `1-Long.MAX_VALUE`，`pageSize` 范围为 `1-100`；文件不存在或无权访问均返回 HTTP 404，成功返回统一 `PageResult<PrintJobVO>`。
 

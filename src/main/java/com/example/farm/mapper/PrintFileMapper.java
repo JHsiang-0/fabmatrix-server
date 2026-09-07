@@ -26,7 +26,8 @@ public interface PrintFileMapper extends BaseMapper<PrintFile> {
                                     @Param("filterUserId") Long filterUserId,
                                     @Param("fileName") String fileName,
                                     @Param("materialType") String materialType,
-                                    @Param("parentId") Long parentId);
+                                    @Param("parentId") Long parentId,
+                                    @Param("folder") Boolean folder);
 
     /**
      * 查询当前用户可访问的全部文件树节点。

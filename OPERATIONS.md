@@ -113,7 +113,9 @@ for migration in \
   src/main/resources/db/migration/08-v2-atomic-printer-binding.sql \
   src/main/resources/db/migration/09-v2-print-job-idempotency.sql \
   src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql \
-  src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql; do
+  src/main/resources/db/migration/11-printer-monitor-reliability.sql \
+  src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql \
+  src/main/resources/db/migration/13-v2-print-file-default-folders.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done
@@ -126,12 +128,21 @@ docker compose exec -T mysql sh -c \
   'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e \
    "SHOW COLUMNS FROM farm_print_job LIKE '\''operator_id'\''; \
     SHOW COLUMNS FROM farm_print_file LIKE '\''rustfs_key'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''monitor_enabled'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''connection_status'\''; \
     SHOW TABLES LIKE '\''farm_printer_status_history'\''; \
+    SELECT user_id, COUNT(*) AS default_folder_count FROM farm_print_file \
+      WHERE is_folder = 1 AND is_default_folder = 1 GROUP BY user_id \
+      HAVING COUNT(*) <> 1; \
+    SELECT COUNT(*) AS root_file_count FROM farm_print_file \
+      WHERE is_folder = 0 AND parent_id IS NULL; \
     SELECT DISTINCT status FROM farm_print_job; \
     SELECT DISTINCT firmware_type FROM farm_printer;"'
 
 mvn spring-boot:run
 ```
+
+`13-v2-print-file-default-folders.sql` 只会补齐可确定的默认目录并将根目录文件归入唯一默认目录；发现同名冲突、重复默认目录、孤儿/循环或超过两级的目录时会输出诊断并保留现场，不应把校验结果视为可忽略警告。若上述核对查询返回异常记录，先停止应用、保留备份并人工处理后重新执行迁移；不要直接删除数据卷。
 
 如果迁移验证失败，先停止应用并保留备份，再根据失败脚本和数据库备份制定回滚方案；不要直接删除 Docker 数据卷。
 

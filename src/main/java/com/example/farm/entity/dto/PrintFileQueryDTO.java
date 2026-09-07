@@ -34,7 +34,10 @@ public class PrintFileQueryDTO {
     @Schema(description = "上传用户ID")
     private Long userId;
 
-    @Schema(description = "父目录 ID；不传或为 null 查询根目录")
+    @Schema(description = "父目录 ID；不传或为 null 查询根目录兼容范围；指定时必须为当前用户可访问的一级或二级文件夹")
     @Positive(message = "父目录 ID 必须为正数")
     private Long parentId;
+
+    @Schema(description = "是否只查询文件；文件库应传 false，数据库分页层过滤直接文件；省略时保留文件和目录混合结果的兼容行为")
+    private Boolean folder;
 }

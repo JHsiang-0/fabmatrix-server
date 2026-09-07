@@ -54,6 +54,7 @@ class PrintFileMapperTest {
                     id BIGINT PRIMARY KEY,
                     parent_id BIGINT,
                     is_folder BOOLEAN NOT NULL,
+                    is_default_folder BOOLEAN NOT NULL DEFAULT FALSE,
                     rustfs_key VARCHAR(255),
                     original_name VARCHAR(255) NOT NULL,
                     safe_name VARCHAR(255) NOT NULL,
@@ -115,6 +116,8 @@ class PrintFileMapperTest {
         insertFile(1L, 7L, "Cube-PLA.gcode", "PLA", "2026-09-01 10:00:00");
         insertFile(2L, 8L, "Cube-PLA-other.gcode", "PLA", "2026-09-01 11:00:00");
         insertFile(3L, 7L, "Cube-PETG.gcode", "PETG", "2026-09-01 12:00:00");
+        insertFolder(5L, 7L, null, "My files", "2026-09-01 09:00:00");
+        insertFolder(6L, 8L, null, "Other files", "2026-09-01 09:01:00");
 
         jdbcTemplate.update("""
                 INSERT INTO farm_print_job
@@ -148,13 +151,13 @@ class PrintFileMapperTest {
         List<PrintFile> contents = printFileService.getFolderContent(null);
 
         assertThat(contents).extracting(PrintFile::getId)
-                .containsExactly(4L, 3L, 1L);
+                .containsExactly(4L, 5L, 3L, 1L);
     }
 
     @Test
     void operatorFilePageAppliesOwnerNameMaterialAndPagination() {
         Page<PrintFile> page = printFileMapper.selectFilePage(
-                new Page<>(1, 1), 7L, false, null, "Cube", "PLA", null);
+                new Page<>(1, 1), 7L, false, null, "Cube", "PLA", null, false);
 
         assertThat(page.getTotal()).isEqualTo(1);
         assertThat(page.getRecords()).singleElement()
@@ -165,10 +168,10 @@ class PrintFileMapperTest {
     @Test
     void adminTreeAndFileJobPageRespectAdminAndOperatorBoundaries() {
         List<PrintFile> operatorTree = printFileMapper.selectAccessibleFileTree(7L, false);
-        assertThat(operatorTree).extracting(PrintFile::getId).containsExactly(3L, 1L);
+        assertThat(operatorTree).extracting(PrintFile::getId).containsExactly(5L);
 
         List<PrintFile> adminTree = printFileMapper.selectAccessibleFileTree(null, true);
-        assertThat(adminTree).extracting(PrintFile::getId).containsExactly(3L, 2L, 1L);
+        assertThat(adminTree).extracting(PrintFile::getId).containsExactly(6L, 5L);
 
         Page<PrintJob> operatorJobs = printJobMapper.selectPageByFileId(
                 new Page<>(1, 10), 1L, 7L, false);
@@ -209,6 +212,14 @@ class PrintFileMapperTest {
                     (id, is_folder, original_name, safe_name, file_size, user_id, created_at, material_type)
                 VALUES (?, FALSE, ?, ?, ?, ?, ?, ?)
                 """, id, originalName, originalName, 1024L, userId, createdAt, materialType);
+    }
+
+    private void insertFolder(Long id, Long userId, Long parentId, String name, String createdAt) {
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, original_name, safe_name, user_id, created_at)
+                VALUES (?, ?, TRUE, TRUE, ?, ?, ?, ?)
+                """, id, parentId, name, name, userId, createdAt);
     }
 
     private void dropTables() {

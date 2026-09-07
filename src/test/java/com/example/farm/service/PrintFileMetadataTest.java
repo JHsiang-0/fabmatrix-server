@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +45,8 @@ class PrintFileMetadataTest {
     void setUp() {
         printFileService = new PrintFileServiceImpl(rustFsClient, new FileUploadProperties());
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
+        lenient().when(printFileMapper.selectList(any())).thenReturn(List.of(defaultFolder(10L)));
+        lenient().when(printFileMapper.selectById(10L)).thenReturn(defaultFolder(10L));
         mockUser(1L);
     }
 
@@ -136,5 +139,16 @@ class PrintFileMetadataTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userId, null,
                         List.of(new SimpleGrantedAuthority("ROLE_OPERATOR"))));
+    }
+
+    private PrintFile defaultFolder(Long id) {
+        PrintFile folder = new PrintFile();
+        folder.setId(id);
+        folder.setUserId(1L);
+        folder.setParentId(null);
+        folder.setIsFolder(true);
+        folder.setIsDefaultFolder(true);
+        folder.setOriginalName("我的文件夹");
+        return folder;
     }
 }

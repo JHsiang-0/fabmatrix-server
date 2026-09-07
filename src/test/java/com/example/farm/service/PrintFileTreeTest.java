@@ -50,30 +50,28 @@ class PrintFileTreeTest {
     }
 
     @Test
-    void operatorReceivesOwnTreeWithNestedFoldersAndOrphanAtRoot() {
+    void operatorReceivesOwnFolderTreeAndSkipsFilesOrphans() {
         mockUser(7L, "OPERATOR");
         when(printFileMapper.selectAccessibleFileTree(7L, false)).thenReturn(List.of(
                 folder(1L, null, "Models"),
                 folder(2L, 1L, "Toys"),
                 file(3L, 2L, "cube.gcode"),
-                file(4L, 999L, "orphan.gcode")));
+                folderWithParent(4L, 999L, "orphan")));
 
         List<FileNodeVO> roots = printFileService.getFileTree();
 
         verify(printFileMapper).selectAccessibleFileTree(eq(7L), eq(false));
-        assertThat(roots).extracting(FileNodeVO::getId).containsExactly(1L, 4L);
+        assertThat(roots).extracting(FileNodeVO::getId).containsExactly(1L);
         assertThat(roots.get(0).getFolder()).isTrue();
         assertThat(roots.get(0).getChildren()).singleElement()
                 .extracting(FileNodeVO::getName).isEqualTo("Toys");
         FileNodeVO toys = roots.get(0).getChildren().get(0);
-        assertThat(toys.getChildren()).singleElement()
-                .extracting(FileNodeVO::getName).isEqualTo("cube.gcode");
-        assertThat(roots.get(1).getFolder()).isFalse();
-        assertThat(roots.get(1).getChildren()).isEmpty();
+        assertThat(toys.getLevel()).isEqualTo(2);
+        assertThat(toys.getChildren()).isEmpty();
     }
 
     @Test
-    void adminReceivesAllNodesAndCyclicNodesAreKeptAtRoot() {
+    void adminReceivesFolderNodesAndSkipsCyclicNodes() {
         mockUser(1L, "ADMIN");
         when(printFileMapper.selectAccessibleFileTree(1L, true)).thenReturn(List.of(
                 folder(10L, 11L, "cycle-a"),
@@ -82,8 +80,7 @@ class PrintFileTreeTest {
         List<FileNodeVO> roots = printFileService.getFileTree();
 
         verify(printFileMapper).selectAccessibleFileTree(eq(1L), eq(true));
-        assertThat(roots).extracting(FileNodeVO::getId).containsExactly(10L, 11L);
-        assertThat(roots).allSatisfy(node -> assertThat(node.getChildren()).isEmpty());
+        assertThat(roots).isEmpty();
     }
 
     private PrintFile folder(Long id, Long parentId, String name) {
@@ -94,6 +91,10 @@ class PrintFileTreeTest {
         folder.setOriginalName(name);
         folder.setUserId(7L);
         return folder;
+    }
+
+    private PrintFile folderWithParent(Long id, Long parentId, String name) {
+        return folder(id, parentId, name);
     }
 
     private PrintFile file(Long id, Long parentId, String name) {

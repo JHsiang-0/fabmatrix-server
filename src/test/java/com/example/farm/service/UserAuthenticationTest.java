@@ -144,6 +144,7 @@ class UserAuthenticationTest {
 
     @Test
     void firstAdminSetupCreatesAdminAndReturnsToken() {
+        // 该认证单元测试不装配文件 Mapper；应只跳过默认目录副作用，不能触发 NPE。
         ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
         ReflectionTestUtils.setField(userService, "jwtExpireTime", 604800000L);
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "test-secret-key");

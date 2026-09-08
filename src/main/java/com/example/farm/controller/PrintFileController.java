@@ -9,6 +9,7 @@ import com.example.farm.entity.dto.request.CreateFolderRequest;
 import com.example.farm.entity.dto.request.MoveFolderRequest;
 import com.example.farm.entity.dto.request.RenameFolderRequest;
 import com.example.farm.entity.dto.request.BatchDeleteFilesRequest;
+import com.example.farm.entity.dto.request.BatchMoveFilesRequest;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFileVO;
 import com.example.farm.entity.vo.FileNodeVO;
@@ -183,6 +184,17 @@ public class PrintFileController {
             @Valid @RequestBody BatchDeleteFilesRequest request) {
         request = requireBody(request);
         PrintFileService.BatchDeleteResult result = farmPrintFileService.batchDeleteFiles(request.getIds());
+        return Result.success(result, result.getMessage());
+    }
+
+    /** 批量移动文件；parentId=null 表示根目录。 */
+    @Operation(summary = "批量移动文件", description = "逐项返回结果；仅移动文件记录，不移动文件夹或对象存储对象")
+    @PutMapping("/batch/move")
+    public Result<PrintFileService.BatchMoveResult> batchMoveFiles(
+            @Valid @RequestBody BatchMoveFilesRequest request) {
+        request = requireBody(request);
+        PrintFileService.BatchMoveResult result = farmPrintFileService.batchMoveFiles(
+                request.getIds(), request.getParentId());
         return Result.success(result, result.getMessage());
     }
 

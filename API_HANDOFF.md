@@ -253,6 +253,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | PUT | `/print-files/folder/{id}/rename` | ADMIN/OPERATOR | `{"folderName":"新名称"}` | `PrintFileVO` |
 | PUT | `/print-files/folder/{id}/move` | ADMIN/OPERATOR | `{"parentId":null}` 或同用户一级目录 ID | `PrintFileVO` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
+| PUT | `/print-files/batch/move` | ADMIN/OPERATOR | `{"ids":[1,2],"parentId":null|number}`，最多100个 | `Result<BatchMoveResult>`，返回 `totalCount/movedCount/failedCount/items/message` 及每个 ID 的成功/失败原因 |
 | GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId?` | `PrintFileVO[]` |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
 
@@ -305,6 +306,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 - 文件夹重命名使用 `PUT /api/v1/print-files/folder/{id}/rename`，请求体为 `{"folderName":"..."}`。服务端校验目录存在且可访问、非默认目录、名称非空且最多100个字符、名称字符合法，并拒绝同一用户同一父目录下的重名；成功只更新 `original_name` 并写入 `FOLDER_RENAME` 审计日志，不调用对象存储。
 - 文件夹移动使用 `PUT /api/v1/print-files/folder/{id}/move`，请求体为 `{"parentId":null|number}`；`null` 表示根目录，非空目标必须是源目录所属用户的有效一级目录。默认目录不可作为源目录，管理员也不能跨用户移动；服务端拒绝移动到自身/子孙目录、同级重名以及导致第三级目录的结果，只更新 `parent_id` 并写入 `FOLDER_MOVE` 审计日志，不移动文件、不调用对象存储。
+- 文件批量移动使用 `PUT /api/v1/print-files/batch/move`，请求体为 `{"ids":[1,2],"parentId":null|number}`，单次最多100个文件；目标目录必须可访问且为文件夹，文件逐项校验归属并返回 `id`、`success`、`reason`。成功项只更新 `parent_id` 并写入 `FILE_MOVE` 审计日志，不允许移动文件夹，也不调用对象存储；`parentId=null` 表示根目录。
 
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
 - 批量文件上传接口为 `POST /api/v1/print-files/batch-upload`，使用 `multipart/form-data` 的重复字段 `files`。最多100个文件；应用层不限制批量总大小，单个 HTTP 请求仍受约1.2GB的 `spring.servlet.multipart.max-request-size` 限制，前端按单请求约1GB自动分组。接口逐项返回 `index`、`fileId`、`fileName`、`status`、`errorCode`、`message`、`retryable`，单项失败不回滚其他已成功文件；空列表或数量超限返回 HTTP 400。

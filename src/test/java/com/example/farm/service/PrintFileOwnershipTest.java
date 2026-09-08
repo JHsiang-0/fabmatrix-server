@@ -416,6 +416,50 @@ class PrintFileOwnershipTest {
         verify(rustFsClient).deleteFile("21_demo.gcode");
     }
 
+    @Test
+    void batchMoveReportsFolderAndAlreadyMovedFileWithoutTouchingObjectStorage() {
+        mockUser(1L, "OPERATOR");
+        PrintFile folder = folder(30L, 1L, null, "Folder");
+        PrintFile alreadyMoved = file(20L, 1L);
+        alreadyMoved.setParentId(40L);
+        PrintFile movable = file(21L, 1L);
+        PrintFile target = folder(40L, 1L, null, "Target");
+        when(printFileMapper.selectById(30L)).thenReturn(folder);
+        when(printFileMapper.selectById(20L)).thenReturn(alreadyMoved);
+        when(printFileMapper.selectById(21L)).thenReturn(movable);
+        when(printFileMapper.selectById(40L)).thenReturn(target);
+        org.mockito.Mockito.doReturn(1).when(printFileMapper)
+                .update(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.any());
+
+        PrintFileService.BatchMoveResult result = printFileService.batchMoveFiles(
+                List.of(30L, 20L, 21L), 40L);
+
+        assertThat(result.getMovedCount()).isEqualTo(1);
+        assertThat(result.getFailedCount()).isEqualTo(2);
+        assertThat(result.getItems()).extracting(PrintFileService.BatchMoveItemResult::getId)
+                .containsExactly(30L, 20L, 21L);
+        verify(printFileMapper).update(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.any());
+        verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void batchMoveRejectsCrossUserTargetForEachFile() {
+        mockUser(1L, "ADMIN");
+        PrintFile file = file(20L, 1L);
+        PrintFile target = folder(40L, 2L, null, "Other user target");
+        when(printFileMapper.selectById(40L)).thenReturn(target);
+        when(printFileMapper.selectById(20L)).thenReturn(file);
+
+        PrintFileService.BatchMoveResult result = printFileService.batchMoveFiles(List.of(20L), 40L);
+
+        assertThat(result.getMovedCount()).isZero();
+        assertThat(result.getFailedCount()).isEqualTo(1);
+        assertThat(result.getItems().get(0).getReason()).isEqualTo("目标文件夹必须属于文件所属用户");
+        verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+    }
+
     private PrintFile file(Long id, Long userId) {
         PrintFile file = new PrintFile();
         file.setId(id);

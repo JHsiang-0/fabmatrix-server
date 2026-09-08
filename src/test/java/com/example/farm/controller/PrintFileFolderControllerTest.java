@@ -99,6 +99,62 @@ class PrintFileFolderControllerTest {
         verifyNoInteractions(printFileService);
     }
 
+    @Test
+    void authenticatedOperatorCanBatchMoveFilesAndReceiveItemResults() throws Exception {
+        PrintFileService.BatchMoveResult result = new PrintFileService.BatchMoveResult();
+        result.setTotalCount(2);
+        result.setMovedCount(1);
+        result.setFailedCount(1);
+        result.setItems(java.util.List.of(
+                new PrintFileService.BatchMoveItemResult(20L, true, "移动成功"),
+                new PrintFileService.BatchMoveItemResult(21L, false, "文件已经位于目标目录")));
+        result.setMessage("批量移动完成：成功 1 个，失败 1 个");
+        when(printFileService.batchMoveFiles(java.util.List.of(20L, 21L), 40L)).thenReturn(result);
+
+        mockMvc.perform(put("/api/v1/print-files/batch/move")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[20,21],\"parentId\":40}")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.movedCount").value(1))
+                .andExpect(jsonPath("$.data.failedCount").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(20))
+                .andExpect(jsonPath("$.data.items[1].success").value(false));
+
+        verify(printFileService).batchMoveFiles(java.util.List.of(20L, 21L), 40L);
+    }
+
+    @Test
+    void batchMoveAcceptsNullParentForRoot() throws Exception {
+        PrintFileService.BatchMoveResult result = new PrintFileService.BatchMoveResult();
+        result.setTotalCount(1);
+        result.setMovedCount(1);
+        result.setMessage("批量移动完成：成功 1 个，失败 0 个");
+        when(printFileService.batchMoveFiles(java.util.List.of(20L), null)).thenReturn(result);
+
+        mockMvc.perform(put("/api/v1/print-files/batch/move")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[20],\"parentId\":null}")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.movedCount").value(1));
+
+        verify(printFileService).batchMoveFiles(java.util.List.of(20L), null);
+    }
+
+    @Test
+    void invalidBatchMovePayloadIsRejectedBeforeServiceCall() throws Exception {
+        mockMvc.perform(put("/api/v1/print-files/batch/move")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[],\"parentId\":0}")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+
+        verifyNoInteractions(printFileService);
+    }
+
     private PrintFile folder(Long id, Long parentId, String name) {
         PrintFile folder = new PrintFile();
         folder.setId(id);

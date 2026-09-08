@@ -1,6 +1,7 @@
 package com.example.farm.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
@@ -658,6 +659,65 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 result.getDeletedCount(), result.getFailedCount()));
         log.info("批量删除文件完成: userId={}, deletedCount={}, failedCount={}",
                 userId, result.getDeletedCount(), result.getFailedCount());
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PrintFileService.BatchMoveResult batchMoveFiles(List<Long> ids, Long parentId) {
+        PrintFileService.BatchMoveResult result = new PrintFileService.BatchMoveResult();
+        List<Long> distinctIds = ids == null ? List.of() : ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        result.setTotalCount(distinctIds.size());
+        result.setItems(new ArrayList<>());
+
+        if (distinctIds.isEmpty()) {
+            result.setMessage("没有需要移动的文件");
+            return result;
+        }
+        if (distinctIds.size() > MAX_BATCH_SIZE) {
+            throw new BusinessException(400, "单次最多移动" + MAX_BATCH_SIZE + "个文件");
+        }
+
+        // 目标目录是请求级参数：先校验存在、可访问且确实为文件夹，再逐项处理文件。
+        PrintFile target = parentId == null ? null : requireAccessibleFolder(parentId);
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        for (Long id : distinctIds) {
+            try {
+                PrintFile file = getAccessibleFile(id);
+                if (Boolean.TRUE.equals(file.getIsFolder())) {
+                    throw new BusinessException(422, "文件夹不能通过文件移动接口移动");
+                }
+                if (target != null && !Objects.equals(file.getUserId(), target.getUserId())) {
+                    throw new BusinessException(403, "目标文件夹必须属于文件所属用户");
+                }
+                if (Objects.equals(file.getParentId(), parentId)) {
+                    throw new BusinessException(422, "文件已经位于目标目录");
+                }
+                int updatedRows = baseMapper.update(null, new LambdaUpdateWrapper<PrintFile>()
+                        .eq(PrintFile::getId, id)
+                        .set(PrintFile::getParentId, parentId));
+                if (updatedRows != 1) {
+                    throw new BusinessException("文件记录移动失败");
+                }
+                recordSuccess("FILE_MOVE", "FILE", file.getId(), file.getOriginalName());
+                result.getItems().add(new PrintFileService.BatchMoveItemResult(id, true, "移动成功"));
+                result.setMovedCount(result.getMovedCount() + 1);
+            } catch (BusinessException exception) {
+                result.getItems().add(new PrintFileService.BatchMoveItemResult(id, false, exception.getMessage()));
+                result.setFailedCount(result.getFailedCount() + 1);
+            } catch (Exception exception) {
+                log.error("批量移动文件失败: fileId={}, userId={}", id, userId, exception);
+                result.getItems().add(new PrintFileService.BatchMoveItemResult(id, false, "移动失败，请稍后重试"));
+                result.setFailedCount(result.getFailedCount() + 1);
+            }
+        }
+        result.setMessage(String.format("批量移动完成：成功 %d 个，失败 %d 个",
+                result.getMovedCount(), result.getFailedCount()));
+        log.info("批量移动文件完成: userId={}, parentId={}, movedCount={}, failedCount={}",
+                userId, parentId, result.getMovedCount(), result.getFailedCount());
         return result;
     }
 

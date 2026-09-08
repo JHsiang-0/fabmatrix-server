@@ -120,6 +120,9 @@ public interface PrintFileService extends IService<PrintFile> {
      */
     BatchDeleteResult batchDeleteFiles(java.util.List<Long> ids);
 
+    /** 批量移动文件到指定目录；parentId 为空表示根目录，不触碰对象存储。 */
+    BatchMoveResult batchMoveFiles(java.util.List<Long> ids, Long parentId);
+
     /**
      * 获取文件的预签名下载 URL。
      *
@@ -157,6 +160,30 @@ public interface PrintFileService extends IService<PrintFile> {
         private String reason;
 
         public BatchDeleteItemResult(Long id, boolean success, String reason) {
+            this.id = id;
+            this.success = success;
+            this.reason = reason;
+        }
+    }
+
+    /** 批量移动结果，保留每个文件的处理原因，支持部分成功。 */
+    @lombok.Data
+    class BatchMoveResult {
+        private int totalCount;
+        private int movedCount;
+        private int failedCount;
+        private java.util.List<BatchMoveItemResult> items = new java.util.ArrayList<>();
+        private String message;
+    }
+
+    /** 单个文件的批量移动结果。 */
+    @lombok.Data
+    class BatchMoveItemResult {
+        private Long id;
+        private boolean success;
+        private String reason;
+
+        public BatchMoveItemResult(Long id, boolean success, String reason) {
             this.id = id;
             this.success = success;
             this.reason = reason;

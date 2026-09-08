@@ -103,7 +103,21 @@
         WHERE parent_id = #{parentId}
     </select>
 
-    <!-- 使用 NOT EXISTS 保持 MySQL、SQLite 和测试 H2 的删除语义一致，不做级联删除。 -->
+    <!-- MySQL 8 禁止在 DELETE 的 NOT EXISTS 子查询中再次读取目标表；使用自连接多表删除避免 1093。 -->
+    <delete id="deleteEmptyFolder" databaseId="mysql">
+        DELETE folder
+        FROM farm_print_file AS folder
+        LEFT JOIN farm_print_file AS child ON child.parent_id = folder.id
+        WHERE folder.id = #{id}
+          AND folder.is_folder = 1
+          AND folder.is_default_folder = 0
+          AND child.id IS NULL
+        <if test="!admin">
+          AND folder.user_id = #{userId}
+        </if>
+    </delete>
+
+    <!-- 默认语句供 H2 等未配置专用方言的数据库使用，不做级联删除。 -->
     <delete id="deleteEmptyFolder">
         DELETE FROM farm_print_file
         WHERE id = #{id}

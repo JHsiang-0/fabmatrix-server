@@ -189,6 +189,23 @@ class PrintFileOwnershipTest {
     }
 
     @Test
+    void operatorCannotDeleteAnotherUsersFolder() {
+        mockUser(2L, "OPERATOR");
+        PrintFile folder = file(30L, 1L);
+        folder.setIsFolder(true);
+        folder.setIsDefaultFolder(false);
+        when(printFileMapper.selectById(30L)).thenReturn(folder);
+
+        assertThatThrownBy(() -> printFileService.deleteFolder(30L))
+                .hasMessage("文件不存在");
+        verify(printFileMapper, never()).countChildrenByParentId(30L);
+        verify(printFileMapper, never()).deleteEmptyFolder(30L, 2L, false);
+        verify(auditLogService, never()).recordSuccess(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
     void nonEmptyFolderCannotBeDeleted() {
         mockUser(1L, "OPERATOR");
         PrintFile folder = file(30L, 1L);

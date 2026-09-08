@@ -10,13 +10,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -224,6 +227,24 @@ class PrintFileMapperTest {
         assertThat(printFileMapper.deleteEmptyFolder(8L, 7L, false)).isZero();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM farm_print_file WHERE id IN (8, 13)", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void mysqlFolderDeleteUsesSelfJoinAndDefaultKeepsPortableFallback() throws IOException {
+        String mapperXml;
+        try (var inputStream = new ClassPathResource("mapper/PrintFileMapper.xml").getInputStream()) {
+            mapperXml = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8)
+                    .replace("\r\n", "\n");
+        }
+
+        assertThat(mapperXml).contains("<delete id=\"deleteEmptyFolder\" databaseId=\"mysql\">");
+        assertThat(mapperXml).contains("DELETE folder\n"
+                + "        FROM farm_print_file AS folder\n"
+                + "        LEFT JOIN farm_print_file AS child ON child.parent_id = folder.id");
+        assertThat(mapperXml).contains("AND child.id IS NULL");
+        assertThat(mapperXml).contains("<delete id=\"deleteEmptyFolder\">\n"
+                + "        DELETE FROM farm_print_file");
+        assertThat(mapperXml).contains("AND NOT EXISTS (");
     }
 
     private void insertFile(Long id, Long userId, String originalName,

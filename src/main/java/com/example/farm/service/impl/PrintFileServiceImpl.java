@@ -528,6 +528,36 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteFolder(Long id) {
+        PrintFile folder = getAccessibleFile(id);
+        if (!Boolean.TRUE.equals(folder.getIsFolder())) {
+            throw new BusinessException(422, "目标资源不是文件夹");
+        }
+        if (Boolean.TRUE.equals(folder.getIsDefaultFolder())) {
+            throw new BusinessException(422, "默认目录不可删除");
+        }
+
+        Integer childCount = baseMapper.countChildrenByParentId(id);
+        if (childCount != null && childCount > 0) {
+            throw new BusinessException(409, "文件夹非空，包含文件或子目录，无法删除");
+        }
+
+        Long userId = SecurityContextUtil.getCurrentUserId();
+        boolean admin = SecurityContextUtil.isAdmin();
+        if (baseMapper.deleteEmptyFolder(id, userId, admin) != 1) {
+            // 重新读取子节点数量，给并发新增子节点返回稳定的业务冲突，而不是误报删除成功。
+            Integer currentChildCount = baseMapper.countChildrenByParentId(id);
+            if (currentChildCount != null && currentChildCount > 0) {
+                throw new BusinessException(409, "文件夹非空，包含文件或子目录，无法删除");
+            }
+            throw new BusinessException("文件夹记录删除失败");
+        }
+        recordSuccess("FOLDER_DELETE", "FOLDER", folder.getId(), folder.getOriginalName());
+        log.info("print folder deleted from db: folderId={}, userId={}, admin={}", id, userId, admin);
+    }
+
+    @Override
     public String getPresignedDownloadUrl(Long id, Integer expirationMinutes) {
         PrintFile file = getAccessibleFile(id);
 

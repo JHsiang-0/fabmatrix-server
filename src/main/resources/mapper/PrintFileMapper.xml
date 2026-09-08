@@ -96,4 +96,27 @@
         </if>
     </select>
 
+    <!-- 目录删除只允许空目录；直接文件和子目录都会阻止删除。 -->
+    <select id="countChildrenByParentId" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM farm_print_file
+        WHERE parent_id = #{parentId}
+    </select>
+
+    <!-- 使用 NOT EXISTS 保持 MySQL、SQLite 和测试 H2 的删除语义一致，不做级联删除。 -->
+    <delete id="deleteEmptyFolder">
+        DELETE FROM farm_print_file
+        WHERE id = #{id}
+          AND is_folder = 1
+          AND is_default_folder = 0
+          AND NOT EXISTS (
+              SELECT 1
+              FROM farm_print_file child
+              WHERE child.parent_id = #{id}
+          )
+        <if test="!admin">
+          AND user_id = #{userId}
+        </if>
+    </delete>
+
 </mapper>

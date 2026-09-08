@@ -249,6 +249,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | GET | `/print-files/{id}/download` | ADMIN/OPERATOR | Query：`expires` | 预签名 URL 字符串 |
 | GET | `/print-files/storage` | ADMIN/OPERATOR | Query：`key` | Local Edition 受保护文件流（`text/plain`） |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
+| DELETE | `/print-files/folder/{id}` | ADMIN/OPERATOR | Path folder ID；仅空的非默认目录 | `Result<null>` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
 | GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId?` | `PrintFileVO[]` |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
@@ -432,7 +433,7 @@ T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不
 
 打印机新增、重新录入、编辑和删除接口同样以数据库实际写入结果为准；插入/更新/删除失败会返回业务错误并触发事务回滚，不会刷新缓存后伪装成成功。
 
-文件夹创建和单文件删除以数据库实际写入结果为准；目录记录插入或文件记录删除影响 0 行时返回业务错误。对象存储删除发生在数据库删除之前，若数据库删除失败，服务端不会返回成功，残留对象需按运维清理流程处理。
+文件夹创建、空文件夹删除和单文件删除以数据库实际写入结果为准；目录记录插入、空目录删除或文件记录删除影响 0 行时返回业务错误。`DELETE /print-files/folder/{id}` 只允许删除当前用户可访问的非默认空目录；默认目录返回 HTTP 422，包含直接文件或子目录返回 HTTP 409，均不级联删除。该接口不调用对象存储。单文件删除仍先删除对象存储再删除数据库记录，若数据库删除失败，服务端不会返回成功，残留对象需按运维清理流程处理。
 
 T6.7 任务摘要采用前端组合查询方案：`PrintJobVO` 保留 `fileId` 和 `printerId`，不在任务分页中嵌套重复对象；前端需要文件摘要时调用 `/print-files/{fileId}/preview`，需要打印机摘要时调用 `/printers/{printerId}`。`printerId=null` 的排队任务不发起打印机查询，文件/打印机详情接口各自执行资源权限校验。
 

@@ -429,6 +429,14 @@ class SecurityResponseTest {
     }
 
     @Test
+    void unauthenticatedCannotDeleteFolder() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/v1/print-files/folder/20"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
     void operatorCannotDeletePrinter() throws Exception {
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .delete("/api/v1/printers/delete/403")

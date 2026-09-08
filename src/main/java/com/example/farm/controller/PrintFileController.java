@@ -121,6 +121,16 @@ public class PrintFileController {
     }
 
     /**
+     * 删除空文件夹。该接口不复用文件删除接口，也不会删除目录中的文件或对象存储对象。
+     */
+    @Operation(summary = "删除文件夹", description = "仅允许删除当前用户可访问的空非默认文件夹；非空目录返回409")
+    @DeleteMapping("/folder/{id}")
+    public Result<Void> deleteFolder(@PathVariable Long id) {
+        farmPrintFileService.deleteFolder(id);
+        return Result.success(null, "文件夹删除成功");
+    }
+
+    /**
      * 获取文件下载链接。
      * 返回预签名 URL，前端通过 window.location.href 或 <a> 标签直接下载，避免 Java 服务代理大文件。
      *

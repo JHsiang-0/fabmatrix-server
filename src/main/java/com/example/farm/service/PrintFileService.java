@@ -87,6 +87,14 @@ public interface PrintFileService extends IService<PrintFile> {
     void deleteFile(Long id);
 
     /**
+     * 删除空的非默认文件夹记录，不删除目录中的文件或对象存储对象。
+     *
+     * @param id 文件夹 ID
+     * @throws BusinessException 当目录不存在、无权访问、为默认目录或非空时抛出
+     */
+    void deleteFolder(Long id);
+
+    /**
      * 下载文件。
      *
      * @param id 文件 ID

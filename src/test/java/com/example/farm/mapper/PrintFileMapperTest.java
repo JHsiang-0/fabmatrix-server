@@ -205,6 +205,27 @@ class PrintFileMapperTest {
         assertThat(printFileMapper.countPrintJobsByFileId(1L, 7L, "COMPLETED")).isZero();
     }
 
+    @Test
+    void folderDeleteOnlyRemovesEmptyFolderAndKeepsChildren() {
+        insertFolder(7L, 7L, null, "Empty folder", "2026-09-01 13:00:00");
+        jdbcTemplate.update("UPDATE farm_print_file SET is_default_folder = FALSE WHERE id = 7");
+
+        assertThat(printFileMapper.countChildrenByParentId(7L)).isZero();
+        assertThat(printFileMapper.deleteEmptyFolder(7L, 7L, false)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM farm_print_file WHERE id = 7", Integer.class)).isZero();
+
+        insertFolder(8L, 7L, null, "Non-empty folder", "2026-09-01 13:01:00");
+        jdbcTemplate.update("UPDATE farm_print_file SET is_default_folder = FALSE WHERE id = 8");
+        insertFile(13L, 7L, "child.gcode", "PLA", "2026-09-01 13:02:00");
+        jdbcTemplate.update("UPDATE farm_print_file SET parent_id = 8 WHERE id = 13");
+
+        assertThat(printFileMapper.countChildrenByParentId(8L)).isEqualTo(1);
+        assertThat(printFileMapper.deleteEmptyFolder(8L, 7L, false)).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM farm_print_file WHERE id IN (8, 13)", Integer.class)).isEqualTo(2);
+    }
+
     private void insertFile(Long id, Long userId, String originalName,
                             String materialType, String createdAt) {
         jdbcTemplate.update("""

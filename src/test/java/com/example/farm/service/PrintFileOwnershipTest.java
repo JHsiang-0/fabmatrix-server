@@ -5,6 +5,7 @@ import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.mapper.PrintFileMapper;
+import com.example.farm.service.AuditLogService;
 import com.example.farm.service.impl.PrintFileServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,9 @@ class PrintFileOwnershipTest {
     @Mock
     private FileUploadProperties fileUploadProperties;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     @InjectMocks
     private PrintFileServiceImpl printFileService;
 
@@ -45,6 +49,7 @@ class PrintFileOwnershipTest {
     void injectMyBatisPlusBaseMapper() {
         // ServiceImpl 的 baseMapper 位于父类，Mockito 不会自动注入该继承字段。
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
+        ReflectionTestUtils.setField(printFileService, "auditLogService", auditLogService);
     }
 
     @AfterEach
@@ -164,6 +169,59 @@ class PrintFileOwnershipTest {
 
         assertThatThrownBy(() -> printFileService.getPreview(20L))
                 .hasMessage("目录不支持文件预览");
+    }
+
+    @Test
+    void defaultFolderCannotBeDeleted() {
+        mockUser(1L, "OPERATOR");
+        PrintFile folder = file(30L, 1L);
+        folder.setIsFolder(true);
+        folder.setIsDefaultFolder(true);
+        when(printFileMapper.selectById(30L)).thenReturn(folder);
+
+        assertThatThrownBy(() -> printFileService.deleteFolder(30L))
+                .hasMessage("默认目录不可删除");
+        verify(printFileMapper, never()).countChildrenByParentId(30L);
+        verify(printFileMapper, never()).deleteEmptyFolder(30L, 1L, false);
+        verify(auditLogService, never()).recordSuccess(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void nonEmptyFolderCannotBeDeleted() {
+        mockUser(1L, "OPERATOR");
+        PrintFile folder = file(30L, 1L);
+        folder.setIsFolder(true);
+        folder.setIsDefaultFolder(false);
+        when(printFileMapper.selectById(30L)).thenReturn(folder);
+        when(printFileMapper.countChildrenByParentId(30L)).thenReturn(1);
+
+        assertThatThrownBy(() -> printFileService.deleteFolder(30L))
+                .hasMessage("文件夹非空，包含文件或子目录，无法删除");
+        verify(printFileMapper, never()).deleteEmptyFolder(30L, 1L, false);
+        verify(auditLogService, never()).recordSuccess(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void emptyFolderIsDeletedWithoutTouchingObjectStorageAndIsAudited() {
+        mockUser(1L, "OPERATOR");
+        PrintFile folder = file(30L, 1L);
+        folder.setIsFolder(true);
+        folder.setIsDefaultFolder(false);
+        folder.setOriginalName("Empty folder");
+        when(printFileMapper.selectById(30L)).thenReturn(folder);
+        when(printFileMapper.countChildrenByParentId(30L)).thenReturn(0);
+        when(printFileMapper.deleteEmptyFolder(30L, 1L, false)).thenReturn(1);
+
+        printFileService.deleteFolder(30L);
+
+        verify(printFileMapper).deleteEmptyFolder(30L, 1L, false);
+        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(rustFsClient, never()).deleteFileByObjectUrl(org.mockito.ArgumentMatchers.anyString());
+        verify(auditLogService).recordSuccess("FOLDER_DELETE", "FOLDER", 30L, "Empty folder");
     }
 
     @Test

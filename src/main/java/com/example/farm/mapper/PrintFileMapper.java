@@ -46,4 +46,16 @@ public interface PrintFileMapper extends BaseMapper<PrintFile> {
     Integer countPrintJobsByFileId(@Param("fileId") Long fileId,
                                     @Param("userId") Long userId,
                                     @Param("status") String status);
+
+    /**
+     * 统计目录的直接子节点数量，文件和子目录均计入。
+     */
+    Integer countChildrenByParentId(@Param("parentId") Long parentId);
+
+    /**
+     * 仅删除归属范围内的空非默认目录；删除条件在 SQL 中原子校验，避免级联删除。
+     */
+    int deleteEmptyFolder(@Param("id") Long id,
+                          @Param("userId") Long userId,
+                          @Param("admin") boolean admin);
 }

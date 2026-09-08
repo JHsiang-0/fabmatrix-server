@@ -49,6 +49,9 @@ public interface PrinterCacheService {
      */
     boolean updatePrinterStatusWithLock(Printer printer);
 
+    /** 在分布式锁保护下更新通信健康字段，允许清空最近错误。 */
+    boolean updatePrinterHealthWithLock(Printer printer);
+
     /**
      * 尝试获取打印机状态更新锁。
      *

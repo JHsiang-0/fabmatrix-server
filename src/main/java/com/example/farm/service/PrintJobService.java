@@ -8,6 +8,7 @@ import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
+import com.example.farm.entity.dto.request.ReconcilePrintJobRequest;
 
 import java.util.List;
 
@@ -148,6 +149,9 @@ public interface PrintJobService extends IService<PrintJob> {
      * @param jobId 任务 ID
      */
     void requeueJob(Long jobId);
+
+    /** 人工核对 RECONCILING 任务并落地最终结果。 */
+    void reconcileJob(Long jobId, ReconcilePrintJobRequest request);
 
     /**
      * 修改排队任务优先级。

@@ -10,6 +10,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.time.LocalDateTime;
 
 /**
  * 业务事件到 WebSocket 消息的唯一发布入口。
@@ -39,6 +40,8 @@ public class WebSocketEventPublisher {
         data.put("timesLeft", status.timesLeft());
         data.put("lastFileCancelled", status.lastFileCancelled());
         data.put("lastFileAborted", status.lastFileAborted());
+        data.put("lastDuration", status.lastDuration());
+        data.put("deviceUptime", status.deviceUptime());
         data.put("stateSource", "DEVICE_POLL");
         FarmStatusMessage message = FarmStatusMessage.printerStatus(printerId, data);
         publishAfterCommit(() -> broadcastPrinterStatus(message));
@@ -52,6 +55,25 @@ public class WebSocketEventPublisher {
         FarmStatusMessage message = FarmStatusMessage.printerOffline(
                 printerId, Map.of("status", "OFFLINE", "reason", safeReason));
         publishAfterCommit(() -> broadcastPrinterOffline(message));
+    }
+
+    /** 推送通信健康变化；不改变现有设备实时状态消息契约。 */
+    public void publishPrinterHealth(Long printerId, String connectionStatus,
+                                     String lastKnownStatus, LocalDateTime lastSeenAt,
+                                     String lastCommunicationError,
+                                     Integer consecutiveFailureCount) {
+        if (printerId == null) {
+            return;
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("connectionStatus", connectionStatus);
+        data.put("lastKnownStatus", lastKnownStatus);
+        data.put("lastSeenAt", lastSeenAt);
+        data.put("lastCommunicationError", lastCommunicationError);
+        data.put("consecutiveFailureCount", consecutiveFailureCount);
+        data.put("stateSource", "COMMUNICATION_HEALTH");
+        FarmStatusMessage message = FarmStatusMessage.printerStatus(printerId, data);
+        publishAfterCommit(() -> broadcastPrinterStatus(message));
     }
 
     public void publishJobStatus(PrintJob job) {

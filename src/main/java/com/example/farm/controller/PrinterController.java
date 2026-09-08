@@ -11,6 +11,8 @@ import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.dto.PrinterHistoryQueryDTO;
 import com.example.farm.entity.dto.PrinterStatisticsQueryDTO;
+import com.example.farm.entity.dto.PrinterMonitorUpdateDTO;
+import com.example.farm.entity.dto.PrinterMonitorBatchUpdateDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.entity.vo.PrinterDetailVO;
 import com.example.farm.entity.vo.PrinterStatusHistoryVO;
@@ -64,6 +66,35 @@ public class PrinterController {
     @GetMapping("/{id}")
     public Result<PrinterDetailVO> getPrinterDetail(@PathVariable Long id) {
         return Result.success(printerDetailService.getDetail(id));
+    }
+
+    @Operation(summary = "查询打印机监控配置", description = "返回监控开关及最近通信健康信息")
+    @GetMapping("/{id}/monitor")
+    public Result<PrinterVO> getMonitorConfig(@PathVariable Long id) {
+        Printer printer = printerService.getById(id);
+        if (printer == null) {
+            throw new BusinessException(404, "打印机不存在");
+        }
+        return Result.success(PrinterVO.from(printer));
+    }
+
+    @Operation(summary = "更新打印机监控配置", description = "管理员控制单台打印机是否纳入后台轮询")
+    @PutMapping("/{id}/monitor")
+    public Result<Void> updateMonitorConfig(@PathVariable Long id,
+                                             @Valid @RequestBody PrinterMonitorUpdateDTO request) {
+        request = requireBody(request);
+        printerService.updateMonitorEnabled(id, request.getMonitorEnabled());
+        return Result.success(null, "打印机监控配置已更新");
+    }
+
+    @Operation(summary = "批量更新打印机监控配置", description = "管理员批量启用或停用打印机后台监控")
+    @PutMapping("/monitor/batch")
+    public Result<Integer> batchUpdateMonitorConfig(
+            @Valid @RequestBody PrinterMonitorBatchUpdateDTO request) {
+        request = requireBody(request);
+        int updated = printerService.batchUpdateMonitorEnabled(
+                request.getPrinterIds(), request.getMonitorEnabled());
+        return Result.success(updated, "打印机监控配置已批量更新");
     }
 
     @Operation(summary = "分页查询打印机状态历史", description = "查询持久化状态样本，按记录时间倒序返回")

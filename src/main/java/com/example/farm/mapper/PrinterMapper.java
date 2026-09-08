@@ -104,6 +104,9 @@ public interface PrinterMapper extends BaseMapper<Printer> {
      */
     int clearJobBinding(@Param("printerId") Long printerId, @Param("jobId") Long jobId);
 
+    /** 在通信健康更新时允许显式清空最近错误，避免覆盖其他打印机业务字段。 */
+    int updateCommunicationHealth(@Param("printer") Printer printer);
+
     /** 仅在打印机仍为空闲且未绑定任务时建立占用关系，避免先查后写的竞态。 */
     int bindJobIfIdle(@Param("printerId") Long printerId, @Param("jobId") Long jobId);
 

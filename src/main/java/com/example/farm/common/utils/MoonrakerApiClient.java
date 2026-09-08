@@ -1,6 +1,10 @@
 package com.example.farm.common.utils;
 
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.protocol.FailureCategory;
+import com.example.farm.protocol.PrinterOperation;
+import com.example.farm.protocol.PrinterProtocolException;
+import com.example.farm.protocol.PrinterProtocolType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -68,8 +72,11 @@ public class MoonrakerApiClient {
 
             if (jsonResponse != null) {
                 JsonNode rootNode = mapper.readTree(jsonResponse);
-                if (rootNode.has("result")) {
+                if (rootNode.has("result") && rootNode.path("result").has("status")) {
                     JsonNode statusNode = rootNode.path("result").path("status");
+                    requireObject(statusNode, "webhooks");
+                    requireObject(statusNode, "print_stats");
+                    requireObject(statusNode, "display_status");
                     MoonrakerStatusDTO dto = new MoonrakerStatusDTO();
 
                     // ========== 解析 webhooks 节点 (系统级状态 - 最高优先级) ==========
@@ -109,11 +116,26 @@ public class MoonrakerApiClient {
 
                     return dto;
                 }
+                throw protocolError("Moonraker 返回缺少 result.status");
             }
         } catch (Exception e) {
+            if (e instanceof PrinterProtocolException protocolException) {
+                throw protocolException;
+            }
             log.debug("打印机状态探测失败: 设备IP={}，可能是连接拒绝或超时", ipAddress);
         }
         return null;
+    }
+
+    private void requireObject(JsonNode parent, String field) {
+        if (!parent.has(field) || !parent.path(field).isObject()) {
+            throw protocolError("Moonraker 返回缺少必要对象: " + field);
+        }
+    }
+
+    private PrinterProtocolException protocolError(String message) {
+        return new PrinterProtocolException(PrinterOperation.GET_STATUS, PrinterProtocolType.KLIPPER,
+                FailureCategory.PROTOCOL_ERROR, message);
     }
 
     private void sleepBeforeStatusRetry() {

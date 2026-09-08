@@ -138,6 +138,19 @@
           AND current_job_id = #{jobId}
     </update>
 
+    <update id="updateCommunicationHealth">
+        UPDATE farm_printer
+        SET connection_status = #{printer.connectionStatus},
+            last_seen_at = #{printer.lastSeenAt},
+            last_communication_error = #{printer.lastCommunicationError},
+            consecutive_failure_count = #{printer.consecutiveFailureCount},
+            last_known_status = #{printer.lastKnownStatus},
+            last_protocol_state = #{printer.lastProtocolState},
+            last_device_uptime = #{printer.lastDeviceUptime},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{printer.id}
+    </update>
+
     <update id="bindJobIfIdle">
         UPDATE farm_printer
         SET current_job_id = #{jobId},

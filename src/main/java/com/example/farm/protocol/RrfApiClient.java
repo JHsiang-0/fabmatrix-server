@@ -76,7 +76,7 @@ public class RrfApiClient {
             return new RrfStatusResponse(
                     text(state, "status"),
                     null,
-                    text(file, "fileName"),
+                    firstText(text(file, "fileName"), text(job, "lastFileName")),
                     progress,
                     null,
                     null,
@@ -87,9 +87,11 @@ public class RrfApiClient {
                     decimal(job, "rawExtrusion"),
                     filePosition(job),
                     fileSize,
-                    decimal(job, "timesLeft"),
+                    decimalOrNested(job, "timesLeft", "file"),
                     booleanValue(job, "lastFileCancelled"),
-                    booleanValue(job, "lastFileAborted")
+                    booleanValue(job, "lastFileAborted"),
+                    decimal(job, "lastDuration"),
+                    firstDecimal(decimal(state, "upTime"), decimal(state, "uptime"))
             );
         } catch (PrinterProtocolException exception) {
             throw exception;
@@ -282,6 +284,24 @@ public class RrfApiClient {
             return null;
         }
         return value.decimalValue();
+    }
+
+    /** RRF 的 job.timesLeft 是对象，兼容旧网关直接返回数字的形式。 */
+    private BigDecimal decimalOrNested(JsonNode parent, String field, String nestedField) {
+        BigDecimal direct = decimal(parent, field);
+        if (direct != null) {
+            return direct;
+        }
+        JsonNode value = parent.path(field).path(nestedField);
+        return value.isMissingNode() || value.isNull() || !value.isNumber() ? null : value.decimalValue();
+    }
+
+    private BigDecimal firstDecimal(BigDecimal first, BigDecimal fallback) {
+        return first == null ? fallback : first;
+    }
+
+    private String firstText(String first, String fallback) {
+        return first == null || first.isBlank() ? fallback : first;
     }
 
     private BigDecimal percentage(BigDecimal position, BigDecimal size) {

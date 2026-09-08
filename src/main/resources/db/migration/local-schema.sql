@@ -35,7 +35,15 @@ CREATE TABLE IF NOT EXISTS farm_printer (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     current_material VARCHAR(50), nozzle_size NUMERIC(3,2),
-    grid_row INTEGER, grid_col INTEGER, machine_number VARCHAR(50)
+    grid_row INTEGER, grid_col INTEGER, machine_number VARCHAR(50),
+    monitor_enabled INTEGER NOT NULL DEFAULT 0,
+    connection_status VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN',
+    last_seen_at TIMESTAMP,
+    last_communication_error VARCHAR(255),
+    consecutive_failure_count INTEGER NOT NULL DEFAULT 0,
+    last_known_status VARCHAR(32),
+    last_protocol_state VARCHAR(32),
+    last_device_uptime INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS farm_print_job (

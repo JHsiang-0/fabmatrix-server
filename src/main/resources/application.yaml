@@ -95,9 +95,14 @@ server:
 farm:
   monitor:
     enabled: false
+    # 兼容旧版本的临时限制；正式使用数据库 monitor-enabled，不配置 printer-ids 即监控所有已启用设备
     printer-ids: []
     interval: 5s
     concurrency: 10
+    failure-threshold: 3
+    recovery-success-threshold: 2
+    idle-interval: 15s
+    offline-interval: 30s
   scheduler:
     enabled: false
     interval: 10s

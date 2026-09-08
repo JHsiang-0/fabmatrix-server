@@ -369,6 +369,23 @@ MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本�
 
 打印机状态写入只有在数据库更新实际影响目标记录后才视为成功；若数据库更新影响 0 行，监控任务不会据此更新本地状态或发布成功状态事件。
 
+监控目标与通信健康契约：
+
+| 方法 | 目标地址 | 权限 | 请求 | 返回 |
+|---|---|---|---|---|
+| GET | `/printers/{id}/monitor` | ADMIN/OPERATOR | Path ID | `PrinterVO` |
+| PUT | `/printers/{id}/monitor` | ADMIN | `{ "monitorEnabled": true }` | `Result<null>` |
+| PUT | `/printers/monitor/batch` | ADMIN | `{ "printerIds": [1,2], "monitorEnabled": true }` | 更新数量 |
+
+打印机列表/详情中的 `monitorEnabled` 控制是否纳入后台巡检；`connectionStatus`、`lastSeenAt`、
+`lastCommunicationError`、`consecutiveFailureCount`、`lastKnownStatus` 和 `lastProtocolState` 表示通信健康与设备最近快照，不再用业务 `status=OFFLINE`
+覆盖正在执行的任务。默认连续失败 3 次才判定通信离线，恢复成功后清零失败计数；任务在断网后仍保留
+`currentJobId`，设备恢复但返回空闲且没有完成证据时进入 `RECONCILING`。
+
+监控总开关仍为 `farm.monitor.enabled`。不配置历史 `farm.monitor.printer-ids` 时，巡检目标来自数据库中
+`monitor_enabled=true`、协议受支持且 IP 有效的设备；非空旧白名单只作为迁移期间的限制并产生告警。
+历史数据执行 `11-printer-monitor-reliability.sql` 后默认不自动纳入监控，新录入设备默认启用。
+
 统计接口契约：`GET /api/v1/printers/{id}/statistics?from=...&to=...`。时间范围按任务
 `createdAt` 筛选，省略时间表示查询全部任务；返回 `printerId`、`from`、`to`、`totalJobs`、
 `completedJobs`、`failedJobs`、`cancelledJobs`、`activeJobs`、`successRate`、
@@ -389,6 +406,7 @@ HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态�
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID | 已完成 |
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
+| POST | `/print-jobs/{id}/reconcile` | ADMIN/OPERATOR（按任务归属） | `{ "result": "COMPLETED|FAILED|CANCELLED|QUEUED", "reason": "..." }` | `Result<null>` | 已完成 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority`，范围 `0-100` | `Result<null>` | 已完成 |
 
 现有 `/print-jobs/create` 保留为兼容地址并标记 deprecated，前端新代码统一使用 `POST /print-jobs`。两条地址调用同一 Service 逻辑；不传 `printerId` 创建 `QUEUED`，传入后按 T6.2 规则进入 `ASSIGNED`。
@@ -739,13 +757,19 @@ src/main/resources/db/migration/07-v2-dispatch-plan.sql
 src/main/resources/db/migration/08-v2-atomic-printer-binding.sql
 src/main/resources/db/migration/09-v2-print-job-idempotency.sql
 src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql
+src/main/resources/db/migration/11-printer-monitor-reliability.sql
+src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql
+src/main/resources/db/migration/12-v2-audit-log.sql
+src/main/resources/db/migration/13-v2-print-file-default-folders.sql
 ```
 
-已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并手工执行经过确认的增量 SQL。2026-09-03 已在当前开发 Docker 数据卷完成一次备份后迁移：记录数量保持为用户 2、打印机 46、文件 1、任务 3；旧任务状态 `MANUAL` 已规范为 `QUEUED`，旧协议值 `Klipper` 已规范为 `KLIPPER`，新增字段和 `farm_printer_status_history` 已核对存在。该记录不代表生产环境已迁移，生产仍须按 `OPERATIONS.md` 执行并保留备份。
+已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并按上述顺序手工执行经过确认的增量 SQL；`11-printer-monitor-reliability.sql` 会在字段/索引缺失时补齐，允许重复执行。该迁移新增的 `monitor_enabled` 对旧打印机默认为 `0`，不会自动开始轮询；`farm.sql` 的历史种子使用显式列清单，省略的新增列由默认值填充，不会因新增列失败。迁移后应核对 8 个监控字段和 `idx_printer_monitor_enabled` 索引，并由管理员显式启用目标设备。
+
+2026-09-03 已在当前开发 Docker 数据卷完成一次备份后迁移：记录数量保持为用户 2、打印机 46、文件 1、任务 3；旧任务状态 `MANUAL` 已规范为 `QUEUED`，旧协议值 `Klipper` 已规范为 `KLIPPER`，新增字段和 `farm_printer_status_history` 已核对存在。该记录不代表生产环境已迁移，生产仍须按 `OPERATIONS.md` 执行并保留备份。
 
 ### 9.2.1 Local Edition
 
-使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
+使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，监控索引由 `LocalSchemaMigration` 在字段补齐后创建。旧 Local SQLite 数据库由 `LocalSchemaMigration` 在启动时按缺失字段/索引补齐，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
 
 ### 9.3 测试环境
 

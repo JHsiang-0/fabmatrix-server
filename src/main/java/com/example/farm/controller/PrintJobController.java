@@ -10,6 +10,7 @@ import com.example.farm.entity.dto.request.ConfirmSafeRequest;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
+import com.example.farm.entity.dto.request.ReconcilePrintJobRequest;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.vo.PrintJobVO;
 import com.example.farm.service.PrintJobService;
@@ -148,6 +149,15 @@ public class PrintJobController {
     public Result<Void> requeueJob(@PathVariable Long id) {
         printJobService.requeueJob(id);
         return Result.success(null, "任务已重新排队");
+    }
+
+    @Operation(summary = "人工核对任务结果", description = "仅允许将 RECONCILING 任务确认成完成、失败、取消或重新排队")
+    @PostMapping("/{id}/reconcile")
+    public Result<Void> reconcileJob(@PathVariable Long id,
+                                     @Valid @RequestBody ReconcilePrintJobRequest request) {
+        request = requireBody(request);
+        printJobService.reconcileJob(id, request);
+        return Result.success(null, "任务核对结果已保存");
     }
 
     /**

@@ -85,6 +85,30 @@ public class PrinterVO implements Serializable {
     @Schema(description = "更新时间")
     private LocalDateTime updatedAt;
 
+    @Schema(description = "是否纳入后台监控")
+    private Boolean monitorEnabled;
+
+    @Schema(description = "通信健康状态")
+    private String connectionStatus;
+
+    @Schema(description = "最近一次成功通信时间")
+    private LocalDateTime lastSeenAt;
+
+    @Schema(description = "最近一次通信错误摘要")
+    private String lastCommunicationError;
+
+    @Schema(description = "连续通信失败次数")
+    private Integer consecutiveFailureCount;
+
+    @Schema(description = "最近一次设备原始状态")
+    private String lastKnownStatus;
+
+    @Schema(description = "最近一次协议原始状态")
+    private String lastProtocolState;
+
+    @Schema(description = "最近一次设备运行时间（秒）")
+    private Long lastDeviceUptime;
+
     public static PrinterVO from(Printer printer) {
         if (printer == null) {
             return null;
@@ -105,6 +129,14 @@ public class PrinterVO implements Serializable {
         vo.gridCol = printer.getGridCol();
         vo.createdAt = printer.getCreatedAt();
         vo.updatedAt = printer.getUpdatedAt();
+        vo.monitorEnabled = printer.getMonitorEnabled();
+        vo.connectionStatus = printer.getConnectionStatus();
+        vo.lastSeenAt = printer.getLastSeenAt();
+        vo.lastCommunicationError = printer.getLastCommunicationError();
+        vo.consecutiveFailureCount = printer.getConsecutiveFailureCount();
+        vo.lastKnownStatus = printer.getLastKnownStatus();
+        vo.lastProtocolState = printer.getLastProtocolState();
+        vo.lastDeviceUptime = printer.getLastDeviceUptime();
         return vo;
     }
 }

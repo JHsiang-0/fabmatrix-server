@@ -82,6 +82,8 @@ services:
       - ./src/main/resources/db/migration/08-v2-atomic-printer-binding.sql:/docker-entrypoint-initdb.d/08-v2-atomic-printer-binding.sql:ro
       - ./src/main/resources/db/migration/09-v2-print-job-idempotency.sql:/docker-entrypoint-initdb.d/09-v2-print-job-idempotency.sql:ro
       - ./src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql:/docker-entrypoint-initdb.d/10-v2-dispatch-resource-fingerprint.sql:ro
+      - ./src/main/resources/db/migration/11-printer-monitor-reliability.sql:/docker-entrypoint-initdb.d/11-printer-monitor-reliability.sql:ro
+      - ./src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql:/docker-entrypoint-initdb.d/11-v2-user-status-and-batch-recovery.sql:ro
       - ./src/main/resources/db/migration/12-v2-audit-log.sql:/docker-entrypoint-initdb.d/12-v2-audit-log.sql:ro
       - ./src/main/resources/db/migration/13-v2-print-file-default-folders.sql:/docker-entrypoint-initdb.d/13-v2-print-file-default-folders.sql:ro
     command:

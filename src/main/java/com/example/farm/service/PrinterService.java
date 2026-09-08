@@ -144,6 +144,15 @@ public interface PrinterService extends IService<Printer> {
      */
     List<PrinterVO> getUnallocatedPrinters(String keyword);
 
+    /** 查询已启用监控且具备有效地址的设备。 */
+    List<Printer> listMonitorPrinters();
+
+    /** 更新单台设备的监控开关。 */
+    void updateMonitorEnabled(Long printerId, boolean enabled);
+
+    /** 批量更新设备的监控开关。 */
+    int batchUpdateMonitorEnabled(List<Long> printerIds, boolean enabled);
+
     /**
      * 批量操作结果封装类
      */

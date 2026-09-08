@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.MacAddressUtil;
+import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrinterAddDTO;
 import com.example.farm.entity.dto.PrinterQueryDTO;
@@ -58,7 +59,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
     @Override
     public boolean updateById(Printer entity) {
         boolean updated = super.updateById(entity);
-        if (updated && entity != null && entity.getCurrentJobId() != null) {
+        if (updated && entity != null) {
             printerCacheService.refreshPrinterCache();
         }
         return updated;
@@ -189,6 +190,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             newPrinter.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
             newPrinter.setApiKey(dto.getApiKey());
             newPrinter.setStatus(PrinterStatus.UNKNOWN.name());
+            newPrinter.setMonitorEnabled(true);
+            newPrinter.setConnectionStatus("UNKNOWN");
+            newPrinter.setConsecutiveFailureCount(0);
 
             // 设置耗材和喷嘴（使用传入值或默认值）
             newPrinter.setCurrentMaterial(StringUtils.hasText(dto.getCurrentMaterial())
@@ -232,6 +236,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
         printer.setApiKey(dto.getApiKey());
         printer.setStatus(PrinterStatus.UNKNOWN.name());
+        printer.setMonitorEnabled(true);
+        printer.setConnectionStatus("UNKNOWN");
+        printer.setConsecutiveFailureCount(0);
         printer.setCreatedAt(LocalDateTime.now());
         printer.setUpdatedAt(LocalDateTime.now());
 
@@ -576,6 +583,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setFirmwareType(normalizeFirmwareType(result.getFirmwareType()));
         printer.setApiKey(result.getApiKey());
         printer.setStatus(PrinterStatus.UNKNOWN.name());
+        printer.setMonitorEnabled(true);
+        printer.setConnectionStatus("UNKNOWN");
+        printer.setConsecutiveFailureCount(0);
         printer.setCurrentMaterial("ABS");
         printer.setNozzleSize(new BigDecimal("0.40"));
         printer.setCreatedAt(LocalDateTime.now());
@@ -610,6 +620,75 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             return null;
         }
         return baseMapper.selectByIpAddress(ipAddress);
+    }
+
+    @Override
+    public List<Printer> listMonitorPrinters() {
+        LambdaQueryWrapper<Printer> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Printer::getMonitorEnabled, true)
+                .isNotNull(Printer::getIpAddress)
+                .ne(Printer::getIpAddress, "")
+                .orderByAsc(Printer::getId);
+        List<Printer> printers = this.list(wrapper);
+        if (printers == null) {
+            return List.of();
+        }
+        return printers.stream().filter(this::isSupportedMonitorProtocol).toList();
+    }
+
+    private boolean isSupportedMonitorProtocol(Printer printer) {
+        try {
+            PrinterProtocolType.normalize(printer.getFirmwareType());
+            return true;
+        } catch (BusinessException ignored) {
+            log.warn("跳过不支持监控协议的打印机: printerId={}, firmwareType={}",
+                    printer.getId(), printer.getFirmwareType());
+            return false;
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateMonitorEnabled(Long printerId, boolean enabled) {
+        requireAdminForMonitorConfiguration();
+        if (printerId == null) {
+            throw new BusinessException(400, "打印机 ID 不能为空");
+        }
+        Printer printer = this.getById(printerId);
+        if (printer == null) {
+            throw new BusinessException(404, "打印机不存在");
+        }
+        printer.setMonitorEnabled(enabled);
+        if (!this.updateById(printer)) {
+            throw new BusinessException("更新打印机监控配置失败");
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchUpdateMonitorEnabled(List<Long> printerIds, boolean enabled) {
+        requireAdminForMonitorConfiguration();
+        if (printerIds == null || printerIds.isEmpty()) {
+            throw new BusinessException(400, "打印机 ID 列表不能为空");
+        }
+        if (printerIds.size() > MAX_BATCH_SIZE) {
+            throw new BusinessException(400, "单次最多更新100台打印机");
+        }
+        List<Long> distinctIds = printerIds.stream().filter(Objects::nonNull).distinct().toList();
+        List<Printer> printers = this.listByIds(distinctIds);
+        if (printers.size() != distinctIds.size()) {
+            throw new BusinessException(404, "批量更新中包含不存在的打印机");
+        }
+        printers.forEach(printer -> printer.setMonitorEnabled(enabled));
+        this.updateBatchById(printers);
+        printerCacheService.refreshPrinterCache();
+        return printers.size();
+    }
+
+    private void requireAdminForMonitorConfiguration() {
+        if (!SecurityContextUtil.isAdmin()) {
+            throw new BusinessException(403, "只有管理员可以修改打印机监控配置");
+        }
     }
 
     /**

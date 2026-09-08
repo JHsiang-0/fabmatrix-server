@@ -16,6 +16,7 @@ import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
+import com.example.farm.entity.dto.request.ReconcilePrintJobRequest;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
@@ -625,6 +626,87 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         doRequeueJob(jobId);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reconcileJob(Long jobId, ReconcilePrintJobRequest request) {
+        if (request == null || request.getResult() == null || request.getResult().isBlank()) {
+            throw new BusinessException(400, "核对结果不能为空");
+        }
+        PrintJob current = getAccessibleJob(jobId);
+        if (current.getPrinterId() != null) {
+            withPrinterLock(current.getPrinterId(), () -> {
+                doReconcileJob(jobId, request);
+                return null;
+            });
+            return;
+        }
+        doReconcileJob(jobId, request);
+    }
+
+    private void doReconcileJob(Long jobId, ReconcilePrintJobRequest request) {
+        PrintJob job = getAccessibleJob(jobId);
+        if (!PrintJobStatus.RECONCILING.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+            throw new BusinessException(422, "只有 RECONCILING 状态的任务可以人工核对");
+        }
+
+        PrintJobStatus target;
+        try {
+            target = PrintJobStatus.valueOf(request.getResult().trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(400, "核对结果不支持");
+        }
+        PrintJobStatus.requireTransition(job.getStatus(), target);
+
+        if (target == PrintJobStatus.QUEUED) {
+            clearBindingBeforeRequeue(job);
+            job.setPrinterId(null);
+            job.setOperatorId(null);
+            job.setStartedAt(null);
+            job.setCompletedAt(null);
+            job.setProgress(BigDecimal.ZERO);
+            job.setErrorReason(request.getReason());
+        } else {
+            clearBindingAfterReconcile(job);
+            job.setCompletedAt(LocalDateTime.now());
+            if (target == PrintJobStatus.COMPLETED) {
+                job.setProgress(BigDecimal.valueOf(100));
+                job.setErrorReason(null);
+            } else {
+                job.setErrorReason(request.getReason());
+            }
+        }
+        job.setStatus(target.name());
+        updateJobAndPublish(job);
+        recordSuccess("JOB_RECONCILE", "JOB", jobId, "打印任务 #" + jobId);
+        log.info("人工核对打印任务完成: jobId={}, result={}", jobId, target);
+    }
+
+    private void clearBindingAfterReconcile(PrintJob job) {
+        Long printerId = job.getPrinterId();
+        if (printerId == null) {
+            return;
+        }
+        Printer printer = printerService.getById(printerId);
+        if (printer == null) {
+            log.warn("人工核对任务关联打印机已不存在，保留历史 printerId: jobId={}, printerId={}",
+                    job.getId(), printerId);
+            return;
+        }
+        if (printer.getCurrentJobId() != null && !Objects.equals(printer.getCurrentJobId(), job.getId())) {
+            throw new BusinessException(409, "打印机当前绑定其他任务");
+        }
+        if (Objects.equals(printer.getCurrentJobId(), job.getId())
+                && !printerService.clearJobBinding(printerId, job.getId())) {
+            throw new BusinessException("人工核对失败：打印机绑定清理失败");
+        }
+        if ("OFFLINE".equalsIgnoreCase(printer.getConnectionStatus())) {
+            Printer healthPreservingStatus = new Printer();
+            healthPreservingStatus.setId(printerId);
+            healthPreservingStatus.setStatus("OFFLINE");
+            printerService.updateById(healthPreservingStatus);
+        }
+    }
+
     private void doRequeueJob(Long jobId) {
         PrintJob job = getAccessibleJob(jobId);
         String status = PrintJobStatus.normalize(job.getStatus());
@@ -690,6 +772,17 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 && !printerService.clearJobBinding(printerId, job.getId())) {
             throw new BusinessException("重新排队任务失败：打印机状态保存失败");
         }
+        preserveOfflineBusinessStatus(printer);
+    }
+
+    private void preserveOfflineBusinessStatus(Printer printer) {
+        if (!"OFFLINE".equalsIgnoreCase(printer.getConnectionStatus())) {
+            return;
+        }
+        Printer update = new Printer();
+        update.setId(printer.getId());
+        update.setStatus("OFFLINE");
+        printerService.updateById(update);
     }
 
     @Override

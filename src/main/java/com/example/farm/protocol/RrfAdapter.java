@@ -86,7 +86,9 @@ public class RrfAdapter implements PrinterProtocolAdapter {
                 source.fileSize(),
                 source.timesLeft(),
                 source.lastFileCancelled(),
-                source.lastFileAborted()
+                source.lastFileAborted(),
+                source.lastDuration(),
+                source.deviceUptime()
         );
     }
 

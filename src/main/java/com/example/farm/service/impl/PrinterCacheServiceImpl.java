@@ -292,6 +292,35 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         log.info("已刷新打印机列表缓存");
     }
 
+    @Override
+    public boolean updatePrinterHealthWithLock(Printer printer) {
+        if (printer == null || printer.getId() == null) {
+            return false;
+        }
+        Long printerId = printer.getId();
+        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
+        String lockValue = UUID.randomUUID().toString();
+        boolean locked = false;
+        try {
+            locked = redisUtil.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
+            if (!locked) {
+                return false;
+            }
+            boolean updated = printerMapper.updateCommunicationHealth(printer) > 0;
+            if (updated) {
+                refreshPrinterCache();
+            }
+            return updated;
+        } catch (Exception e) {
+            log.error("更新打印机通信健康失败: printerId={}", printerId, e);
+            return false;
+        } finally {
+            if (locked) {
+                releaseLock(lockKey, lockValue);
+            }
+        }
+    }
+
     private record PersistedStatus(String unifiedState, String rawState,
                                    String systemMessage, long recordedAt) {
 

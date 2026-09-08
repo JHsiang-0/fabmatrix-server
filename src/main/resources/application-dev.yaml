@@ -72,7 +72,12 @@ server:
 farm:
   monitor:
     enabled: false
+    # 设备级开关在 farm_printer.monitor_enabled；此列表仅用于旧配置兼容
     printer-ids: []
+    failure-threshold: 3
+    recovery-success-threshold: 2
+    idle-interval: 15s
+    offline-interval: 30s
   scheduler:
     enabled: false
     max-items-per-run: 0

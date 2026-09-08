@@ -42,13 +42,13 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(queryParam("key", "state"))
                 .andExpect(header("X-Session-Key", "123"))
-                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"processing\"}}",
+                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"processing\",\"upTime\":1234}}",
                         MediaType.APPLICATION_JSON));
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
                 .andExpect(method(GET))
                 .andExpect(queryParam("key", "job"))
                 .andExpect(header("X-Session-Key", "123"))
-                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"file\":{\"fileName\":\"demo.gcode\",\"size\":1000},\"filePosition\":425,\"timesLeft\":12,\"lastFileCancelled\":false,\"lastFileAborted\":false}}",
+                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"file\":{\"fileName\":\"demo.gcode\",\"size\":1000},\"filePosition\":425,\"timesLeft\":{\"file\":12},\"lastFileCancelled\":false,\"lastFileAborted\":false}}",
                         MediaType.APPLICATION_JSON));
         expectDisconnect();
 
@@ -60,6 +60,7 @@ class RrfApiClientTest {
         assertThat(response.filePosition()).isEqualByComparingTo("425");
         assertThat(response.fileSize()).isEqualByComparingTo("1000");
         assertThat(response.timesLeft()).isEqualByComparingTo("12");
+        assertThat(response.deviceUptime()).isEqualByComparingTo("1234");
         assertThat(response.lastFileCancelled()).isFalse();
         assertThat(response.lastFileAborted()).isFalse();
         server.verify();

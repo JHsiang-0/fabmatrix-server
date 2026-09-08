@@ -28,9 +28,23 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_dispatch_plan_item", "source_plan_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_item_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "recovery_action", "VARCHAR(64)");
+        addPrinterMonitorColumnsIfMissing();
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_dispatch_plan_created_retry_key "
                 + "ON farm_dispatch_plan(created_by, retry_key)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_monitor_enabled "
+                + "ON farm_printer(monitor_enabled, firmware_type)");
         migratePrintFileDefaultFolders();
+    }
+
+    private void addPrinterMonitorColumnsIfMissing() {
+        addColumnIfMissing("farm_printer", "monitor_enabled", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("farm_printer", "connection_status", "VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN'");
+        addColumnIfMissing("farm_printer", "last_seen_at", "TIMESTAMP");
+        addColumnIfMissing("farm_printer", "last_communication_error", "VARCHAR(255)");
+        addColumnIfMissing("farm_printer", "consecutive_failure_count", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("farm_printer", "last_known_status", "VARCHAR(32)");
+        addColumnIfMissing("farm_printer", "last_protocol_state", "VARCHAR(32)");
+        addColumnIfMissing("farm_printer", "last_device_uptime", "INTEGER");
     }
 
     private void createAuditLogTableIfMissing() {

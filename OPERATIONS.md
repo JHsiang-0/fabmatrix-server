@@ -22,9 +22,9 @@ docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 docker compose --env-file .env.server -f docker-compose.server.yml ps
 ```
 
-正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机白名单和协议后，只按需启用监控，后台调度不要在 v2 误开启。
+正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机协议后，只按需启用监控，具体设备通过管理员 API 设置 `monitorEnabled`，后台调度不要在 v2 误开启。
 
-已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本目前按 02 至 10 的编号顺序执行。
+已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本按 `02` 至 `13` 的依赖顺序执行，其中 `11-printer-monitor-reliability.sql` 必须早于同编号的 `11-v2-user-status-and-batch-recovery.sql`。
 
 ## v2 Local Edition（Windows/单机）
 
@@ -69,6 +69,8 @@ Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。
 已有 Docker 数据卷不会重新执行 `/docker-entrypoint-initdb.d` 下的 SQL。执行增量迁移前先备份 MySQL、Redis 和 RustFS 数据；不要使用 `docker compose down -v`，该命令会删除命名数据卷。
 
 当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；`02-current-schema.sql` 的新增列/索引检查已支持重复执行。
+
+`11-printer-monitor-reliability.sql` 使用 MySQL 8 元数据检查，监控字段和 `idx_printer_monitor_enabled` 索引缺失时才添加，可安全重复执行。旧 `farm_printer` 记录新增 `monitor_enabled` 时默认值为 `0`，不会因迁移自动纳入轮询；管理员确认设备后再通过监控 API 启用。
 
 ### 已有数据卷的升级步骤
 
@@ -115,6 +117,7 @@ for migration in \
   src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql \
   src/main/resources/db/migration/11-printer-monitor-reliability.sql \
   src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql \
+  src/main/resources/db/migration/12-v2-audit-log.sql \
   src/main/resources/db/migration/13-v2-print-file-default-folders.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
@@ -130,6 +133,13 @@ docker compose exec -T mysql sh -c \
     SHOW COLUMNS FROM farm_print_file LIKE '\''rustfs_key'\''; \
     SHOW COLUMNS FROM farm_printer LIKE '\''monitor_enabled'\''; \
     SHOW COLUMNS FROM farm_printer LIKE '\''connection_status'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''last_seen_at'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''last_communication_error'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''consecutive_failure_count'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''last_known_status'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''last_protocol_state'\''; \
+    SHOW COLUMNS FROM farm_printer LIKE '\''last_device_uptime'\''; \
+    SHOW INDEX FROM farm_printer WHERE Key_name = '''idx_printer_monitor_enabled'''; \
     SHOW TABLES LIKE '\''farm_printer_status_history'\''; \
     SELECT user_id, COUNT(*) AS default_folder_count FROM farm_print_file \
       WHERE is_folder = 1 AND is_default_folder = 1 GROUP BY user_id \

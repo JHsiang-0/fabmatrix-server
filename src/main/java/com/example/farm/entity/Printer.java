@@ -143,4 +143,38 @@ public class Printer implements Serializable {
     @TableField("grid_col")
     @Schema(description = "物理位置 - 网格列号（数字孪生看板用，1-12，null 表示待分配区）")
     private Integer gridCol;
+
+    /** 是否纳入后台监控；设备资产与监控目标解耦。 */
+    @TableField("monitor_enabled")
+    @Schema(description = "是否纳入后台监控")
+    private Boolean monitorEnabled;
+
+    /** 通信健康状态：ONLINE、OFFLINE、UNKNOWN。 */
+    @TableField("connection_status")
+    @Schema(description = "通信健康状态：ONLINE、OFFLINE、UNKNOWN")
+    private String connectionStatus;
+
+    @TableField("last_seen_at")
+    @Schema(description = "最近一次成功获取设备状态的时间")
+    private LocalDateTime lastSeenAt;
+
+    @TableField("last_communication_error")
+    @Schema(description = "最近一次通信错误摘要")
+    private String lastCommunicationError;
+
+    @TableField("consecutive_failure_count")
+    @Schema(description = "连续通信失败次数")
+    private Integer consecutiveFailureCount;
+
+    @TableField("last_known_status")
+    @Schema(description = "最近一次已知设备业务状态")
+    private String lastKnownStatus;
+
+    @TableField("last_protocol_state")
+    @Schema(description = "最近一次协议原始状态")
+    private String lastProtocolState;
+
+    @TableField("last_device_uptime")
+    @Schema(description = "最近一次设备运行时间（秒，协议支持时提供）")
+    private Long lastDeviceUptime;
 }

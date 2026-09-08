@@ -1,8 +1,11 @@
 package com.example.farm.task;
 
 import com.example.farm.common.utils.LogUtil;
+import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.constant.RedisKeyConstant;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.protocol.PrinterDeviceStatus;
@@ -14,6 +17,7 @@ import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.WebSocketEventPublisher;
+import com.example.farm.mapper.PrintFileMapper;
 import jakarta.annotation.PreDestroy;
 import com.example.farm.config.PrinterMonitorProperties;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +28,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -49,16 +54,28 @@ public class PrinterMonitorTask {
     private final WebSocketEventPublisher eventPublisher;
     private final PrinterMonitorProperties monitorProperties;
 
+    /** 旧版单元测试可不提供文件 Mapper；生产环境用于校验设备当前文件与 Farm 任务一致。 */
+    @Autowired(required = false)
+    private PrintFileMapper printFileMapper;
+
+    @Autowired(required = false)
+    private RedisUtil redisUtil;
+
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService;
     private final AtomicBoolean scanInProgress = new AtomicBoolean();
     private final Map<Long, Boolean> lastOnlineStates = new ConcurrentHashMap<>();
+    private final Map<Long, String> lastPublishedConnectionStatuses = new ConcurrentHashMap<>();
     private final Map<Long, PrinterDeviceStatus> lastPublishedStatuses = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastOfflineLogAt = new ConcurrentHashMap<>();
+    private final Map<Long, Long> lastHealthPersistAt = new ConcurrentHashMap<>();
+    private final Map<Long, Integer> consecutiveSuccessCounts = new ConcurrentHashMap<>();
+    private final Map<Long, Long> nextPollAt = new ConcurrentHashMap<>();
 
     // 慢查询阈值：5秒
     private static final long SLOW_THRESHOLD_MS = 5000;
     private static final long OFFLINE_LOG_INTERVAL_MS = 60_000;
+    private static final long HEALTH_PERSIST_INTERVAL_MS = 15_000;
 
     @Autowired
     public PrinterMonitorTask(PrinterService printerService,
@@ -138,24 +155,50 @@ public class PrinterMonitorTask {
     private void logScanResult(List<CompletableFuture<PrinterStatusResult>> futures, long startTime) {
         long duration = System.currentTimeMillis() - startTime;
         long onlineCount = futures.stream().map(CompletableFuture::join).filter(r -> r.online).count();
-        long offlineCount = futures.size() - onlineCount;
+        long skippedCount = futures.stream().map(CompletableFuture::join).filter(PrinterStatusResult::skipped).count();
+        long offlineCount = futures.size() - onlineCount - skippedCount;
         
         if (duration > SLOW_THRESHOLD_MS) {
-            log.warn("打印机巡检较慢: 耗时 {}ms，在线 {} 台，离线 {} 台", 
-                    duration, onlineCount, offlineCount);
+            log.warn("打印机巡检较慢: 耗时 {}ms，在线 {} 台，离线 {} 台，跳过 {} 台",
+                    duration, onlineCount, offlineCount, skippedCount);
         } else if (log.isDebugEnabled()) {
-            log.debug("打印机巡检完成: 耗时 {}ms，在线 {} 台，离线 {} 台", 
-                    duration, onlineCount, offlineCount);
+            log.debug("打印机巡检完成: 耗时 {}ms，在线 {} 台，离线 {} 台，跳过 {} 台",
+                    duration, onlineCount, offlineCount, skippedCount);
         }
     }
 
     private PrinterStatusResult fetchAndUpdateStatus(Printer printer) {
+        if (redisUtil == null) {
+            PrinterStatusResult result = doFetchAndUpdateStatus(printer, null, null);
+            scheduleNextPoll(result);
+            return result;
+        }
+        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK,
+                "monitor:" + printer.getId());
+        String lockValue = java.util.UUID.randomUUID().toString();
+        if (!redisUtil.tryLock(lockKey, lockValue, 10, TimeUnit.SECONDS)) {
+            return new PrinterStatusResult(printer.getId(), null, false,
+                    "其他监控实例正在巡检", null, null, null, null, null, true);
+        }
+        try {
+            PrinterStatusResult result = doFetchAndUpdateStatus(printer, lockKey, lockValue);
+            scheduleNextPoll(result);
+            return result;
+        } finally {
+            if (lockValue.equals(redisUtil.getLockValue(lockKey))) {
+                redisUtil.unlock(lockKey);
+            }
+        }
+    }
+
+    private PrinterStatusResult doFetchAndUpdateStatus(Printer printer, String ignoredLockKey, String ignoredLockValue) {
         Long printerId = printer.getId();
-        // 白名单只决定巡检范围；真正执行设备动作前再次读取数据库，避免使用旧的任务绑定。
+        // 目标列表只决定巡检范围；真正执行设备动作前再次读取数据库，避免使用旧的任务绑定。
         Printer latestPrinter = printerService.getById(printerId);
         if (latestPrinter == null) {
             log.warn("监控设备已不存在，跳过状态同步: printerId={}", printerId);
-            return new PrinterStatusResult(printerId, null, false, "打印机不存在");
+            return new PrinterStatusResult(printerId, null, false, "打印机不存在",
+                    null, null, null, null, null, false);
         }
         printer = latestPrinter;
         String printerName = printer.getName();
@@ -168,42 +211,91 @@ public class PrinterMonitorTask {
 
             if (status != null) {
                 handlePrinterOnline(printerId, printerName, status, printer, duration);
-                return new PrinterStatusResult(printerId, status, true, null);
+                return new PrinterStatusResult(printerId, status, true, null,
+                        printer.getConnectionStatus(), printer.getLastKnownStatus(),
+                        printer.getLastSeenAt(), printer.getLastCommunicationError(),
+                        printer.getConsecutiveFailureCount(), false);
             } else {
-                handlePrinterOffline(printer);
-                return new PrinterStatusResult(printerId, null, false, "设备未返回状态");
+                handleCommunicationFailure(printer, "设备未返回状态");
+                return new PrinterStatusResult(printerId, null, false, "设备未返回状态",
+                        printer.getConnectionStatus(), printer.getLastKnownStatus(),
+                        printer.getLastSeenAt(), printer.getLastCommunicationError(),
+                        printer.getConsecutiveFailureCount(), false);
             }
         } catch (Exception e) {
             logOfflineQueryFailure(printerId, printerName, e);
-            handlePrinterOffline(printer);
-            return new PrinterStatusResult(printerId, null, false, "设备状态查询失败");
+            handleCommunicationFailure(printer, summarizeException(e));
+            return new PrinterStatusResult(printerId, null, false, "设备状态查询失败",
+                    printer.getConnectionStatus(), printer.getLastKnownStatus(),
+                    printer.getLastSeenAt(), printer.getLastCommunicationError(),
+                    printer.getConsecutiveFailureCount(), false);
         }
     }
 
     /**
-     * 只加载配置白名单中的设备，避免 v2 在没有真实设备时扫描历史设备。
+     * 默认按数据库监控开关选择设备；保留非空 printer-ids 作为旧配置的临时兼容限制。
      */
     private List<Printer> loadMonitorPrinters() {
         List<Long> printerIds = monitorProperties.getPrinterIds();
-        if (printerIds == null || printerIds.isEmpty()) {
-            log.debug("打印机监控白名单为空，跳过本轮巡检");
-            return List.of();
+        List<Printer> printers;
+        if (printerIds != null && !printerIds.isEmpty()) {
+            log.warn("farm.monitor.printer-ids 已废弃，当前仅作为临时限制；请迁移到打印机监控开关");
+            printers = printerService.listByIds(printerIds);
+        } else {
+            printers = printerService.listMonitorPrinters();
         }
-
-        List<Printer> printers = printerService.listByIds(printerIds);
         if (printers == null || printers.isEmpty()) {
             return List.of();
         }
 
+        if (printerIds == null || printerIds.isEmpty()) {
+            return printers.stream()
+                    .filter(printer -> printer != null && printer.getId() != null)
+                    .filter(this::isDueForPolling)
+                    .toList();
+        }
         Map<Long, Printer> byId = printers.stream()
                 .filter(printer -> printer != null && printer.getId() != null)
                 .collect(java.util.stream.Collectors.toMap(Printer::getId, printer -> printer, (left, right) -> left));
-        return printerIds.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
+        return printerIds.stream().map(byId::get).filter(java.util.Objects::nonNull)
+                .filter(this::isDueForPolling).toList();
+    }
+
+    private boolean isDueForPolling(Printer printer) {
+        // 未迁移的旧对象没有健康字段，不应用退避，避免兼容调用被意外跳过。
+        if (printer.getConnectionStatus() == null && printer.getConsecutiveFailureCount() == null) {
+            return true;
+        }
+        return System.currentTimeMillis() >= nextPollAt.getOrDefault(printer.getId(), 0L);
+    }
+
+    private void scheduleNextPoll(PrinterStatusResult result) {
+        if (result == null || result.printerId == null || result.skipped
+                || result.connectionStatus == null) {
+            return;
+        }
+        Duration delay;
+        if ("OFFLINE".equalsIgnoreCase(result.connectionStatus)) {
+            delay = monitorProperties.getOfflineInterval();
+        } else if (result.status != null && isIdleState(result.status.rawState())) {
+            delay = monitorProperties.getIdleInterval();
+        } else {
+            delay = monitorProperties.getInterval();
+        }
+        long delayMillis = delay == null ? 5_000L : Math.max(1_000L, delay.toMillis());
+        nextPollAt.put(result.printerId, System.currentTimeMillis() + delayMillis);
+    }
+
+    private boolean isIdleState(String rawState) {
+        String state = normalizeRawState(rawState);
+        return "idle".equals(state) || "standby".equals(state)
+                || "ready".equals(state) || "complete".equals(state);
     }
 
     private void handlePrinterOnline(Long printerId, String printerName,
                                      PrinterDeviceStatus status, Printer printer, long duration) {
         lastOfflineLogAt.remove(printerId);
+        recordCommunicationSuccess(printer, status);
         MoonrakerStatusDTO legacyStatus = toLegacyStatus(status);
         // 缓存状态
         printerCacheService.cachePrinterStatus(printerId, legacyStatus);
@@ -272,6 +364,16 @@ public class PrinterMonitorTask {
         BigDecimal progress = status.progress();
         boolean jobChanged = false;
         boolean requiresReconciliation = false;
+
+        if (!isObservedFileCompatible(job, status)) {
+            requiresReconciliation = reconcileIdleJob(job,
+                    "设备当前文件与 Farm 任务不一致，请人工核对后再决定任务结果");
+            jobChanged = requiresReconciliation;
+            if (jobChanged && printJobService.updateById(job)) {
+                eventPublisher.publishJobStatus(job);
+            }
+            return requiresReconciliation;
+        }
 
         switch (state) {
             case "printing":
@@ -386,6 +488,32 @@ public class PrinterMonitorTask {
         return requiresReconciliation;
     }
 
+    private boolean isObservedFileCompatible(PrintJob job, PrinterDeviceStatus status) {
+        if (printFileMapper == null || status.filename() == null || status.filename().isBlank()) {
+            return true;
+        }
+        PrintFile expected = printFileMapper.selectById(job.getFileId());
+        if (expected == null) {
+            return false;
+        }
+        String observed = fileBasename(status.filename());
+        return sameFilename(observed, fileBasename(expected.getOriginalName()))
+                || sameFilename(observed, fileBasename(expected.getSafeName()));
+    }
+
+    private String fileBasename(String filename) {
+        if (filename == null || filename.isBlank()) {
+            return "";
+        }
+        String normalized = filename.replace('\\', '/');
+        int separator = normalized.lastIndexOf('/');
+        return separator >= 0 ? normalized.substring(separator + 1) : normalized;
+    }
+
+    private boolean sameFilename(String left, String right) {
+        return !left.isBlank() && !right.isBlank() && left.equalsIgnoreCase(right);
+    }
+
     private boolean hasCompletionEvidence(PrinterDeviceStatus status) {
         if (status.progress() != null && status.progress().compareTo(BigDecimal.valueOf(100)) >= 0) {
             return true;
@@ -483,20 +611,91 @@ public class PrinterMonitorTask {
         }
     }
 
-    private void handlePrinterOffline(Printer printer) {
-        if (!"OFFLINE".equals(printer.getStatus())) {
+    private void recordCommunicationSuccess(Printer printer, PrinterDeviceStatus status) {
+        long now = System.currentTimeMillis();
+        boolean legacyWithoutHealthFields = printer.getConnectionStatus() == null
+                && printer.getConsecutiveFailureCount() == null;
+        int previousFailures = printer.getConsecutiveFailureCount() == null
+                ? 0 : printer.getConsecutiveFailureCount();
+        int successes = consecutiveSuccessCounts.merge(printer.getId(), 1, Integer::sum);
+        boolean recovered = legacyWithoutHealthFields
+                || successes >= Math.max(1, monitorProperties.getRecoverySuccessThreshold());
+        boolean stateChanged = recovered && !"ONLINE".equalsIgnoreCase(printer.getConnectionStatus())
+                || previousFailures != 0
+                || printer.getLastCommunicationError() != null;
+        String connectionStatus = recovered ? "ONLINE"
+                : (printer.getConnectionStatus() == null ? "UNKNOWN" : printer.getConnectionStatus());
+        printer.setConnectionStatus(connectionStatus);
+        printer.setConsecutiveFailureCount(0);
+        printer.setLastCommunicationError(null);
+        printer.setLastKnownStatus(status.status() == null ? null : status.status().name());
+        printer.setLastProtocolState(status.rawState());
+        printer.setLastDeviceUptime(status.deviceUptime() == null ? null : status.deviceUptime().longValue());
+        printer.setLastSeenAt(LocalDateTime.now());
+        if (!legacyWithoutHealthFields
+                && (stateChanged || now - lastHealthPersistAt.getOrDefault(printer.getId(), 0L) >= HEALTH_PERSIST_INTERVAL_MS)) {
             Printer updateEntity = new Printer();
             updateEntity.setId(printer.getId());
-            updateEntity.setStatus("OFFLINE");
-
-            boolean updated = printerCacheService.updatePrinterStatusWithLock(updateEntity);
-            if (updated) {
-                LogUtil.dataChange("STATUS_CHANGE", "FarmPrinter", printer.getId(), "-> OFFLINE");
-                printer.setStatus("OFFLINE");
+            updateEntity.setConnectionStatus(connectionStatus);
+            updateEntity.setConsecutiveFailureCount(0);
+            updateEntity.setLastCommunicationError(null);
+            updateEntity.setLastKnownStatus(status.status() == null ? null : status.status().name());
+            updateEntity.setLastProtocolState(status.rawState());
+            updateEntity.setLastDeviceUptime(status.deviceUptime() == null ? null : status.deviceUptime().longValue());
+            updateEntity.setLastSeenAt(printer.getLastSeenAt());
+            if (printerCacheService.updatePrinterHealthWithLock(updateEntity)) {
+                lastHealthPersistAt.put(printer.getId(), now);
             }
         }
-        printerCacheService.markPrinterOffline(printer.getId());
-        printerCacheService.clearStatusCache(printer.getId());
+        if (recovered) {
+            printerCacheService.markPrinterOnline(printer.getId());
+        }
+    }
+
+    private void handleCommunicationFailure(Printer printer, String errorMessage) {
+        int failures = (printer.getConsecutiveFailureCount() == null ? 0 : printer.getConsecutiveFailureCount()) + 1;
+        int threshold = Math.max(1, monitorProperties.getFailureThreshold());
+        boolean legacyWithoutHealthFields = printer.getConnectionStatus() == null
+                && printer.getConsecutiveFailureCount() == null;
+        String error = errorMessage == null || errorMessage.isBlank() ? "设备状态查询失败" : errorMessage;
+        if (error.length() > 255) {
+            error = error.substring(0, 255);
+        }
+        printer.setConsecutiveFailureCount(failures);
+        printer.setLastCommunicationError(error);
+        consecutiveSuccessCounts.remove(printer.getId());
+        // 兼容尚未执行 11 号迁移的旧测试/旧数据；完成迁移后按阈值防止瞬时网络抖动误报离线。
+        boolean offline = legacyWithoutHealthFields || failures >= threshold;
+        if (offline) {
+            printer.setConnectionStatus("OFFLINE");
+        }
+
+        Printer updateEntity = new Printer();
+        updateEntity.setId(printer.getId());
+        updateEntity.setConsecutiveFailureCount(failures);
+        updateEntity.setLastCommunicationError(error);
+        updateEntity.setLastSeenAt(printer.getLastSeenAt());
+        updateEntity.setLastKnownStatus(printer.getLastKnownStatus());
+        updateEntity.setLastProtocolState(printer.getLastProtocolState());
+        updateEntity.setLastDeviceUptime(printer.getLastDeviceUptime());
+        if (offline) {
+            updateEntity.setConnectionStatus("OFFLINE");
+        }
+        if (printerCacheService.updatePrinterHealthWithLock(updateEntity)) {
+            lastHealthPersistAt.put(printer.getId(), System.currentTimeMillis());
+        }
+        if (offline) {
+            printerCacheService.markPrinterOffline(printer.getId());
+            printerCacheService.clearStatusCache(printer.getId());
+        }
+    }
+
+    private String summarizeException(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+        return message;
     }
 
     private void logOfflineQueryFailure(Long printerId, String printerName, Exception exception) {
@@ -548,10 +747,22 @@ public class PrinterMonitorTask {
     }
 
     private void publishStatusEvent(PrinterStatusResult result) {
+        if (result.skipped) {
+            return;
+        }
+        String previousConnectionStatus = result.connectionStatus == null ? null
+                : lastPublishedConnectionStatuses.put(result.printerId, result.connectionStatus);
+        if (result.connectionStatus != null
+                && !java.util.Objects.equals(previousConnectionStatus, result.connectionStatus)) {
+            eventPublisher.publishPrinterHealth(result.printerId, result.connectionStatus,
+                    result.lastKnownStatus, result.lastSeenAt, result.lastCommunicationError,
+                    result.consecutiveFailureCount);
+        }
         Boolean wasOnline = lastOnlineStates.put(result.printerId, result.online);
         if (!result.online) {
             lastPublishedStatuses.remove(result.printerId);
-            if (!Boolean.FALSE.equals(wasOnline)) {
+            if ("OFFLINE".equalsIgnoreCase(result.connectionStatus)
+                    && !Boolean.FALSE.equals(wasOnline)) {
                 eventPublisher.publishPrinterOffline(result.printerId, result.offlineReason);
             }
             return;
@@ -599,6 +810,10 @@ public class PrinterMonitorTask {
     }
 
     private record PrinterStatusResult(Long printerId, PrinterDeviceStatus status,
-                                       boolean online, String offlineReason) {
+                                       boolean online, String offlineReason,
+                                       String connectionStatus, String lastKnownStatus,
+                                       LocalDateTime lastSeenAt, String lastCommunicationError,
+                                       Integer consecutiveFailureCount,
+                                       boolean skipped) {
     }
 }

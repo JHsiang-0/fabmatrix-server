@@ -12,12 +12,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +30,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -133,6 +139,68 @@ class PrintFileMetadataTest {
                 .extracting("code")
                 .isEqualTo(400L);
         verify(rustFsClient, org.mockito.Mockito.never()).uploadFile(anyString(), any());
+    }
+
+    @Test
+    void acceptsOneGigabyteFileAndUsesSamplingWithoutReadingFullContent() throws Exception {
+        MultipartFile file = sizedFile("boundary.gcode", 1024L * 1024 * 1024);
+        stubSmallInput(file);
+        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        doAnswer(invocation -> {
+            PrintFile saved = invocation.getArgument(0);
+            saved.setId(22L);
+            return 1;
+        }).when(printFileMapper).insert(any(PrintFile.class));
+
+        PrintFile saved = printFileService.uploadAndParseFile(file);
+
+        assertThat(saved.getFileSize()).isEqualTo(1024L * 1024 * 1024);
+        verify(file, never()).getBytes();
+        verify(file, times(2)).getInputStream();
+    }
+
+    @Test
+    void rejectsFileAboveOneGigabyte() throws Exception {
+        MultipartFile file = sizedFile("too-large.gcode", 1024L * 1024 * 1024 + 1);
+
+        assertThatThrownBy(() -> printFileService.uploadAndParseFile(file))
+                .hasMessage("文件大小不能超过1GB")
+                .extracting("code")
+                .isEqualTo(400L);
+        verify(rustFsClient, never()).uploadFile(anyString(), any());
+    }
+
+    @Test
+    void allowsBatchTotalAboveOneGigabyteWhileKeepingPerFileLimit() throws Exception {
+        MultipartFile first = sizedFile("first.gcode", 600L * 1024 * 1024);
+        MultipartFile second = sizedFile("second.gcode", 600L * 1024 * 1024);
+        stubSmallInput(first);
+        stubSmallInput(second);
+        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        doAnswer(invocation -> {
+            PrintFile saved = invocation.getArgument(0);
+            saved.setId((long) (30 + invocation.getArgument(0, PrintFile.class).getOriginalName().length()));
+            return 1;
+        }).when(printFileMapper).insert(any(PrintFile.class));
+
+        var result = printFileService.batchUploadFiles(List.of(first, second));
+
+        assertThat(result.getSuccessCount()).isEqualTo(2);
+        assertThat(result.getFailureCount()).isZero();
+        verify(first, never()).getBytes();
+        verify(second, never()).getBytes();
+    }
+
+    private MultipartFile sizedFile(String filename, long size) {
+        MultipartFile file = mock(MultipartFile.class);
+        when(file.getSize()).thenReturn(size);
+        lenient().when(file.getOriginalFilename()).thenReturn(filename);
+        return file;
+    }
+
+    private void stubSmallInput(MultipartFile file) throws IOException {
+        when(file.getInputStream()).thenAnswer(invocation ->
+                new ByteArrayInputStream("G1 X1\n".getBytes(StandardCharsets.UTF_8)));
     }
 
     private void mockUser(Long userId) {

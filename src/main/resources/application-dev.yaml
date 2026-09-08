@@ -89,6 +89,5 @@ farm:
     max-connections: 100
   file:
     batch-max-files: 100
-    batch-max-total-size: 250MB
 #  # Moonraker API 模拟器（开发环境使用固定密钥）
 #  moonraker-api-key: dev-moonraker-key

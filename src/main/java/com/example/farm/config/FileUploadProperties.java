@@ -21,8 +21,8 @@ public class FileUploadProperties {
     /** 允许的文件扩展名，不包含点号。 */
     private List<String> allowedTypes = new ArrayList<>(List.of("gcode", "g", "3mf", "stl"));
 
-    /** 应用层文件大小上限，必须与 spring.servlet.multipart.max-file-size 一致。 */
-    private DataSize maxFileSize = DataSize.ofMegabytes(200);
+    /** 应用层单文件大小上限，必须与 spring.servlet.multipart.max-file-size 一致。 */
+    private DataSize maxFileSize = DataSize.ofGigabytes(1);
 
     /** 预签名下载 URL 最大有效期（分钟）。 */
     private Integer presignedUrlMaxMinutes = 120;
@@ -30,6 +30,4 @@ public class FileUploadProperties {
     /** 批量上传最多文件数。 */
     private Integer batchMaxFiles = 100;
 
-    /** 批量上传请求的总大小上限。 */
-    private DataSize batchMaxTotalSize = DataSize.ofGigabytes(1);
 }

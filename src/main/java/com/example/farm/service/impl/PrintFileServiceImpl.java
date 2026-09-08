@@ -322,6 +322,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         String fullContent = extractFullContentIfAffordable(file);
         GCodeParser.GCodeMeta meta;
         String parseSource;
+        String sampledHeadTail = null;
 
         if (!fullContent.isEmpty()) {
             // 完整文件解析
@@ -329,18 +330,18 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             parseSource = "full-file";
         } else if (file.getSize() > FULL_PARSE_MAX_BYTES) {
             // 文件太大，只解析头部
-            String headTail = extractHeadAndTail(file);
-            meta = GCodeParser.parseMetadata(headTail);
+            sampledHeadTail = extractHeadAndTail(file);
+            meta = GCodeParser.parseMetadata(sampledHeadTail);
             parseSource = "head-tail (skipped large file)";
         } else {
             // 回退到头部解析
-            String headTail = extractHeadAndTail(file);
-            meta = GCodeParser.parseMetadata(headTail);
+            sampledHeadTail = extractHeadAndTail(file);
+            meta = GCodeParser.parseMetadata(sampledHeadTail);
             parseSource = "head-tail";
         }
 
         // 提取缩略图（从头部）
-        String headTailForThumb = extractHeadAndTail(file);
+        String headTailForThumb = sampledHeadTail != null ? sampledHeadTail : extractHeadAndTail(file);
 
         log.info("gcode 解析: file={}, source={}, time={}, material={}, nozzle={}, temp={}, bedTemp={}, layerHeight={}, filamentWeight={}, filamentLength={}, filamentUsedG={}, filamentUsedMM={}, firstLayerBedTemp={}, nozzleSizeFromGcode={}",
                 originalName, parseSource, meta.getEstimatedPrintTimeSeconds(), meta.getMaterialType(), meta.getNozzleSize(),
@@ -444,13 +445,6 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 ? fileUploadProperties.getBatchMaxFiles() : MAX_BATCH_SIZE;
         if (files.size() > maxFiles) {
             throw new BusinessException(400, "单次最多上传" + maxFiles + "个文件");
-        }
-
-        long totalSize = files.stream().filter(Objects::nonNull).mapToLong(MultipartFile::getSize).sum();
-        long maxTotalSize = fileUploadProperties != null && fileUploadProperties.getBatchMaxTotalSize() != null
-                ? fileUploadProperties.getBatchMaxTotalSize().toBytes() : 1024L * 1024 * 1024;
-        if (totalSize > maxTotalSize) {
-            throw new BusinessException(400, "批量上传总大小不能超过" + formatDataSize(maxTotalSize));
         }
 
         Long resolvedParentId = resolveUploadParent(parentId, SecurityContextUtil.getCurrentUserId()).getId();
@@ -649,7 +643,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         }
         long maxBytes = fileUploadProperties != null && fileUploadProperties.getMaxFileSize() != null
                 ? fileUploadProperties.getMaxFileSize().toBytes()
-                : 200L * 1024 * 1024;
+                : 1024L * 1024 * 1024;
         if (file.getSize() > maxBytes) {
             throw new BusinessException(400, "文件大小不能超过" + formatDataSize(maxBytes));
         }

@@ -17,8 +17,8 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 200MB      # 单个文件最大限制 (给 G-code 放宽到 200MB)
-      max-request-size: 250MB
+      max-file-size: 1GB       # 单个文件最大限制
+      max-request-size: 1288490189B  # 单个 HTTP 请求最大限制，约 1.2GB（含 multipart 开销）
       file-size-threshold: 10MB
       resolve-lazily: true
 
@@ -84,12 +84,13 @@ server:
   servlet:
     context-path: /
   tomcat:
+    max-part-count: 101  # 批量上传最多100个文件，另含parentId multipart part
     threads:
       max: 200
       min-spare: 10
     max-connections: 10000
     accept-count: 100
-    connection-timeout: 20000
+    connection-timeout: 30m  # 慢速大文件上传的 Tomcat 连接读取超时
 
 # 应用自定义配置
 farm:
@@ -112,9 +113,8 @@ farm:
     heartbeat-interval: 30s
   file:
     allowed-types: gcode,g,3mf,stl
-    max-file-size: 200MB
+    max-file-size: 1GB
     batch-max-files: 100
-    batch-max-total-size: 1GB
     presigned-url-max-minutes: 120
   security:
     cors-allowed-origins: "*"

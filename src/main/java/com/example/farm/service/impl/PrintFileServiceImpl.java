@@ -182,7 +182,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         PrintFile parent = parentId == null ? null : requireFolderParent(parentId);
 
         String normalizedFolderName = folderName.trim();
-        if (normalizedFolderName.length() > 100 || containsUnsafeFilenameCharacter(normalizedFolderName)) {
+        if (normalizedFolderName.length() > 100 || containsUnsafeFolderCharacter(normalizedFolderName)) {
             throw new BusinessException(400, "文件夹名称长度或格式不正确");
         }
 
@@ -712,6 +712,80 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 || filename.chars().anyMatch(Character::isISOControl);
     }
 
+    private boolean containsUnsafeFolderCharacter(String folderName) {
+        return containsUnsafeFilenameCharacter(folderName)
+                || folderName.chars().anyMatch(character -> ":*?\"<>|".indexOf(character) >= 0);
+    }
+
+    private String normalizeFolderName(String folderName) {
+        if (folderName == null || folderName.isBlank()) {
+            throw new BusinessException(400, "文件夹名称不能为空");
+        }
+        String normalizedFolderName = folderName.trim();
+        if (normalizedFolderName.length() > 100
+                || containsUnsafeFolderCharacter(normalizedFolderName)) {
+            throw new BusinessException(400, "文件夹名称长度或格式不正确");
+        }
+        return normalizedFolderName;
+    }
+
+    private PrintFile requireEditableFolder(Long id, String defaultFolderMessage) {
+        PrintFile folder = getAccessibleFile(id);
+        if (!Boolean.TRUE.equals(folder.getIsFolder())) {
+            throw new BusinessException(422, "目标资源不是文件夹");
+        }
+        if (Boolean.TRUE.equals(folder.getIsDefaultFolder())) {
+            throw new BusinessException(422, defaultFolderMessage);
+        }
+        return folder;
+    }
+
+    private int getFolderLevelForMove(PrintFile folder, Map<Long, PrintFile> foldersById,
+                                      Map<Long, Long> overriddenParents) {
+        int level = 1;
+        Set<Long> visited = new HashSet<>();
+        Long currentId = folder.getId();
+        while (currentId != null) {
+            if (!visited.add(currentId)) {
+                return -1;
+            }
+            PrintFile current = foldersById.get(currentId);
+            if (current == null || !Boolean.TRUE.equals(current.getIsFolder())) {
+                return -1;
+            }
+            Long parentId = overriddenParents.containsKey(currentId)
+                    ? overriddenParents.get(currentId) : current.getParentId();
+            if (parentId == null) {
+                return level;
+            }
+            PrintFile parent = foldersById.get(parentId);
+            if (parent == null || !Boolean.TRUE.equals(parent.getIsFolder())
+                    || !Objects.equals(folder.getUserId(), parent.getUserId())) {
+                return -1;
+            }
+            level++;
+            currentId = parentId;
+        }
+        return level;
+    }
+
+    private boolean isSameOrDescendant(PrintFile candidate, PrintFile ancestor,
+                                       Map<Long, PrintFile> foldersById) {
+        Set<Long> visited = new HashSet<>();
+        Long currentId = candidate.getId();
+        while (currentId != null && visited.add(currentId)) {
+            if (Objects.equals(currentId, ancestor.getId())) {
+                return true;
+            }
+            PrintFile current = foldersById.get(currentId);
+            if (current == null) {
+                return false;
+            }
+            currentId = current.getParentId();
+        }
+        return false;
+    }
+
     private String formatDataSize(long bytes) {
         if (bytes % (1024L * 1024 * 1024) == 0) {
             return (bytes / (1024L * 1024 * 1024)) + "GB";
@@ -763,6 +837,108 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (!Boolean.TRUE.equals(folder.getIsFolder())) {
             throw new BusinessException(422, "父级资源不是文件夹");
         }
+        return folder;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PrintFile renameFolder(Long id, String folderName) {
+        PrintFile folder = requireEditableFolder(id, "默认目录不可重命名");
+        String normalizedFolderName = normalizeFolderName(folderName);
+
+        LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(PrintFile::getIsFolder, true)
+                .eq(PrintFile::getUserId, folder.getUserId())
+                .eq(PrintFile::getOriginalName, normalizedFolderName)
+                .ne(PrintFile::getId, folder.getId());
+        if (folder.getParentId() == null) {
+            wrapper.isNull(PrintFile::getParentId);
+        } else {
+            wrapper.eq(PrintFile::getParentId, folder.getParentId());
+        }
+        if (this.getOne(wrapper, false) != null) {
+            throw new BusinessException(409, "该目录下已存在同名文件夹");
+        }
+
+        folder.setOriginalName(normalizedFolderName);
+        if (!this.updateById(folder)) {
+            throw new BusinessException("文件夹重命名失败");
+        }
+        recordSuccess("FOLDER_RENAME", "FOLDER", folder.getId(), folder.getOriginalName());
+        log.info("print folder renamed: folderId={}, userId={}, name={}",
+                folder.getId(), folder.getUserId(), normalizedFolderName);
+        return folder;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PrintFile moveFolder(Long id, Long parentId) {
+        if (parentId != null && parentId <= 0) {
+            throw new BusinessException(400, "目标目录 ID 必须为正数");
+        }
+
+        PrintFile folder = requireEditableFolder(id, "默认目录不可移动");
+        LambdaQueryWrapper<PrintFile> folderQuery = new LambdaQueryWrapper<>();
+        folderQuery.eq(PrintFile::getIsFolder, true)
+                .eq(PrintFile::getUserId, folder.getUserId());
+        List<PrintFile> userFolders = this.list(folderQuery);
+        Map<Long, PrintFile> foldersById = new LinkedHashMap<>();
+        userFolders.forEach(item -> foldersById.put(item.getId(), item));
+        foldersById.put(folder.getId(), folder);
+
+        int sourceLevel = getFolderLevelForMove(folder, foldersById, Map.of());
+        if (sourceLevel < 1 || sourceLevel > 2) {
+            throw new BusinessException(422, "文件夹层级数据异常");
+        }
+
+        PrintFile target = null;
+        if (parentId != null) {
+            target = requireAccessibleFolder(parentId);
+            if (!Objects.equals(target.getUserId(), folder.getUserId())) {
+                throw new BusinessException(403, "目标文件夹必须属于源文件夹用户");
+            }
+            int targetLevel = getFolderLevelForMove(target, foldersById, Map.of());
+            if (targetLevel != 1 || target.getParentId() != null) {
+                throw new BusinessException(422, "移动目标必须是一级文件夹");
+            }
+            if (isSameOrDescendant(target, folder, foldersById)) {
+                throw new BusinessException(422, "不能移动到自身或子孙目录");
+            }
+        }
+
+        Map<Long, Long> overriddenParents = new LinkedHashMap<>();
+        overriddenParents.put(folder.getId(), parentId);
+        for (PrintFile candidate : userFolders) {
+            if (!isSameOrDescendant(candidate, folder, foldersById)) {
+                continue;
+            }
+            int proposedLevel = getFolderLevelForMove(candidate, foldersById, overriddenParents);
+            if (proposedLevel < 1 || proposedLevel > 2) {
+                throw new BusinessException(422, "移动后文件夹最多支持两级目录");
+            }
+        }
+
+        LambdaQueryWrapper<PrintFile> duplicateQuery = new LambdaQueryWrapper<>();
+        duplicateQuery.eq(PrintFile::getIsFolder, true)
+                .eq(PrintFile::getUserId, folder.getUserId())
+                .eq(PrintFile::getOriginalName, folder.getOriginalName())
+                .ne(PrintFile::getId, folder.getId());
+        if (parentId == null) {
+            duplicateQuery.isNull(PrintFile::getParentId);
+        } else {
+            duplicateQuery.eq(PrintFile::getParentId, parentId);
+        }
+        if (this.getOne(duplicateQuery, false) != null) {
+            throw new BusinessException(409, "目标目录下已存在同名文件夹");
+        }
+
+        folder.setParentId(parentId);
+        if (!this.updateById(folder)) {
+            throw new BusinessException("文件夹移动失败");
+        }
+        recordSuccess("FOLDER_MOVE", "FOLDER", folder.getId(), folder.getOriginalName());
+        log.info("print folder moved: folderId={}, userId={}, parentId={}",
+                folder.getId(), folder.getUserId(), parentId);
         return folder;
     }
 

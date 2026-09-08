@@ -250,6 +250,8 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | GET | `/print-files/storage` | ADMIN/OPERATOR | Query：`key` | Local Edition 受保护文件流（`text/plain`） |
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
 | DELETE | `/print-files/folder/{id}` | ADMIN/OPERATOR | Path folder ID；仅空的非默认目录 | `Result<null>` |
+| PUT | `/print-files/folder/{id}/rename` | ADMIN/OPERATOR | `{"folderName":"新名称"}` | `PrintFileVO` |
+| PUT | `/print-files/folder/{id}/move` | ADMIN/OPERATOR | `{"parentId":null}` 或同用户一级目录 ID | `PrintFileVO` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
 | GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId?` | `PrintFileVO[]` |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
@@ -300,6 +302,9 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 - 用户名和邮箱可用性检查的 Query 参数不能为空或只包含空格，否则返回 HTTP 400、业务码 `400`。
 - 派发、确认安全、启动任务的 ID 必须为正数；`action` 只能是 `START_PRINT` 或 `UPLOAD_ONLY`。`operatorId` 仍兼容接收，但后端忽略其值并使用 JWT 当前用户。
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
+
+- 文件夹重命名使用 `PUT /api/v1/print-files/folder/{id}/rename`，请求体为 `{"folderName":"..."}`。服务端校验目录存在且可访问、非默认目录、名称非空且最多100个字符、名称字符合法，并拒绝同一用户同一父目录下的重名；成功只更新 `original_name` 并写入 `FOLDER_RENAME` 审计日志，不调用对象存储。
+- 文件夹移动使用 `PUT /api/v1/print-files/folder/{id}/move`，请求体为 `{"parentId":null|number}`；`null` 表示根目录，非空目标必须是源目录所属用户的有效一级目录。默认目录不可作为源目录，管理员也不能跨用户移动；服务端拒绝移动到自身/子孙目录、同级重名以及导致第三级目录的结果，只更新 `parent_id` 并写入 `FOLDER_MOVE` 审计日志，不移动文件、不调用对象存储。
 
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
 - 批量文件上传接口为 `POST /api/v1/print-files/batch-upload`，使用 `multipart/form-data` 的重复字段 `files`。最多100个文件；应用层不限制批量总大小，单个 HTTP 请求仍受约1.2GB的 `spring.servlet.multipart.max-request-size` 限制，前端按单请求约1GB自动分组。接口逐项返回 `index`、`fileId`、`fileName`、`status`、`errorCode`、`message`、`retryable`，单项失败不回滚其他已成功文件；空列表或数量超限返回 HTTP 400。
@@ -434,6 +439,8 @@ T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不
 打印机新增、重新录入、编辑和删除接口同样以数据库实际写入结果为准；插入/更新/删除失败会返回业务错误并触发事务回滚，不会刷新缓存后伪装成成功。
 
 文件夹创建、空文件夹删除和单文件删除以数据库实际写入结果为准；目录记录插入、空目录删除或文件记录删除影响 0 行时返回业务错误。`DELETE /print-files/folder/{id}` 只允许删除当前用户可访问的非默认空目录；默认目录返回 HTTP 422，包含直接文件或子目录返回 HTTP 409，均不级联删除。该接口不调用对象存储。单文件删除仍先删除对象存储再删除数据库记录，若数据库删除失败，服务端不会返回成功，残留对象需按运维清理流程处理。
+
+文件夹重命名和移动同样以数据库实际更新结果为准；默认目录、非法输入、权限/归属、重名和层级冲突均返回稳定业务错误，成功变更分别记录 `FOLDER_RENAME`、`FOLDER_MOVE` 审计日志。移动不级联变更文件或子目录的记录，且不调用对象存储。
 
 T6.7 任务摘要采用前端组合查询方案：`PrintJobVO` 保留 `fileId` 和 `printerId`，不在任务分页中嵌套重复对象；前端需要文件摘要时调用 `/print-files/{fileId}/preview`，需要打印机摘要时调用 `/printers/{printerId}`。`printerId=null` 的排队任务不发起打印机查询，文件/打印机详情接口各自执行资源权限校验。
 

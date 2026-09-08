@@ -6,6 +6,8 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.dto.request.CreateFolderRequest;
+import com.example.farm.entity.dto.request.MoveFolderRequest;
+import com.example.farm.entity.dto.request.RenameFolderRequest;
 import com.example.farm.entity.dto.request.BatchDeleteFilesRequest;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFileVO;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -213,6 +216,26 @@ public class PrintFileController {
         req = requireBody(req);
         PrintFile folder = farmPrintFileService.createFolder(req.getParentId(), req.getFolderName());
         return Result.success(PrintFileVO.from(folder), "文件夹创建成功");
+    }
+
+    /** 重命名非默认文件夹。 */
+    @Operation(summary = "重命名文件夹", description = "默认目录不可重命名；不调用对象存储")
+    @PutMapping("/folder/{id}/rename")
+    public Result<PrintFileVO> renameFolder(@PathVariable Long id,
+                                            @Valid @RequestBody RenameFolderRequest req) {
+        req = requireBody(req);
+        PrintFile folder = farmPrintFileService.renameFolder(id, req.getFolderName());
+        return Result.success(PrintFileVO.from(folder), "文件夹重命名成功");
+    }
+
+    /** 移动非默认文件夹；parentId 为空表示根目录。 */
+    @Operation(summary = "移动文件夹", description = "目标必须是同用户的一级目录；不级联移动文件或子目录")
+    @PutMapping("/folder/{id}/move")
+    public Result<PrintFileVO> moveFolder(@PathVariable Long id,
+                                          @Valid @RequestBody MoveFolderRequest req) {
+        req = requireBody(req);
+        PrintFile folder = farmPrintFileService.moveFolder(id, req.getParentId());
+        return Result.success(PrintFileVO.from(folder), "文件夹移动成功");
     }
 
     private <T> T requireBody(T body) {

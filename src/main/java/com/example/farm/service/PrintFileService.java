@@ -50,6 +50,12 @@ public interface PrintFileService extends IService<PrintFile> {
      */
     PrintFile createFolder(Long parentId, String folderName);
 
+    /** 重命名非默认文件夹，不触碰对象存储。 */
+    PrintFile renameFolder(Long id, String folderName);
+
+    /** 移动非默认文件夹；parentId 为空表示根目录，不级联移动文件。 */
+    PrintFile moveFolder(Long id, Long parentId);
+
     /**
      * 分页查询当前用户的文件列表。
      *

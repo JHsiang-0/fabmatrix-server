@@ -225,6 +225,89 @@ class PrintFileOwnershipTest {
     }
 
     @Test
+    void renamesOwnFolderWithoutTouchingObjectStorageAndAuditsChange() {
+        mockUser(1L, "OPERATOR");
+        PrintFile folder = folder(30L, 1L, null, "Before");
+        when(printFileMapper.selectById(30L)).thenReturn(folder);
+        when(printFileMapper.selectOne(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false)))
+                .thenReturn(null);
+        org.mockito.Mockito.doReturn(1).when(printFileMapper)
+                .updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+
+        PrintFile result = printFileService.renameFolder(30L, " After ");
+
+        assertThat(result.getOriginalName()).isEqualTo("After");
+        verify(printFileMapper).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(auditLogService).recordSuccess("FOLDER_RENAME", "FOLDER", 30L, "After");
+    }
+
+    @Test
+    void refusesRenamingDefaultFolderAndSameLevelDuplicate() {
+        mockUser(1L, "OPERATOR");
+        PrintFile defaultFolder = folder(30L, 1L, null, "我的文件夹");
+        defaultFolder.setIsDefaultFolder(true);
+        when(printFileMapper.selectById(30L)).thenReturn(defaultFolder);
+
+        assertThatThrownBy(() -> printFileService.renameFolder(30L, "新的名称"))
+                .hasMessage("默认目录不可重命名");
+        verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+
+        PrintFile folder = folder(31L, 1L, null, "Before");
+        when(printFileMapper.selectById(31L)).thenReturn(folder);
+        when(printFileMapper.selectOne(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false)))
+                .thenReturn(folder(32L, 1L, null, "After"));
+
+        assertThatThrownBy(() -> printFileService.renameFolder(31L, "After"))
+                .hasMessage("该目录下已存在同名文件夹");
+    }
+
+    @Test
+    void movesFolderWithinOwnerAndAuditsWithoutTouchingObjectStorage() {
+        mockUser(1L, "ADMIN");
+        PrintFile source = folder(30L, 1L, null, "Source");
+        PrintFile target = folder(40L, 1L, null, "Target");
+        when(printFileMapper.selectById(30L)).thenReturn(source);
+        when(printFileMapper.selectById(40L)).thenReturn(target);
+        when(printFileMapper.selectList(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(source, target));
+        when(printFileMapper.selectOne(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false)))
+                .thenReturn(null);
+        org.mockito.Mockito.doReturn(1).when(printFileMapper)
+                .updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+
+        PrintFile result = printFileService.moveFolder(30L, 40L);
+
+        assertThat(result.getParentId()).isEqualTo(40L);
+        verify(printFileMapper).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(auditLogService).recordSuccess("FOLDER_MOVE", "FOLDER", 30L, "Source");
+    }
+
+    @Test
+    void rejectsInvalidFolderMoves() {
+        mockUser(1L, "ADMIN");
+        PrintFile source = folder(30L, 1L, null, "Source");
+        PrintFile child = folder(31L, 1L, 30L, "Child");
+        PrintFile target = folder(40L, 1L, null, "Target");
+        PrintFile otherUserTarget = folder(50L, 2L, null, "Other");
+        when(printFileMapper.selectById(30L)).thenReturn(source);
+        when(printFileMapper.selectById(31L)).thenReturn(child);
+        when(printFileMapper.selectById(40L)).thenReturn(target);
+        when(printFileMapper.selectById(50L)).thenReturn(otherUserTarget);
+        when(printFileMapper.selectList(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(source, child, target));
+
+        assertThatThrownBy(() -> printFileService.moveFolder(30L, 31L))
+                .hasMessage("移动目标必须是一级文件夹");
+        assertThatThrownBy(() -> printFileService.moveFolder(30L, 40L))
+                .hasMessage("移动后文件夹最多支持两级目录");
+        assertThatThrownBy(() -> printFileService.moveFolder(30L, 50L))
+                .hasMessage("目标文件夹必须属于源文件夹用户");
+        verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+    }
+
+    @Test
     void cannotDeleteFileAlreadyReferencedByPrintJob() {
         mockUser(1L, "OPERATOR");
         PrintFile file = file(20L, 1L);
@@ -311,6 +394,15 @@ class PrintFileOwnershipTest {
         file.setSafeName("20_demo.gcode");
         file.setIsFolder(false);
         return file;
+    }
+
+    private PrintFile folder(Long id, Long userId, Long parentId, String name) {
+        PrintFile folder = file(id, userId);
+        folder.setParentId(parentId);
+        folder.setIsFolder(true);
+        folder.setIsDefaultFolder(false);
+        folder.setOriginalName(name);
+        return folder;
     }
 
     private void mockUser(Long userId, String role) {

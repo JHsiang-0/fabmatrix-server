@@ -103,6 +103,9 @@ public class LocalSchemaMigration implements CommandLineRunner {
         List<Integer> userIds = jdbcTemplate.queryForList(
                 "SELECT id FROM farm_user WHERE id IS NOT NULL", Integer.class);
         for (Integer userId : userIds) {
+            String username = jdbcTemplate.queryForObject(
+                    "SELECT username FROM farm_user WHERE id = ?", String.class, userId);
+            String defaultFolderName = username + "的文件";
             List<Integer> defaults = jdbcTemplate.queryForList("""
                     SELECT id
                     FROM farm_print_file
@@ -122,7 +125,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                         FROM farm_print_file
                         WHERE user_id = ? AND parent_id IS NULL AND is_folder = 1
                           AND is_default_folder = 0 AND original_name = ?
-                        """, Integer.class, userId, "我的文件夹");
+                        """, Integer.class, userId, defaultFolderName);
                 if (sameNameCount != null && sameNameCount > 0) {
                     log.warn("SQLite default folder skipped because root folder name conflicts: userId={}", userId);
                     continue;
@@ -131,7 +134,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                         INSERT INTO farm_print_file
                             (parent_id, is_folder, is_default_folder, original_name, safe_name, user_id)
                         VALUES (NULL, 1, 1, ?, ?, ?)
-                        """, "我的文件夹", "folder_default_" + userId, userId);
+                        """, defaultFolderName, "folder_default_" + userId, userId);
                 defaultId = jdbcTemplate.queryForObject("""
                         SELECT id
                         FROM farm_print_file

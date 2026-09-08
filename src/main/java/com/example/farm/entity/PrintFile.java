@@ -43,7 +43,7 @@ public class PrintFile {
     private Boolean isFolder;
 
     /**
-     * 系统为用户建立的“我的文件夹”标识。默认目录是不可删除的一级目录。
+     * 系统为用户建立的“用户名的文件”标识。默认目录是不可删除的一级目录。
      */
     @TableField("is_default_folder")
     @Schema(description = "是否为系统默认目录")

@@ -169,7 +169,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (!save(admin)) {
                 throw new BusinessException("管理员创建失败");
             }
-            createDefaultFolder(admin.getId());
+            createDefaultFolder(admin.getId(), admin.getUsername());
 
             LoginResultDTO result = new LoginResultDTO(
                     JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole()),
@@ -210,13 +210,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (!save(newUser)) {
             throw new BusinessException("用户创建失败");
         }
-        createDefaultFolder(newUser.getId());
+        createDefaultFolder(newUser.getId(), newUser.getUsername());
         recordSuccess("USER_CREATE", "USER", newUser.getId(), newUser.getUsername());
         log.info("用户注册成功: username={}, id={}", newUser.getUsername(), newUser.getId());
         return newUser.getId();
     }
 
-    private void createDefaultFolder(Long userId) {
+    private void createDefaultFolder(Long userId, String username) {
         if (printFileMapper == null) {
             return;
         }
@@ -224,7 +224,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         defaultFolder.setParentId(null);
         defaultFolder.setIsFolder(true);
         defaultFolder.setIsDefaultFolder(true);
-        defaultFolder.setOriginalName("我的文件夹");
+        defaultFolder.setOriginalName(username + "的文件");
         defaultFolder.setSafeName("folder_default_" + userId);
         defaultFolder.setUserId(userId);
         if (printFileMapper.insert(defaultFolder) <= 0) {

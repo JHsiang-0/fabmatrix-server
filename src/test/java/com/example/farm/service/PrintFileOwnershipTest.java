@@ -280,6 +280,18 @@ class PrintFileOwnershipTest {
     }
 
     @Test
+    void defaultFolderCannotBeMoved() {
+        mockUser(1L, "OPERATOR");
+        PrintFile defaultFolder = folder(30L, 1L, null, "operator的文件");
+        defaultFolder.setIsDefaultFolder(true);
+        when(printFileMapper.selectById(30L)).thenReturn(defaultFolder);
+
+        assertThatThrownBy(() -> printFileService.moveFolder(30L, null))
+                .hasMessage("默认目录不可移动");
+        verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+    }
+
+    @Test
     void movesFolderWithinOwnerAndAuditsWithoutTouchingObjectStorage() {
         mockUser(1L, "ADMIN");
         PrintFile source = folder(30L, 1L, null, "Source");

@@ -4,11 +4,13 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.entity.User;
+import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.ChangePasswordDTO;
 import com.example.farm.entity.dto.UserRegisterDTO;
 import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.dto.UserLoginDTO;
 import com.example.farm.mapper.UserMapper;
+import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.impl.UserServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +40,8 @@ class UserAuthenticationTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private LoginProtectUtil loginProtectUtil;
+    @Mock
+    private PrintFileMapper printFileMapper;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -45,6 +49,7 @@ class UserAuthenticationTest {
     @BeforeEach
     void injectMyBatisMapper() {
         ReflectionTestUtils.setField(userService, "baseMapper", userMapper);
+        ReflectionTestUtils.setField(userService, "printFileMapper", printFileMapper);
     }
 
     @Test
@@ -143,8 +148,33 @@ class UserAuthenticationTest {
     }
 
     @Test
+    void registerCreatesDefaultFolderNamedAfterUsername() {
+        when(passwordEncoder.encode("Admin123")).thenReturn("encoded");
+        doAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            user.setId(2L);
+            return 1;
+        }).when(userMapper).insert(any(User.class));
+        when(printFileMapper.insert(any(PrintFile.class))).thenReturn(1);
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("operator");
+        request.setPassword("Admin123");
+        request.setConfirmPassword("Admin123");
+
+        assertThat(userService.register(request)).isEqualTo(2L);
+
+        var insertedFolder = forClass(PrintFile.class);
+        verify(printFileMapper).insert(insertedFolder.capture());
+        assertThat(insertedFolder.getValue().getOriginalName()).isEqualTo("operator的文件");
+        assertThat(insertedFolder.getValue().getIsDefaultFolder()).isTrue();
+        assertThat(insertedFolder.getValue().getIsFolder()).isTrue();
+        assertThat(insertedFolder.getValue().getParentId()).isNull();
+        assertThat(insertedFolder.getValue().getUserId()).isEqualTo(2L);
+    }
+
+    @Test
     void firstAdminSetupCreatesAdminAndReturnsToken() {
-        // 该认证单元测试不装配文件 Mapper；应只跳过默认目录副作用，不能触发 NPE。
         ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
         ReflectionTestUtils.setField(userService, "jwtExpireTime", 604800000L);
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "test-secret-key");
@@ -155,6 +185,7 @@ class UserAuthenticationTest {
             admin.setId(1L);
             return 1;
         }).when(userMapper).insert(any(User.class));
+        when(printFileMapper.insert(any(PrintFile.class))).thenReturn(1);
 
         UserRegisterDTO request = new UserRegisterDTO();
         request.setUsername("admin");
@@ -171,6 +202,13 @@ class UserAuthenticationTest {
         assertThat(insertedUser.getValue().getUsername()).isEqualTo("admin");
         assertThat(insertedUser.getValue().getRole()).isEqualTo("ADMIN");
         assertThat(insertedUser.getValue().getPasswordHash()).isEqualTo("encoded-admin-password");
+        var insertedFolder = forClass(PrintFile.class);
+        verify(printFileMapper).insert(insertedFolder.capture());
+        assertThat(insertedFolder.getValue().getOriginalName()).isEqualTo("admin的文件");
+        assertThat(insertedFolder.getValue().getIsDefaultFolder()).isTrue();
+        assertThat(insertedFolder.getValue().getIsFolder()).isTrue();
+        assertThat(insertedFolder.getValue().getParentId()).isNull();
+        assertThat(insertedFolder.getValue().getUserId()).isEqualTo(1L);
     }
 
     @Test

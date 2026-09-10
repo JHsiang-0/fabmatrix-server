@@ -257,6 +257,9 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         if (plan == null) {
             throw new BusinessException(404, "批量计划不存在");
         }
+        if (!SecurityContextUtil.isAdmin() && !Objects.equals(plan.getCreatedBy(), userId)) {
+            throw new BusinessException(403, "无权确认此批量计划");
+        }
         if (!Objects.equals(plan.getVersion(), request.getVersion())) {
             throw new BusinessException(409, "批量计划版本已变化，请重新预览");
         }

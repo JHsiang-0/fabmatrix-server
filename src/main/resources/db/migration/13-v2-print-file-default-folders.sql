@@ -120,7 +120,8 @@ JOIN (
 SET f.parent_id = d.default_id
 WHERE f.parent_id IS NULL
   AND f.is_folder = 0
-  AND f.user_id IS NOT NULL$$
+  AND f.user_id IS NOT NULL
+  AND UPPER(COALESCE(f.visibility, 'PRIVATE')) = 'PRIVATE'$$
 
 DROP PROCEDURE IF EXISTS farm_file_add_default_index_if_safe$$
 DROP PROCEDURE IF EXISTS farm_file_add_column_if_missing$$

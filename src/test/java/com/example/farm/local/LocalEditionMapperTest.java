@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Local Edition 的 SQLite 方言、本地文件存储和基础 Mapper 烟囱测试。 */
 @SpringBootTest(classes = FarmApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -43,6 +44,8 @@ class LocalEditionMapperTest {
     private PrinterMapper printerMapper;
     @Autowired
     private FileStorage fileStorage;
+    @Autowired
+    private com.example.farm.config.LocalSchemaMigration localSchemaMigration;
 
     @BeforeEach
     void cleanBusinessRows() {
@@ -108,5 +111,97 @@ class LocalEditionMapperTest {
 
         fileStorage.deleteFile("uploads/cube.gcode");
         assertThat(Files.exists(DATA_DIR.resolve("files/uploads/cube.gcode"))).isFalse();
+    }
+
+    @Test
+    void keepsPublicRootFilesAtRootAcrossRepeatableMigration() {
+        ensureUser(1, "migration-user");
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, visibility,
+                     original_name, safe_name, user_id)
+                VALUES (1000, NULL, 1, 1, 'PRIVATE', 'migration-user的文件', 'folder_default_1', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, visibility,
+                     original_name, safe_name, user_id)
+                VALUES (1001, NULL, 0, 0, 'PRIVATE', 'private-root.gcode', 'private-root.gcode', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, visibility,
+                     original_name, safe_name, user_id)
+                VALUES (1002, NULL, 0, 0, 'PUBLIC', 'public-root.gcode', 'public-root.gcode', 1)
+                """);
+
+        localSchemaMigration.run();
+        localSchemaMigration.run();
+
+        assertThat(parentIdOf(1001)).isEqualTo(1000);
+        assertThat(parentIdOf(1002)).isNull();
+        assertThat(visibilityOf(1002)).isEqualTo("PUBLIC");
+    }
+
+    @Test
+    void acceptsSameNamedPrivateDefaultFoldersForDifferentUsers() {
+        ensureUser(1, "private-user-a");
+        ensureUser(2, "private-user-b");
+        insertDefaultFolder(2000, 1, "同名私有目录", "PRIVATE");
+        insertDefaultFolder(2001, 2, "同名私有目录", "PRIVATE");
+
+        localSchemaMigration.run();
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM farm_print_file
+                WHERE is_folder = 1 AND parent_id IS NULL AND original_name = '同名私有目录'
+                """, Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void blocksParentFileFixtureDuringMigration() {
+        ensureUser(1, "non-folder-parent-user");
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, visibility,
+                     original_name, safe_name, user_id)
+                VALUES (3000, NULL, 0, 0, 'PRIVATE', 'parent-file.gcode', 'parent-file.gcode', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, visibility,
+                     original_name, safe_name, user_id)
+                VALUES (3001, 3000, 0, 0, 'PRIVATE', 'child-file.gcode', 'child-file.gcode', 1)
+                """);
+
+        assertThatThrownBy(() -> localSchemaMigration.run())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("阻止启动");
+    }
+
+    private void ensureUser(int id, String username) {
+        jdbcTemplate.update("""
+                INSERT OR IGNORE INTO farm_user (id, username, password_hash, role, enabled)
+                VALUES (?, ?, 'test-hash', 'OPERATOR', 1)
+                """, id, username);
+    }
+
+    private void insertDefaultFolder(int id, int userId, String name, String visibility) {
+        jdbcTemplate.update("""
+                INSERT INTO farm_print_file
+                    (id, parent_id, is_folder, is_default_folder, visibility,
+                     original_name, safe_name, user_id)
+                VALUES (?, NULL, 1, 1, ?, ?, ?, ?)
+                """, id, visibility, name, "folder-" + id, userId);
+    }
+
+    private Integer parentIdOf(int fileId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT parent_id FROM farm_print_file WHERE id = ?", Integer.class, fileId);
+    }
+
+    private String visibilityOf(int fileId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT visibility FROM farm_print_file WHERE id = ?", String.class, fileId);
     }
 }

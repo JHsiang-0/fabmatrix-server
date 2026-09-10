@@ -154,6 +154,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                         UPDATE farm_print_file
                 SET parent_id = ?
                         WHERE user_id = ? AND parent_id IS NULL AND is_folder = 0
+                          AND UPPER(COALESCE(visibility, 'PRIVATE')) = 'PRIVATE'
                         """, defaultId, userId);
             }
         }
@@ -225,11 +226,22 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 WHERE folder_level > 2 AND is_folder = 1
                 """);
         int duplicateFolderNameCount = count("""
-                SELECT COUNT(*) FROM (
-                    SELECT parent_id, original_name
+            SELECT COUNT(*) FROM (
+                    SELECT
+                        CASE WHEN parent_id IS NULL THEN 'ROOT' ELSE 'CHILD' END AS namespace_kind,
+                        parent_id,
+                        CASE
+                            WHEN parent_id IS NULL AND UPPER(visibility) = 'PRIVATE' THEN user_id
+                            ELSE NULL
+                        END AS root_user_id,
+                        CASE
+                            WHEN parent_id IS NULL THEN UPPER(visibility)
+                            ELSE NULL
+                        END AS root_visibility,
+                        original_name
                     FROM farm_print_file
                     WHERE is_folder = 1
-                    GROUP BY parent_id, original_name
+                    GROUP BY namespace_kind, parent_id, root_user_id, root_visibility, original_name
                     HAVING COUNT(*) > 1
                 )
                 """);

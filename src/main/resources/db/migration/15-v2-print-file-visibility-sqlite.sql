@@ -49,7 +49,14 @@ LEFT JOIN farm_print_file parent ON parent.id = child.parent_id
 WHERE child.parent_id IS NOT NULL AND parent.id IS NULL
 ORDER BY child.id;
 
--- 诊断 3：循环引用（按起点和首次重复节点报告）。递归上限避免异常数据耗尽会话资源。
+-- 诊断 3：父级记录不是文件夹。运行时会拒绝这类路径，迁移保留现场供人工处理。
+SELECT child.id, child.parent_id, child.original_name, parent.is_folder
+FROM farm_print_file child
+JOIN farm_print_file parent ON parent.id = child.parent_id
+WHERE parent.is_folder = 0
+ORDER BY child.id;
+
+-- 诊断 4：循环引用（按起点和首次重复节点报告）。递归上限避免异常数据耗尽会话资源。
 WITH RECURSIVE ancestor_walk(start_id, current_id, path, has_cycle, depth) AS (
     SELECT id, id, ',' || id || ',', 0, 0
     FROM farm_print_file
@@ -68,7 +75,7 @@ FROM ancestor_walk
 WHERE has_cycle = 1
 ORDER BY start_id, repeated_id;
 
--- 诊断 4：超过两级的目录。
+-- 诊断 5：超过两级的目录。
 WITH RECURSIVE folder_tree(id, path, folder_level) AS (
     SELECT id, ',' || id || ',', 1
     FROM farm_print_file
@@ -86,15 +93,27 @@ FROM folder_tree
 WHERE folder_level > 2
 ORDER BY folder_level DESC, id;
 
--- 诊断 5：同一父级下的重名记录。
-SELECT parent_id, original_name, COUNT(*) AS duplicate_count,
-       GROUP_CONCAT(id, ',') AS ids
+-- 诊断 6：按真实命名空间判断的同级目录重名。文件不参与；PRIVATE 根按用户隔离，PUBLIC 根共享。
+SELECT
+       CASE WHEN parent_id IS NULL THEN 'ROOT' ELSE 'CHILD' END AS namespace_kind,
+       parent_id,
+       CASE
+           WHEN parent_id IS NULL AND UPPER(visibility) = 'PRIVATE' THEN user_id
+           ELSE NULL
+       END AS root_user_id,
+       CASE
+           WHEN parent_id IS NULL THEN UPPER(visibility)
+           ELSE NULL
+       END AS root_visibility,
+       original_name, COUNT(*) AS duplicate_count,
+       GROUP_CONCAT(id) AS ids
 FROM farm_print_file
-GROUP BY parent_id, original_name
+WHERE is_folder = 1
+GROUP BY namespace_kind, parent_id, root_user_id, root_visibility, original_name
 HAVING COUNT(*) > 1
-ORDER BY parent_id, original_name;
+ORDER BY namespace_kind, parent_id, root_user_id, root_visibility, original_name;
 
--- 诊断 6：父子 visibility 不一致。
+-- 诊断 7：父子 visibility 不一致。
 SELECT child.id, child.parent_id, parent.id AS parent_record_id,
        parent.visibility AS parent_visibility, child.visibility AS child_visibility
 FROM farm_print_file child

@@ -283,7 +283,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
 | POST | `/print-jobs/batch/preview` | ADMIN/OPERATOR | `fileIds,printerIds,strategy,action` | `DispatchPlanPreviewVO`；预览无副作用 |
-| POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | `planId,version,itemIds,confirmationToken` | `BatchDispatchConfirmVO`；逐项创建任务并返回结果 |
+| POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | `planId,version,itemIds,confirmationToken` | `BatchDispatchConfirmVO`；仅计划创建者或 ADMIN 可确认，逐项创建任务并返回结果 |
 | POST | `/print-jobs/batch/retry-preview` | ADMIN/OPERATOR | `sourcePlanId,sourceItemIds,retryKey` | `DispatchPlanPreviewVO`；仅恢复无 `jobId` 的 `RETRYABLE` 项 |
 
 ### 4.4 设备控制
@@ -444,6 +444,8 @@ T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不
 
 文件夹重命名和移动同样以数据库实际更新结果为准；默认目录、非法输入、权限/归属、重名和层级冲突均返回稳定业务错误，成功变更分别记录 `FOLDER_RENAME`、`FOLDER_MOVE` 审计日志。移动不级联变更文件或子目录的记录，且不调用对象存储。
 
+批量计划确认必须保持计划所有权：普通用户只能确认自己创建的 `planId`，ADMIN 可确认任意计划。文件的 `PUBLIC` 可见性只扩大文件预览/使用范围，不扩大计划确认权限；其他用户如需派发公共文件，必须自己创建并确认新的计划。
+
 T6.7 任务摘要采用前端组合查询方案：`PrintJobVO` 保留 `fileId` 和 `printerId`，不在任务分页中嵌套重复对象；前端需要文件摘要时调用 `/print-files/{fileId}/preview`，需要打印机摘要时调用 `/printers/{printerId}`。`printerId=null` 的排队任务不发起打印机查询，文件/打印机详情接口各自执行资源权限校验。
 
 T6.8 当前已完成任务 Service 的状态/归属/设备调用测试、任务路由认证测试，以及持久化成功后绑定设备任务的 `JOB_STATUS` 事件测试。由于队列任务没有设备 ID，重试、重新排队和优先级修改不发送 `JOB_STATUS`；真实 MySQL/Redis/RustFS/打印机的端到端链路仍需在现场环境验收。
@@ -480,7 +482,7 @@ Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更�
 | GET | `/print-files/{id}/jobs` | ADMIN/OPERATOR | Query：`pageNum,pageSize` | `PageResult<PrintJobVO>` | 已完成 |
 | GET | `/print-files/{id}/preview` | ADMIN/OPERATOR | Path ID | `PrintFilePreviewVO` | 已完成 |
 
-文件接口按当前登录用户隔离资源；`OPERATOR` 只能访问本人文件，`ADMIN` 可查看和管理全部文件。管理员分页查询可通过 `userId` 筛选指定用户，不传时查询全部。
+文件接口按当前登录用户隔离资源；`OPERATOR` 可访问本人 PRIVATE 文件及有效路径上的 PUBLIC 文件，`ADMIN` 可查看和管理全部有效文件。管理员分页查询可通过 `userId` 筛选指定用户，不传时查询全部。
 
 `GET /print-files/tree` 当前冻结为返回真实文件夹完整树，不分页、不接受必填参数；不返回文件节点，也不返回虚拟 `__root__` 节点。`FileNodeVO` 字段为：`id`、`parentId`、`folder=true`、`name`、`level`、`isDefault`、`userId`、`createdAt`、`children`。节点最多两级，操作员只获得本人节点，管理员获得全部可读节点。异常孤儿、循环或超深目录不会被静默当作根节点；迁移/启动校验会输出诊断并要求先处理数据。默认目录不可删除、重命名或移动。
 

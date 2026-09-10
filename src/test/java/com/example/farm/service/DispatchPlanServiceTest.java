@@ -265,7 +265,7 @@ class DispatchPlanServiceTest {
     }
 
     @Test
-    void publicFileBatchPlanCanBeConfirmedByAnotherOperator() {
+    void operatorCanCreateAndConfirmOwnPlanContainingAnotherUsersPublicFile() {
         mockUser(2L, "OPERATOR");
         PrintFile publicFile = file(11L);
         publicFile.setUserId(1L);
@@ -291,7 +291,6 @@ class DispatchPlanServiceTest {
         publicRequest.setFileIds(List.of(11L));
         var preview = service().preview(publicRequest);
 
-        mockUser(3L, "OPERATOR");
         BatchDispatchConfirmRequest confirm = confirmRequest(preview);
         when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan);
 
@@ -301,7 +300,39 @@ class DispatchPlanServiceTest {
             assertThat(item.getJobId()).isEqualTo(9002L);
             assertThat(item.getStatus()).isEqualTo("ASSIGNED");
         });
-        verify(printJobService).createJob(any(), eq(3L));
+        verify(printJobService).createJob(any(), eq(2L));
+    }
+
+    @Test
+    void operatorCannotConfirmAnotherOperatorsPlanEvenWhenItsFileIsPublic() {
+        mockUser(2L, "OPERATOR");
+        PrintFile publicFile = file(11L);
+        publicFile.setUserId(1L);
+        publicFile.setVisibility("PUBLIC");
+        when(printFileMapper.selectBatchIds(anyList())).thenReturn(List.of(publicFile));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer(564L)));
+        when(planMapper.insert(any(DispatchPlan.class))).thenAnswer(invocation -> {
+            capturedPlan = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
+
+        BatchDispatchPreviewRequest publicRequest = request("QUEUE");
+        publicRequest.setFileIds(List.of(11L));
+        var preview = service().preview(publicRequest);
+
+        mockUser(3L, "OPERATOR");
+        BatchDispatchConfirmRequest confirm = confirmRequest(preview);
+        when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan);
+
+        assertThatThrownBy(() -> service().confirm(confirm))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo(403L);
+        verify(planMapper, never()).claimForExecution(any(), any());
+        verify(printJobService, never()).createJob(any(), any());
     }
 
     @Test

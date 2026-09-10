@@ -64,7 +64,7 @@
 
 - [x] T4.1 已核对 `current_job_id`/`printer_id`、状态/用户/时间索引；增量迁移 08/09 只新增原子绑定说明和可空幂等字段/唯一索引，备份后可回滚代码。
 - [x] T4.2 派发入口使用 Redis 互斥锁，并通过数据库 `current_job_id IS NULL AND status='IDLE'` 条件更新原子建立绑定；影响行数为 0 时回滚任务写入并返回占用冲突。
-- [x] T4.3 单任务创建、取消、重试、重新排队和批量计划确认均具备幂等边界；跨进程恢复仍需真实运行验收。
+- [x] T4.3 单任务创建、取消、重试、重新排队和批量计划确认均具备幂等边界；批量计划确认仅限计划创建者或 ADMIN，PUBLIC 文件不转移计划所有权；跨进程恢复仍需真实运行验收。
 - [x] T4.4 已先备份当前开发库，并执行 `scripts/repair-ghost-bindings.sql`：任务 1 指向已不存在的打印机 289 的历史幽灵绑定已解除，活动状态转为 `RECONCILING`，修复记录写入 `farm_binding_repair_audit`；复查后残留幽灵绑定为 0。脚本不删除任务、不自动重新派单，也不调用设备。
 - [~] T4.5 已增加批量计划并发认领和重复确认测试；本次 `.77` RRF 重启后监控能从 `starting` 收敛回 `idle`，但设备离线及跨进程服务重启恢复仍需集成环境验证。
 - [ ] T4.6 若现有 `current_job_id`/`printer_id` 双写无法稳定保证唯一占用，新增活动绑定表作为事实来源，并通过增量迁移逐步切换。
@@ -186,7 +186,7 @@
 - [x] T16.2 已增加 SQLite 驱动、Local profile、初始建表和 SQLite 分页方言；自定义 Mapper 的筛选、统计、搜索和 Upsert 分支已由 Local Edition 集成测试覆盖。
 - [x] T16.3 已将打印机缓存、登录保护和单后端锁替换为本地进程实现；Local Edition 启动不要求 Redis。
 - [~] T16.4 已创建数据目录、阻断本地路径穿越、检查可写和最低磁盘空间，并提供带恢复前保留措施的 SQLite+文件备份/恢复脚本及 Windows jpackage 构建脚本；正式恢复演练和 Windows 安装包验收仍待完成。
-- [~] T16.5 已完成 Local profile 启动、health 探活和关键 Mapper/文件存储集成测试；REST/WebSocket 全契约对比仍待补齐。
+- [~] T16.5 已完成 Local profile 启动、health 探活和关键 Mapper/文件存储集成测试；覆盖 PUBLIC 根文件的重复迁移保持、非文件夹父级启动阻断及不同用户同名 PRIVATE 默认根目录；REST/WebSocket 全契约对比仍待补齐。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

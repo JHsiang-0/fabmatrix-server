@@ -17,7 +17,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.mock.web.MockMultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -169,6 +171,36 @@ class PrintFileOwnershipTest {
 
         assertThatThrownBy(() -> printFileService.getPreview(20L))
                 .hasMessage("目录不支持文件预览");
+    }
+
+    @Test
+    void adminCannotCreatePrivateChildFolderOwnedByAnotherUser() {
+        mockUser(2L, "ADMIN");
+        PrintFile parent = folder(30L, 1L, null, "Other user's private folder");
+        when(printFileMapper.selectById(30L)).thenReturn(parent);
+
+        assertThatThrownBy(() -> printFileService.createFolder(30L, "forbidden-child"))
+                .hasMessage("无权在该文件夹下创建子目录")
+                .extracting("code")
+                .isEqualTo(403L);
+        verify(printFileMapper, never()).insert(org.mockito.ArgumentMatchers.any(PrintFile.class));
+    }
+
+    @Test
+    void adminCannotUploadToPrivateFolderOwnedByAnotherUser() {
+        mockUser(2L, "ADMIN");
+        PrintFile parent = folder(30L, 1L, null, "Other user's private folder");
+        when(printFileMapper.selectById(30L)).thenReturn(parent);
+        when(fileUploadProperties.getAllowedTypes()).thenReturn(List.of("gcode", "g", "3mf", "stl"));
+        MockMultipartFile upload = new MockMultipartFile(
+                "file", "forbidden.gcode", "text/plain", "G1 X1\n".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> printFileService.uploadAndParseFile(upload, 30L))
+                .hasMessage("无权向该文件夹上传文件")
+                .extracting("code")
+                .isEqualTo(403L);
+        verify(rustFsClient, never()).uploadFile(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

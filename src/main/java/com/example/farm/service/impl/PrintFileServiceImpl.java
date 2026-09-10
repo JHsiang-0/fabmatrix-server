@@ -223,13 +223,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         wrapper.eq(PrintFile::getIsFolder, true)
                 .eq(PrintFile::getOriginalName, normalizedFolderName);
 
-        if (parentId == null) {
-            wrapper.isNull(PrintFile::getParentId);
-        } else {
-            wrapper.eq(PrintFile::getParentId, parentId);
-        }
-        // 新目录始终归当前用户所有，管理员也不能借此把不同用户的目录视为同级空间。
-        wrapper.eq(PrintFile::getUserId, currentUserId);
+        applyFolderNameNamespace(wrapper, parentId, visibility, currentUserId);
 
         PrintFile existing = this.getOne(wrapper, false);
         if (existing != null) {
@@ -934,12 +928,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private boolean canUpload(PrintFile folder) {
         return folder != null && Boolean.TRUE.equals(folder.getIsFolder())
-                && (SecurityContextUtil.isAdmin() || isPublic(folder) || isOwner(folder));
+                && (isPublic(folder) || isOwner(folder));
     }
 
     private boolean canCreateFolder(PrintFile folder) {
         return folder != null && Boolean.TRUE.equals(folder.getIsFolder())
-                && (SecurityContextUtil.isAdmin() || (!isPublic(folder) && isOwner(folder)));
+                && (SecurityContextUtil.isAdmin() && isPublic(folder)
+                || !isPublic(folder) && isOwner(folder));
     }
 
     private boolean canManageFolder(PrintFile folder) {
@@ -963,6 +958,24 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     private boolean sameVisibility(PrintFile left, PrintFile right) {
         return normalizeVisibility(left == null ? null : left.getVisibility())
                 .equals(normalizeVisibility(right == null ? null : right.getVisibility()));
+    }
+
+    /**
+     * Folder names are unique in their real namespace: PRIVATE roots are
+     * separated by owner, PUBLIC roots are shared, and children are separated
+     * by their parent folder ID.
+     */
+    private void applyFolderNameNamespace(LambdaQueryWrapper<PrintFile> wrapper,
+                                          Long parentId, String visibility, Long ownerUserId) {
+        if (parentId == null) {
+            wrapper.isNull(PrintFile::getParentId)
+                    .eq(PrintFile::getVisibility, visibility);
+            if (PRIVATE.equals(visibility)) {
+                wrapper.eq(PrintFile::getUserId, ownerUserId);
+            }
+            return;
+        }
+        wrapper.eq(PrintFile::getParentId, parentId);
     }
 
     private void enrichCapabilities(PrintFile file, Integer level) {
@@ -1041,11 +1054,8 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 .eq(PrintFile::getVisibility, normalizeVisibility(folder.getVisibility()))
                 .eq(PrintFile::getOriginalName, normalizedFolderName)
                 .ne(PrintFile::getId, folder.getId());
-        if (folder.getParentId() == null) {
-            wrapper.isNull(PrintFile::getParentId);
-        } else {
-            wrapper.eq(PrintFile::getParentId, folder.getParentId());
-        }
+        applyFolderNameNamespace(wrapper, folder.getParentId(),
+                normalizeVisibility(folder.getVisibility()), folder.getUserId());
         if (this.getOne(wrapper, false) != null) {
             throw new BusinessException(409, "该目录下已存在同名文件夹");
         }
@@ -1121,11 +1131,8 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 .eq(PrintFile::getVisibility, normalizeVisibility(folder.getVisibility()))
                 .eq(PrintFile::getOriginalName, folder.getOriginalName())
                 .ne(PrintFile::getId, folder.getId());
-        if (parentId == null) {
-            duplicateQuery.isNull(PrintFile::getParentId);
-        } else {
-            duplicateQuery.eq(PrintFile::getParentId, parentId);
-        }
+        applyFolderNameNamespace(duplicateQuery, parentId,
+                normalizeVisibility(folder.getVisibility()), folder.getUserId());
         if (this.getOne(duplicateQuery, false) != null) {
             throw new BusinessException(409, "目标目录下已存在同名文件夹");
         }

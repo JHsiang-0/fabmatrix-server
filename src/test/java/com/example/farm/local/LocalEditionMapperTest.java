@@ -7,6 +7,7 @@ import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.Printer;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrinterMapper;
+import com.example.farm.service.PrintFileService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,9 +50,12 @@ class LocalEditionMapperTest {
     private FileStorage fileStorage;
     @Autowired
     private com.example.farm.config.LocalSchemaMigration localSchemaMigration;
+    @Autowired
+    private PrintFileService printFileService;
 
     @BeforeEach
     void cleanBusinessRows() {
+        SecurityContextHolder.clearContext();
         jdbcTemplate.update("DELETE FROM farm_print_job");
         jdbcTemplate.update("DELETE FROM farm_print_file");
         jdbcTemplate.update("DELETE FROM farm_printer");
@@ -159,6 +166,30 @@ class LocalEditionMapperTest {
     }
 
     @Test
+    void enforcesPublicRootNamespaceButAllowsPrivateRootNamesPerOwner() {
+        ensureUser(1, "public-admin-a");
+        ensureUser(2, "public-admin-b");
+        mockAdmin(1L);
+
+        printFileService.createFolder(null, "共享根目录", "PUBLIC");
+
+        mockAdmin(2L);
+        assertThatThrownBy(() -> printFileService.createFolder(null, "共享根目录", "PUBLIC"))
+                .hasMessage("该目录下已存在同名文件夹")
+                .extracting("code")
+                .isEqualTo(409L);
+
+        printFileService.createFolder(null, "各自私有根", "PRIVATE");
+        mockAdmin(1L);
+        printFileService.createFolder(null, "各自私有根", "PRIVATE");
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM farm_print_file
+                WHERE is_folder = 1 AND parent_id IS NULL AND original_name = '各自私有根'
+                """, Integer.class)).isEqualTo(2);
+    }
+
+    @Test
     void blocksParentFileFixtureDuringMigration() {
         ensureUser(1, "non-folder-parent-user");
         jdbcTemplate.update("""
@@ -203,5 +234,11 @@ class LocalEditionMapperTest {
     private String visibilityOf(int fileId) {
         return jdbcTemplate.queryForObject(
                 "SELECT visibility FROM farm_print_file WHERE id = ?", String.class, fileId);
+    }
+
+    private void mockAdmin(Long userId) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userId, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
     }
 }

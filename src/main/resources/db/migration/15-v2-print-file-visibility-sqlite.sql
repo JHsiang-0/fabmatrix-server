@@ -1,9 +1,10 @@
 -- UI-004.20 SQLite 手工迁移。
--- 本脚本用于已有数据库；ALTER TABLE 的加列语句仅在 visibility 缺失时执行，不能无条件重复执行整份脚本。
--- Local Edition 优先使用可重复的 LocalSchemaMigration，它会执行相同回填、默认子树隔离和启动诊断。
+-- 调用顺序（SQLite 原生不支持 ALTER TABLE ADD COLUMN IF NOT EXISTS）：
+-- 1. Local Edition 启动时由可重复的 LocalSchemaMigration 补齐 visibility 列；
+-- 2. 对已有数据库手工确认 visibility 列已存在后，再执行本脚本。
+-- 本脚本故意不包含 ADD COLUMN，因此在上述前提下可连续执行；列补齐和数据迁移职责分离。
 -- 不得把 is_default_folder=false 当作 PUBLIC。
 
-ALTER TABLE farm_print_file ADD COLUMN visibility VARCHAR(7) NOT NULL DEFAULT 'PRIVATE';
 UPDATE farm_print_file SET visibility = 'PRIVATE'
  WHERE visibility IS NULL OR UPPER(visibility) NOT IN ('PRIVATE', 'PUBLIC');
 CREATE INDEX IF NOT EXISTS idx_print_file_visibility_parent

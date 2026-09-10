@@ -49,6 +49,27 @@ public class PrintFile {
     @Schema(description = "是否为系统默认目录")
     private Boolean isDefaultFolder;
 
+    /** 显式可见性；只能是 PRIVATE 或 PUBLIC，不能由默认目录标识推断。 */
+    @Schema(description = "文件/目录可见性：PRIVATE 或 PUBLIC")
+    private String visibility = "PRIVATE";
+
+    @TableField(exist = false)
+    private Boolean canManage;
+    @TableField(exist = false)
+    private Boolean canUpload;
+    @TableField(exist = false)
+    private Boolean canCreate;
+    @TableField(exist = false)
+    private Boolean canDelete;
+    @TableField(exist = false)
+    private Boolean canMove;
+    @TableField(exist = false)
+    private Boolean canPrint;
+    @TableField(exist = false)
+    private Boolean canDownload;
+    @TableField(exist = false)
+    private Integer level;
+
     /**
      * 对象存储真实路径（如 farm/uploads/xxx.gcode）
      */

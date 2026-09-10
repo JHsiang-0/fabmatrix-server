@@ -226,7 +226,8 @@ public class PrintFileController {
     @PostMapping("/folder/create")
     public Result<PrintFileVO> createFolder(@Valid @RequestBody CreateFolderRequest req) {
         req = requireBody(req);
-        PrintFile folder = farmPrintFileService.createFolder(req.getParentId(), req.getFolderName());
+        PrintFile folder = farmPrintFileService.createFolder(
+                req.getParentId(), req.getFolderName(), req.getVisibility());
         return Result.success(PrintFileVO.from(folder), "文件夹创建成功");
     }
 

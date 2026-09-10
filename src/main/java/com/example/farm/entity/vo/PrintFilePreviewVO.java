@@ -14,6 +14,12 @@ import java.math.BigDecimal;
 public class PrintFilePreviewVO {
 
     @Schema(description = "文件 ID") private Long id;
+    @Schema(description = "可见性：PRIVATE 或 PUBLIC") private String visibility;
+    @Schema(description = "上传用户 ID") private Long userId;
+    @Schema(description = "是否为默认目录") private Boolean isDefault;
+    @Schema(description = "目录层级") private Integer level;
+    @Schema(description = "当前用户是否可以创建打印任务") private Boolean canPrint;
+    @Schema(description = "当前用户是否可以下载") private Boolean canDownload;
     @Schema(description = "文件原始名称") private String originalName;
     @Schema(description = "文件大小，单位字节") private Long fileSize;
     @Schema(description = "预计打印时长，单位秒") private Integer estTime;
@@ -31,6 +37,12 @@ public class PrintFilePreviewVO {
     public static PrintFilePreviewVO from(PrintFile file) {
         PrintFilePreviewVO vo = new PrintFilePreviewVO();
         vo.id = file.getId();
+        vo.visibility = file.getVisibility() == null ? "PRIVATE" : file.getVisibility();
+        vo.userId = file.getUserId();
+        vo.isDefault = Boolean.TRUE.equals(file.getIsDefaultFolder());
+        vo.level = file.getLevel() == null ? (file.getParentId() == null ? 1 : 2) : file.getLevel();
+        vo.canPrint = Boolean.TRUE.equals(file.getCanPrint());
+        vo.canDownload = Boolean.TRUE.equals(file.getCanDownload());
         vo.originalName = file.getOriginalName();
         vo.fileSize = file.getFileSize();
         vo.estTime = file.getEstTime();

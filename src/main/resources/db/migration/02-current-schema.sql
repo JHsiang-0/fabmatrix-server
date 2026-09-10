@@ -72,11 +72,16 @@ CALL farm_add_column_if_missing(
     'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否为用户系统默认目录（0-否，1-是）'' AFTER `is_folder`'
 )$$
 CALL farm_add_column_if_missing(
+    'farm_print_file', 'visibility',
+    'VARCHAR(7) NOT NULL DEFAULT ''PRIVATE'' COMMENT ''显式可见性：PRIVATE 或 PUBLIC'' AFTER `is_default_folder`'
+)$$
+CALL farm_add_column_if_missing(
     'farm_print_file', 'rustfs_key',
     'VARCHAR(500) NULL DEFAULT NULL COMMENT ''对象存储真实路径（如 farm/uploads/xxx.gcode）'' AFTER `is_folder`'
 )$$
 CALL farm_add_index_if_missing('farm_print_file', 'idx_parent_id', '`parent_id`')$$
 CALL farm_add_index_if_missing('farm_print_file', 'idx_is_folder', '`is_folder`')$$
+CALL farm_add_index_if_missing('farm_print_file', 'idx_print_file_visibility_parent', '`visibility`, `parent_id`, `user_id`')$$
 
 CALL farm_add_column_if_missing(
     'farm_printer', 'is_safe_to_print',

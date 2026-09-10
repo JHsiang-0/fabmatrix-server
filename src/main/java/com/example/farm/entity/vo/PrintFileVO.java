@@ -20,6 +20,7 @@ public class PrintFileVO implements Serializable {
     @Schema(description = "是否为目录")
     private Boolean folder;
     @Schema(description = "是否为系统默认目录") private Boolean isDefault;
+    @Schema(description = "可见性：PRIVATE 或 PUBLIC") private String visibility;
     @Schema(description = "文件原始名称") private String originalName;
     @Schema(description = "文件大小，单位字节") private Long fileSize;
     @Schema(description = "上传用户 ID") private Long userId;
@@ -37,6 +38,14 @@ public class PrintFileVO implements Serializable {
     @Schema(description = "首层层高，单位毫米") private BigDecimal firstLayerHeight;
     @Schema(description = "已结束任务打印次数") private Integer printCount;
     @Schema(description = "成功率，百分比 0-100") private BigDecimal successRate;
+    @Schema(description = "当前用户是否可以管理目录结构") private Boolean canManage;
+    @Schema(description = "当前用户是否可以上传或创建子目录") private Boolean canUpload;
+    @Schema(description = "当前用户是否可以创建子目录") private Boolean canCreate;
+    @Schema(description = "当前用户是否可以删除") private Boolean canDelete;
+    @Schema(description = "当前用户是否可以移动") private Boolean canMove;
+    @Schema(description = "当前用户是否可以创建打印任务") private Boolean canPrint;
+    @Schema(description = "当前用户是否可以下载") private Boolean canDownload;
+    @Schema(description = "目录层级，一级为1，二级为2") private Integer level;
 
     public static PrintFileVO from(PrintFile file) {
         if (file == null) {
@@ -48,6 +57,7 @@ public class PrintFileVO implements Serializable {
         // 数据库旧记录或刚上传的实体可能尚未填充默认值；对外契约始终返回布尔值。
         vo.folder = Boolean.TRUE.equals(file.getIsFolder());
         vo.isDefault = Boolean.TRUE.equals(file.getIsDefaultFolder());
+        vo.visibility = file.getVisibility() == null ? "PRIVATE" : file.getVisibility();
         vo.originalName = file.getOriginalName();
         vo.fileSize = file.getFileSize();
         vo.userId = file.getUserId();
@@ -65,6 +75,14 @@ public class PrintFileVO implements Serializable {
         vo.firstLayerHeight = file.getFirstLayerHeight();
         vo.printCount = file.getPrintCount();
         vo.successRate = file.getSuccessRate();
+        vo.canManage = Boolean.TRUE.equals(file.getCanManage());
+        vo.canUpload = Boolean.TRUE.equals(file.getCanUpload());
+        vo.canCreate = Boolean.TRUE.equals(file.getCanCreate());
+        vo.canDelete = Boolean.TRUE.equals(file.getCanDelete());
+        vo.canMove = Boolean.TRUE.equals(file.getCanMove());
+        vo.canPrint = Boolean.TRUE.equals(file.getCanPrint());
+        vo.canDownload = Boolean.TRUE.equals(file.getCanDownload());
+        vo.level = file.getLevel();
         return vo;
     }
 }

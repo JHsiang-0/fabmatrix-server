@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS farm_print_file (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_id INTEGER, is_folder INTEGER NOT NULL DEFAULT 0,
     is_default_folder INTEGER NOT NULL DEFAULT 0,
+    visibility VARCHAR(7) NOT NULL DEFAULT 'PRIVATE',
     rustfs_key VARCHAR(500), original_name VARCHAR(255) NOT NULL,
     safe_name VARCHAR(255) NOT NULL, file_url VARCHAR(500), file_size INTEGER,
     user_id INTEGER, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

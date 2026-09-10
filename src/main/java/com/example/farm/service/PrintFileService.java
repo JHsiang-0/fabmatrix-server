@@ -50,6 +50,9 @@ public interface PrintFileService extends IService<PrintFile> {
      */
     PrintFile createFolder(Long parentId, String folderName);
 
+    /** 创建目录；根目录可由管理员显式指定 PUBLIC，子目录始终继承父目录可见性。 */
+    PrintFile createFolder(Long parentId, String folderName, String visibility);
+
     /** 重命名非默认文件夹，不触碰对象存储。 */
     PrintFile renameFolder(Long id, String folderName);
 

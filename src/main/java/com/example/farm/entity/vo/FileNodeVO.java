@@ -33,6 +33,24 @@ public class FileNodeVO {
     @Schema(description = "目录所属用户ID")
     private Long userId;
 
+    @Schema(description = "可见性：PRIVATE 或 PUBLIC")
+    private String visibility;
+
+    @Schema(description = "当前用户是否可以管理目录结构")
+    private Boolean canManage;
+
+    @Schema(description = "当前用户是否可以在目录中上传或创建子目录")
+    private Boolean canUpload;
+
+    @Schema(description = "当前用户是否可以在该目录下创建子目录")
+    private Boolean canCreate;
+
+    @Schema(description = "当前用户是否可以删除节点")
+    private Boolean canDelete;
+
+    @Schema(description = "当前用户是否可以移动节点")
+    private Boolean canMove;
+
     @Schema(description = "目录名或文件原始名")
     private String name;
 
@@ -55,6 +73,12 @@ public class FileNodeVO {
         node.folder = Boolean.TRUE.equals(file.getIsFolder());
         node.isDefault = Boolean.TRUE.equals(file.getIsDefaultFolder());
         node.userId = file.getUserId();
+        node.visibility = file.getVisibility();
+        node.canManage = Boolean.TRUE.equals(file.getCanManage());
+        node.canUpload = Boolean.TRUE.equals(file.getCanUpload());
+        node.canCreate = Boolean.TRUE.equals(file.getCanCreate());
+        node.canDelete = Boolean.TRUE.equals(file.getCanDelete());
+        node.canMove = Boolean.TRUE.equals(file.getCanMove());
         node.name = file.getOriginalName();
         node.fileSize = node.folder ? null : file.getFileSize();
         node.materialType = node.folder ? null : file.getMaterialType();

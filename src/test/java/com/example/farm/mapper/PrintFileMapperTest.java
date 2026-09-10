@@ -58,6 +58,7 @@ class PrintFileMapperTest {
                     parent_id BIGINT,
                     is_folder BOOLEAN NOT NULL,
                     is_default_folder BOOLEAN NOT NULL DEFAULT FALSE,
+                    visibility VARCHAR(7) NOT NULL DEFAULT 'PRIVATE',
                     rustfs_key VARCHAR(255),
                     original_name VARCHAR(255) NOT NULL,
                     safe_name VARCHAR(255) NOT NULL,

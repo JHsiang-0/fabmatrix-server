@@ -28,11 +28,16 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_dispatch_plan_item", "source_plan_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_item_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "recovery_action", "VARCHAR(64)");
+        addColumnIfMissing("farm_print_file", "visibility", "VARCHAR(7) NOT NULL DEFAULT 'PRIVATE'");
         addPrinterMonitorColumnsIfMissing();
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_dispatch_plan_created_retry_key "
                 + "ON farm_dispatch_plan(created_by, retry_key)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_monitor_enabled "
                 + "ON farm_printer(monitor_enabled, firmware_type)");
+        jdbcTemplate.update("UPDATE farm_print_file SET visibility = 'PRIVATE' "
+                + "WHERE visibility IS NULL OR UPPER(visibility) NOT IN ('PRIVATE', 'PUBLIC')");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_print_file_visibility_parent "
+                + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();
     }
 
@@ -132,8 +137,8 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 }
                 jdbcTemplate.update("""
                         INSERT INTO farm_print_file
-                            (parent_id, is_folder, is_default_folder, original_name, safe_name, user_id)
-                        VALUES (NULL, 1, 1, ?, ?, ?)
+                            (parent_id, is_folder, is_default_folder, visibility, original_name, safe_name, user_id)
+                        VALUES (NULL, 1, 1, 'PRIVATE', ?, ?, ?)
                         """, defaultFolderName, "folder_default_" + userId, userId);
                 defaultId = jdbcTemplate.queryForObject("""
                         SELECT id
@@ -146,7 +151,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
             if (defaultId != null) {
                 jdbcTemplate.update("""
                         UPDATE farm_print_file
-                        SET parent_id = ?
+                SET parent_id = ?
                         WHERE user_id = ? AND parent_id IS NULL AND is_folder = 0
                         """, defaultId, userId);
             }

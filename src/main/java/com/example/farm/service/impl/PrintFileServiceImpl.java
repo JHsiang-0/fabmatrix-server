@@ -46,6 +46,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile> implements PrintFileService {
 
+    private static final String PRIVATE = "PRIVATE";
+    private static final String PUBLIC = "PUBLIC";
+
     private static final int META_SAMPLE_SIZE = 8192;
     private static final int DEEP_TAIL_SAMPLE_SIZE = 512 * 1024; // 512KB
     private static final long FULL_PARSE_MAX_BYTES = 100L * 1024 * 1024; // 100MB
@@ -64,7 +67,8 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         // parentId 为 NULL 时查询根目录（parent_id IS NULL）
         LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
         if (!SecurityContextUtil.isAdmin()) {
-            wrapper.eq(PrintFile::getUserId, currentUserId);
+            wrapper.and(query -> query.eq(PrintFile::getVisibility, PUBLIC)
+                    .or().eq(PrintFile::getUserId, currentUserId));
         }
         if (parentId == null) {
             wrapper.isNull(PrintFile::getParentId);
@@ -75,7 +79,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         // 文件夹排在前面，文件按创建时间倒序
         wrapper.orderByDesc(PrintFile::getIsFolder)
                 .orderByDesc(PrintFile::getCreatedAt);
-        return this.list(wrapper);
+        List<PrintFile> result = this.list(wrapper);
+        result.forEach(file -> enrichCapabilities(file, null));
+        return result;
     }
 
     @Override
@@ -93,6 +99,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             if (file.getId() == null || !Boolean.TRUE.equals(file.getIsFolder())) {
                 continue;
             }
+            enrichCapabilities(file, null);
             nodes.put(file.getId(), FileNodeVO.from(file));
             filesById.put(file.getId(), file);
         }
@@ -132,6 +139,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (Boolean.TRUE.equals(file.getIsFolder())) {
             throw new BusinessException(422, "目录不支持文件预览");
         }
+        enrichCapabilities(file, null);
         return PrintFilePreviewVO.from(file);
     }
 
@@ -146,7 +154,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             if (ancestor == null) {
                 return true;
             }
-            if (!Objects.equals(file.getUserId(), ancestor.getUserId())) {
+            if (!sameVisibility(file, ancestor)) {
                 return true;
             }
             ancestorId = ancestor.getParentId();
@@ -175,12 +183,28 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PrintFile createFolder(Long parentId, String folderName) {
+        return createFolder(parentId, folderName, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PrintFile createFolder(Long parentId, String folderName, String requestedVisibility) {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
         if (folderName == null || folderName.isBlank()) {
             throw new BusinessException(400, "文件夹名称不能为空");
         }
 
         PrintFile parent = parentId == null ? null : requireFolderParent(parentId);
+        String visibility = parent == null
+                ? normalizeVisibility(requestedVisibility)
+                : normalizeVisibility(parent.getVisibility());
+        if (parent == null && PUBLIC.equals(visibility) && !SecurityContextUtil.isAdmin()) {
+            throw new BusinessException(403, "只有管理员可以创建公共目录");
+        }
+        if (parent != null && requestedVisibility != null
+                && !visibility.equalsIgnoreCase(requestedVisibility.trim())) {
+            throw new BusinessException(403, "目录可见性必须与父目录一致");
+        }
 
         String normalizedFolderName = folderName.trim();
         if (normalizedFolderName.length() > 100 || containsUnsafeFolderCharacter(normalizedFolderName)) {
@@ -209,6 +233,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         folder.setParentId(parentId);
         folder.setIsFolder(true);
         folder.setIsDefaultFolder(false);
+        folder.setVisibility(visibility);
         folder.setOriginalName(normalizedFolderName); // 复用 originalName 字段存储文件夹名称
         folder.setSafeName("folder_" + System.currentTimeMillis()); // 文件夹占位符
         folder.setUserId(currentUserId);
@@ -217,6 +242,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (!this.save(folder)) {
             throw new BusinessException("创建文件夹失败");
         }
+        enrichCapabilities(folder, null);
         log.info("创建文件夹成功: folderId={}, parentId={}, level={}, name={}",
                 folder.getId(), parentId, parent == null ? 1 : 2, normalizedFolderName);
         return folder;
@@ -250,6 +276,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             }
         }
 
+        resultPage.getRecords().forEach(file -> enrichCapabilities(file, null));
         return resultPage;
     }
 
@@ -366,6 +393,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         printFile.setParentId(resolvedParentId);
         printFile.setIsFolder(false);
         printFile.setIsDefaultFolder(false);
+        printFile.setVisibility(normalizeVisibility(resolveUploadParent(resolvedParentId, userId).getVisibility()));
         printFile.setCreatedAt(LocalDateTime.now());
 
         printFile.setEstTime(meta.getEstimatedPrintTimeSeconds());
@@ -428,6 +456,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             throw exception;
         }
         recordSuccess("FILE_UPLOAD", "FILE", printFile.getId(), printFile.getOriginalName());
+        enrichCapabilities(printFile, null);
         log.info("切片文件入库成功: fileId={}, userId={}, safeName={}", printFile.getId(), userId, safeName);
         return printFile;
     }
@@ -516,6 +545,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     public void deleteFile(Long id) {
         Long userId = SecurityContextUtil.getCurrentUserId();
         PrintFile target = getAccessibleFile(id);
+        if (!canDeleteFile(target)) {
+            throw new BusinessException(403, "无权删除此文件");
+        }
         ensureDeletable(target);
 
         deleteThumbnailIfPresent(target);
@@ -537,6 +569,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         }
         if (Boolean.TRUE.equals(folder.getIsDefaultFolder())) {
             throw new BusinessException(422, "默认目录不可删除");
+        }
+        if (!canManageFolder(folder)) {
+            throw new BusinessException(403, "无权管理该文件夹");
         }
 
         Integer childCount = baseMapper.countChildrenByParentId(id);
@@ -603,8 +638,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (file == null || Boolean.TRUE.equals(file.getIsFolder())) {
             throw new BusinessException(404, "文件不存在");
         }
-        Long currentUserId = SecurityContextUtil.getCurrentUserId();
-        if (!SecurityContextUtil.isAdmin() && !Objects.equals(file.getUserId(), currentUserId)) {
+        if (!canRead(file)) {
             throw new BusinessException(404, "文件不存在");
         }
         return rustFsClient.getFileStream(file.getSafeName());
@@ -689,6 +723,12 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 PrintFile file = getAccessibleFile(id);
                 if (Boolean.TRUE.equals(file.getIsFolder())) {
                     throw new BusinessException(422, "文件夹不能通过文件移动接口移动");
+                }
+                if (!canMoveFile(file)) {
+                    throw new BusinessException(403, "无权移动此文件");
+                }
+                if (target != null && !sameVisibility(file, target)) {
+                    throw new BusinessException(403, "禁止跨可见性移动文件");
                 }
                 if (target != null && !Objects.equals(file.getUserId(), target.getUserId())) {
                     throw new BusinessException(403, "目标文件夹必须属于文件所属用户");
@@ -797,6 +837,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (Boolean.TRUE.equals(folder.getIsDefaultFolder())) {
             throw new BusinessException(422, defaultFolderMessage);
         }
+        if (!canManageFolder(folder)) {
+            throw new BusinessException(403, "无权管理该文件夹");
+        }
         return folder;
     }
 
@@ -820,7 +863,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             }
             PrintFile parent = foldersById.get(parentId);
             if (parent == null || !Boolean.TRUE.equals(parent.getIsFolder())
-                    || !Objects.equals(folder.getUserId(), parent.getUserId())) {
+                    || !sameVisibility(folder, parent)) {
                 return -1;
             }
             level++;
@@ -853,15 +896,78 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         return (bytes / (1024L * 1024)) + "MB";
     }
 
+    private String normalizeVisibility(String visibility) {
+        return PUBLIC.equalsIgnoreCase(String.valueOf(visibility)) ? PUBLIC : PRIVATE;
+    }
+
+    private boolean isPublic(PrintFile file) {
+        return file != null && PUBLIC.equalsIgnoreCase(file.getVisibility());
+    }
+
+    private boolean isOwner(PrintFile file) {
+        return file != null && Objects.equals(file.getUserId(), SecurityContextUtil.getCurrentUserId());
+    }
+
+    private boolean canRead(PrintFile file) {
+        return SecurityContextUtil.isAdmin() || isPublic(file) || isOwner(file);
+    }
+
+    private boolean canUpload(PrintFile folder) {
+        return folder != null && Boolean.TRUE.equals(folder.getIsFolder())
+                && (SecurityContextUtil.isAdmin() || isPublic(folder) || isOwner(folder));
+    }
+
+    private boolean canCreateFolder(PrintFile folder) {
+        return folder != null && Boolean.TRUE.equals(folder.getIsFolder())
+                && (SecurityContextUtil.isAdmin() || (!isPublic(folder) && isOwner(folder)));
+    }
+
+    private boolean canManageFolder(PrintFile folder) {
+        return folder != null && Boolean.TRUE.equals(folder.getIsFolder())
+                && !Boolean.TRUE.equals(folder.getIsDefaultFolder())
+                && (SecurityContextUtil.isAdmin() || (!isPublic(folder) && isOwner(folder)));
+    }
+
+    private boolean canDeleteFile(PrintFile file) {
+        return file != null && !Boolean.TRUE.equals(file.getIsFolder())
+                && (SecurityContextUtil.isAdmin() || isOwner(file));
+    }
+
+    private boolean canMoveFile(PrintFile file) {
+        return file != null && !Boolean.TRUE.equals(file.getIsFolder())
+                && (SecurityContextUtil.isAdmin() || (!isPublic(file) && isOwner(file)));
+    }
+
+    private boolean sameVisibility(PrintFile left, PrintFile right) {
+        return normalizeVisibility(left == null ? null : left.getVisibility())
+                .equals(normalizeVisibility(right == null ? null : right.getVisibility()));
+    }
+
+    private void enrichCapabilities(PrintFile file, Integer level) {
+        if (file == null) {
+            return;
+        }
+        file.setVisibility(normalizeVisibility(file.getVisibility()));
+        file.setCanManage(canManageFolder(file));
+        file.setCanUpload(canUpload(file));
+        file.setCanCreate(canCreateFolder(file));
+        file.setCanDelete(canDeleteFile(file));
+        file.setCanMove(canMoveFile(file));
+        boolean readable = canRead(file);
+        file.setCanPrint(readable && !Boolean.TRUE.equals(file.getIsFolder()));
+        file.setCanDownload(readable && !Boolean.TRUE.equals(file.getIsFolder()));
+        file.setLevel(level != null ? level : (file.getParentId() == null ? 1 : 2));
+    }
+
     private PrintFile getAccessibleFile(Long id) {
         PrintFile file = this.getById(id);
         if (file == null) {
             throw new BusinessException(404, "文件不存在");
         }
-        Long currentUserId = SecurityContextUtil.getCurrentUserId();
-        if (!SecurityContextUtil.isAdmin() && !Objects.equals(file.getUserId(), currentUserId)) {
+        if (!canRead(file)) {
             throw new BusinessException(404, "文件不存在");
         }
+        enrichCapabilities(file, null);
         return file;
     }
 
@@ -871,6 +977,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 throw new BusinessException(422, "默认目录不可删除");
             }
             throw new BusinessException(422, "目录不能通过文件删除接口删除");
+        }
+        if (!canDeleteFile(file)) {
+            throw new BusinessException(403, "无权删除此文件");
         }
         Integer jobCount = baseMapper.countPrintJobsByFileId(file.getId(), null, null);
         if (jobCount != null && jobCount > 0) {
@@ -890,8 +999,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (folder == null) {
             throw new BusinessException(404, "父文件夹不存在");
         }
-        if (!SecurityContextUtil.isAdmin()
-                && !Objects.equals(folder.getUserId(), SecurityContextUtil.getCurrentUserId())) {
+        if (!canRead(folder)) {
             throw new BusinessException(403, "无权访问该文件夹");
         }
         if (!Boolean.TRUE.equals(folder.getIsFolder())) {
@@ -908,7 +1016,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         LambdaQueryWrapper<PrintFile> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PrintFile::getIsFolder, true)
-                .eq(PrintFile::getUserId, folder.getUserId())
+                .eq(PrintFile::getVisibility, normalizeVisibility(folder.getVisibility()))
                 .eq(PrintFile::getOriginalName, normalizedFolderName)
                 .ne(PrintFile::getId, folder.getId());
         if (folder.getParentId() == null) {
@@ -939,8 +1047,12 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         PrintFile folder = requireEditableFolder(id, "默认目录不可移动");
         LambdaQueryWrapper<PrintFile> folderQuery = new LambdaQueryWrapper<>();
-        folderQuery.eq(PrintFile::getIsFolder, true)
-                .eq(PrintFile::getUserId, folder.getUserId());
+        folderQuery.eq(PrintFile::getIsFolder, true);
+        if (!SecurityContextUtil.isAdmin()) {
+            folderQuery.eq(PrintFile::getUserId, folder.getUserId());
+        } else {
+            folderQuery.eq(PrintFile::getVisibility, normalizeVisibility(folder.getVisibility()));
+        }
         List<PrintFile> userFolders = this.list(folderQuery);
         Map<Long, PrintFile> foldersById = new LinkedHashMap<>();
         userFolders.forEach(item -> foldersById.put(item.getId(), item));
@@ -954,9 +1066,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         PrintFile target = null;
         if (parentId != null) {
             target = requireAccessibleFolder(parentId);
+            if (!sameVisibility(folder, target)) {
+                throw new BusinessException(403, "禁止跨可见性移动文件夹");
+            }
             if (!Objects.equals(target.getUserId(), folder.getUserId())) {
                 throw new BusinessException(403, "目标文件夹必须属于源文件夹用户");
             }
+            foldersById.put(target.getId(), target);
             int targetLevel = getFolderLevelForMove(target, foldersById, Map.of());
             if (targetLevel != 1 || target.getParentId() != null) {
                 throw new BusinessException(422, "移动目标必须是一级文件夹");
@@ -980,7 +1096,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         LambdaQueryWrapper<PrintFile> duplicateQuery = new LambdaQueryWrapper<>();
         duplicateQuery.eq(PrintFile::getIsFolder, true)
-                .eq(PrintFile::getUserId, folder.getUserId())
+                .eq(PrintFile::getVisibility, normalizeVisibility(folder.getVisibility()))
                 .eq(PrintFile::getOriginalName, folder.getOriginalName())
                 .ne(PrintFile::getId, folder.getId());
         if (parentId == null) {
@@ -1033,8 +1149,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         }
         PrintFile parent = baseMapper.selectById(folder.getParentId());
         if (parent == null || !Boolean.TRUE.equals(parent.getIsFolder())
-                || !Objects.equals(parent.getUserId(), folder.getUserId())
-                || parent.getParentId() != null) {
+                || !sameVisibility(parent, folder) || parent.getParentId() != null) {
             return -1;
         }
         return 2;
@@ -1042,7 +1157,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private PrintFile requireFolderParent(Long folderId) {
         PrintFile folder = requireAccessibleFolder(folderId);
-        assertOwnedFolder(folder);
+        if (!canCreateFolder(folder)) {
+            throw new BusinessException(403, "无权在该文件夹下创建子目录");
+        }
         int level = getFolderLevelFromStorage(folder);
         if (level < 1 || level >= 2) {
             throw new BusinessException(422, "文件夹最多支持两级目录");
@@ -1052,7 +1169,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private PrintFile requireUploadParent(Long folderId) {
         PrintFile folder = requireAccessibleFolder(folderId);
-        assertOwnedFolder(folder);
+        if (!canUpload(folder)) {
+            throw new BusinessException(403, "无权向该文件夹上传文件");
+        }
         int level = getFolderLevelFromStorage(folder);
         if (level < 1 || level > 2) {
             throw new BusinessException(422, "文件夹层级数据异常");
@@ -1060,19 +1179,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         return folder;
     }
 
-    private void assertOwnedFolder(PrintFile folder) {
-        if (!Objects.equals(folder.getUserId(), SecurityContextUtil.getCurrentUserId())) {
-            throw new BusinessException(403, "无权访问该文件夹");
-        }
-    }
-
     private int getFolderLevelFromStorage(PrintFile folder) {
         if (folder.getParentId() == null) {
             return 1;
         }
         PrintFile parent = requireAccessibleFolder(folder.getParentId());
-        assertOwnedFolder(parent);
-        if (!Boolean.TRUE.equals(parent.getIsFolder()) || parent.getParentId() != null) {
+        if (!Boolean.TRUE.equals(parent.getIsFolder()) || parent.getParentId() != null
+                || !sameVisibility(folder, parent)) {
             return -1;
         }
         return 2;

@@ -23,4 +23,8 @@ public class CreateFolderRequest {
     @Size(max = 100, message = "文件夹名称不能超过100个字符")
     @Pattern(regexp = "^[^/\\\\:*?\"<>|\\p{Cntrl}]+$", message = "文件夹名称包含非法字符")
     private String folderName;
+
+    @Schema(description = "根目录可见性；仅 ADMIN 可指定 PUBLIC，子目录始终继承父目录")
+    @Pattern(regexp = "(?i)PRIVATE|PUBLIC", message = "目录可见性必须为 PRIVATE 或 PUBLIC")
+    private String visibility;
 }

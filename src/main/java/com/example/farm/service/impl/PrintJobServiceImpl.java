@@ -248,7 +248,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (Boolean.TRUE.equals(fileRecord.getIsFolder())) {
             throw new BusinessException(422, "不能对文件夹创建打印任务");
         }
-        if (!SecurityContextUtil.isAdmin() && !Objects.equals(fileRecord.getUserId(), userId)) {
+        if (!SecurityContextUtil.isAdmin()
+                && !"PUBLIC".equalsIgnoreCase(fileRecord.getVisibility())
+                && !Objects.equals(fileRecord.getUserId(), userId)) {
             throw new BusinessException(404, "所选的切片文件不存在");
         }
         return fileRecord;
@@ -913,7 +915,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         PrintFile file = printFileMapper.selectById(fileId);
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
         boolean admin = SecurityContextUtil.isAdmin();
-        if (file == null || (!admin && !Objects.equals(file.getUserId(), currentUserId))) {
+        if (file == null || (!admin
+                && !"PUBLIC".equalsIgnoreCase(file.getVisibility())
+                && !Objects.equals(file.getUserId(), currentUserId))) {
             throw new BusinessException(404, "文件不存在");
         }
 

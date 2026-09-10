@@ -88,6 +88,9 @@ class PrintFileQueryTest {
         mockUser(1L, "OPERATOR");
         PrintFile file = new PrintFile();
         file.setId(20L);
+        file.setUserId(1L);
+        file.setIsFolder(false);
+        file.setVisibility("PRIVATE");
         Page<PrintFile> page = new Page<>(1, 10);
         page.setRecords(List.of(file));
         when(printFileMapper.selectFilePage(any(), eq(1L), eq(false), isNull(), isNull(), isNull(), isNull(), isNull()))

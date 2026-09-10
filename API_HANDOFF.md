@@ -251,15 +251,15 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | DELETE | `/print-files/{id}` | ADMIN/OPERATOR | Path ID | `Result<null>` |
 | DELETE | `/print-files/folder/{id}` | ADMIN/OPERATOR | Path folder ID；仅空的非默认目录 | `Result<null>` |
 | PUT | `/print-files/folder/{id}/rename` | ADMIN/OPERATOR | `{"folderName":"新名称"}` | `PrintFileVO` |
-| PUT | `/print-files/folder/{id}/move` | ADMIN/OPERATOR | `{"parentId":null}` 或同用户一级目录 ID | `PrintFileVO` |
+| PUT | `/print-files/folder/{id}/move` | ADMIN/OPERATOR | `{"parentId":null}` 或同可见性一级目录 ID；PUBLIC 目录允许 ADMIN 跨创建者 | `PrintFileVO` |
 | DELETE | `/print-files/batch` | ADMIN/OPERATOR | `{"ids":[1,2]}`，最多100个 | `Result<BatchDeleteResult>`，包含每个 ID 的成功/失败原因 |
 | PUT | `/print-files/batch/move` | ADMIN/OPERATOR | `{"ids":[1,2],"parentId":null|number}`，最多100个 | `Result<BatchMoveResult>`，返回 `totalCount/movedCount/failedCount/items/message` 及每个 ID 的成功/失败原因 |
 | GET | `/print-files/folder/content` | ADMIN/OPERATOR | Query：`parentId?` | `PrintFileVO[]` |
 | POST | `/print-files/folder/create` | ADMIN/OPERATOR | `parentId,folderName` | `PrintFileVO` |
 
-`POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员始终只能查询本人文件，管理员可通过 `userId` 查询指定用户，不传则查询全部用户。
+`POST /print-files/page` 的筛选约定：`fileName` 对 `original_name` 做包含匹配，服务端会去除首尾空格；`materialType` 对 `material_type` 做精确匹配，服务端会去除首尾空格并按大写规范化（例如 ` pla ` 等价于 `PLA`）。操作员可查询本人文件及有效路径上的 PUBLIC 文件，管理员可通过 `userId` 查询指定用户，不传则查询全部可读文件。
 
-文件库目录约定：目录树只返回真实文件夹节点；每个用户都有唯一的一级默认目录“我的文件夹”，目录最多两级。上传时 `parentId` 省略或为 `null` 会归入当前用户的默认目录；分页查询的 `parentId` 省略或为 `null` 仍表示根目录兼容查询。指定目录必须存在、为文件夹且属于当前用户（管理员可读取全部目录，但创建/上传仍按目标目录归属校验）。前端不要发送 `keyword`，文件名搜索字段固定为 `fileName`。
+文件库目录约定：目录树只返回真实文件夹节点；每个用户都有唯一的一级默认目录“我的文件夹”，目录最多两级。上传时 `parentId` 省略或为 `null` 会归入当前用户的默认目录；分页查询的 `parentId` 省略或为 `null` 仍表示根目录兼容查询。文件及其完整祖先链必须存在、均为文件夹关系且 visibility 一致，否则安全拒绝访问；PRIVATE 根及其祖先归属当前用户（ADMIN 可读取有效 PRIVATE 路径）。PUBLIC 文件可被其他用户读取和参与批量派发。指定目录必须存在且为有效文件夹；创建/上传按目标目录可见性和归属校验，ADMIN 可在 PUBLIC 空间跨创建者移动。前端不要发送 `keyword`，文件名搜索字段固定为 `fileName`。
 
 文件列表页面查询直接文件时必须发送 `folder=false`；该条件由数据库分页 SQL 执行，返回结果不包含目录且 `total` 与结果范围一致。省略 `folder` 仅用于旧客户端的文件/目录混合兼容行为，不应作为新文件库界面的默认请求。
 
@@ -305,7 +305,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 - 文件夹名称最多100个字符，不允许 `/`、`\\`、控制字符及 `:*?\"<>|`；`parentId` 必须为正数或省略表示根目录。
 
 - 文件夹重命名使用 `PUT /api/v1/print-files/folder/{id}/rename`，请求体为 `{"folderName":"..."}`。服务端校验目录存在且可访问、非默认目录、名称非空且最多100个字符、名称字符合法，并拒绝同一用户同一父目录下的重名；成功只更新 `original_name` 并写入 `FOLDER_RENAME` 审计日志，不调用对象存储。
-- 文件夹移动使用 `PUT /api/v1/print-files/folder/{id}/move`，请求体为 `{"parentId":null|number}`；`null` 表示根目录，非空目标必须是源目录所属用户的有效一级目录。默认目录不可作为源目录，管理员也不能跨用户移动；服务端拒绝移动到自身/子孙目录、同级重名以及导致第三级目录的结果，只更新 `parent_id` 并写入 `FOLDER_MOVE` 审计日志，不移动文件、不调用对象存储。
+- 文件夹移动使用 `PUT /api/v1/print-files/folder/{id}/move`，请求体为 `{"parentId":null|number}`；`null` 表示根目录，非空目标必须是源目录同一 visibility 的有效一级目录。默认目录不可作为源目录；PRIVATE 目录保持同一用户归属，ADMIN 可跨创建者移动 PUBLIC 目录。服务端拒绝移动到自身/子孙目录、同级重名以及导致第三级目录的结果，只更新 `parent_id` 并写入 `FOLDER_MOVE` 审计日志，不移动文件、不调用对象存储。
 - 文件批量移动使用 `PUT /api/v1/print-files/batch/move`，请求体为 `{"ids":[1,2],"parentId":null|number}`，单次最多100个文件；目标目录必须可访问且为文件夹，文件逐项校验归属并返回 `id`、`success`、`reason`。成功项只更新 `parent_id` 并写入 `FILE_MOVE` 审计日志，不允许移动文件夹，也不调用对象存储；`parentId=null` 表示根目录。
 
 - 批量添加打印机、批量删除文件、批量更新位置单次最多100项。批量删除返回 `items`，每项包含 `id`、`success`、`reason`；批量添加返回 `items`，每项包含 `index`、地址、成功标志和原因。
@@ -782,7 +782,7 @@ src/main/resources/db/migration/13-v2-print-file-default-folders.sql
 
 ### 9.2.1 Local Edition
 
-使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，监控索引由 `LocalSchemaMigration` 在字段补齐后创建。旧 Local SQLite 数据库由 `LocalSchemaMigration` 在启动时按缺失字段/索引补齐，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
+使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，监控索引由 `LocalSchemaMigration` 在字段补齐后创建。旧 Local SQLite 数据库由 `LocalSchemaMigration` 在启动时按缺失字段/索引补齐，默认目录整棵子树强制为 `PRIVATE`，并执行文件目录异常诊断；孤儿、循环、超深、同级目录重名、非文件夹父级、重复默认目录或父子 visibility 冲突会在业务启动前阻断。该流程可重复执行，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
 
 ### 9.3 测试环境
 

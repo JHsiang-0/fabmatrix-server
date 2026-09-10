@@ -314,6 +314,28 @@ class PrintFileOwnershipTest {
     }
 
     @Test
+    void adminCanMovePublicFolderAcrossCreators() {
+        mockUser(1L, "ADMIN");
+        PrintFile source = folder(30L, 2L, null, "Public source");
+        source.setVisibility("PUBLIC");
+        PrintFile target = folder(40L, 3L, null, "Public target");
+        target.setVisibility("PUBLIC");
+        when(printFileMapper.selectById(30L)).thenReturn(source);
+        when(printFileMapper.selectById(40L)).thenReturn(target);
+        when(printFileMapper.selectList(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(source, target));
+        when(printFileMapper.selectOne(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false)))
+                .thenReturn(null);
+        org.mockito.Mockito.doReturn(1).when(printFileMapper)
+                .updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+
+        PrintFile result = printFileService.moveFolder(30L, 40L);
+
+        assertThat(result.getParentId()).isEqualTo(40L);
+        verify(printFileMapper).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
+    }
+
+    @Test
     void rejectsInvalidFolderMoves() {
         mockUser(1L, "ADMIN");
         PrintFile source = folder(30L, 1L, null, "Source");
@@ -466,6 +488,7 @@ class PrintFileOwnershipTest {
         file.setUserId(userId);
         file.setSafeName("20_demo.gcode");
         file.setIsFolder(false);
+        file.setVisibility("PRIVATE");
         return file;
     }
 

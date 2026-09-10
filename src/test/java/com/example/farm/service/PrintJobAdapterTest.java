@@ -183,6 +183,8 @@ class PrintJobAdapterTest {
     private PrintFile file() {
         PrintFile file = new PrintFile();
         file.setId(20L);
+        file.setUserId(2L);
+        file.setVisibility("PRIVATE");
         file.setOriginalName("demo.gcode");
         file.setSafeName("safe-demo.gcode");
         return file;

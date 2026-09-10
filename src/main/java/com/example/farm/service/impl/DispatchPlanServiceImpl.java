@@ -3,6 +3,7 @@ package com.example.farm.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
+import com.example.farm.common.utils.PrintFileAccess;
 import com.example.farm.entity.DispatchPlan;
 import com.example.farm.entity.DispatchPlanItem;
 import com.example.farm.entity.PrintFile;
@@ -256,9 +257,6 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         if (plan == null) {
             throw new BusinessException(404, "批量计划不存在");
         }
-        if (!SecurityContextUtil.isAdmin() && !Objects.equals(plan.getCreatedBy(), userId)) {
-            throw new BusinessException(404, "批量计划不存在");
-        }
         if (!Objects.equals(plan.getVersion(), request.getVersion())) {
             throw new BusinessException(409, "批量计划版本已变化，请重新预览");
         }
@@ -280,6 +278,13 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
                 || requestedIds.stream().anyMatch(id -> !itemById.containsKey(id))) {
             throw new BusinessException(400, "确认的计划明细无效");
         }
+        Map<Long, PrintFile> requestedFiles = loadFiles(allItems.stream()
+                .filter(item -> requestedIds.contains(item.getId()))
+                .map(DispatchPlanItem::getFileId).toList(), userId);
+        if (requestedIds.stream().map(id -> itemById.get(id).getFileId())
+                .anyMatch(fileId -> !requestedFiles.containsKey(fileId))) {
+            throw new BusinessException(404, "批量计划不存在");
+        }
 
         if (!DispatchPlanStatus.PREVIEWED.name().equals(plan.getStatus())) {
             return storedResult(plan, allItems, requestedIds, true);
@@ -297,8 +302,12 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         plan.setConfirmedAt(confirmedAt);
         plan.setUpdatedAt(confirmedAt);
 
-        Map<Long, PrintFile> files = loadFiles(allItems.stream().map(DispatchPlanItem::getFileId).toList());
-        Map<Long, Printer> printers = loadPrinters(allItems.stream().map(DispatchPlanItem::getPrinterId)
+        Map<Long, PrintFile> files = loadFiles(allItems.stream()
+                .filter(item -> requestedIds.contains(item.getId()))
+                .map(DispatchPlanItem::getFileId).toList());
+        Map<Long, Printer> printers = loadPrinters(allItems.stream()
+                .filter(item -> requestedIds.contains(item.getId()))
+                .map(DispatchPlanItem::getPrinterId)
                 .filter(Objects::nonNull).distinct().toList());
         for (String itemId : requestedIds) {
             executeItem(plan, itemById.get(itemId), files, printers, userId);
@@ -475,17 +484,35 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
     }
 
     private Map<Long, PrintFile> loadFiles(List<Long> ids) {
-        return loadFiles(ids, null);
+        return loadFiles(ids, SecurityContextUtil.getCurrentUserId());
     }
 
     private Map<Long, PrintFile> loadFiles(List<Long> ids, Long userId) {
         Map<Long, PrintFile> result = new HashMap<>();
         if (ids == null) return result;
+        Map<Long, PrintFile> candidates = new HashMap<>();
         printFileMapper.selectBatchIds(ids).forEach(file -> {
-            if (userId == null || SecurityContextUtil.isAdmin() || Objects.equals(file.getUserId(), userId)) {
-                result.put(file.getId(), file);
+            if (file != null && file.getId() != null) {
+                candidates.put(file.getId(), file);
             }
         });
+        Long effectiveUserId = userId == null ? SecurityContextUtil.getCurrentUserId() : userId;
+        boolean admin = SecurityContextUtil.isAdmin();
+        for (Long id : ids) {
+            PrintFile candidate = candidates.get(id);
+            if (candidate == null) {
+                continue;
+            }
+            try {
+                PrintFile accessible = PrintFileAccess.requireAccessible(id, lookupId ->
+                                Objects.equals(id, lookupId) ? candidate : printFileMapper.selectById(lookupId),
+                        effectiveUserId, admin);
+                result.put(accessible.getId(), accessible);
+            } catch (BusinessException exception) {
+                // The plan keeps an explicit FILE_NOT_FOUND conflict instead of leaking
+                // whether a malformed or unauthorized file record exists.
+            }
+        }
         return result;
     }
 

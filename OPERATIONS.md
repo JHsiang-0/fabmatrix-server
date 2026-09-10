@@ -72,9 +72,9 @@ Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。
 
 `11-printer-monitor-reliability.sql` 使用 MySQL 8 元数据检查，监控字段和 `idx_printer_monitor_enabled` 索引缺失时才添加，可安全重复执行。旧 `farm_printer` 记录新增 `monitor_enabled` 时默认值为 `0`，不会因迁移自动纳入轮询；管理员确认设备后再通过监控 API 启用。
 
-UI-004.20 文件可见性迁移使用 `15-v2-print-file-visibility-mysql.sql`（MySQL）或
-`15-v2-print-file-visibility-sqlite.sql`（SQLite）。MySQL 脚本可重复执行；SQLite 脚本是受控一次性脚本，Local Edition 启动器中的
-`LocalSchemaMigration` 会安全重复执行同等列、回填和索引操作。执行前必须备份数据库并保留脚本输出。
+UI-004.20 文件可见性迁移使用 `15-v2-print-file-visibility-mysql.sql`（MySQL）。SQLite 没有
+`ALTER TABLE ADD COLUMN IF NOT EXISTS`，因此 `15-v2-print-file-visibility-sqlite.sql` 是在列已由
+`LocalSchemaMigration` 补齐后执行的诊断/回填脚本；Local Edition 启动迁移是 SQLite 的唯一可重复 schema 入口，不能把手工脚本当作可重复的列迁移执行。两条入口都会把默认目录整棵子树固定为 `PRIVATE`，输出公共候选、孤儿、循环、超深、同级目录重名和父子可见性冲突诊断；结构或可见性异常会阻止 Local 启动。执行前必须备份数据库并保留脚本输出。
 
 ### 已有数据卷的升级步骤
 
@@ -158,13 +158,13 @@ docker compose exec -T mysql sh -c \
 mvn spring-boot:run
 ```
 
-`13-v2-print-file-default-folders.sql` 只会补齐可确定的默认目录并将根目录文件归入唯一默认目录；发现同名冲突、重复默认目录、孤儿/循环或超过两级的目录时会输出诊断并保留现场，不应把校验结果视为可忽略警告。若上述核对查询返回异常记录，先停止应用、保留备份并人工处理后重新执行迁移；不要直接删除数据卷。
+`13-v2-print-file-default-folders.sql` 只会补齐可确定的默认目录并将根目录文件归入唯一默认目录；`15-v2` 会再次将默认目录整棵子树（包括已有 PUBLIC 节点）固定为 `PRIVATE`。发现同名冲突、重复默认目录、孤儿/循环、非文件夹父级或超过两级的目录时会输出诊断并保留现场，不应把校验结果视为可忽略警告。Local Edition 会在启动前阻断这些异常；MySQL 手工迁移后也必须先停止应用、保留备份并人工处理，再重新执行迁移，不要直接删除数据卷。
 
 如果迁移验证失败，先停止应用并保留备份，再根据失败脚本和数据库备份制定回滚方案；不要直接删除 Docker 数据卷。
 
 ### 文件库可见性发布与回滚
 
-迁移默认把所有历史文件和目录标记为 `PRIVATE`，包括所有非默认目录；脚本输出的非默认节点清单是公共候选预览，不是发布操作。管理员应核对归属、父级、后代数量、孤儿/循环/超过两级目录和同名冲突，形成审批记录后，才可对明确的公共根及其全部后代执行受控更新。禁止只更新根目录而留下可见性不一致的后代，也禁止用 `is_default_folder=0` 作为发布条件。
+迁移默认把默认目录整棵子树标记为 `PRIVATE`，并保留其他历史节点的显式可见性；脚本输出的每个 PUBLIC 候选及其全部后代清单是审批预览，不是发布操作。管理员应核对归属、父级、后代数量、孤儿/循环/超过两级目录和同级目录重名，形成审批记录后，才可对明确的公共根及其全部后代执行受控更新。禁止只更新根目录而留下可见性不一致的后代，也禁止用 `is_default_folder=0` 作为发布条件。
 
 发布前先导出候选 ID 和当前值；如需回滚，只能根据该审计快照将本次发布的 ID 恢复为 `PRIVATE`，不得删除目录、文件或对象存储内容。发布后核对 `visibility` 分布、默认目录及后代均为 `PRIVATE`，并用 ADMIN/OPERATOR 分别验证树、分页、下载和创建任务。
 

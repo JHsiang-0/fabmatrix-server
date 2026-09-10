@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,11 +53,15 @@ class PrintFileTreeTest {
     @Test
     void operatorReceivesOwnFolderTreeAndSkipsFilesOrphans() {
         mockUser(7L, "OPERATOR");
-        when(printFileMapper.selectAccessibleFileTree(7L, false)).thenReturn(List.of(
+        List<PrintFile> records = List.of(
                 folder(1L, null, "Models"),
                 folder(2L, 1L, "Toys"),
                 file(3L, 2L, "cube.gcode"),
-                folderWithParent(4L, 999L, "orphan")));
+                folderWithParent(4L, 999L, "orphan"));
+        when(printFileMapper.selectAccessibleFileTree(7L, false)).thenReturn(records);
+        when(printFileMapper.selectById(any())).thenAnswer(invocation -> records.stream()
+                .filter(record -> record.getId().equals(invocation.getArgument(0)))
+                .findFirst().orElse(null));
 
         List<FileNodeVO> roots = printFileService.getFileTree();
 
@@ -90,6 +95,7 @@ class PrintFileTreeTest {
         folder.setIsFolder(true);
         folder.setOriginalName(name);
         folder.setUserId(7L);
+        folder.setVisibility("PRIVATE");
         return folder;
     }
 

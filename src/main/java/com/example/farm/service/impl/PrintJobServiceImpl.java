@@ -9,6 +9,7 @@ import com.example.farm.common.utils.LogUtil;
 import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.common.storage.FileStorage;
 import com.example.farm.common.utils.SecurityContextUtil;
+import com.example.farm.common.utils.PrintFileAccess;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
@@ -240,9 +241,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     private PrintFile validateUsableFile(Long fileId, Long userId) {
-        PrintFile fileRecord = printFileMapper.selectById(fileId);
-        if (fileRecord == null) {
-            log.warn("创建打印任务失败：切片文件不存在，fileId={}, userId={}", fileId, userId);
+        PrintFile fileRecord;
+        try {
+            fileRecord = PrintFileAccess.requireAccessible(fileId, printFileMapper::selectById,
+                    userId, SecurityContextUtil.isAdmin());
+        } catch (BusinessException exception) {
+            log.warn("创建打印任务失败：切片文件不存在或路径无效，fileId={}, userId={}", fileId, userId);
             throw new BusinessException(404, "所选的切片文件不存在");
         }
         if (Boolean.TRUE.equals(fileRecord.getIsFolder())) {
@@ -292,7 +296,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         eventPublisher.publishJobStatus(job);
 
         // 从切片文件获取工艺参数，做材料与喷嘴校验
-        PrintFile fileRecord = printFileMapper.selectById(job.getFileId());
+        PrintFile fileRecord = PrintFileAccess.requireAccessible(job.getFileId(), printFileMapper::selectById);
         if (fileRecord == null) {
             throw new BusinessException("切片文件数据缺失");
         }
@@ -462,7 +466,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
 
         // 获取文件信息
-        PrintFile fileRecord = printFileMapper.selectById(job.getFileId());
+        PrintFile fileRecord = PrintFileAccess.requireAccessible(job.getFileId(), printFileMapper::selectById);
         if (fileRecord == null) {
             throw new BusinessException("切片文件数据缺失");
         }
@@ -912,14 +916,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
     @Override
     public Page<PrintJob> queryJobsByFileId(Long fileId, FileJobsQueryDTO query) {
-        PrintFile file = printFileMapper.selectById(fileId);
+        PrintFile file = PrintFileAccess.requireAccessible(fileId, printFileMapper::selectById);
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
         boolean admin = SecurityContextUtil.isAdmin();
-        if (file == null || (!admin
-                && !"PUBLIC".equalsIgnoreCase(file.getVisibility())
-                && !Objects.equals(file.getUserId(), currentUserId))) {
-            throw new BusinessException(404, "文件不存在");
-        }
 
         int pageNum = query != null && query.getPageNum() != null ? query.getPageNum() : 1;
         int pageSize = query != null && query.getPageSize() != null ? query.getPageSize() : 10;

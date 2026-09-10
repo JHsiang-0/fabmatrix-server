@@ -265,6 +265,46 @@ class DispatchPlanServiceTest {
     }
 
     @Test
+    void publicFileBatchPlanCanBeConfirmedByAnotherOperator() {
+        mockUser(2L, "OPERATOR");
+        PrintFile publicFile = file(11L);
+        publicFile.setUserId(1L);
+        publicFile.setVisibility("PUBLIC");
+        Printer printer = printer(564L);
+        when(printFileMapper.selectBatchIds(anyList())).thenReturn(List.of(publicFile));
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(564L)).thenReturn(printer);
+        when(planMapper.insert(any(DispatchPlan.class))).thenAnswer(invocation -> {
+            capturedPlan = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.insert(any(DispatchPlanItem.class))).thenAnswer(invocation -> {
+            capturedItem = invocation.getArgument(0);
+            return 1;
+        });
+        when(itemMapper.selectList(any())).thenAnswer(invocation -> List.of(capturedItem));
+        when(itemMapper.updateById(any(DispatchPlanItem.class))).thenReturn(1);
+        when(planMapper.claimForExecution(any(), any())).thenReturn(1);
+        when(printJobService.createJob(any(), any())).thenReturn(9002L);
+
+        BatchDispatchPreviewRequest publicRequest = request("QUEUE");
+        publicRequest.setFileIds(List.of(11L));
+        var preview = service().preview(publicRequest);
+
+        mockUser(3L, "OPERATOR");
+        BatchDispatchConfirmRequest confirm = confirmRequest(preview);
+        when(planMapper.selectById(preview.getPlanId())).thenReturn(capturedPlan);
+
+        var result = service().confirm(confirm);
+
+        assertThat(result.getItems()).singleElement().satisfies(item -> {
+            assertThat(item.getJobId()).isEqualTo(9002L);
+            assertThat(item.getStatus()).isEqualTo("ASSIGNED");
+        });
+        verify(printJobService).createJob(any(), eq(3L));
+    }
+
+    @Test
     void retryPreviewOnlyCopiesRetryableItemsAndRecordsExistingJobRecovery() {
         mockUser(1L, "OPERATOR");
         DispatchPlan sourcePlan = new DispatchPlan();
@@ -341,6 +381,8 @@ class DispatchPlanServiceTest {
         file.setId(id);
         file.setOriginalName("cube.gcode");
         file.setUserId(1L);
+        file.setIsFolder(false);
+        file.setVisibility("PRIVATE");
         file.setMaterialType("PLA");
         file.setNozzleSize(new BigDecimal("0.40"));
         return file;

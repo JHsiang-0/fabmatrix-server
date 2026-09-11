@@ -51,10 +51,11 @@ admin:
 
 # RustFS 测试配置（Mock）
 rustfs:
-  endpoint: http://localhost:9000
+  endpoint: http://127.0.0.1:1
   access-key: test-key
   secret-key: test-secret
   bucket: test-bucket
+  startup-check-enabled: false
 
 # 日志配置 - 减少输出
 logging:

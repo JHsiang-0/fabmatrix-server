@@ -46,6 +46,12 @@ public class RustFsClient implements FileStorage {
     @Value("${rustfs.bucket}")
     private String bucket;
 
+    /**
+     * Server Edition 启动时默认校验 bucket；测试 profile 显式关闭，避免测试进程探测本机 RustFS。
+     */
+    @Value("${rustfs.startup-check-enabled:true}")
+    private boolean startupCheckEnabled = true;
+
     private S3Client s3Client;
     private S3Presigner s3Presigner;
 
@@ -53,32 +59,50 @@ public class RustFsClient implements FileStorage {
     public void init() {
         log.info("正在初始化 RustFS(S3) 客户端: endpoint={}", endpoint);
         try {
-            this.s3Client = S3Client.builder()
-                    .endpointOverride(URI.create(endpoint))
-                    // RustFS 不校验 region，写固定值即可。
-                    .region(Region.US_EAST_1)
-                    .credentialsProvider(StaticCredentialsProvider.create(
-                            AwsBasicCredentials.create(accessKey, secretKey)
-                    ))
-                    // 适配 RustFS 的 Path-Style 地址。
-                    .forcePathStyle(true)
-                    .build();
+            this.s3Client = createS3Client();
 
             // 初始化预签名客户端
-            this.s3Presigner = S3Presigner.builder()
-                    .endpointOverride(URI.create(endpoint))
-                    .region(Region.US_EAST_1)
-                    .credentialsProvider(StaticCredentialsProvider.create(
-                            AwsBasicCredentials.create(accessKey, secretKey)
-                    ))
-                    .build();
+            this.s3Presigner = createS3Presigner();
 
-            // 启动时自动检查并创建 Bucket。
-            createBucketIfNotExists();
+            // 启动时自动检查并创建 Bucket；测试 profile 不触碰外部对象存储。
+            if (startupCheckEnabled) {
+                createBucketIfNotExists();
+            } else {
+                log.info("RustFS 启动 bucket 检查已关闭");
+            }
             log.info("RustFS(S3) 客户端初始化成功");
         } catch (Exception e) {
             log.error("RustFS(S3) 客户端初始化失败，请检查配置或网络", e);
         }
+    }
+
+    /**
+     * 创建 S3 客户端。测试可覆写此工厂注入替身，生产路径保持固定配置。
+     */
+    protected S3Client createS3Client() {
+        return S3Client.builder()
+                .endpointOverride(URI.create(endpoint))
+                // RustFS 不校验 region，写固定值即可。
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)
+                ))
+                // 适配 RustFS 的 Path-Style 地址。
+                .forcePathStyle(true)
+                .build();
+    }
+
+    /**
+     * 创建预签名客户端。测试可覆写此工厂避免建立外部连接。
+     */
+    protected S3Presigner createS3Presigner() {
+        return S3Presigner.builder()
+                .endpointOverride(URI.create(endpoint))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)
+                ))
+                .build();
     }
 
     private void createBucketIfNotExists() {

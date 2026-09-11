@@ -20,7 +20,7 @@
 
 历史快照字段为 `fileNameSnapshot`、`printerNameSnapshot`、`machineNumberSnapshot`、`creatorUsernameSnapshot`、`operatorUsernameSnapshot`；重试字段为 `retryOfJobId`、`rootJobId`、`attemptNumber`。
 
-TC-002 已将 queue/page/detail 切换为独立的 `PrintJobSummaryVO`/`PrintJobDetailVO`，并通过一次 LEFT JOIN 查询提供当前文件、打印机和用户摘要；TC-003 已实施多状态/完成时间分页、文件名筛选、历史终态调用约定和旧状态迁移；TC-007 已实施快照、重试子任务和旧 assign 410。TC-004–TC-006、TC-008 的前端联调仍不在本任务范围。
+TC-002 已将 queue/page/detail 切换为独立的 `PrintJobSummaryVO`/`PrintJobDetailVO`，并通过一次 LEFT JOIN 查询提供当前文件、打印机和用户摘要；TC-003 已实施多状态/完成时间分页、文件名筛选、历史终态调用约定和旧状态迁移；TC-007 已实施快照、重试子任务、谱系冲突检查和旧 assign 410，并通过后端自动化验证。TC-008 自动化范围与真实环境验收分开记录。
 
 ### 2. 查询集合和排序
 
@@ -55,11 +55,11 @@ retry 采用新建任务记录，不使用 attempt 表。新任务为 QUEUED，�
 
 创建写入文件名与创建人快照，分配写入打印机名与机器编号快照，启动写入操作员名快照。快照一旦非空不得因改名覆盖。列表使用 current-first；history 使用 snapshot-first，缺失时回退当前可读字段，最后回退 ID。
 
-旧 `POST /print-jobs/{jobId}/assign` 已标记 deprecated，无论是否提供 `printerId`、值能否解析，当前均固定返回 HTTP 410/业务码 410，不调用任务服务、打印机或设备；前端禁止调用。
+旧 `POST /print-jobs/{jobId}/assign` 已标记 deprecated，无必填请求参数；额外 `printerId` query 被忽略，固定返回 HTTP 410/业务码 410，不调用任务服务、打印机或设备；前端禁止调用。
 
 ### 5. 当前实现与实施任务
 
-TC-001 只冻结契约；TC-002 已上线 queue/page/detail 的目标读模型和摘要 JOIN 查询，safe assign、safe start、safe confirm、reconcile 的成功 `data` 类型均为 null。TC-003 已上线多状态/文件名/创建与完成时间分页及旧状态迁移；TC-007 已上线历史快照、retry 新任务记录、重试审计和旧 assign 410。
+TC-001 只冻结契约；TC-002 已上线 queue/page/detail 的目标读模型和摘要 JOIN 查询，safe assign、safe start、safe confirm、reconcile 的成功 `data` 类型均为 null。TC-003 已上线多状态/文件名/创建与完成时间分页及旧状态迁移；TC-007 已上线历史快照、retry 新任务记录、谱系冲突检查、重试审计和旧 assign 410，并已通过自动化验证。
 
 ## 1. 产品边界
 
@@ -346,7 +346,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID，仅 FAILED | 新建或回放 QUEUED 子任务，返回新 ID 字符串；同一来源自然幂等 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | 已派发任务重新入队 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority` | 更新排队优先级 |
-| POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | 无；额外 Query 被忽略 | deprecated；固定 HTTP 410/业务码 410，不产生服务或设备调用 |
+| POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | 无必填请求参数；额外 `printerId` query 被忽略 | deprecated；固定 HTTP 410/业务码 410，不产生服务或设备调用 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
@@ -866,6 +866,10 @@ src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql
 ```bash
 mvn test
 ```
+
+测试 profile 将 RustFS endpoint 设为不可路由的测试占位值并设置 `rustfs.startup-check-enabled=false`，因此测试上下文不会执行 `HeadBucket` 外部探测；生产默认值仍开启启动 bucket 检查。
+
+TC-008 自动化范围与真实环境验收分开记录：自动化覆盖前端 API/Mock/页面交互、Browser 和 Electron 三尺寸、构建/静态检查，以及后端定向/全量 Maven 与无 RustFS `HeadBucket` 探测；真实 Java API/RustFS/打印机/生产数据库迁移为 **NOT RUN**。实际自动化结果记录在前端仓库 `TC-008-ACCEPTANCE.md`。
 
 测试使用 H2 随机端口，关闭定时任务和 WebSocket；MockMvc 已覆盖核心路由的 401/403/400/404/500 响应和管理员委托路径，文件/任务/打印机 Service 归属与异常测试、WebSocket 生命周期/事件/Ping 测试均已增加。2026-09-03 已使用真实 Docker MySQL、Redis、RustFS 启动 dev 应用完成一次冒烟验证：`/actuator/health` 返回 `UP`，管理员登录、`/auth/me`、打印机分页、文件分页和任务队列均返回 200，分页总数与数据库记录一致；临时 G-code 的上传、预览、预签名下载 URL 和删除也均返回 200，清理后文件记录数量恢复。该验证未连接真实 Klipper/RRF 打印机，也未完成上传到打印完成的完整链路。
 

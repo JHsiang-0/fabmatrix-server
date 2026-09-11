@@ -25,6 +25,7 @@ class FarmApplicationTests {
     void contextLoads() {
         assertThat(applicationContext.containsBean("printerMonitorTask")).isFalse();
         assertThat(applicationContext.containsBean("jobSchedulerTask")).isFalse();
+        assertThat(environment.getProperty("rustfs.startup-check-enabled", Boolean.class)).isFalse();
     }
 
     @Test

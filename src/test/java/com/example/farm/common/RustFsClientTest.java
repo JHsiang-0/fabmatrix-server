@@ -12,6 +12,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -29,6 +32,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,6 +54,41 @@ class RustFsClientTest {
         ReflectionTestUtils.setField(client, "s3Presigner", s3Presigner);
         ReflectionTestUtils.setField(client, "endpoint", "http://rustfs.test:9000");
         ReflectionTestUtils.setField(client, "bucket", "farm");
+    }
+
+    @Test
+    void skipsStartupBucketCheckWhenDisabled() {
+        RustFsClient startupClient = clientWithInjectedClients();
+        ReflectionTestUtils.setField(startupClient, "startupCheckEnabled", false);
+
+        startupClient.init();
+
+        verify(s3Client, never()).headBucket(any(HeadBucketRequest.class));
+        verify(s3Client, never()).createBucket(any(CreateBucketRequest.class));
+    }
+
+    @Test
+    void checksExistingBucketWhenStartupCheckUsesDefaultEnabledValue() {
+        when(s3Client.headBucket(any(HeadBucketRequest.class)))
+                .thenReturn(HeadBucketResponse.builder().build());
+        RustFsClient startupClient = clientWithInjectedClients();
+
+        startupClient.init();
+
+        verify(s3Client).headBucket(any(HeadBucketRequest.class));
+        verify(s3Client, never()).createBucket(any(CreateBucketRequest.class));
+    }
+
+    @Test
+    void createsBucketWhenDefaultStartupCheckFindsNoBucket() {
+        when(s3Client.headBucket(any(HeadBucketRequest.class)))
+                .thenThrow(software.amazon.awssdk.services.s3.model.NoSuchBucketException.builder().build());
+        RustFsClient startupClient = clientWithInjectedClients();
+
+        startupClient.init();
+
+        verify(s3Client).headBucket(any(HeadBucketRequest.class));
+        verify(s3Client).createBucket(any(CreateBucketRequest.class));
     }
 
     @Test
@@ -125,5 +164,22 @@ class RustFsClientTest {
                 "http://rustfs.test:9000/farm/thumbnails/20%20demo.jpeg");
 
         verify(spyClient).deleteFile("thumbnails/20 demo.jpeg");
+    }
+
+    private RustFsClient clientWithInjectedClients() {
+        RustFsClient startupClient = new RustFsClient() {
+            @Override
+            protected S3Client createS3Client() {
+                return s3Client;
+            }
+
+            @Override
+            protected S3Presigner createS3Presigner() {
+                return s3Presigner;
+            }
+        };
+        ReflectionTestUtils.setField(startupClient, "endpoint", "http://rustfs.test:9000");
+        ReflectionTestUtils.setField(startupClient, "bucket", "farm");
+        return startupClient;
     }
 }

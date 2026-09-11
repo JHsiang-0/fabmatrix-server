@@ -80,16 +80,16 @@ public class UserController {
 
     @Operation(summary = "管理员创建操作员")
     @PostMapping("/register")
-    public Result<Long> register(@Valid @RequestBody UserRegisterDTO registerDTO) {
+    public Result<String> register(@Valid @RequestBody UserRegisterDTO registerDTO) {
         registerDTO = requireBody(registerDTO);
-        return Result.success(userService.register(registerDTO), "注册成功");
+        return Result.success(String.valueOf(userService.register(registerDTO)), "注册成功");
     }
 
     @Operation(summary = "管理员创建操作员账号")
     @PostMapping("/admin/users")
-    public Result<Long> createOperator(@Valid @RequestBody UserRegisterDTO registerDTO) {
+    public Result<String> createOperator(@Valid @RequestBody UserRegisterDTO registerDTO) {
         registerDTO = requireBody(registerDTO);
-        return Result.success(userService.register(registerDTO), "操作员创建成功");
+        return Result.success(String.valueOf(userService.register(registerDTO)), "操作员创建成功");
     }
 
     @Operation(summary = "修改密码")

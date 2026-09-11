@@ -2,6 +2,8 @@ package com.example.farm.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +22,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LocalSchemaMigration implements CommandLineRunner {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String LEGACY_DEFAULT_AISLES_JSON =
+            "[{\"id\":\"default-column-aisle\",\"axis\":\"COLUMN\",\"afterIndex\":6,\"label\":\"过道\",\"size\":100}]";
+    private static final String DEFAULT_AISLES_JSON =
+            "[{\"id\":\"default-column-aisle\",\"axis\":\"COLUMN\",\"afterIndex\":7,\"label\":\"过道\",\"size\":100}]";
+
     private final JdbcTemplate jdbcTemplate;
 
     @Override
@@ -27,6 +35,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         validateDashboardLayoutPreconditions();
         ensurePrinterCoordinateGuards();
         migrateDashboardLayout();
+        correctLegacyDefaultDashboardLayout();
         createAuditLogTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_dispatch_plan", "retry_key", "VARCHAR(128)");
@@ -283,7 +292,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 INSERT INTO farm_dashboard_layout
                     (id, row_count, column_count, aisles_json, version, updated_by)
                 SELECT 1, 4, 12,
-                       '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":6,"label":"过道","size":100}]',
+                       '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]',
                        1, NULL
                 WHERE NOT EXISTS (
                     SELECT 1 FROM farm_dashboard_layout WHERE id = 1
@@ -426,6 +435,45 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 SET visibility = 'PRIVATE'
                 WHERE id IN (SELECT id FROM default_tree)
                 """);
+    }
+
+    /**
+     * 仅纠正 SYNC-002 的历史单例默认值；用户编辑、升级版本或其他过道配置均不覆盖。
+     */
+    private void correctLegacyDefaultDashboardLayout() {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT row_count, column_count, aisles_json, version, updated_by "
+                        + "FROM farm_dashboard_layout WHERE id = 1");
+        if (rows.size() != 1) {
+            return;
+        }
+        Map<String, Object> row = rows.get(0);
+        if (!Integer.valueOf(4).equals(numberValue(row.get("row_count")))
+                || !Integer.valueOf(12).equals(numberValue(row.get("column_count")))
+                || !Integer.valueOf(1).equals(numberValue(row.get("version")))
+                || row.get("updated_by") != null
+                || !jsonEquivalent(row.get("aisles_json"), LEGACY_DEFAULT_AISLES_JSON)) {
+            return;
+        }
+        jdbcTemplate.update("UPDATE farm_dashboard_layout SET aisles_json = ? "
+                        + "WHERE id = 1 AND row_count = 4 AND column_count = 12 "
+                        + "AND version = 1 AND updated_by IS NULL",
+                DEFAULT_AISLES_JSON);
+        log.info("SQLite SYNC-002 corrected the legacy default COLUMN aisle boundary to 7");
+    }
+
+    private Integer numberValue(Object value) {
+        return value instanceof Number number ? number.intValue() : null;
+    }
+
+    private boolean jsonEquivalent(Object actual, String expected) {
+        try {
+            JsonNode actualTree = OBJECT_MAPPER.readTree(String.valueOf(actual));
+            JsonNode expectedTree = OBJECT_MAPPER.readTree(expected);
+            return expectedTree.equals(actualTree);
+        } catch (Exception exception) {
+            return false;
+        }
     }
 
     private void validatePrintFileStructure() {

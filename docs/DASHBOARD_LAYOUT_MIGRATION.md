@@ -2,7 +2,7 @@
 
 本说明适用于 FarmMatrix Server Edition 的 MySQL 8.4 和 Local Edition 的 SQLite。布局表是农场级单例，`id` 固定为 1；默认布局为 4 行、12 列，并在物理第 7 列后放置 100px 的纵向过道。`aisles_json` 统一为 `TEXT`，JSON 结构由后续应用层校验；`updated_by` 可空且不建立外键。
 
-`farm_printer.grid_row/grid_col` 的成对与正数 CHECK、联合唯一索引属于打印机表结构：MySQL 新库由 `farm.sql` 定义，`02-current-schema.sql` 负责补齐缺失字段/约束/索引。两份脚本都不创建或写入 `farm_dashboard_layout`；布局表及默认行只有编号 16 在预检成功后创建。
+`farm_printer.grid_row/grid_col` 的成对与正数 CHECK、联合唯一索引属于打印机表结构：MySQL 新库由 `farm.sql` 定义，`02-current-schema.sql` 负责补齐缺失字段/约束/索引。两份脚本都不创建或写入 `farm_dashboard_layout`；布局表及默认行只有编号 16 在预检成功后创建，编号 17 仅纠正精确匹配的历史错误默认过道边界。
 
 ## 发布顺序
 
@@ -24,10 +24,11 @@
 
    结果必须为空。结果列固定为 `issueType,id,name,gridRow,gridCol`，异常类型包括半空坐标、重复槽位、非正数和默认 4×12 越界。不得跳过异常、改坐标或用 `farm.sql` 修复已有库。
 
-3. 预检为空后，手工执行正式编号 16 迁移：
+3. 预检为空后，手工执行正式编号 16 迁移，再执行编号 17 纠错迁移：
 
    ```sh
    mysql -u <user> -p farm < src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql
+   mysql -u <user> -p farm < src/main/resources/db/migration/17-v2-dashboard-layout-default-aisle.sql
    ```
 
    脚本会在布局表任何 DDL 前再次输出并阻断异常；已有同名错误结构的布局表也会明确失败。它会核对列顺序/类型/可空性、启用的五项 CHECK 及其真实表达式、唯一主键集合和 `created_at`/`updated_at` 的默认值与更新时间语义。重复执行安全，已存在的合法单例不会覆盖版本、过道或更新时间。编号 16 使用临时例程缓存失败状态，并在成功/失败路径都先删除例程，再由客户端执行明确的失败语句终止批处理，因此不会残留 `farm_dashboard_layout_migrate`。
@@ -44,7 +45,7 @@
           AND (grid_row <= 0 OR grid_col <= 0));
    ```
 
-   第一条应返回 `id=1,row_count=4,column_count=12,version=1`（已存在布局再次迁移时保留原值），第二条为 1，第三条为 0。再检查 `SHOW CREATE TABLE farm_dashboard_layout`，确认单例、1–30 行、1–60 列、乘积不超过 1800、`version>0` 五项 CHECK 约束均存在。
+   第一条应返回 `id=1,row_count=4,column_count=12,version=1`（已存在布局再次迁移时保留原值），默认 JSON 的 `afterIndex` 应为 7；第二条为 1，第三条为 0。再检查 `SHOW CREATE TABLE farm_dashboard_layout`，确认单例、1–30 行、1–60 列、乘积不超过 1800、`version>0` 五项 CHECK 约束均存在。
 
 ## SQLite
 
@@ -60,18 +61,17 @@ sqlite3 /path/to/farm.db < src/main/resources/db/migration/dashboard-layout-prec
 
 MySQL 回滚使用迁移前备份恢复到新的隔离数据库，经抽样校验后再切换服务；不要对生产表执行猜测性的反向 DDL，也不要删除原数据卷。SQLite 回滚前停止应用，复制保存当前 `.db` 文件，再用迁移前备份替换；保留失败文件供审计。
 
-全新 Compose MySQL 数据卷初始化时会按稳定顺序只读挂载 `farm.sql`、`02-current-schema.sql`、历史脚本以及 14、15、16 增量脚本。若新卷初始化在 16 失败，先保存容器日志和卷中的诊断信息，删除失败的新卷后重新创建；只有确认该卷不包含需要保留的数据时才允许执行针对该新卷的卷清理。`farm.sql` 是新库种子脚本，禁止用于已有库，因为它会 DROP 并重建业务表。
+全新 Compose MySQL 数据卷初始化时会按稳定顺序只读挂载 `farm.sql`、`02-current-schema.sql`、历史脚本以及 14、15、16、17 增量脚本；新库的 16 已是正确默认，17 应无修改。若新卷初始化在 16/17 失败，先保存容器日志和卷中的诊断信息，删除失败的新卷后重新创建；只有确认该卷不包含需要保留的数据时才允许执行针对该新卷的卷清理。`farm.sql` 是新库种子脚本，禁止用于已有库，因为它会 DROP 并重建业务表。
 
-2026-09-11 已在 WSL Ubuntu-LTS 的隔离 `farm-mysql` MySQL 8.4 容器和实际 Local Edition SQLite 文件
-`target/local-edition-test-data/farm.db` 完成一次真实约束/事务验收。MySQL 迁移前已生成临时备份，迁移后预检无结果，
-布局表、启用 CHECK、主键、时间列、联合唯一索引和无残留辅助过程均已核对；重复槽位、半空坐标、非正数坐标和
-事务回滚探针均通过。该记录不代表生产数据库、Redis、RustFS 或打印机已经验收。
+代码、SQLite 迁移测试和自动化校验已完成；当前最终 HEAD 尚未重新连接真实 MySQL 8.4 数据卷验收，因此不得声称 MySQL 现场验收完成。唯一剩余现场项是按编号 16/17 在隔离 MySQL 8.4 上执行预检、迁移和受控纠错复核；不涉及生产数据库、Redis、RustFS 或打印机。
+
+当前最终 HEAD 的代码、SQLite 迁移测试和自动化校验已完成；未重新连接真实 MySQL 8.4 数据卷。唯一剩余现场项是隔离 MySQL 8.4 的编号 16/17 预检、迁移与受控纠错复核，不能声称 MySQL 现场验收完成。
 
 ## SYNC-002.9 发布收口
 
 升级前必须保存预检输出、数据库备份和脚本版本；成功后核对 `SHOW CREATE TABLE farm_printer`、`SHOW CREATE TABLE farm_dashboard_layout`、联合唯一索引、布局单例行及时间列语义。Local Edition 必须以 `LocalSchemaMigration` 为唯一 schema 入口，不能把 `local-schema.sql` 或 partial index 手工 SQL 当作已有库迁移。
 
-旧 `PUT /api/v1/printers/positions` 已停用并进入弃用窗口：发布后前端只使用 `/api/v1/dashboard-layout`，旧客户端不得继续写位置；需要兼容时仅保留只读页面，待所有客户端升级后移除旧入口。详细请求、错误和 WebSocket 语义见 `API_HANDOFF.md` 与 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。
+旧 `PUT /api/v1/printers/positions` 已弃用并进入弃用窗口：ADMIN 兼容请求仍委托 `/api/v1/dashboard-layout` 的原子事务；发布后前端只使用新资源，待所有客户端升级后移除旧入口。详细请求、错误和 WebSocket 语义见 `API_HANDOFF.md` 与 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。
 
 ## 管理员操作
 

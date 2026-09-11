@@ -8,6 +8,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.service.UserService;
+import com.example.farm.service.PrintJobService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +42,9 @@ class SecurityResponseTest {
 
     @MockitoBean
     private UserService userService;
+
+    @MockitoBean
+    private PrintJobService printJobService;
 
     @MockitoBean
     private LoginProtectUtil loginProtectUtil;
@@ -143,6 +147,19 @@ class SecurityResponseTest {
     }
 
     @Test
+    void standardCreateJobSerializesLargeIdAsString() throws Exception {
+        when(printJobService.createJob(any())).thenReturn(9007199254740993L);
+
+        mockMvc.perform(post("/api/v1/print-jobs")
+                        .with(user("operator").roles("OPERATOR"))
+                        .contentType("application/json")
+                        .content("{\"fileId\":20,\"priority\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value("9007199254740993"));
+    }
+
+    @Test
     void validatesPrinterHistoryPaginationBeforeServiceCall() throws Exception {
         mockMvc.perform(get("/api/v1/printers/403/history")
                         .param("pageNum", "0")
@@ -154,7 +171,7 @@ class SecurityResponseTest {
 
     @Test
     void adminCanCreateOperator() throws Exception {
-        when(userService.register(any())).thenReturn(2L);
+        when(userService.register(any())).thenReturn(9007199254740993L);
 
         mockMvc.perform(post("/api/v1/auth/admin/users")
                         .with(user("1").roles("ADMIN"))
@@ -163,7 +180,7 @@ class SecurityResponseTest {
                                 + "\"confirmPassword\":\"Operator1\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data").value(2));
+                .andExpect(jsonPath("$.data").value("9007199254740993"));
 
         verify(userService).register(any());
     }

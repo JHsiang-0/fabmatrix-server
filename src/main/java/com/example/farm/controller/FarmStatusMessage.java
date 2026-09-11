@@ -129,8 +129,19 @@ public record FarmStatusMessage(
     }
 
     private static Object normalizeSemanticIdValue(Object value) {
+        if (value instanceof java.util.Map<?, ?> map) {
+            return normalizeSemanticIds(map);
+        }
         if (value instanceof java.util.Collection<?> collection) {
             return collection.stream().map(FarmStatusMessage::normalizeSemanticIdValue).toList();
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            java.util.List<Object> normalized = new java.util.ArrayList<>(length);
+            for (int index = 0; index < length; index++) {
+                normalized.add(normalizeSemanticIdValue(java.lang.reflect.Array.get(value, index)));
+            }
+            return normalized;
         }
         if (value == null || value instanceof String) return value;
         return String.valueOf(value);

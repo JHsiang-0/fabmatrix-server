@@ -89,6 +89,7 @@ services:
       - ./src/main/resources/db/migration/14-v2-user-default-folder-names-mysql.sql:/docker-entrypoint-initdb.d/14-v2-user-default-folder-names-mysql.sql:ro
       - ./src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro
       - ./src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro
+      - ./src/main/resources/db/migration/17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci

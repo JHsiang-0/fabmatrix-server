@@ -143,7 +143,7 @@
 
 ## 4. 错误响应
 
-错误使用统一 `Result<DashboardLayoutProblemVO>`；结构化详情只返回稳定原因、版本和设备摘要，不返回 SQL、堆栈或内部表结构。
+HTTP 400/404/409/422 使用具名 `DashboardLayoutProblemResultVO` envelope（OpenAPI 名为 `ResultDashboardLayoutProblem`）；503 保留通用基础设施 `Result` envelope。结构化详情只返回稳定原因、版本和设备摘要，不返回 SQL、堆栈或内部表结构。
 
 `DashboardLayoutProblemVO`：
 
@@ -153,23 +153,23 @@
   "serverVersion": 2,
   "conflicts": [],
   "outOfBoundsPrinters": [
-    { "printerId": 403, "name": "A-03", "gridRow": 6, "gridCol": 12 }
+      { "printerId": "403", "name": "A-03", "gridRow": 6, "gridCol": 12 }
   ]
 }
 ```
 
 | HTTP / 业务码 | 场景 |
 | --- | --- |
-| 400 / 400 | 格式、范围、半空坐标、重复 ID/槽位、超过数量限制 |
+| 400 / 400 | 格式、范围、半空坐标、重复 ID/槽位、超过数量限制；请求内重复目标槽位原因为 `DUPLICATE_SLOT` |
 | 401 / 401 | 未认证 |
 | 403 / 403 | 非 ADMIN 写入 |
 | 404 / 404 | 请求包含不存在的打印机 |
-| 409 / 409 | `expectedVersion` 过期或并发槽位冲突 |
+| 409 / 409 | `expectedVersion` 过期（`VERSION_CONFLICT`）或最终槽位冲突（`SLOT_CONFLICT`） |
 | 422 / 422 | REJECT 缩容会排除已分配设备 |
 | 500 / 500 | 未分类服务端错误 |
 | 503 / 5001 | 数据库或依赖暂不可用 |
 
-409 必须返回 `serverVersion`；422 必须返回完整 `outOfBoundsPrinters`。错误不产生布局、坐标、版本、审计或事件的部分写入。
+409 必须返回 `serverVersion`；422 必须返回完整 `outOfBoundsPrinters`。请求内重复目标槽位返回 `400/DUPLICATE_SLOT`，最终占位冲突返回 `409/SLOT_CONFLICT`。错误不产生布局、坐标、版本、审计或事件的部分写入。
 
 ## 5. 事务与坐标语义
 
@@ -185,7 +185,7 @@
 
 ## 6. WebSocket 扩展
 
-沿用当前 `version=1` 顶层 envelope，兼容新增类型 `LAYOUT_UPDATED`：
+沿用当前 `version=1` 顶层 envelope，已实现五类类型 `SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`、`LAYOUT_UPDATED`。其中 `LAYOUT_UPDATED` 的布局字段仅位于 `data`：
 
 ```json
 {
@@ -223,4 +223,4 @@
 
 数据库预检和迁移职责见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`：MySQL 先执行只读预检，再执行 16 号脚本；SQLite 由 `LocalSchemaMigration` 在预检通过后安装 partial unique index 和项目自有坐标触发器。`local-schema.sql` 仅描述新库表级 CHECK，不是已有 SQLite 文件的独立迁移入口。
 
-旧 `PUT /api/v1/printers/positions` 已停用。前端发布后只使用本资源的原子保存语义；旧客户端不得通过 positions 写入坐标，直到弃用窗口结束并移除该入口。
+旧 `PUT /api/v1/printers/positions` 已弃用但保留 ADMIN 兼容调用；入口委托本资源的同一布局原子事务，直到弃用窗口结束再移除。前端只使用本资源的原子保存语义。

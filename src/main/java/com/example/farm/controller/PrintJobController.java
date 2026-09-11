@@ -93,7 +93,7 @@ public class PrintJobController {
      */
     @Operation(summary = "创建打印任务", description = "标准创建地址；任务初始状态为 QUEUED")
     @PostMapping
-    public Result<Long> createStandardJob(@Valid @RequestBody PrintJobCreateDTO req) {
+    public Result<String> createStandardJob(@Valid @RequestBody PrintJobCreateDTO req) {
         req = requireBody(req);
         return doCreateJob(req);
     }
@@ -104,15 +104,15 @@ public class PrintJobController {
     @Deprecated
     @Operation(summary = "创建打印任务（兼容地址）", description = "请迁移到 POST /api/v1/print-jobs", deprecated = true)
     @PostMapping("/create")
-    public Result<Long> createJob(@Valid @RequestBody PrintJobCreateDTO req) {
+    public Result<String> createJob(@Valid @RequestBody PrintJobCreateDTO req) {
         req = requireBody(req);
         return doCreateJob(req);
     }
 
-    private Result<Long> doCreateJob(PrintJobCreateDTO req) {
+    private Result<String> doCreateJob(PrintJobCreateDTO req) {
         Long jobId = printJobService.createJob(req);
         log.info("创建打印任务请求完成: jobId={}", jobId);
-        return Result.success(jobId, "任务创建成功");
+        return Result.success(String.valueOf(jobId), "任务创建成功");
     }
 
     /**

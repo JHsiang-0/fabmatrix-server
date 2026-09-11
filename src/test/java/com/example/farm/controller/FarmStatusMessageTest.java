@@ -61,4 +61,15 @@ class FarmStatusMessageTest {
         assertThat(message.printerId()).isNull();
         assertThat(message.data()).isEqualTo(Map.of("stateSource", "LAYOUT", "layoutVersion", 2L));
     }
+
+    @Test
+    void recursivelySerializesIdsInsideConflictObjects() throws Exception {
+        FarmStatusMessage message = FarmStatusMessage.printerStatus(9007199254740993L,
+                Map.of("conflicts", List.of(Map.of("printerId", 9007199254740993L, "gridRow", 4))));
+
+        var json = objectMapper.readTree(objectMapper.writeValueAsString(message));
+        assertThat(json.at("/data/conflicts/0/printerId").isTextual()).isTrue();
+        assertThat(json.at("/data/conflicts/0/printerId").asText()).isEqualTo("9007199254740993");
+        assertThat(json.at("/data/conflicts/0/gridRow").isNumber()).isTrue();
+    }
 }

@@ -63,7 +63,33 @@ class DashboardLayoutMigrationTest {
             String yaml = readWorkspaceFile(compose);
             assertThat(yaml).contains("14-v2-user-default-folder-names-mysql.sql:/docker-entrypoint-initdb.d/14-v2-user-default-folder-names-mysql.sql:ro",
                     "15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro",
-                    "16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro");
+                    "16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro",
+                    "17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro");
+        }
+    }
+
+    @Test
+    void sqliteCorrectsOnlyTheLegacyDefaultAndPreservesCorrectOrCustomizedLayouts() throws Exception {
+        try (Connection connection = connection("default-aisle-correction")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
+
+            migration.run();
+            jdbc.update("UPDATE farm_dashboard_layout SET aisles_json = ? WHERE id = 1",
+                    "[{\"id\":\"default-column-aisle\",\"axis\":\"COLUMN\","
+                            + "\"afterIndex\":6,\"label\":\"过道\",\"size\":100}]");
+            migration.run();
+            assertThat(jdbc.queryForObject("SELECT aisles_json FROM farm_dashboard_layout WHERE id = 1",
+                    String.class)).contains("\"afterIndex\":7");
+
+            jdbc.update("UPDATE farm_dashboard_layout SET aisles_json = ?, updated_by = 9 WHERE id = 1",
+                    "[{\"id\":\"custom\",\"axis\":\"COLUMN\",\"afterIndex\":6,"
+                            + "\"label\":\"用户过道\",\"size\":120}]");
+            migration.run();
+            assertThat(jdbc.queryForObject("SELECT aisles_json FROM farm_dashboard_layout WHERE id = 1",
+                    String.class)).contains("\"afterIndex\":6", "用户过道");
         }
     }
 

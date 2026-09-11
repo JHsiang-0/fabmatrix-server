@@ -49,17 +49,17 @@ public class DashboardLayoutController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "保存成功"),
             @ApiResponse(responseCode = "400", description = "请求格式、范围或重复项无效",
-                    content = @Content(schema = @Schema(implementation = Result.class))),
+                    content = @Content(schema = @Schema(implementation = DashboardLayoutProblemResultVO.class))),
             @ApiResponse(responseCode = "401", description = "未认证"),
             @ApiResponse(responseCode = "403", description = "仅管理员可保存"),
             @ApiResponse(responseCode = "404", description = "打印机不存在",
-                    content = @Content(schema = @Schema(implementation = Result.class))),
+                    content = @Content(schema = @Schema(implementation = DashboardLayoutProblemResultVO.class))),
             @ApiResponse(responseCode = "409", description = "布局版本或槽位冲突",
                     content = @Content(schema = @Schema(implementation = DashboardLayoutProblemResultVO.class))),
             @ApiResponse(responseCode = "422", description = "缩容将排除已分配设备",
                     content = @Content(schema = @Schema(implementation = DashboardLayoutProblemResultVO.class))),
             @ApiResponse(responseCode = "500", description = "服务端错误"),
-            @ApiResponse(responseCode = "503", description = "依赖暂不可用")
+            @ApiResponse(responseCode = "503", description = "依赖暂不可用；使用通用基础设施 Result envelope")
     })
     public Result<DashboardLayoutSaveResultVO> saveLayout(
             @jakarta.validation.Valid @RequestBody DashboardLayoutSaveRequest request) {

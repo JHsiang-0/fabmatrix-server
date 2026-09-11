@@ -55,7 +55,7 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
     private static final long LAYOUT_ID = 1L;
     private static final String DEFAULT_AISLES_JSON =
             "[{\"id\":\"default-column-aisle\",\"axis\":\"COLUMN\","
-                    + "\"afterIndex\":6,\"label\":\"过道\",\"size\":100}]";
+                    + "\"afterIndex\":7,\"label\":\"过道\",\"size\":100}]";
 
     private final DashboardLayoutMapper dashboardLayoutMapper;
     private final ObjectMapper objectMapper;

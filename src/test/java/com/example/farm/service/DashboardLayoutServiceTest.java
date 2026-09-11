@@ -29,7 +29,7 @@ class DashboardLayoutServiceTest {
         assertThat(result.getVersion()).isEqualTo(1L);
         assertThat(result.getAisles()).singleElement().satisfies(aisle -> {
             assertThat(aisle.getAxis()).isEqualTo("COLUMN");
-            assertThat(aisle.getAfterIndex()).isEqualTo(6);
+            assertThat(aisle.getAfterIndex()).isEqualTo(7);
             assertThat(aisle.getSize()).isEqualTo(100);
         });
         assertThat(result.getLimits().getMaxCells()).isEqualTo(1800);
@@ -58,7 +58,7 @@ class DashboardLayoutServiceTest {
         layout.setRowCount(4);
         layout.setColumnCount(12);
         layout.setAislesJson("[{\"id\":\"default-column-aisle\",\"axis\":\"COLUMN\","
-                + "\"afterIndex\":6,\"label\":\"过道\",\"size\":100}]");
+                + "\"afterIndex\":7,\"label\":\"过道\",\"size\":100}]");
         layout.setVersion(1L);
         layout.setUpdatedAt(LocalDateTime.of(2026, 9, 11, 10, 0));
         return layout;

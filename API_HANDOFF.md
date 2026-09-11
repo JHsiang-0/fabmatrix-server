@@ -4,7 +4,7 @@
 更新时间：2026-09-11
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
-> 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。
+> 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，默认 4×12、COLUMN 过道位于物理第 7 列后；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
 
 项目执行入口：[PROJECT.md](./PROJECT.md)；Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v2/`。
 
@@ -180,8 +180,8 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 | 方法 | 地址 | 权限 | 请求 | 返回 |
 |---|---|---|---|---|
-| POST | `/auth/register` | ADMIN | 用户注册 DTO | `Result<Long>` |
-| POST | `/auth/admin/users` | ADMIN | 用户注册 DTO | `Result<Long>` |
+| POST | `/auth/register` | ADMIN | 用户注册 DTO | `Result<String>`（Long ID 十进制字符串） |
+| POST | `/auth/admin/users` | ADMIN | 用户注册 DTO | `Result<String>`（Long ID 十进制字符串） |
 | GET | `/auth/admin/users` | ADMIN | `pageNum,pageSize,username,role,email,enabled?` | `PageResult<UserVO>`，不包含密码 |
 | PUT | `/auth/admin/users/{userId}` | ADMIN | 用户更新 DTO | `Result<null>` |
 | POST | `/auth/admin/users/{userId}/disable` | ADMIN | Path ID | `Result<UserVO>` |
@@ -230,7 +230,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | POST | `/printers/batch-add` | ADMIN | 扫描结果数组 | 批量新增/更新统计及逐项结果 |
 | GET | `/printers/by-mac/{macAddress}` | ADMIN/OPERATOR | Path MAC | `PrinterVO` 或 null |
 | GET | `/printers/by-ip/{ipAddress}` | ADMIN/OPERATOR | Path IP | `PrinterVO` 或 null |
-| PUT | `/printers/positions` | ADMIN | 位置更新数组 | 已弃用并停用；请使用动态布局原子保存 |
+| PUT | `/printers/positions` | ADMIN | 位置更新数组 | 已弃用；ADMIN 兼容调用并委托动态布局原子事务 |
 | GET | `/printers/unallocated` | ADMIN/OPERATOR | Query：`keyword` | `PrinterVO[]` |
 
 ### 4.1.1 动态看板布局（SYNC-002.2/002.3 已实现）
@@ -242,10 +242,10 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 完整目标契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。数据库升级顺序、SQLite partial index/触发器职责和回滚见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`。
 
-现有 WebSocket `version=1` 已兼容新增 `LAYOUT_UPDATED`。该消息 `printerId=null`，`data` 固定包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；旧四类消息及设备业务/通信状态语义不变。
+现有 WebSocket `version=1` 已实现五类消息：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`、`LAYOUT_UPDATED`。布局消息 `printerId=null`，仅在 `data` 中包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；不携带顶层布局字段，也不覆盖设备业务/通信状态。
 
-布局保存错误必须按结构化 `reason` 处理：版本不一致为 `409/VERSION_CONFLICT`，最终槽位冲突为
-`409/SLOT_CONFLICT`，缩容拒绝为 `422/OUT_OF_BOUNDS`。客户端收到布局事件后通过 REST 快照收敛；编辑草稿不得被
+布局保存错误必须按结构化 `reason` 处理：请求内重复目标槽位为 `400/DUPLICATE_SLOT`，版本不一致或最终槽位冲突分别为
+`409/VERSION_CONFLICT`、`409/SLOT_CONFLICT`，缩容拒绝为 `422/OUT_OF_BOUNDS`。客户端收到布局事件后通过 REST 快照收敛；编辑草稿不得被
 事件覆盖。
 
 新增、重新录入或批量扫描入库的打印机，在下一次协议状态探测完成前返回 `status=UNKNOWN`；`ONLINE` 不属于打印机状态枚举，也不会作为业务状态写入。普通配置编辑不重置设备当前状态。
@@ -661,7 +661,7 @@ mysql -u root -p farm < src/main/resources/db/migration/09-v2-print-job-idempote
 - REST 的 `LocalDateTime` 使用 ISO-8601 字符串：`yyyy-MM-dd'T'HH:mm:ss`。
 - 当前系统默认时区为服务端本地时区，现阶段按 Asia/Shanghai 使用。
 - WebSocket `timestamp` 使用 Unix epoch 毫秒。
-- ID 使用 Long，前端 JavaScript 建议按字符串安全处理超大 ID。
+- 所有语义 Long ID 的 JSON 值（包括标量 `data`、对象 ID 和 ID 列表）统一为十进制字符串；`code`、`timestamp`、`sequence`、`version`、`size`、`count` 等非 ID 数值保持 JSON number。
 - REST `PrintJobVO.progress` 使用 BigDecimal，范围 0-100；WebSocket 消息中的 `progress` 保持 JSON 数值，前端按 0-100 的小数处理。
 - 金额字段当前不存在；如果以后增加，使用整数分或 Decimal 字符串，禁止使用 Double 表示金额。
 
@@ -720,6 +720,7 @@ SNAPSHOT          连接后的全量快照
 PRINTER_STATUS    单台打印机状态变化
 PRINTER_OFFLINE   打印机离线
 JOB_STATUS        任务状态变化
+LAYOUT_UPDATED    共享布局版本变化（布局字段仅位于 data）
 ```
 
 当前已实现消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。2026-09-03 的历史容器冒烟曾收到 46 台打印机的快照，后续当前实例验证为 49 台；两者均为当时数据库设备数量，不属于固定契约。前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。

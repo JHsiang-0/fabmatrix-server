@@ -161,8 +161,12 @@ class DashboardLayoutControllerSecurityTest {
                 .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.data.$ref")
                         .value("#/components/schemas/DashboardLayoutProblemVO"))
                 .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.timestamp").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['400'].content").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['404'].content").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['409'].content").exists())
-                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['422'].content").exists());
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['422'].content").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['503'].content.*.schema.$ref")
+                        .value("#/components/schemas/Result"));
     }
 
     @Test

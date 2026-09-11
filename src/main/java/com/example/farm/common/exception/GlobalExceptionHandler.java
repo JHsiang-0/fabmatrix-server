@@ -2,6 +2,7 @@ package com.example.farm.common.exception;
 
 import com.example.farm.common.api.Result;
 import com.example.farm.common.api.ResultCode;
+import com.example.farm.entity.vo.DashboardLayoutProblemVO;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.MissingPathVariableException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -120,7 +122,18 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
 
         log.warn("参数校验失败: method={}, uri={}, errors={}", request.getMethod(), request.getRequestURI(), fieldErrors);
-        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败: " + message);
+        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败: " + message,
+                dashboardProblem(request, "INVALID_REQUEST"));
+    }
+
+    /** 处理方法参数校验（例如旧位置接口的集合约束）。 */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<Result<Object>> handleHandlerMethodValidation(
+            HandlerMethodValidationException e, HttpServletRequest request) {
+        log.warn("方法参数校验失败: method={}, uri={}, detail={}",
+                request.getMethod(), request.getRequestURI(), e.getMessage());
+        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败",
+                dashboardProblem(request, "INVALID_REQUEST"));
     }
 
     /**
@@ -153,7 +166,8 @@ public class GlobalExceptionHandler {
         log.warn("请求参数无效: method={}, uri={}, detail={}",
                 request.getMethod(), request.getRequestURI(), e.getMessage());
         String message = getEnvironmentMessage("请求参数无效: " + e.getMessage());
-        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), message);
+        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), message,
+                dashboardProblem(request, "INVALID_REQUEST"));
     }
 
     /**
@@ -334,5 +348,16 @@ public class GlobalExceptionHandler {
 
     private ResponseEntity<Result<Object>> failed(HttpStatus status, long code, String message) {
         return ResponseEntity.status(status).body(Result.failed(code, message));
+    }
+
+    private ResponseEntity<Result<Object>> failed(HttpStatus status, long code, String message, Object data) {
+        return ResponseEntity.status(status).body(Result.failed(code, message, data));
+    }
+
+    private DashboardLayoutProblemVO dashboardProblem(HttpServletRequest request, String reason) {
+        if (request.getRequestURI() != null && request.getRequestURI().endsWith("/dashboard-layout")) {
+            return new DashboardLayoutProblemVO(reason, null, null, null);
+        }
+        return null;
     }
 }

@@ -103,6 +103,72 @@ class DashboardLayoutControllerSecurityTest {
                 .andExpect(jsonPath("$.data.serverVersion").value(2));
     }
 
+    @Test
+    void malformedJsonReturnsStructuredLayoutProblem() throws Exception {
+        mockMvc.perform(put("/api/v1/dashboard-layout")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("{not-json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.data.reason").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.data.conflicts").isArray())
+                .andExpect(jsonPath("$.data.outOfBoundsPrinters").isArray());
+    }
+
+    @Test
+    void beanValidationReturnsStructuredLayoutProblem() throws Exception {
+        mockMvc.perform(put("/api/v1/dashboard-layout")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("{\"rowCount\":4,\"columnCount\":12,\"aisles\":[],"
+                                + "\"overflowPolicy\":\"REJECT\",\"positionChanges\":[]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.data.reason").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void structuredNotFoundAndShrinkConflictKeepProblemData() throws Exception {
+        org.mockito.Mockito.doThrow(new DashboardLayoutProblemException(404, "看板布局保存失败: PRINTER_NOT_FOUND",
+                        new DashboardLayoutProblemVO("PRINTER_NOT_FOUND", 1L, List.of(404L), List.of())))
+                .when(dashboardLayoutService).saveLayout(org.mockito.ArgumentMatchers.any());
+        mockMvc.perform(put("/api/v1/dashboard-layout")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content(validPayload()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.data.reason").value("PRINTER_NOT_FOUND"))
+                .andExpect(jsonPath("$.data.conflicts[0]").value(404));
+
+        org.mockito.Mockito.doThrow(new DashboardLayoutProblemException(422, "看板布局保存失败: OUT_OF_BOUNDS",
+                        new DashboardLayoutProblemVO("OUT_OF_BOUNDS", 1L, List.of(), List.of())))
+                .when(dashboardLayoutService).saveLayout(org.mockito.ArgumentMatchers.any());
+        mockMvc.perform(put("/api/v1/dashboard-layout")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content(validPayload()))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.data.reason").value("OUT_OF_BOUNDS"));
+    }
+
+    @Test
+    void legacyPrinterPositionsDelegateToLayoutServiceAndKeepResponseCompatibility() throws Exception {
+        when(dashboardLayoutService.saveLegacyPositions(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new DashboardLayoutSaveResultVO());
+
+        mockMvc.perform(put("/api/v1/printers/positions")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType("application/json")
+                        .content("[{\"id\":403,\"gridRow\":1,\"gridCol\":2}]"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.message").value("成功更新 1/1 台设备的位置"));
+        org.mockito.Mockito.verify(dashboardLayoutService).saveLegacyPositions(
+                org.mockito.ArgumentMatchers.any());
+    }
+
     private String validPayload() {
         return "{\"expectedVersion\":1,\"rowCount\":4,\"columnCount\":12,"
                 + "\"aisles\":[],\"overflowPolicy\":\"REJECT\",\"positionChanges\":[]}";

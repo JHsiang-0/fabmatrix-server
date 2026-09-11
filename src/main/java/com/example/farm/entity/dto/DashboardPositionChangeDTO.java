@@ -2,6 +2,8 @@ package com.example.farm.entity.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
@@ -16,8 +18,12 @@ public class DashboardPositionChangeDTO {
     private Long printerId;
 
     @Schema(description = "目标物理行；与 gridCol 必须同时为空或非空", nullable = true, example = "1")
+    @Min(value = 1, message = "目标行必须为正数")
+    @Max(value = 60, message = "目标行不能超过 60")
     private Integer gridRow;
 
     @Schema(description = "目标物理列；与 gridRow 必须同时为空或非空", nullable = true, example = "2")
+    @Min(value = 1, message = "目标列必须为正数")
+    @Max(value = 60, message = "目标列不能超过 60")
     private Integer gridCol;
 }

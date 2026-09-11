@@ -96,6 +96,14 @@ public class WebSocketEventPublisher {
         publishAfterCommit(() -> broadcastLayoutUpdated(message));
     }
 
+    /** 仅供事务 afterCommit 回调使用，避免在提交回调中再次注册同步器。 */
+    public void publishLayoutUpdatedAfterCommit(long layoutVersion) {
+        if (layoutVersion <= 0) {
+            return;
+        }
+        broadcastLayoutUpdated(FarmStatusMessage.layoutUpdated(layoutVersion));
+    }
+
     protected void broadcastPrinterStatus(FarmStatusMessage message) {
         WebSocketServer.broadcastPrinterStatus(message);
     }

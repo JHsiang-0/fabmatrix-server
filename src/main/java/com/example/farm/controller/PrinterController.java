@@ -21,6 +21,7 @@ import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterDetailService;
 import com.example.farm.service.PrinterStatusHistoryService;
 import com.example.farm.service.PrinterStatisticsService;
+import com.example.farm.service.DashboardLayoutService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -49,6 +50,7 @@ public class PrinterController {
     private final PrinterDetailService printerDetailService;
     private final PrinterStatusHistoryService printerStatusHistoryService;
     private final PrinterStatisticsService printerStatisticsService;
+    private final DashboardLayoutService dashboardLayoutService;
 
     /**
      * 分页查询打印机列表。
@@ -288,11 +290,18 @@ public class PrinterController {
      */
     @PutMapping("/positions")
     @Deprecated
-    @Operation(summary = "批量更新打印机物理位置", description = "用于数字孪生看板拖拽后更新设备坐标")
+    @Operation(summary = "批量更新打印机物理位置（兼容接口）",
+            description = "已弃用；转换为动态看板布局原子保存，成功响应保持旧格式")
     public Result<String> batchUpdatePositions(
-            @Valid @RequestBody @jakarta.validation.constraints.Size(max = 100, message = "单次最多更新100台打印机位置")
-            List<@Valid PrinterPositionUpdateDTO> positionUpdates) {
-        throw new BusinessException(410, "旧位置接口已停用，请使用动态看板布局保存接口");
+            @RequestBody List<PrinterPositionUpdateDTO> positionUpdates) {
+        if (positionUpdates == null || positionUpdates.isEmpty()) {
+            throw new BusinessException(400, "位置更新列表不能为空");
+        }
+
+        dashboardLayoutService.saveLegacyPositions(positionUpdates);
+        String message = String.format("成功更新 %d/%d 台设备的位置",
+                positionUpdates.size(), positionUpdates.size());
+        return Result.success(null, message);
     }
 
     /**

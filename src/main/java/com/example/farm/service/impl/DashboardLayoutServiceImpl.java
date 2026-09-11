@@ -10,6 +10,7 @@ import com.example.farm.entity.dto.DashboardAisleDTO;
 import com.example.farm.entity.dto.DashboardLayoutSaveRequest;
 import com.example.farm.entity.dto.DashboardOverflowPolicy;
 import com.example.farm.entity.dto.DashboardPositionChangeDTO;
+import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.vo.DashboardAisleVO;
 import com.example.farm.entity.vo.DashboardLayoutLimitsVO;
 import com.example.farm.entity.vo.DashboardLayoutProblemVO;
@@ -26,9 +27,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -44,6 +48,7 @@ import java.util.Set;
 /** 动态看板布局读取和原子保存服务。 */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMapper, DashboardLayout>
         implements DashboardLayoutService {
 
@@ -181,20 +186,83 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
             Coordinate coordinate = finalPositions.get(printerId);
             changed.add(new DashboardPositionChangeVO(printerId, coordinate.row(), coordinate.col()));
         }
-        if (auditLogService != null) {
-            auditLogService.recordSuccess("DASHBOARD_LAYOUT_UPDATE", "DASHBOARD_LAYOUT", LAYOUT_ID,
-                    "动态看板布局 v" + nextVersion);
-        }
-        if (webSocketEventPublisher != null) {
-            webSocketEventPublisher.publishLayoutUpdated(nextVersion);
-        }
+        registerAfterCommit(nextVersion);
         return new DashboardLayoutSaveResultVO(toView(layout), changed, unallocated);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public DashboardLayoutSaveResultVO saveLegacyPositions(List<PrinterPositionUpdateDTO> positionUpdates) {
+        requireAdmin();
+        if (positionUpdates == null || positionUpdates.isEmpty() || positionUpdates.size() > 100) {
+            throw problem(400, "INVALID_POSITION_CHANGES", null, List.of(), List.of());
+        }
+
+        DashboardLayoutVO current = getLayout();
+        DashboardLayoutSaveRequest request = new DashboardLayoutSaveRequest();
+        request.setExpectedVersion(current.getVersion());
+        request.setRowCount(current.getRowCount());
+        request.setColumnCount(current.getColumnCount());
+        request.setAisles(current.getAisles().stream().map(this::toAisleDTO).toList());
+        request.setOverflowPolicy(DashboardOverflowPolicy.REJECT);
+        List<DashboardPositionChangeDTO> changes = new ArrayList<>();
+        for (PrinterPositionUpdateDTO positionUpdate : positionUpdates) {
+            if (positionUpdate == null) {
+                changes.add(null);
+                continue;
+            }
+            DashboardPositionChangeDTO change = new DashboardPositionChangeDTO();
+            change.setPrinterId(positionUpdate.getId());
+            change.setGridRow(positionUpdate.getGridRow());
+            change.setGridCol(positionUpdate.getGridCol());
+            changes.add(change);
+        }
+        request.setPositionChanges(changes);
+        return saveLayout(request);
     }
 
     private void requireAdmin() {
         if (!SecurityContextUtil.isAdmin()) {
             throw new BusinessException(403, "只有管理员可以保存看板布局");
         }
+    }
+
+    private DashboardAisleDTO toAisleDTO(DashboardAisleVO source) {
+        DashboardAisleDTO target = new DashboardAisleDTO();
+        target.setId(source.getId());
+        target.setAxis(source.getAxis());
+        target.setAfterIndex(source.getAfterIndex());
+        target.setLabel(source.getLabel());
+        target.setSize(source.getSize());
+        return target;
+    }
+
+    private void registerAfterCommit(long layoutVersion) {
+        if ((auditLogService == null && webSocketEventPublisher == null)
+                || !TransactionSynchronizationManager.isSynchronizationActive()
+                || !TransactionSynchronizationManager.isActualTransactionActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (auditLogService != null) {
+                    try {
+                        auditLogService.recordSuccess("DASHBOARD_LAYOUT_UPDATE", "DASHBOARD_LAYOUT", LAYOUT_ID,
+                                "动态看板布局 v" + layoutVersion);
+                    } catch (RuntimeException exception) {
+                        log.error("布局成功审计写入失败: version={}", layoutVersion, exception);
+                    }
+                }
+                if (webSocketEventPublisher != null) {
+                    try {
+                        webSocketEventPublisher.publishLayoutUpdatedAfterCommit(layoutVersion);
+                    } catch (RuntimeException exception) {
+                        log.error("布局更新事件发布失败: version={}", layoutVersion, exception);
+                    }
+                }
+            }
+        });
     }
 
     private void validateRequest(DashboardLayoutSaveRequest request) {

@@ -36,13 +36,11 @@ class InputValidationTest {
         dto.setIpAddress("192.168.1.999");
         dto.setMacAddress("invalid");
         dto.setFirmwareType("OCTOPRINT");
-        dto.setGridRow(5);
-        dto.setGridCol(0);
 
         Set<jakarta.validation.ConstraintViolation<PrinterAddDTO>> violations = validator.validate(dto);
 
         assertThat(violations).extracting(v -> v.getPropertyPath().toString())
-                .contains("name", "ipAddress", "macAddress", "firmwareType", "gridRow", "gridCol");
+                .contains("name", "ipAddress", "macAddress", "firmwareType");
     }
 
     @Test

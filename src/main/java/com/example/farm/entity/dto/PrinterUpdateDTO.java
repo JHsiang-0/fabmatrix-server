@@ -3,8 +3,6 @@ package com.example.farm.entity.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
@@ -57,13 +55,4 @@ public class PrinterUpdateDTO {
     @Schema(description = "设备编号/机台号（用于产线管理）")
     private String machineNumber;
 
-    @Schema(description = "物理位置 - 网格行号（数字孪生看板用，1-4，null 表示待分配区）")
-    @Min(value = 1, message = "网格行号必须在1-4之间")
-    @Max(value = 4, message = "网格行号必须在1-4之间")
-    private Integer gridRow;
-
-    @Schema(description = "物理位置 - 网格列号（数字孪生看板用，1-12，null 表示待分配区）")
-    @Min(value = 1, message = "网格列号必须在1-12之间")
-    @Max(value = 12, message = "网格列号必须在1-12之间")
-    private Integer gridCol;
 }

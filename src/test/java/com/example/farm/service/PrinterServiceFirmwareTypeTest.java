@@ -58,6 +58,8 @@ class PrinterServiceFirmwareTypeTest {
         verify(printerMapper).insert(printer.capture());
         assertThat(printer.getValue().getFirmwareType()).isEqualTo("RRF");
         assertThat(printer.getValue().getStatus()).isEqualTo("UNKNOWN");
+        assertThat(printer.getValue().getGridRow()).isNull();
+        assertThat(printer.getValue().getGridCol()).isNull();
     }
 
     @Test
@@ -85,6 +87,8 @@ class PrinterServiceFirmwareTypeTest {
         existing.setIpAddress("192.168.1.80");
         existing.setFirmwareType("Klipper");
         existing.setApiKey("device-secret");
+        existing.setGridRow(2);
+        existing.setGridCol(3);
         when(printerMapper.selectById(403L)).thenReturn(existing);
         when(printerMapper.updateById(any(Printer.class))).thenReturn(1);
 
@@ -98,6 +102,8 @@ class PrinterServiceFirmwareTypeTest {
 
         assertThat(existing.getFirmwareType()).isEqualTo("KLIPPER");
         assertThat(existing.getApiKey()).isEqualTo("device-secret");
+        assertThat(existing.getGridRow()).isEqualTo(2);
+        assertThat(existing.getGridCol()).isEqualTo(3);
         verify(printerMapper).updateById(existing);
     }
 

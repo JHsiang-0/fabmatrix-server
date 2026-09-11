@@ -10,7 +10,6 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrinterAddDTO;
 import com.example.farm.entity.dto.PrinterQueryDTO;
 import com.example.farm.entity.dto.PrinterUpdateDTO;
-import com.example.farm.entity.dto.PrinterPositionUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.mapper.PrinterMapper;
@@ -200,10 +199,10 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             newPrinter.setNozzleSize(dto.getNozzleSize() != null
                     ? dto.getNozzleSize() : new BigDecimal("0.40"));
 
-            // 设置设备编号和物理位置
+            // 坐标由动态看板布局服务管理；新设备默认进入未分配区。
             newPrinter.setMachineNumber(dto.getMachineNumber());
-            newPrinter.setGridRow(dto.getGridRow());
-            newPrinter.setGridCol(dto.getGridCol());
+            newPrinter.setGridRow(null);
+            newPrinter.setGridCol(null);
 
             newPrinter.setCreatedAt(LocalDateTime.now());
             newPrinter.setUpdatedAt(LocalDateTime.now());
@@ -211,9 +210,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             if (!this.save(newPrinter)) {
                 throw new BusinessException("新增打印机失败");
             }
-            log.info("新增设备成功: ID={}, MAC={}, IP={}, machineNumber={}, gridRow={}, gridCol={}",
-                    newPrinter.getId(), macAddress, ipAddress,
-                    dto.getMachineNumber(), dto.getGridRow(), dto.getGridCol());
+            log.info("新增设备成功: ID={}, MAC={}, IP={}, machineNumber={}, unallocated=true",
+                    newPrinter.getId(), macAddress, ipAddress, dto.getMachineNumber());
         }
     }
 
@@ -239,6 +237,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setMonitorEnabled(true);
         printer.setConnectionStatus("UNKNOWN");
         printer.setConsecutiveFailureCount(0);
+        printer.setGridRow(null);
+        printer.setGridCol(null);
         printer.setCreatedAt(LocalDateTime.now());
         printer.setUpdatedAt(LocalDateTime.now());
 
@@ -278,18 +278,13 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         existingPrinter.setNozzleSize(dto.getNozzleSize());
         existingPrinter.setMachineNumber(dto.getMachineNumber());
 
-        // 更新物理位置（数字孪生看板用）
-        existingPrinter.setGridRow(dto.getGridRow());
-        existingPrinter.setGridCol(dto.getGridCol());
-
         existingPrinter.setUpdatedAt(LocalDateTime.now());
 
         if (!this.updateById(existingPrinter)) {
             throw new BusinessException("更新打印机失败");
         }
-        log.info("更新打印机成功：id={}, name={}, ip={}, gridRow={}, gridCol={}",
-                existingPrinter.getId(), existingPrinter.getName(), existingPrinter.getIpAddress(),
-                dto.getGridRow(), dto.getGridCol());
+        log.info("更新打印机成功：id={}, name={}, ip={}，保留原有布局坐标",
+                existingPrinter.getId(), existingPrinter.getName(), existingPrinter.getIpAddress());
 
         recordSuccess("PRINTER_UPDATE", "PRINTER", existingPrinter.getId(), existingPrinter.getName());
 
@@ -586,6 +581,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         printer.setMonitorEnabled(true);
         printer.setConnectionStatus("UNKNOWN");
         printer.setConsecutiveFailureCount(0);
+        printer.setGridRow(null);
+        printer.setGridCol(null);
         printer.setCurrentMaterial("ABS");
         printer.setNozzleSize(new BigDecimal("0.40"));
         printer.setCreatedAt(LocalDateTime.now());
@@ -733,91 +730,6 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         }
 
         return false;
-    }
-
-    // ==================== 物理位置管理 ====================
-
-    /**
-     * 【新增】批量更新打印机物理位置坐标（用于数字孪生看板拖拽）
-     * <p>接收前端拖拽后的坐标变更，批量更新设备的 grid_row 和 grid_col。</p>
-     * <p>业务规则：</p>
-     * <ul>
-     *     <li>传入 null 表示将该设备移回待分配区</li>
-     *     <li>gridRow 范围：1-4</li>
-     *     <li>gridCol 范围：1-12</li>
-     * </ul>
-     *
-     * @param positionUpdates 位置更新列表
-     * @return 成功更新的设备数量
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public int batchUpdatePositions(List<PrinterPositionUpdateDTO> positionUpdates) {
-        if (positionUpdates == null || positionUpdates.isEmpty()) {
-            log.warn("批量更新位置跳过：参数为空");
-            return 0;
-        }
-
-        int successCount = 0;
-        int failCount = 0;
-
-        log.info("开始批量更新打印机位置：共 {} 台设备", positionUpdates.size());
-
-        for (PrinterPositionUpdateDTO update : positionUpdates) {
-            try {
-                // 参数校验
-                if (update.getId() == null) {
-                    log.warn("跳过无效的位置更新：设备 ID 为空");
-                    failCount++;
-                    continue;
-                }
-
-                // 校验坐标范围（如果有值的话）
-                Integer gridRow = update.getGridRow();
-                Integer gridCol = update.getGridCol();
-
-                if (gridRow != null && (gridRow < 1 || gridRow > 4)) {
-                    log.warn("跳过无效的位置更新：gridRow 超出范围 [1-4]，id={}，gridRow={}",
-                            update.getId(), gridRow);
-                    failCount++;
-                    continue;
-                }
-
-                if (gridCol != null && (gridCol < 1 || gridCol > 12)) {
-                    log.warn("跳过无效的位置更新：gridCol 超出范围 [1-12]，id={}，gridCol={}",
-                            update.getId(), gridCol);
-                    failCount++;
-                    continue;
-                }
-
-                // 检查设备是否存在
-                Printer printer = this.getById(update.getId());
-                if (printer == null) {
-                    log.warn("更新位置失败：打印机不存在，id={}", update.getId());
-                    failCount++;
-                    continue;
-                }
-
-                // 执行更新
-                int affected = baseMapper.updatePrinterPosition(update.getId(), gridRow, gridCol);
-                if (affected > 0) {
-                    successCount++;
-                    recordSuccess("PRINTER_POSITION_UPDATE", "PRINTER", printer.getId(), printer.getName());
-                    log.debug("更新设备位置成功：id={}, gridRow={}, gridCol={}",
-                            update.getId(), gridRow, gridCol);
-                } else {
-                    log.warn("更新设备位置失败：id={}", update.getId());
-                    failCount++;
-                }
-
-            } catch (Exception e) {
-                log.error("更新设备位置异常：id={}, 原因={}", update.getId(), e.getMessage());
-                failCount++;
-            }
-        }
-
-        log.info("批量更新位置完成：成功 {} 台，失败 {} 台", successCount, failCount);
-        return successCount;
     }
 
     private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {

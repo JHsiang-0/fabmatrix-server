@@ -88,6 +88,33 @@ CALL farm_add_column_if_missing(
     'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''热床是否已确认安全（0-未确认，1-已确认）'' AFTER `status`'
 )$$
 
+-- SYNC-002.1 fresh-volume layout. Existing volumes are upgraded by migration 16,
+-- which runs a read-only coordinate precheck before any layout DDL.
+CREATE TABLE IF NOT EXISTS farm_dashboard_layout (
+    id BIGINT NOT NULL,
+    row_count SMALLINT NOT NULL,
+    column_count SMALLINT NOT NULL,
+    aisles_json TEXT NOT NULL,
+    version BIGINT NOT NULL,
+    updated_by BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT ck_farm_dashboard_layout_singleton CHECK (id = 1),
+    CONSTRAINT ck_farm_dashboard_layout_rows CHECK (row_count BETWEEN 1 AND 30),
+    CONSTRAINT ck_farm_dashboard_layout_columns CHECK (column_count BETWEEN 1 AND 60),
+    CONSTRAINT ck_farm_dashboard_layout_cells CHECK (row_count * column_count <= 1800),
+    CONSTRAINT ck_farm_dashboard_layout_version CHECK (version > 0)
+) ENGINE = InnoDB COMMENT = '农场级动态看板布局'$$
+
+INSERT INTO farm_dashboard_layout
+    (id, row_count, column_count, aisles_json, version, updated_by)
+VALUES
+    (1, 4, 12,
+     '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]',
+     1, NULL)
+ON DUPLICATE KEY UPDATE id = VALUES(id)$$
+
 DROP PROCEDURE IF EXISTS farm_add_column_if_missing$$
 DROP PROCEDURE IF EXISTS farm_add_index_if_missing$$
 

@@ -44,8 +44,19 @@ CREATE TABLE IF NOT EXISTS farm_printer (
     consecutive_failure_count INTEGER NOT NULL DEFAULT 0,
     last_known_status VARCHAR(32),
     last_protocol_state VARCHAR(32),
-    last_device_uptime INTEGER
+    last_device_uptime INTEGER,
+    CHECK (
+        (grid_row IS NULL AND grid_col IS NULL)
+        OR (
+            typeof(grid_row) = 'integer' AND typeof(grid_col) = 'integer'
+            AND grid_row > 0 AND grid_col > 0
+        )
+    )
 );
+
+-- The partial unique index and INSERT/UPDATE guards are created by
+-- LocalSchemaMigration after its read-only coordinate precheck. This keeps an
+-- existing database with duplicate coordinates diagnosable before any DDL.
 
 CREATE TABLE IF NOT EXISTS farm_print_job (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.Set;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /** 为已有 Local Edition SQLite 数据库补齐新增字段，重复启动安全。 */
@@ -22,6 +24,9 @@ public class LocalSchemaMigration implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        validateDashboardLayoutPreconditions();
+        ensurePrinterCoordinateGuards();
+        migrateDashboardLayout();
         createAuditLogTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_dispatch_plan", "retry_key", "VARCHAR(128)");
@@ -40,6 +45,223 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();
         validatePrintFileStructure();
+    }
+
+    /**
+     * SYNC-002.1 的坐标预检必须在布局表任何 DDL 或默认行写入前完成。
+     * SQLite 允许动态类型，因此非 INTEGER 的值也必须显式阻断。
+     */
+    private void validateDashboardLayoutPreconditions() {
+        List<Map<String, Object>> issues = jdbcTemplate.queryForList("""
+                SELECT issueType, id, name, gridRow, gridCol
+                FROM (
+                    SELECT 'PARTIAL_COORDINATE' AS issueType,
+                           p.id, p.name, p.grid_row AS gridRow, p.grid_col AS gridCol
+                    FROM farm_printer p
+                    WHERE (p.grid_row IS NULL) <> (p.grid_col IS NULL)
+                    UNION ALL
+                    SELECT 'DUPLICATE_SLOT' AS issueType,
+                           p.id, p.name, p.grid_row AS gridRow, p.grid_col AS gridCol
+                    FROM farm_printer p
+                    JOIN (
+                        SELECT grid_row, grid_col
+                        FROM farm_printer
+                        WHERE grid_row IS NOT NULL AND grid_col IS NOT NULL
+                        GROUP BY grid_row, grid_col
+                        HAVING COUNT(*) > 1
+                    ) duplicate_slot
+                      ON duplicate_slot.grid_row = p.grid_row
+                     AND duplicate_slot.grid_col = p.grid_col
+                    UNION ALL
+                    SELECT 'NON_POSITIVE_COORDINATE' AS issueType,
+                           p.id, p.name, p.grid_row AS gridRow, p.grid_col AS gridCol
+                    FROM farm_printer p
+                    WHERE typeof(p.grid_row) = 'integer'
+                      AND typeof(p.grid_col) = 'integer'
+                      AND (p.grid_row <= 0 OR p.grid_col <= 0)
+                    UNION ALL
+                    SELECT 'DEFAULT_LAYOUT_OUT_OF_BOUNDS' AS issueType,
+                           p.id, p.name, p.grid_row AS gridRow, p.grid_col AS gridCol
+                    FROM farm_printer p
+                    WHERE typeof(p.grid_row) = 'integer'
+                      AND typeof(p.grid_col) = 'integer'
+                      AND (p.grid_row > 4 OR p.grid_col > 12)
+                    UNION ALL
+                    SELECT 'NON_INTEGER_COORDINATE' AS issueType,
+                           p.id, p.name, p.grid_row AS gridRow, p.grid_col AS gridCol
+                    FROM farm_printer p
+                    WHERE (p.grid_row IS NOT NULL AND typeof(p.grid_row) <> 'integer')
+                       OR (p.grid_col IS NOT NULL AND typeof(p.grid_col) <> 'integer')
+                ) coordinate_issues
+                ORDER BY issueType, id
+                """);
+        if (!issues.isEmpty()) {
+            log.error("SQLite SYNC-002.1 坐标预检失败: {}", issues);
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: farm_printer coordinate precheck found issues: " + issues);
+        }
+
+        validateExistingDashboardLayout();
+        validateExistingPrinterCoordinateGuards();
+    }
+
+    private void validateExistingDashboardLayout() {
+        if (count("SELECT COUNT(*) FROM sqlite_master "
+                + "WHERE type = 'table' AND name = 'farm_dashboard_layout'") == 0) {
+            return;
+        }
+
+        List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                "PRAGMA table_info(farm_dashboard_layout)");
+        List<String> expectedNames = List.of(
+                "id", "row_count", "column_count", "aisles_json",
+                "version", "updated_by", "created_at", "updated_at");
+        List<String> actualNames = columns.stream()
+                .map(row -> String.valueOf(row.get("name")))
+                .toList();
+        boolean columnsValid = actualNames.size() == expectedNames.size()
+                && actualNames.equals(expectedNames)
+                && columnMatches(columns, "id", "INTEGER", 1, 1)
+                && columnMatches(columns, "row_count", "INTEGER", 1, 0)
+                && columnMatches(columns, "column_count", "INTEGER", 1, 0)
+                && columnMatches(columns, "aisles_json", "TEXT", 1, 0)
+                && columnMatches(columns, "version", "INTEGER", 1, 0)
+                && columnMatches(columns, "updated_by", "INTEGER", 0, 0)
+                && columnMatches(columns, "created_at", "TIMESTAMP", 1, 0)
+                && columnMatches(columns, "updated_at", "TIMESTAMP", 1, 0);
+        String tableSql = jdbcTemplate.queryForObject(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' "
+                        + "AND name = 'farm_dashboard_layout'", String.class);
+        String normalizedSql = tableSql.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        boolean checksValid = normalizedSql.contains("check(id=1)")
+                && normalizedSql.contains("check(typeof(row_count)='integer'androw_countbetween1and30)")
+                && normalizedSql.contains("check(typeof(column_count)='integer'andcolumn_countbetween1and60)")
+                && normalizedSql.contains("check(row_count*column_count<=1800)")
+                && normalizedSql.contains("check(typeof(version)='integer'andversion>0)");
+        if (!columnsValid || !checksValid) {
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: existing farm_dashboard_layout has incompatible structure");
+        }
+    }
+
+    private boolean columnMatches(List<Map<String, Object>> columns, String name,
+                                  String type, int notNull, int primaryKey) {
+        return columns.stream().anyMatch(column -> name.equals(column.get("name"))
+                && type.equalsIgnoreCase(String.valueOf(column.get("type")))
+                && Integer.valueOf(notNull).equals(column.get("notnull"))
+                && Integer.valueOf(primaryKey).equals(column.get("pk")));
+    }
+
+    private void validateExistingPrinterCoordinateGuards() {
+        validateExistingIndex("uk_farm_printer_grid_position", List.of("grid_row", "grid_col"));
+        validateExistingTrigger("trg_farm_printer_grid_position_insert", "beforeinsertonfarm_printer");
+        validateExistingTrigger("trg_farm_printer_grid_position_update",
+                "beforeupdateofgrid_row,grid_colonfarm_printer");
+    }
+
+    private void validateExistingIndex(String indexName, List<String> expectedColumns) {
+        List<Map<String, Object>> indexes = jdbcTemplate.queryForList("PRAGMA index_list(farm_printer)");
+        Map<String, Object> index = indexes.stream()
+                .filter(row -> indexName.equals(row.get("name")))
+                .findFirst()
+                .orElse(null);
+        if (index == null) {
+            return;
+        }
+        List<String> actualColumns = jdbcTemplate.queryForList(
+                        "PRAGMA index_info(" + indexName + ")").stream()
+                .sorted((left, right) -> Integer.compare(
+                        ((Number) left.get("seqno")).intValue(),
+                        ((Number) right.get("seqno")).intValue()))
+                .map(row -> String.valueOf(row.get("name")))
+                .toList();
+        boolean partial = index.get("partial") instanceof Number number && number.intValue() == 1;
+        String indexSql = jdbcTemplate.queryForObject("SELECT sql FROM sqlite_master "
+                + "WHERE type = 'index' AND name = ?", String.class, indexName);
+        String normalizedSql = indexSql.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        if (!partial || !actualColumns.equals(expectedColumns)
+                || !normalizedSql.contains("wheregrid_rowisnotnullandgrid_colisnotnull")) {
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: existing SQLite index " + indexName + " has incompatible structure");
+        }
+    }
+
+    private void validateExistingTrigger(String triggerName, String requiredToken) {
+        String triggerSql = jdbcTemplate.query("SELECT sql FROM sqlite_master "
+                        + "WHERE type = 'trigger' AND name = ?", resultSet ->
+                resultSet.next() ? resultSet.getString(1) : null, triggerName);
+        if (triggerSql != null
+                && !triggerSql.replaceAll("\\s+", "").toLowerCase(Locale.ROOT).contains(requiredToken)) {
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: existing SQLite trigger " + triggerName
+                            + " has incompatible structure");
+        }
+    }
+
+    private void ensurePrinterCoordinateGuards() {
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_farm_printer_grid_position "
+                + "ON farm_printer(grid_row, grid_col) "
+                + "WHERE grid_row IS NOT NULL AND grid_col IS NOT NULL");
+        jdbcTemplate.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_farm_printer_grid_position_insert
+                BEFORE INSERT ON farm_printer
+                WHEN NOT (
+                    (NEW.grid_row IS NULL AND NEW.grid_col IS NULL)
+                    OR (
+                        typeof(NEW.grid_row) = 'integer' AND typeof(NEW.grid_col) = 'integer'
+                        AND NEW.grid_row > 0 AND NEW.grid_col > 0
+                    )
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'farm_printer grid coordinates must be a positive integer pair or both NULL');
+                END
+                """);
+        jdbcTemplate.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_farm_printer_grid_position_update
+                BEFORE UPDATE OF grid_row, grid_col ON farm_printer
+                WHEN NOT (
+                    (NEW.grid_row IS NULL AND NEW.grid_col IS NULL)
+                    OR (
+                        typeof(NEW.grid_row) = 'integer' AND typeof(NEW.grid_col) = 'integer'
+                        AND NEW.grid_row > 0 AND NEW.grid_col > 0
+                    )
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'farm_printer grid coordinates must be a positive integer pair or both NULL');
+                END
+                """);
+    }
+
+    private void migrateDashboardLayout() {
+        if (count("SELECT COUNT(*) FROM sqlite_master "
+                + "WHERE type = 'table' AND name = 'farm_dashboard_layout'") == 0) {
+            jdbcTemplate.execute("""
+                    CREATE TABLE farm_dashboard_layout (
+                        id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+                        row_count INTEGER NOT NULL
+                            CHECK (typeof(row_count) = 'integer' AND row_count BETWEEN 1 AND 30),
+                        column_count INTEGER NOT NULL
+                            CHECK (typeof(column_count) = 'integer' AND column_count BETWEEN 1 AND 60),
+                        aisles_json TEXT NOT NULL,
+                        version INTEGER NOT NULL
+                            CHECK (typeof(version) = 'integer' AND version > 0),
+                        updated_by INTEGER,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CHECK (row_count * column_count <= 1800)
+                    )
+                    """);
+        }
+        jdbcTemplate.update("""
+                INSERT INTO farm_dashboard_layout
+                    (id, row_count, column_count, aisles_json, version, updated_by)
+                SELECT 1, 4, 12,
+                       '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]',
+                       1, NULL
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM farm_dashboard_layout WHERE id = 1
+                )
+                """);
     }
 
     private void addPrinterMonitorColumnsIfMissing() {

@@ -1,12 +1,65 @@
 # Farm 前后端接口交接与契约文档
 
-版本：v2.1
+版本：v2.2
 更新时间：2026-09-11
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
 > 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，坐标按服务端当前动态布局校验，布局上限为 30×60 且物理槽位总数不超过 1800；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
 
 项目执行入口：[PROJECT.md](./PROJECT.md)；Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v2/`。
+
+## TC-001 冻结契约：任务查询与状态机
+
+本章节是 TC-001 的冻结记录。它定义目标契约和当前实现差异；目标字段尚未上线的接口不得按目标字段消费，实施状态以对应 Kiro Task 为准。
+
+### 1. 目标读模型
+
+目标读模型为独立的 `PrintJobSummaryVO`（queue/page）和 `PrintJobDetailVO`（detail）。详情至少包含摘要全集，并保留 `id`、`fileId`、`printerId`、`userId`、`operatorId` 等技术 ID。所有 ID 在 JSON 中均为十进制字符串。
+
+摘要在现有字段上增加：`fileName`、`printerName`、`machineNumber`、`creatorUsername`、`operatorUsername`、`materialType`、`nozzleSize`。
+
+历史快照字段为 `fileNameSnapshot`、`printerNameSnapshot`、`machineNumberSnapshot`、`creatorUsernameSnapshot`、`operatorUsernameSnapshot`；重试字段为 `retryOfJobId`、`rootJobId`、`attemptNumber`。
+
+当前 Java Controller 仍返回 `PrintJobVO`，当前接口尚未实现上述目标读模型字段。TC-002/TC-003/TC-007 才负责实现这些目标响应，TC-001 不把当前返回写成已上线目标响应。
+
+### 2. 查询集合和排序
+
+queue = QUEUED；active = ASSIGNED | UPLOADING | READY | PRINTING | PAUSED | RECONCILING；history = COMPLETED | FAILED | CANCELLED。
+
+遗留 `PENDING`、`MANUAL`、`CANCELED` 只允许由独立迁移规范化为 `QUEUED`、`CANCELLED`；GET 查询不得写库。
+
+- `GET /print-jobs/queue` 目标返回 `Result<PrintJobSummaryVO[]>`，权限条件必须在 SQL 查询阶段生效，排序为 `priority DESC, createdAt ASC, id ASC`。
+- `POST /print-jobs/page` 目标返回 `Result<PageResult<PrintJobSummaryVO>>`，兼容单值 `status`，增加 `statuses`、`fileName`、`timeField(CREATED_AT|COMPLETED_AT)`。传递 `status` 与 `statuses` 返回 400。
+- `startTime/endTime` 使用 `yyyy-MM-dd'T'HH:mm:ss` 的 ISO-8601 local datetime，按服务配置的农场时区解释，默认 `Asia/Shanghai`；`startTime>endTime` 返回 400。history 固定使用 `COMPLETED_AT`，按 `completedAt DESC,id DESC` 排序且 null last；其他集合按 `createdAt DESC,id DESC` 排序。
+- `GET /print-jobs/{id}` 目标返回 `Result<PrintJobDetailVO>`；不存在或不可访问统一返回 404，不泄露资源存在性。
+
+### 3. 权限、操作和响应 data
+
+ADMIN 可查询全部任务；OPERATOR 仅可查询本人任务。请求中的 `userId` 不能扩大 OPERATOR 权限，权限条件必须在查询阶段生效。
+
+| 操作 | 当前状态边界 | 成功 data / 错误 |
+|---|---|---|
+| cancel | QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED | 进入 CANCELLED；设备命令失败 503，非法状态 422 |
+| retry | 仅 FAILED | TC-001 目标为新任务 ID 字符串；原失败任务不可变 |
+| requeue | 仅 ASSIGNED、READY | 解绑并进入 QUEUED；非法状态 422 |
+| reconcile | 仅 RECONCILING | 到 COMPLETED/FAILED/CANCELLED/QUEUED；参数 400，状态 422 |
+| priority | 仅 QUEUED | 成功 data=null |
+| safe assign | QUEUED→ASSIGNED | 成功 data=null，不启动设备 |
+| safe start | ASSIGNED 经安全确认 | 按 action 进入 UPLOADING/READY/PRINTING；成功 data=null |
+
+除 create/retry 的新任务 ID 字符串外，safe assign/start、cancel、requeue、reconcile、priority 等写操作 data 均为 null；前端成功后刷新详情和列表。统一错误语义为：400 参数格式/互斥/时间范围，401 未登录，403 已认证但角色或操作无权，404 不存在或不可访问，409 并发/幂等冲突，422 状态机/业务前置条件，503 设备或外部依赖失败。
+
+retry 采用新建任务记录，不使用 attempt 表。新任务为 QUEUED，无 printer/operator/start/completed/error，保留原 user/file/priority 及文件和创建人快照；`retryOfJobId` 指向直接来源，`rootJobId` 指向首次任务，`attemptNumber` 为原值加一。
+
+### 4. 快照和旧接口
+
+创建写入文件名与创建人快照，分配写入打印机名与机器编号快照，启动写入操作员名快照。快照一旦非空不得因改名覆盖。列表使用 current-first；history 使用 snapshot-first，缺失时回退当前可读字段，最后回退 ID。
+
+旧 `POST /print-jobs/{jobId}/assign` 已标记 deprecated，前端禁止调用。当前后端仍保留兼容实现；后续实施任务的目标是拒绝旧直启链路并返回 410。本目标错误码尚未在 TC-001 实现。
+
+### 5. 当前实现与实施任务
+
+TC-001 只冻结文档和 OpenAPI 说明。当前 queue/page/detail 的 Java 实际类型仍是 `PrintJobVO`，retry 当前 data 仍为 null；safe assign、safe start、reconcile 当前 data 为 null。OpenAPI 不引用未实现的未来 VO 作为当前 endpoint response schema，只在描述中记录目标差异。目标读模型、分页字段、快照、retry 新记录和旧 assign 的 410 由 TC-002、TC-003、TC-007 等后续实施任务完成。
 
 ## 1. 产品边界
 
@@ -284,16 +337,16 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
-| GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | `PrintJobVO[]` |
-| POST | `/print-jobs/page` | ADMIN/OPERATOR | JSON：分页、状态、打印机、时间 | `PageResult<PrintJobVO>` |
-| GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | `PrintJobVO` |
+| GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | 当前 `PrintJobVO[]`；目标 `PrintJobSummaryVO[]`（TC-001，未实施） |
+| POST | `/print-jobs/page` | ADMIN/OPERATOR | 当前为分页、status、打印机、时间；目标增加 statuses、fileName、timeField | 当前 `PageResult<PrintJobVO>`；目标 `PageResult<PrintJobSummaryVO>`（未实施） |
+| GET | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 当前 `PrintJobVO`；目标 `PrintJobDetailVO`（未实施） |
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?,idempotencyKey?` | 新任务 ID；同一用户同一幂等键重复请求返回原任务 |
 | POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority,printerId?,idempotencyKey?` | 新任务 ID（兼容，deprecated） |
 | DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务（Service 统一校验、设备控制和解绑） |
-| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | 失败任务重新入队 |
+| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID，仅 FAILED | 当前重新入队；目标创建新任务并返回新 ID 字符串（未实施） |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | 已派发任务重新入队 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority` | 更新排队优先级 |
-| POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | 分配并启动 |
+| POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | deprecated；当前兼容实现，后续目标拒绝并返回 410 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
@@ -439,7 +492,7 @@ HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态�
 
 T6.2 的 `printerId` 规则：不传时任务为 `QUEUED` 且不绑定设备；传入时先创建任务，再复用安全派发逻辑校验设备存在、为 `IDLE` 且 `currentJobId=null`，成功后任务为 `ASSIGNED`、打印机绑定任务且 `isSafeToPrint=false`，不会直接开始打印。任务记录插入影响 0 行时直接返回业务错误，不返回任务 ID；设备忙碌、设备不存在、已有任务绑定或派发状态校验失败时整体创建事务回滚；手动接口对已有绑定返回 `409`。
 
-T6.3 重试规则：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；成功后保留 `fileId`、`userId` 和 `priority`，清除 `printerId`、`operatorId`、`startedAt`、`completedAt`、`errorReason`，进度重置为 `0`，状态变为 `QUEUED`。由于队列任务没有 `printerId`，不构造无设备 ID 的 `JOB_STATUS`；前端以任务列表/队列数据为准。非失败状态返回 HTTP 422，不调用打印机设备；任务不存在或无权访问统一返回 HTTP 404。
+TC-001 已冻结 retry 目标：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；原任务不可变，创建新的 `QUEUED` 任务并返回新 ID 字符串，保存 `retryOfJobId`、`rootJobId`、`attemptNumber` 及规定快照。当前实现仍返回 null 并复用原记录，目标由后续实施任务完成。非失败状态目标返回 HTTP 422，任务不存在或无权访问统一返回 HTTP 404。
 
 T6.4 重新排队规则：`POST /print-jobs/{id}/requeue` 仅允许 `ASSIGNED` 或 `READY` 任务；成功后解除打印机绑定、清除运行字段、进度归零，状态变为 `QUEUED`。由于解除绑定后没有 `printerId`，不构造无设备 ID 的 `JOB_STATUS`；前端以任务列表/队列数据为准。关联设备存在时清除其 `currentJobId` 和安全确认，`PREPARING` 设备恢复为 `IDLE`；不调用设备协议。`PRINTING`、`PAUSED`、`FAILED`、`COMPLETED`、`CANCELLED` 均返回 HTTP 422，任务或设备不存在/无权访问返回 HTTP 404。
 
@@ -461,7 +514,7 @@ T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不
 
 批量计划确认必须保持计划所有权：普通用户只能确认自己创建的 `planId`，ADMIN 可确认任意计划。文件的 `PUBLIC` 可见性只扩大文件预览/使用范围，不扩大计划确认权限；其他用户如需派发公共文件，必须自己创建并确认新的计划。
 
-T6.7 任务摘要采用前端组合查询方案：`PrintJobVO` 保留 `fileId` 和 `printerId`，不在任务分页中嵌套重复对象；前端需要文件摘要时调用 `/print-files/{fileId}/preview`，需要打印机摘要时调用 `/printers/{printerId}`。`printerId=null` 的排队任务不发起打印机查询，文件/打印机详情接口各自执行资源权限校验。
+TC-001 已冻结任务读模型目标：queue/page 使用 `PrintJobSummaryVO`，detail 使用 `PrintJobDetailVO`，列表直接返回可读摘要和快照字段。当前实现仍返回 `PrintJobVO`，前端不得通过逐任务详情请求伪造尚未上线的目标字段；TC-002/TC-003/TC-007 负责后续实现。
 
 T6.8 当前已完成任务 Service 的状态/归属/设备调用测试、任务路由认证测试，以及持久化成功后绑定设备任务的 `JOB_STATUS` 事件测试。由于队列任务没有设备 ID，重试、重新排队和优先级修改不发送 `JOB_STATUS`；真实 MySQL/Redis/RustFS/打印机的端到端链路仍需在现场环境验收。
 
@@ -558,15 +611,17 @@ ERROR
 UNKNOWN
 ```
 
-### 6.2 PrintJobVO
+### 6.2 PrintJobVO（当前实现）
+
+以下示例仅描述当前 Java 返回对象；TC-001 目标读模型、字段和响应类型见文档顶部冻结章节，尚未由当前接口实现。
 
 ```json
 {
-  "id": 1001,
-  "fileId": 20,
-  "printerId": 403,
-  "userId": 1,
-  "operatorId": 2,
+  "id": "1001",
+  "fileId": "20",
+  "printerId": "403",
+  "userId": "1",
+  "operatorId": "2",
   "priority": 10,
   "status": "PRINTING",
   "progress": 35.5,
@@ -599,7 +654,7 @@ QUEUED -> ASSIGNED -> READY -> PRINTING -> PAUSED -> PRINTING
 QUEUED/ASSIGNED/READY/PAUSED -> CANCELLED
 PRINTING -> COMPLETED
 PRINTING -> FAILED
-FAILED -> QUEUED（重试）
+FAILED -> 新建 QUEUED 任务（retry；原任务不可变）
 ```
 
 废弃状态：`PENDING`、`PREPARING` 作为任务状态、`CANCELED`。`PREPARING` 只可用于打印机状态。

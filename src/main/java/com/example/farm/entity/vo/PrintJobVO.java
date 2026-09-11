@@ -14,22 +14,22 @@ import java.time.LocalDateTime;
  * 打印任务安全响应对象。
  */
 @Data
-@Schema(name = "PrintJobVO", description = "打印任务安全响应对象")
+@Schema(name = "PrintJobVO", description = "当前已实现的打印任务安全响应对象；TC-001 目标读模型为 PrintJobSummaryVO/PrintJobDetailVO")
 public class PrintJobVO implements Serializable {
 
-    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "任务 ID") private Long id;
-    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "切片文件 ID") private Long fileId;
-    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "绑定打印机 ID；排队任务为 null") private Long printerId;
-    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "发起任务的用户 ID") private Long userId;
-    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "现场操作员用户 ID") private Long operatorId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(type = "string", format = "int64", description = "任务 ID；JSON 十进制字符串") private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(type = "string", format = "int64", description = "切片文件 ID；JSON 十进制字符串") private Long fileId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(type = "string", format = "int64", description = "绑定打印机 ID；JSON 十进制字符串；排队任务为 null") private Long printerId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(type = "string", format = "int64", description = "发起任务的用户 ID；JSON 十进制字符串") private Long userId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(type = "string", format = "int64", description = "现场操作员用户 ID；JSON 十进制字符串") private Long operatorId;
     @Schema(description = "任务优先级，范围 0-100") private Integer priority;
-    @Schema(description = "任务状态：QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED、RECONCILING、COMPLETED、FAILED、CANCELLED") private String status;
+    @Schema(description = "任务状态：QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED、RECONCILING、COMPLETED、FAILED、CANCELLED；PENDING/MANUAL/CANCELED 仅为遗留存储值，不属于 GET 目标集合") private String status;
     @Schema(description = "打印进度，范围 0-100") private BigDecimal progress;
-    @Schema(description = "开始时间") private LocalDateTime startedAt;
-    @Schema(description = "完成时间") private LocalDateTime completedAt;
+    @Schema(type = "string", format = "date-time", pattern = "yyyy-MM-dd'T'HH:mm:ss", description = "开始时间；ISO-8601 local datetime") private LocalDateTime startedAt;
+    @Schema(type = "string", format = "date-time", pattern = "yyyy-MM-dd'T'HH:mm:ss", description = "完成时间；ISO-8601 local datetime") private LocalDateTime completedAt;
     @Schema(description = "失败或核对原因；无原因时为 null") private String errorReason;
-    @Schema(description = "创建时间") private LocalDateTime createdAt;
-    @Schema(description = "更新时间") private LocalDateTime updatedAt;
+    @Schema(type = "string", format = "date-time", pattern = "yyyy-MM-dd'T'HH:mm:ss", description = "创建时间；ISO-8601 local datetime") private LocalDateTime createdAt;
+    @Schema(type = "string", format = "date-time", pattern = "yyyy-MM-dd'T'HH:mm:ss", description = "更新时间；ISO-8601 local datetime") private LocalDateTime updatedAt;
 
     public static PrintJobVO from(PrintJob job) {
         if (job == null) {

@@ -51,7 +51,8 @@ public class PrintJobController {
      *
      * @return 当前队列任务列表
      */
-    @Operation(summary = "获取排队中的任务队列")
+    @Operation(summary = "获取排队中的任务队列",
+            description = "当前实现返回 PrintJobVO[]；TC-001 目标响应为 PrintJobSummaryVO[]。仅包含 QUEUED，权限条件在查询阶段生效，目标排序为 priority DESC、createdAt ASC、id ASC。")
     @GetMapping("/queue")
     public Result<List<PrintJobVO>> getQueue() {
         return Result.success(printJobService.getQueuedJobsForCurrentUser().stream()
@@ -64,7 +65,8 @@ public class PrintJobController {
      * @param queryDTO 查询条件
      * @return 分页结果
      */
-    @Operation(summary = "分页查询打印任务列表")
+    @Operation(summary = "分页查询打印任务列表",
+            description = "当前实现返回 PageResult<PrintJobVO>。TC-001 目标支持 statuses、fileName、timeField(CREATED_AT|COMPLETED_AT)；status 与 statuses 互斥，时间格式为 yyyy-MM-dd'T'HH:mm:ss local datetime，按农场时区解释，默认 Asia/Shanghai。")
     @PostMapping("/page")
     public Result<PageResult<PrintJobVO>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
         queryDTO = requireBody(queryDTO);
@@ -77,7 +79,8 @@ public class PrintJobController {
      * @param id 任务ID
      * @return 任务详情
      */
-    @Operation(summary = "获取打印任务详情")
+    @Operation(summary = "获取打印任务详情",
+            description = "当前实现返回 PrintJobVO；TC-001 目标响应为包含完整摘要字段的 PrintJobDetailVO。不存在或当前用户不可访问时返回 404。")
     @GetMapping("/{id}")
     public Result<PrintJobVO> getById(@PathVariable Long id) {
         PrintJob job = printJobService.getAccessibleJob(id);
@@ -124,7 +127,8 @@ public class PrintJobController {
      * @return 取消结果
      * @throws BusinessException 当任务状态不允许取消时抛出
      */
-    @Operation(summary = "取消任务")
+    @Operation(summary = "取消任务",
+            description = "允许 QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED；RECONCILING 必须通过 reconcile，终态不可取消。非法状态返回 422，设备命令失败返回 503；成功 data=null。")
     @DeleteMapping("/{id}")
     public Result<Void> cancelJob(@PathVariable Long id) {
         printJobService.cancelJob(id);
@@ -134,7 +138,8 @@ public class PrintJobController {
     /**
      * 将失败任务重新放回队列，不直接操作打印机。
      */
-    @Operation(summary = "重试打印任务")
+    @Operation(summary = "重试打印任务",
+            description = "当前实现返回 data=null 并重新使用原任务记录。TC-001 目标仅允许 FAILED，创建不可变原任务的新 QUEUED 记录并返回新任务 ID 字符串；目标字段为 retryOfJobId、rootJobId、attemptNumber。")
     @PostMapping("/{id}/retry")
     public Result<Void> retryJob(@PathVariable Long id) {
         printJobService.retryJob(id);
@@ -144,14 +149,16 @@ public class PrintJobController {
     /**
      * 解除尚未实际打印的任务与设备绑定并重新排队。
      */
-    @Operation(summary = "重新排队打印任务")
+    @Operation(summary = "重新排队打印任务",
+            description = "TC-001 冻结仅允许 ASSIGNED、READY，解绑设备后进入 QUEUED；非法状态返回 422，成功 data=null。")
     @PostMapping("/{id}/requeue")
     public Result<Void> requeueJob(@PathVariable Long id) {
         printJobService.requeueJob(id);
         return Result.success(null, "任务已重新排队");
     }
 
-    @Operation(summary = "人工核对任务结果", description = "仅允许将 RECONCILING 任务确认成完成、失败、取消或重新排队")
+    @Operation(summary = "人工核对任务结果",
+            description = "仅允许将 RECONCILING 任务确认成 COMPLETED、FAILED、CANCELLED 或 QUEUED；参数错误返回 400，状态错误返回 422，成功 data=null。")
     @PostMapping("/{id}/reconcile")
     public Result<Void> reconcileJob(@PathVariable Long id,
                                      @Valid @RequestBody ReconcilePrintJobRequest request) {
@@ -163,7 +170,8 @@ public class PrintJobController {
     /**
      * 修改排队任务优先级。
      */
-    @Operation(summary = "修改任务优先级")
+    @Operation(summary = "修改任务优先级",
+            description = "仅允许修改 QUEUED 任务；非法状态返回 422，成功 data=null。")
     @PutMapping("/{id}/priority")
     public Result<Void> updatePriority(@PathVariable Long id,
                                        @Valid @RequestBody UpdatePrintJobPriorityRequest request) {
@@ -180,7 +188,10 @@ public class PrintJobController {
      * @return 派发结果
      * @throws BusinessException 当任务状态、打印机状态或参数不满足要求时抛出
      */
-    @Operation(summary = "手动指派任务给打印机并开始（兼容模式）")
+    @Deprecated
+    @Operation(summary = "手动指派任务给打印机并开始（已废弃兼容接口）",
+            description = "当前仍保留兼容实现。新前端禁止调用；后续实施任务将拒绝此绕过安全确认的直启链路，目标错误码为 410。",
+            deprecated = true)
     @PostMapping("/{jobId}/assign")
     public Result<String> assignJob(@PathVariable Long jobId, @RequestParam Long printerId) {
         boolean success = printJobService.assignAndStartPrint(jobId, printerId);
@@ -203,7 +214,8 @@ public class PrintJobController {
      * @param req 派发请求（jobId, printerId）
      * @return 操作结果
      */
-    @Operation(summary = "派发任务（安全模式-第一步）")
+    @Operation(summary = "派发任务（安全模式-第一步）",
+            description = "仅执行 QUEUED→ASSIGNED 安全派发，不启动设备；成功 data=null。")
     @PostMapping("/safe/assign")
     public Result<String> assignJobSafe(@Valid @RequestBody AssignJobRequest req) {
         req = requireBody(req);
@@ -239,7 +251,8 @@ public class PrintJobController {
      * @param req 启动请求（jobId, operatorId）
      * @return 操作结果
      */
-    @Operation(summary = "现场启动打印（安全模式-第二步之二）")
+    @Operation(summary = "现场启动打印（安全模式-第二步之二）",
+            description = "必须经安全确认；按 action 进入 UPLOADING、READY 或 PRINTING 的现有流程，成功 data=null。")
     @PostMapping("/safe/start")
     public Result<String> startPrint(@Valid @RequestBody StartPrintJobRequest req) {
         req = requireBody(req);

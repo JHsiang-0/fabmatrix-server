@@ -1,6 +1,7 @@
 package com.example.farm.entity.enums;
 
 import com.example.farm.common.exception.BusinessException;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.Locale;
 import java.util.Set;
@@ -11,6 +12,7 @@ import java.util.Set;
  * <p>数据库历史数据中的 PENDING、MANUAL 和 CANCELED 只作为兼容值读取，
  * 新业务代码和新数据统一使用本枚举定义的状态。</p>
  */
+@Schema(name = "PrintJobStatus", description = "任务状态；queue=QUEUED，active=ASSIGNED/UPLOADING/READY/PRINTING/PAUSED/RECONCILING，history=COMPLETED/FAILED/CANCELLED")
 public enum PrintJobStatus {
     QUEUED,
     ASSIGNED,

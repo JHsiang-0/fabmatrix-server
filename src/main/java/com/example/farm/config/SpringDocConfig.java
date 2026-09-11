@@ -47,12 +47,12 @@ public class SpringDocConfig {
                 return;
             }
             for (Operation operation : pathItem.readOperations()) {
-                addResponse(operation, "400", "请求参数校验失败，统一返回 Result");
-                addResponse(operation, "404", "目标资源不存在，统一返回 Result");
-                addResponse(operation, "409", "资源或幂等请求冲突，统一返回 Result");
-                addResponse(operation, "422", "当前业务状态不允许操作，统一返回 Result");
+                addResponse(operation, "400", "参数格式、互斥条件或时间范围错误，统一返回 Result");
+                addResponse(operation, "404", "资源不存在或当前用户不可访问，统一返回 Result");
+                addResponse(operation, "409", "并发、幂等或资源冲突，统一返回 Result");
+                addResponse(operation, "422", "状态机或业务前置条件不满足，统一返回 Result");
                 addResponse(operation, "500", "服务端异常，统一返回 Result");
-                addResponse(operation, "503", "依赖服务或设备暂不可用，统一返回 Result");
+                addResponse(operation, "503", "设备或外部依赖失败，统一返回 Result");
                 if (!path.equals("/api/v1/auth/login")
                         && !path.equals("/api/v1/auth/setup/status")
                         && !path.equals("/api/v1/auth/setup/admin")) {

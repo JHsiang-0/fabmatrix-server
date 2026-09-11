@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * 打印任务查询参数 DTO
  */
 @Data
-@Schema(description = "打印任务查询参数")
+@Schema(description = "当前实现的打印任务查询参数。TC-001 目标新增 statuses、fileName、timeField；status 与 statuses 互斥，目标时间按农场时区解释，默认 Asia/Shanghai")
 public class PrintJobQueryDTO {
 
     @Schema(description = "页码，默认1", example = "1")
@@ -26,7 +26,7 @@ public class PrintJobQueryDTO {
     @Max(value = 100, message = "每页数量不能超过100")
     private Integer pageSize = 10;
 
-    @Schema(description = "任务状态：QUEUED, ASSIGNED, READY, PRINTING, PAUSED, COMPLETED, FAILED, CANCELLED")
+    @Schema(description = "兼容单值任务状态：QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED、RECONCILING、COMPLETED、FAILED、CANCELLED；遗留 PENDING/MANUAL/CANCELED 不由 GET 写库规范化")
     private String status;
 
     @Schema(description = "打印机ID")
@@ -35,9 +35,9 @@ public class PrintJobQueryDTO {
     @Schema(description = "用户ID（发起任务的用户）")
     private Long userId;
 
-    @Schema(description = "创建时间起")
+    @Schema(type = "string", format = "date-time", pattern = "yyyy-MM-dd'T'HH:mm:ss", description = "时间范围起点；ISO-8601 local datetime，按农场时区解释，默认 Asia/Shanghai；当前实现按 createdAt")
     private LocalDateTime startTime;
 
-    @Schema(description = "创建时间止")
+    @Schema(type = "string", format = "date-time", pattern = "yyyy-MM-dd'T'HH:mm:ss", description = "时间范围终点；ISO-8601 local datetime，按农场时区解释，默认 Asia/Shanghai；当前实现按 createdAt")
     private LocalDateTime endTime;
 }

@@ -45,6 +45,7 @@ class PrintJobSummaryVOContractTest {
         assertThat(returnType("getQueue")).contains("PrintJobSummaryVO");
         assertThat(returnType("queryJobs")).contains("PrintJobSummaryVO");
         assertThat(returnType("getById")).contains("PrintJobDetailVO");
+        assertThat(returnType("retryJob")).contains("Result<java.lang.String>");
         assertThat(returnType("assignJobSafe")).endsWith("Result<java.lang.Void>");
         assertThat(returnType("confirmPrinterSafe")).endsWith("Result<java.lang.Void>");
         assertThat(returnType("startPrint")).endsWith("Result<java.lang.Void>");

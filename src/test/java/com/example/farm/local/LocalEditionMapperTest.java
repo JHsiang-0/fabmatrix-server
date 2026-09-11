@@ -4,10 +4,14 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.FarmApplication;
 import com.example.farm.common.storage.FileStorage;
 import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.mapper.PrintFileMapper;
+import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.service.PrintFileService;
+import com.example.farm.service.PrintJobService;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +28,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,7 +40,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @ActiveProfiles("local")
 @TestPropertySource(properties = {
         "FARM_DATA_DIR=target/local-edition-test-data",
-        "farm.websocket.enabled=false"
+        "farm.websocket.enabled=false",
+        "spring.datasource.hikari.connection-timeout=1000"
 })
 class LocalEditionMapperTest {
 
@@ -47,15 +54,22 @@ class LocalEditionMapperTest {
     @Autowired
     private PrinterMapper printerMapper;
     @Autowired
+    private PrintJobMapper printJobMapper;
+    @Autowired
     private FileStorage fileStorage;
     @Autowired
     private com.example.farm.config.LocalSchemaMigration localSchemaMigration;
     @Autowired
     private PrintFileService printFileService;
+    @Autowired
+    private PrintJobService printJobService;
+    @Autowired
+    private HikariDataSource dataSource;
 
     @BeforeEach
     void cleanBusinessRows() {
         SecurityContextHolder.clearContext();
+        jdbcTemplate.update("DELETE FROM farm_audit_log");
         jdbcTemplate.update("DELETE FROM farm_print_job");
         jdbcTemplate.update("DELETE FROM farm_print_file");
         jdbcTemplate.update("DELETE FROM farm_printer");
@@ -118,6 +132,70 @@ class LocalEditionMapperTest {
 
         fileStorage.deleteFile("uploads/cube.gcode");
         assertThat(Files.exists(DATA_DIR.resolve("files/uploads/cube.gcode"))).isFalse();
+    }
+
+    @Test
+    void sqlitePrintJobMapperWritesAssignRootAndRetryTimesInAsiaShanghai() {
+        ensureUser(41, "mapper-time-user");
+        jdbcTemplate.update("INSERT INTO farm_printer(id, name, machine_number, status) "
+                + "VALUES (4401, 'Time Printer', 'TIME-01', 'IDLE')");
+        jdbcTemplate.update("INSERT INTO farm_print_job(id, user_id, status, created_at, updated_at) "
+                + "VALUES (4400, 41, 'QUEUED', '2000-01-01 00:00:00', '2000-01-01 00:00:00'), "
+                + "(4401, 41, 'QUEUED', '2000-01-01 00:00:00', '2000-01-01 00:00:00'), "
+                + "(4402, 41, 'FAILED', '2000-01-01 00:00:00', '2000-01-01 00:00:00')");
+        jdbcTemplate.update("UPDATE farm_print_job SET root_job_id = id, attempt_number = 1 WHERE id = 4402");
+
+        assertThat(printJobMapper.initializeRootJobId(4400L)).isEqualTo(1);
+        assertThat(printJobMapper.assignJobIfQueued(4401L, 4401L, "Time Printer", "TIME-01"))
+                .isEqualTo(1);
+
+        PrintJob retry = new PrintJob();
+        retry.setUserId(41L);
+        retry.setRetryOfJobId(4402L);
+        retry.setRootJobId(4402L);
+        retry.setAttemptNumber(2);
+        retry.setPriority(0);
+        retry.setProgress(BigDecimal.ZERO);
+        assertThat(printJobMapper.insertRetryIfAbsent(retry)).isEqualTo(1);
+
+        Map<String, Object> offsets = jdbcTemplate.queryForMap("""
+                SELECT
+                    CAST(strftime('%s', (SELECT updated_at FROM farm_print_job WHERE id = 4400))
+                        - strftime('%s', 'now') AS INTEGER) AS root_offset,
+                    CAST(strftime('%s', (SELECT updated_at FROM farm_print_job WHERE id = 4401))
+                        - strftime('%s', 'now') AS INTEGER) AS assign_offset,
+                    CAST(strftime('%s', (SELECT created_at FROM farm_print_job WHERE id = ?))
+                        - strftime('%s', 'now') AS INTEGER) AS retry_created_offset,
+                    CAST(strftime('%s', (SELECT updated_at FROM farm_print_job WHERE id = ?))
+                        - strftime('%s', 'now') AS INTEGER) AS retry_updated_offset
+                """, retry.getId(), retry.getId());
+        assertThat(offsets.values()).allSatisfy(value ->
+                assertThat(((Number) value).longValue()).isBetween(28795L, 28805L));
+    }
+
+    @Test
+    void retryRejectionsKeepStableCodesAndAuditWithSingleConnection() {
+        assertThat(dataSource.getMaximumPoolSize()).isEqualTo(1);
+        ensureUser(51, "retry-audit-user");
+        jdbcTemplate.update("INSERT INTO farm_print_job(id, user_id, status, root_job_id, attempt_number) "
+                + "VALUES (4500, 51, 'READY', 4500, 1), (4501, 51, 'FAILED', 4501, 1), "
+                + "(4502, 51, 'QUEUED', 9999, 2)");
+        jdbcTemplate.update("UPDATE farm_print_job SET retry_of_job_id = 4501 WHERE id = 4502");
+        mockOperator(51L);
+
+        assertThatThrownBy(() -> printJobService.retryJob(4599L))
+                .extracting("code").isEqualTo(404L);
+        assertThatThrownBy(() -> printJobService.retryJob(4500L))
+                .extracting("code").isEqualTo(422L);
+        assertThatThrownBy(() -> printJobService.retryJob(4501L))
+                .extracting("code").isEqualTo(409L);
+
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT error_code FROM farm_audit_log
+                WHERE action = 'JOB_RETRY_REJECT'
+                ORDER BY id
+                """, String.class)).containsExactly(
+                        "JOB_NOT_FOUND", "JOB_NOT_FAILED", "RETRY_LINEAGE_CONFLICT");
     }
 
     @Test
@@ -240,5 +318,11 @@ class LocalEditionMapperTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userId, null,
                         List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
+    }
+
+    private void mockOperator(Long userId) {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userId, "retry-audit-user",
+                        List.of(new SimpleGrantedAuthority("ROLE_OPERATOR"))));
     }
 }

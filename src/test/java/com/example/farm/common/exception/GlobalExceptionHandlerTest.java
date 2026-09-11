@@ -95,4 +95,13 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(ResultCode.STORAGE_ERROR.getCode());
     }
+
+    @Test
+    void mapsDatabaseBusinessFailureTo503AndKeepsCode5001() {
+        var response = handler.handleBusinessException(new BusinessException(ResultCode.MYSQL_ERROR));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(5001);
+    }
 }

@@ -58,9 +58,49 @@ public class PrintJob implements Serializable {
     @Schema(description = "发起任务的用户 ID")
     private Long userId;
 
+    /** 创建时保存的文件名称，不随文件改名或删除变化。 */
+    @TableField("file_name_snapshot")
+    @Schema(description = "创建时的文件名快照")
+    private String fileNameSnapshot;
+
+    /** 最近一次合法派发时保存的打印机名称。 */
+    @TableField("printer_name_snapshot")
+    @Schema(description = "派发时的打印机名称快照")
+    private String printerNameSnapshot;
+
+    /** 最近一次合法派发时保存的机器编号。 */
+    @TableField("machine_number_snapshot")
+    @Schema(description = "派发时的机器编号快照")
+    private String machineNumberSnapshot;
+
+    /** 创建时保存的用户名，不随用户改名变化。 */
+    @TableField("creator_username_snapshot")
+    @Schema(description = "创建时的用户名快照")
+    private String creatorUsernameSnapshot;
+
+    /** 真正进入 PRINTING 时保存的现场操作员用户名。 */
+    @TableField("operator_username_snapshot")
+    @Schema(description = "真正启动打印时的操作员用户名快照")
+    private String operatorUsernameSnapshot;
+
     /** 客户端创建请求幂等键；同一用户下重复键返回首次创建的任务。 */
     @TableField("idempotency_key")
     private String idempotencyKey;
+
+    /** 直接来源任务；仅重试任务设置。 */
+    @TableField("retry_of_job_id")
+    @Schema(description = "直接来源任务 ID")
+    private Long retryOfJobId;
+
+    /** 首次任务 ID；根任务自身指向自身。 */
+    @TableField("root_job_id")
+    @Schema(description = "首次任务 ID")
+    private Long rootJobId;
+
+    /** 当前任务在同一根任务链中的尝试序号。 */
+    @TableField("attempt_number")
+    @Schema(description = "任务尝试序号")
+    private Integer attemptNumber;
 
     /**
      * 现场操作员 ID（确认安全、启动打印时记录）

@@ -68,7 +68,7 @@ Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。
 
 已有 Docker 数据卷不会重新执行 `/docker-entrypoint-initdb.d` 下的 SQL。执行增量迁移前先备份 MySQL、Redis 和 RustFS 数据；不要使用 `docker compose down -v`，该命令会删除命名数据卷。
 
-当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；TC-003 使用 `18-v2-print-job-query-semantics-mysql.sql`（MySQL）或 `18-v2-print-job-query-semantics-sqlite.sql`（SQLite）回填旧任务状态并建立查询索引；两者均支持重复执行。`02-current-schema.sql` 的新增列/索引检查已支持重复执行。任务时间契约冻结为 Asia/Shanghai 的不带偏移 wall-clock，不提供可覆盖时区配置：MySQL 使用服务器/JDBC `+08:00`，SQLite fresh `farm_print_job` 默认使用 `datetime('now', '+8 hours')`，应用查询直接绑定 local datetime，不转换已存时间。
+当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；TC-003 使用 `18-v2-print-job-query-semantics-mysql.sql`（MySQL）或 `18-v2-print-job-query-semantics-sqlite.sql`（SQLite）回填旧任务状态并建立查询索引；TC-007 使用 `19-v2-print-job-audit-model-mysql.sql` 或 `19-v2-print-job-audit-model-sqlite.sql` 补齐历史快照/重试 lineage 字段、旧任务 `root=id/attempt=1`、当前资源尽力回填和唯一索引。operator 快照只对 `started_at` 非空、具备实际开始证据的旧任务回填；旧 READY 且 `started_at` 为空时保持 null。19 号脚本及 LocalSchemaMigration 均支持重复执行；SQLite 离线脚本要求列已由 LocalSchemaMigration 或 fresh local-schema 补齐。历史改名和已丢失字段不可恢复。`02-current-schema.sql` 的新增列/索引检查已支持重复执行。任务时间契约冻结为 Asia/Shanghai 的不带偏移 wall-clock，不提供可覆盖时区配置：MySQL 使用服务器/JDBC `+08:00`，SQLite fresh 及 assign/root/retry Mapper 写入使用 `datetime('now', '+8 hours')`，应用查询直接绑定 local datetime，不转换已存时间。
 
 SYNC-002 动态布局必须先执行 `dashboard-layout-precheck-mysql.sql`，确认没有半空、重复、非正数、非整数或超出默认
 4×12 的坐标，再执行 `16-v2-dashboard-layout-mysql.sql`。`farm.sql` 和 `02-current-schema.sql` 不创建或写入
@@ -138,7 +138,9 @@ for migration in \
   src/main/resources/db/migration/12-v2-audit-log.sql \
   src/main/resources/db/migration/13-v2-print-file-default-folders.sql \
   src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql \
-  src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql; do
+  src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql \
+  src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql \
+  src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done
@@ -152,7 +154,7 @@ docker compose exec -T mysql sh -c \
   < src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
 ```
 
-该脚本将 `PENDING/MANUAL` 回填为 `QUEUED`、将 `CANCELED` 回填为 `CANCELLED`，并创建活动/历史分页索引。执行前先备份；Local Edition 启动时由 `LocalSchemaMigration` 执行相同的幂等回填和索引创建，手工 SQLite 脚本仅用于离线升级或核对。
+18 号脚本将 `PENDING/MANUAL` 回填为 `QUEUED`、将 `CANCELED` 回填为 `CANCELLED`，并创建活动/历史分页索引；19 号脚本补齐快照和重试 lineage。执行前先备份；Local Edition 启动时由 `LocalSchemaMigration` 执行相同的幂等补齐、回填和索引创建，手工 SQLite 脚本仅用于离线升级或核对。不要对真实数据库自动执行迁移。
 
 迁移后至少核对新增字段、历史表和规范化值，再启动应用：
 

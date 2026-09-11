@@ -24,6 +24,7 @@ import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.entity.enums.PrintJobTimeField;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
+import com.example.farm.mapper.UserMapper;
 import com.example.farm.protocol.PrinterEndpoint;
 import com.example.farm.protocol.PrinterOperation;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
@@ -36,7 +37,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -60,7 +63,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private final WebSocketEventPublisher eventPublisher;
 
     @Autowired(required = false)
+    private UserMapper userMapper;
+
+    @Autowired(required = false)
     private AuditLogService auditLogService;
+
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
 
     /** 单元测试可不提供 Redis；正式运行由 Server Edition 注入并作为跨客户端占用锁。 */
     @Autowired(required = false)
@@ -74,16 +83,18 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long submitJob(Long fileId, Long userId, Integer priority) {
-        validateUsableFile(fileId, userId);
+        PrintFile fileRecord = validateUsableFile(fileId, userId);
         PrintJob job = new PrintJob();
         job.setFileId(fileId);
         job.setUserId(userId);
+        applyCreationSnapshots(job, fileRecord, userId);
         job.setPriority(priority != null ? priority : 0);
         job.setStatus(PrintJobStatus.QUEUED.name());
         job.setProgress(BigDecimal.ZERO);
         if (!this.save(job)) {
             throw new BusinessException("提交打印任务失败：任务记录保存失败");
         }
+        initializeRootJobId(job);
         eventPublisher.publishJobStatus(job);
         recordSuccess("JOB_CREATE", "JOB", job.getId(), "打印任务 #" + job.getId());
         log.info("提交打印任务成功: jobId={}, userId={}, fileId={}, priority={}", job.getId(), userId, fileId, job.getPriority());
@@ -120,10 +131,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
 
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.ASSIGNED);
-        job.setPrinterId(printerId);
-        job.setStatus(PrintJobStatus.ASSIGNED.name());
-        if (!this.updateById(job)) {
-            throw new BusinessException("自动派发任务失败：任务状态保存失败");
+        if (!assignJobRecord(job, printer)) {
+            return false;
         }
 
         if (!printerService.bindJobIfIdle(printerId, job.getId())) {
@@ -216,12 +225,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             }
         }
 
-        validateUsableFile(req.getFileId(), userId);
+        PrintFile fileRecord = validateUsableFile(req.getFileId(), userId);
 
         PrintJob job = new PrintJob();
         job.setUserId(userId);
         job.setIdempotencyKey(normalizedKey);
         job.setFileId(req.getFileId());
+        applyCreationSnapshots(job, fileRecord, userId);
         job.setPriority(req.getPriority() != null ? req.getPriority() : 0);
         job.setProgress(BigDecimal.ZERO);
         job.setCreatedAt(LocalDateTime.now());
@@ -232,6 +242,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (!this.save(job)) {
             throw new BusinessException("创建打印任务失败：任务记录保存失败");
         }
+        initializeRootJobId(job);
         if (req.getPrinterId() != null) {
             assignJob(job.getId(), req.getPrinterId());
         } else {
@@ -263,6 +274,49 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         return fileRecord;
     }
 
+    private void applyCreationSnapshots(PrintJob job, PrintFile fileRecord, Long userId) {
+        job.setFileNameSnapshot(fileRecord == null ? null : fileRecord.getOriginalName());
+        job.setCreatorUsernameSnapshot(resolveUsernameSnapshot(userId));
+        job.setAttemptNumber(1);
+    }
+
+    private String resolveUsernameSnapshot(Long userId) {
+        if (userMapper != null && userId != null) {
+            try {
+                var user = userMapper.selectById(userId);
+                if (user != null && user.getUsername() != null && !user.getUsername().isBlank()) {
+                    return user.getUsername();
+                }
+            } catch (RuntimeException exception) {
+                log.warn("读取创建人用户名失败，保留可用的认证用户名: userId={}", userId);
+            }
+        }
+        Long currentUserId = SecurityContextUtil.getCurrentUserIdNullable();
+        String currentUsername = SecurityContextUtil.getCurrentUsername();
+        return Objects.equals(currentUserId, userId) && currentUsername != null && !currentUsername.isBlank()
+                ? currentUsername : null;
+    }
+
+    private void initializeRootJobId(PrintJob job) {
+        if (job.getId() == null || farmPrintJobMapper.initializeRootJobId(job.getId()) != 1) {
+            throw new BusinessException("创建打印任务失败：任务根链初始化失败");
+        }
+        job.setRootJobId(job.getId());
+    }
+
+    private boolean assignJobRecord(PrintJob job, Printer printer) {
+        int affected = farmPrintJobMapper.assignJobIfQueued(
+                job.getId(), printer.getId(), printer.getName(), printer.getMachineNumber());
+        if (affected != 1) {
+            return false;
+        }
+        job.setPrinterId(printer.getId());
+        job.setPrinterNameSnapshot(printer.getName());
+        job.setMachineNumberSnapshot(printer.getMachineNumber());
+        job.setStatus(PrintJobStatus.ASSIGNED.name());
+        return true;
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean assignAndStartPrint(Long jobId, Long printerId) {
@@ -284,10 +338,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
         requireUnboundPrinter(printer);
 
-        // 先进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
-        job.setPrinterId(printerId);
-        job.setStatus(PrintJobStatus.ASSIGNED.name());
-        updateJobOrThrow(job, "派发打印任务失败");
+        // 先以 CAS 进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
+        if (!assignJobRecord(job, printer)) {
+            throw new BusinessException(409, "任务已被其他请求派发或状态已变化");
+        }
         if (!printerService.bindJobIfIdle(printerId, jobId)) {
             throw new BusinessException(409, "打印机已被其他请求占用或状态已变化");
         }
@@ -376,10 +430,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
         requireUnboundPrinter(printer);
 
-        // 行为：将 Job 的 printerId 设为目标机器，状态改为 ASSIGNED
-        job.setPrinterId(printerId);
-        job.setStatus(PrintJobStatus.ASSIGNED.name());
-        updateJobOrThrow(job, "派发任务失败");
+        // 行为：以任务 CAS 写入设备和本次分配快照，再建立打印机侧原子绑定。
+        if (!assignJobRecord(job, printer)) {
+            throw new BusinessException(409, "任务已被其他请求派发或状态已变化");
+        }
 
         // 行为：将目标 Printer 的 is_safe_to_print 重置为 false（防范风险）
         if (!printerService.bindJobIfIdle(printerId, jobId)) {
@@ -506,6 +560,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             // 行为：将 Job 状态改为 PRINTING，记录 operatorId
             job.setStatus(PrintJobStatus.PRINTING.name());
             job.setOperatorId(operatorId);
+            job.setOperatorUsernameSnapshot(resolveUsernameSnapshot(operatorId));
             job.setStartedAt(LocalDateTime.now());
             updateJobOrThrow(job, "启动打印失败");
 
@@ -524,7 +579,6 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
             }
             job.setStatus(PrintJobStatus.READY.name());
-            job.setOperatorId(operatorId);
             updateJobOrThrow(job, "上传文件到打印机失败");
 
             // 打印机状态保持 IDLE（等待手动在机器上点击打印）
@@ -586,39 +640,172 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void retryJob(Long jobId) {
-        PrintJob job = getAccessibleJob(jobId);
-        if (job.getPrinterId() != null) {
-            withPrinterLock(job.getPrinterId(), () -> {
-                doRetryJob(jobId);
-                return null;
-            });
-            return;
+    public Long retryJob(Long jobId) {
+        if (jobId == null) {
+            recordRetryFailure(null, "JOB_NOT_FOUND");
+            throw new BusinessException(404, "任务不存在");
         }
-        doRetryJob(jobId);
+        try {
+            try {
+                return executeRetryTransaction(() -> retryJobInTransaction(jobId));
+            } catch (RetryReplayRequiredException exception) {
+                // 唯一键已由并发事务命中但 RR 快照仍不可见：换新事务取得提交后的当前状态。
+                return executeRetryTransaction(() -> replayRetryAfterConcurrentInsert(jobId));
+            }
+        } catch (RetryRejectedException exception) {
+            // 此处业务事务已结束，local 单连接可安全执行 REQUIRES_NEW 失败审计。
+            recordRetryFailure(jobId, exception.getAuditCode());
+            throw exception;
+        }
     }
 
-    private void doRetryJob(Long jobId) {
-        PrintJob job = getAccessibleJob(jobId);
-        String status = PrintJobStatus.normalize(job.getStatus());
-        if (PrintJobStatus.QUEUED.name().equals(status)) {
-            return;
+    private Long executeRetryTransaction(Supplier<Long> action) {
+        if (transactionManager == null) {
+            return action.get();
         }
-        PrintJobStatus.requireTransition(status, PrintJobStatus.QUEUED);
+        return new TransactionTemplate(transactionManager).execute(status -> action.get());
+    }
 
-        clearBindingBeforeRequeue(job);
+    private Long retryJobInTransaction(Long jobId) {
+        PrintJob source;
+        try {
+            source = getAccessibleJob(jobId);
+        } catch (BusinessException exception) {
+            if (exception.getCode() == 404) {
+                throw retryRejected(404, "任务不存在", "JOB_NOT_FOUND");
+            }
+            throw exception;
+        }
 
-        job.setPrinterId(null);
-        job.setOperatorId(null);
-        job.setStartedAt(null);
-        job.setCompletedAt(null);
-        job.setErrorReason(null);
-        job.setProgress(BigDecimal.ZERO);
-        job.setStatus(PrintJobStatus.QUEUED.name());
-        updateJobAndPublish(job);
-        recordSuccess("JOB_RETRY", "JOB", jobId, "打印任务 #" + jobId);
-        log.info("重试打印任务成功: jobId={}, 原状态={}", jobId, status);
+        // MySQL 的 FOR UPDATE 是当前读：同一来源的跨实例请求会串行，并看到已提交 child。
+        farmPrintJobMapper.lockRetrySource(jobId);
+        PrintJob existing = farmPrintJobMapper.selectRetryChild(jobId);
+        if (existing != null) {
+            return replayRetryChild(source, existing);
+        }
+        if (!PrintJobStatus.FAILED.name().equals(PrintJobStatus.normalize(source.getStatus()))) {
+            throw retryRejected(422, "只有 FAILED 状态的任务可以重试", "JOB_NOT_FAILED");
+        }
+
+        PrintFile sourceFile;
+        try {
+            sourceFile = validateUsableFile(source.getFileId(), source.getUserId());
+        } catch (BusinessException exception) {
+            throw retryRejected(422, "重试源文件不存在或不可用", "RETRY_SOURCE_UNAVAILABLE");
+        }
+        if (sourceFile == null || Boolean.TRUE.equals(sourceFile.getIsFolder())) {
+            throw retryRejected(422, "重试源文件不存在或不可用", "RETRY_SOURCE_UNAVAILABLE");
+        }
+
+        PrintJob child = buildRetryChild(source);
+        int inserted = farmPrintJobMapper.insertRetryIfAbsent(child);
+        if (inserted == 0) {
+            existing = farmPrintJobMapper.selectRetryChild(jobId);
+            if (existing != null) {
+                return replayRetryChild(source, existing);
+            }
+            existing = farmPrintJobMapper.selectRetryChildByLineage(
+                    child.getRootJobId(), child.getAttemptNumber());
+            if (existing != null) {
+                throw retryRejected(409, "重试任务链数据冲突", "RETRY_LINEAGE_CONFLICT");
+            }
+            throw new RetryReplayRequiredException();
+        }
+        if (inserted != 1 || child.getId() == null) {
+            throw retryRejected(5001, "创建重试任务失败：数据库暂不可用", "RETRY_DATABASE_ERROR");
+        }
+        recordSuccess("JOB_RETRY_CREATE", "JOB", child.getId(), "打印任务 #" + child.getId());
+        eventPublisher.publishJobStatus(child);
+        log.info("创建重试打印任务成功: sourceJobId={}, childJobId={}, attemptNumber={}",
+                jobId, child.getId(), child.getAttemptNumber());
+        return child.getId();
+    }
+
+    private Long replayRetryAfterConcurrentInsert(Long jobId) {
+        PrintJob source;
+        try {
+            source = getAccessibleJob(jobId);
+        } catch (BusinessException exception) {
+            if (exception.getCode() == 404) {
+                throw retryRejected(404, "任务不存在", "JOB_NOT_FOUND");
+            }
+            throw exception;
+        }
+        farmPrintJobMapper.lockRetrySource(jobId);
+        PrintJob existing = farmPrintJobMapper.selectRetryChild(jobId);
+        if (existing != null) {
+            return replayRetryChild(source, existing);
+        }
+        Long expectedRoot = source.getRootJobId() == null ? source.getId() : source.getRootJobId();
+        int expectedAttempt = (source.getAttemptNumber() == null ? 1 : source.getAttemptNumber()) + 1;
+        existing = farmPrintJobMapper.selectRetryChildByLineage(expectedRoot, expectedAttempt);
+        if (existing != null) {
+            throw retryRejected(409, "重试任务链数据冲突", "RETRY_LINEAGE_CONFLICT");
+        }
+        throw retryRejected(5001, "创建重试任务失败：数据库暂不可用", "RETRY_DATABASE_ERROR");
+    }
+
+    private PrintJob buildRetryChild(PrintJob source) {
+        PrintJob child = new PrintJob();
+        child.setUserId(source.getUserId());
+        child.setFileId(source.getFileId());
+        child.setPriority(source.getPriority() == null ? 0 : source.getPriority());
+        child.setProgress(BigDecimal.ZERO);
+        child.setStatus(PrintJobStatus.QUEUED.name());
+        child.setFileNameSnapshot(source.getFileNameSnapshot());
+        child.setCreatorUsernameSnapshot(source.getCreatorUsernameSnapshot());
+        child.setRetryOfJobId(source.getId());
+        child.setRootJobId(source.getRootJobId() == null ? source.getId() : source.getRootJobId());
+        child.setAttemptNumber((source.getAttemptNumber() == null ? 1 : source.getAttemptNumber()) + 1);
+        child.setIdempotencyKey(null);
+        child.setCreatedAt(LocalDateTime.now());
+        return child;
+    }
+
+    private Long replayRetryChild(PrintJob source, PrintJob child) {
+        Long expectedRoot = source.getRootJobId() == null ? source.getId() : source.getRootJobId();
+        int expectedAttempt = (source.getAttemptNumber() == null ? 1 : source.getAttemptNumber()) + 1;
+        if (!Objects.equals(child.getRetryOfJobId(), source.getId())
+                || !Objects.equals(child.getRootJobId(), expectedRoot)
+                || !Objects.equals(child.getUserId(), source.getUserId())
+                || !Objects.equals(child.getFileId(), source.getFileId())
+                || !Objects.equals(child.getAttemptNumber(), expectedAttempt)) {
+            throw retryRejected(409, "重试任务链数据冲突", "RETRY_LINEAGE_CONFLICT");
+        }
+        recordSuccess("JOB_RETRY_REPLAY", "JOB", child.getId(), "打印任务 #" + child.getId());
+        return child.getId();
+    }
+
+    private void recordRetryFailure(Long jobId, String errorCode) {
+        if (auditLogService != null) {
+            try {
+                auditLogService.recordFailure("JOB_RETRY_REJECT", "JOB", jobId,
+                        "打印任务重试", errorCode);
+            } catch (RuntimeException exception) {
+                // @Transactional 代理可能在进入 recordFailure 方法前失败，不能覆盖稳定业务错误。
+                log.warn("重试拒绝审计写入失败: jobId={}, errorCode={}", jobId, errorCode, exception);
+            }
+        }
+    }
+
+    private RetryRejectedException retryRejected(long code, String message, String auditCode) {
+        return new RetryRejectedException(code, message, auditCode);
+    }
+
+    private static final class RetryRejectedException extends BusinessException {
+        private final String auditCode;
+
+        private RetryRejectedException(long code, String message, String auditCode) {
+            super(code, message);
+            this.auditCode = auditCode;
+        }
+
+        private String getAuditCode() {
+            return auditCode;
+        }
+    }
+
+    private static final class RetryReplayRequiredException extends RuntimeException {
     }
 
     @Override

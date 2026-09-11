@@ -45,6 +45,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_print_file", "visibility", "VARCHAR(7) NOT NULL DEFAULT 'PRIVATE'");
         addPrinterMonitorColumnsIfMissing();
         migratePrintJobQuerySemantics();
+        migratePrintJobAuditModel();
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_dispatch_plan_created_retry_key "
                 + "ON farm_dispatch_plan(created_by, retry_key)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_monitor_enabled "
@@ -67,6 +68,47 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_print_job(status, completed_at, id)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_print_job_active_status_created_id "
                 + "ON farm_print_job(status, created_at, id)");
+    }
+
+    /** TC-007 历史快照与重试链；SQLite 列补齐、回填和索引均可重复执行。 */
+    private void migratePrintJobAuditModel() {
+        addColumnIfMissing("farm_print_job", "file_name_snapshot", "VARCHAR(255)");
+        addColumnIfMissing("farm_print_job", "printer_name_snapshot", "VARCHAR(50)");
+        addColumnIfMissing("farm_print_job", "machine_number_snapshot", "VARCHAR(50)");
+        addColumnIfMissing("farm_print_job", "creator_username_snapshot", "VARCHAR(50)");
+        addColumnIfMissing("farm_print_job", "operator_username_snapshot", "VARCHAR(50)");
+        addColumnIfMissing("farm_print_job", "retry_of_job_id", "INTEGER");
+        addColumnIfMissing("farm_print_job", "root_job_id", "INTEGER");
+        addColumnIfMissing("farm_print_job", "attempt_number", "INTEGER NOT NULL DEFAULT 1");
+
+        jdbcTemplate.update("UPDATE farm_print_job SET root_job_id = id WHERE root_job_id IS NULL");
+        jdbcTemplate.update("UPDATE farm_print_job SET attempt_number = 1 "
+                + "WHERE attempt_number IS NULL OR attempt_number < 1");
+        jdbcTemplate.update("""
+                UPDATE farm_print_job
+                SET file_name_snapshot = COALESCE(file_name_snapshot,
+                        (SELECT original_name FROM farm_print_file f WHERE f.id = farm_print_job.file_id)),
+                    printer_name_snapshot = COALESCE(printer_name_snapshot,
+                        (SELECT name FROM farm_printer p WHERE p.id = farm_print_job.printer_id)),
+                    machine_number_snapshot = COALESCE(machine_number_snapshot,
+                        (SELECT machine_number FROM farm_printer p WHERE p.id = farm_print_job.printer_id)),
+                    creator_username_snapshot = COALESCE(creator_username_snapshot,
+                        (SELECT username FROM farm_user u WHERE u.id = farm_print_job.user_id)),
+                    operator_username_snapshot = CASE
+                        WHEN started_at IS NOT NULL THEN COALESCE(operator_username_snapshot,
+                            (SELECT username FROM farm_user u WHERE u.id = farm_print_job.operator_id))
+                        ELSE operator_username_snapshot
+                    END
+                WHERE file_name_snapshot IS NULL
+                   OR printer_name_snapshot IS NULL
+                   OR machine_number_snapshot IS NULL
+                   OR creator_username_snapshot IS NULL
+                   OR (started_at IS NOT NULL AND operator_username_snapshot IS NULL)
+                """);
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_retry_of_job "
+                + "ON farm_print_job(retry_of_job_id)");
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_root_attempt "
+                + "ON farm_print_job(root_job_id, attempt_number)");
     }
 
     /**

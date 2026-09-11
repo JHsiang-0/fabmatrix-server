@@ -284,7 +284,7 @@ class PrintJobOwnershipTest {
     }
 
     @Test
-    void retriesOwnFailedJobAndClearsRuntimeFields() {
+    void retriesOwnFailedJobWithoutMutatingTheFailedSource() {
         mockUser(1L, "OPERATOR");
         PrintJob job = job(100L, 1L);
         job.setFileId(20L);
@@ -295,19 +295,28 @@ class PrintJobOwnershipTest {
         job.setStartedAt(java.time.LocalDateTime.now().minusMinutes(5));
         job.setCompletedAt(java.time.LocalDateTime.now());
         job.setErrorReason("设备异常");
+        job.setRootJobId(100L);
+        job.setAttemptNumber(1);
+        job.setFileNameSnapshot("demo.gcode");
+        job.setCreatorUsernameSnapshot("creator");
         when(printJobMapper.selectById(100L)).thenReturn(job);
-        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.selectRetryChild(100L)).thenReturn(null);
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        when(printJobMapper.insertRetryIfAbsent(any(PrintJob.class))).thenAnswer(invocation -> {
+            PrintJob child = invocation.getArgument(0);
+            child.setId(101L);
+            return 1;
+        });
 
-        printJobService.retryJob(100L);
+        Long childId = printJobService.retryJob(100L);
 
-        assertThat(job.getStatus()).isEqualTo("QUEUED");
-        assertThat(job.getProgress()).isEqualByComparingTo("0");
-        assertThat(job.getPrinterId()).isNull();
-        assertThat(job.getOperatorId()).isNull();
-        assertThat(job.getStartedAt()).isNull();
-        assertThat(job.getCompletedAt()).isNull();
-        assertThat(job.getErrorReason()).isNull();
-        verify(eventPublisher).publishJobStatus(job);
+        assertThat(childId).isEqualTo(101L);
+        assertThat(job.getStatus()).isEqualTo("FAILED");
+        assertThat(job.getProgress()).isEqualByComparingTo("42.50");
+        assertThat(job.getPrinterId()).isEqualTo(403L);
+        assertThat(job.getOperatorId()).isEqualTo(8L);
+        assertThat(job.getErrorReason()).isEqualTo("设备异常");
+        verify(eventPublisher).publishJobStatus(any(PrintJob.class));
     }
 
     @Test
@@ -316,9 +325,11 @@ class PrintJobOwnershipTest {
         PrintJob job = job(100L, 1L);
         job.setStatus("COMPLETED");
         when(printJobMapper.selectById(100L)).thenReturn(job);
+        when(printJobMapper.selectRetryChild(100L)).thenReturn(null);
 
         assertThatThrownBy(() -> printJobService.retryJob(100L))
-                .hasMessage("任务状态不允许从 [COMPLETED] 转换为 [QUEUED]");
+                .hasMessage("只有 FAILED 状态的任务可以重试")
+                .extracting("code").isEqualTo(422L);
         verify(printJobMapper, never()).updateById(any(PrintJob.class));
     }
 
@@ -420,6 +431,16 @@ class PrintJobOwnershipTest {
         job.setId(id);
         job.setUserId(userId);
         return job;
+    }
+
+    private PrintFile file(Long id, Long userId) {
+        PrintFile file = new PrintFile();
+        file.setId(id);
+        file.setUserId(userId);
+        file.setIsFolder(false);
+        file.setVisibility("PRIVATE");
+        file.setOriginalName("demo.gcode");
+        return file;
     }
 
     private void mockUser(Long userId, String role) {

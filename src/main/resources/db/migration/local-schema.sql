@@ -63,7 +63,12 @@ CREATE TABLE IF NOT EXISTS farm_printer (
 CREATE TABLE IF NOT EXISTS farm_print_job (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_id INTEGER, printer_id INTEGER, user_id INTEGER NOT NULL,
-    operator_id INTEGER, idempotency_key VARCHAR(100), priority INTEGER DEFAULT 0,
+    operator_id INTEGER, idempotency_key VARCHAR(100),
+    file_name_snapshot VARCHAR(255), printer_name_snapshot VARCHAR(50),
+    machine_number_snapshot VARCHAR(50), creator_username_snapshot VARCHAR(50),
+    operator_username_snapshot VARCHAR(50), retry_of_job_id INTEGER,
+    root_job_id INTEGER, attempt_number INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER DEFAULT 0,
     status VARCHAR(20) NOT NULL DEFAULT 'QUEUED', progress NUMERIC(5,2) DEFAULT 0,
     started_at TIMESTAMP, completed_at TIMESTAMP, error_reason VARCHAR(255),
     -- SQLite CURRENT_TIMESTAMP is UTC; print-job timestamps use fixed Asia/Shanghai wall-clock.
@@ -73,6 +78,10 @@ CREATE TABLE IF NOT EXISTS farm_print_job (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_user_idempotency
     ON farm_print_job(user_id, idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_retry_of_job
+    ON farm_print_job(retry_of_job_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_root_attempt
+    ON farm_print_job(root_job_id, attempt_number);
 
 CREATE INDEX IF NOT EXISTS idx_print_job_history_status_completed_id
     ON farm_print_job(status, completed_at, id);

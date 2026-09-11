@@ -27,6 +27,28 @@ public interface PrintJobMapper extends BaseMapper<PrintJob> {
     PrintJob selectByIdempotencyKey(@Param("userId") Long userId,
                                     @Param("idempotencyKey") String idempotencyKey);
 
+    /** 只在任务仍为 QUEUED 且未绑定设备时写入一次派发快照。 */
+    int assignJobIfQueued(@Param("jobId") Long jobId,
+                          @Param("printerId") Long printerId,
+                          @Param("printerName") String printerName,
+                          @Param("machineNumber") String machineNumber);
+
+    /** 根任务插入后回写自身 ID；只允许从 NULL 初始化，保证事务内不可漂移。 */
+    int initializeRootJobId(@Param("jobId") Long jobId);
+
+    /** 锁定重试来源行；MySQL 使用当前读串行化跨实例的同源重试。 */
+    Long lockRetrySource(@Param("jobId") Long jobId);
+
+    /** 查询直接来源的重试子任务；MySQL 使用当前读避免 RR 快照看不到并发提交。 */
+    PrintJob selectRetryChild(@Param("sourceJobId") Long sourceJobId);
+
+    /** 查询根链尝试冲突；MySQL 使用当前读覆盖并发提交和历史脏链。 */
+    PrintJob selectRetryChildByLineage(@Param("rootJobId") Long rootJobId,
+                                       @Param("attemptNumber") Integer attemptNumber);
+
+    /** 使用数据库唯一索引安全创建重试子任务；重复请求返回 0。 */
+    int insertRetryIfAbsent(PrintJob job);
+
     /** 查询当前用户可见的 QUEUED 任务摘要，权限条件在 SQL 层固定。 */
     List<PrintJobSummaryVO> selectQueuedSummaries(@Param("userId") Long userId,
                                                   @Param("admin") boolean admin);

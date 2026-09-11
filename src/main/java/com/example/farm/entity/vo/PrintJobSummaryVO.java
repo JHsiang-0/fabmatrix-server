@@ -91,32 +91,31 @@ public class PrintJobSummaryVO implements Serializable {
     @Schema(types = {"number", "null"}, description = "文件摘要中的喷嘴尺寸；JSON number；无值或关联文件不存在时为 null")
     private BigDecimal nozzleSize;
 
-    // TC-007 负责填充以下历史快照和重试关联字段；TC-002 仅保持目标 schema。
-    @Schema(types = {"string", "null"}, description = "历史文件名快照；TC-007 填充，当前为 null")
+    @Schema(types = {"string", "null"}, description = "历史文件名快照；资源删除或改名后仍可读")
     private String fileNameSnapshot;
 
-    @Schema(types = {"string", "null"}, description = "历史打印机名称快照；TC-007 填充，当前为 null")
+    @Schema(types = {"string", "null"}, description = "历史打印机名称快照；资源删除或改名后仍可读")
     private String printerNameSnapshot;
 
-    @Schema(types = {"string", "null"}, description = "历史机器编号快照；TC-007 填充，当前为 null")
+    @Schema(types = {"string", "null"}, description = "历史机器编号快照；资源删除或改名后仍可读")
     private String machineNumberSnapshot;
 
-    @Schema(types = {"string", "null"}, description = "历史创建人用户名快照；TC-007 填充，当前为 null")
+    @Schema(types = {"string", "null"}, description = "历史创建人用户名快照；资源删除或改名后仍可读")
     private String creatorUsernameSnapshot;
 
-    @Schema(types = {"string", "null"}, description = "历史操作员用户名快照；TC-007 填充，当前为 null")
+    @Schema(types = {"string", "null"}, description = "真正启动打印时的操作员用户名快照")
     private String operatorUsernameSnapshot;
 
     @JsonSerialize(using = ToStringSerializer.class)
     @Schema(type = "string", types = {"null"}, format = "int64",
-            description = "直接来源任务 ID；JSON 十进制字符串；TC-007 填充，当前为 null")
+            description = "直接来源任务 ID；JSON 十进制字符串；非重试任务为 null")
     private Long retryOfJobId;
 
     @JsonSerialize(using = ToStringSerializer.class)
     @Schema(type = "string", types = {"null"}, format = "int64",
-            description = "首次任务 ID；JSON 十进制字符串；TC-007 填充，当前为 null")
+            description = "首次任务 ID；JSON 十进制字符串；根任务指向自身")
     private Long rootJobId;
 
-    @Schema(types = {"integer", "null"}, description = "尝试序号；TC-007 填充，当前为 null")
+    @Schema(types = {"integer", "null"}, description = "任务尝试序号；新任务默认为1")
     private Integer attemptNumber;
 }

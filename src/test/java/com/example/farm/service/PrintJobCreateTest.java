@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.anyLong;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobCreateTest {
@@ -69,6 +70,9 @@ class PrintJobCreateTest {
         assertThat(jobId).isEqualTo(1001L);
         assertThat(created.get().getStatus()).isEqualTo("QUEUED");
         assertThat(created.get().getPrinterId()).isNull();
+        assertThat(created.get().getFileNameSnapshot()).isEqualTo("demo.gcode");
+        assertThat(created.get().getAttemptNumber()).isEqualTo(1);
+        assertThat(created.get().getRootJobId()).isEqualTo(1001L);
         verify(printerService, never()).getById(any());
         verify(eventPublisher).publishJobStatus(created.get());
     }
@@ -83,6 +87,9 @@ class PrintJobCreateTest {
         assertThat(jobId).isEqualTo(1001L);
         assertThat(created.get().getStatus()).isEqualTo("QUEUED");
         assertThat(created.get().getPrinterId()).isNull();
+        assertThat(created.get().getFileNameSnapshot()).isEqualTo("demo.gcode");
+        assertThat(created.get().getAttemptNumber()).isEqualTo(1);
+        assertThat(created.get().getRootJobId()).isEqualTo(1001L);
         verify(eventPublisher).publishJobStatus(created.get());
     }
 
@@ -154,16 +161,19 @@ class PrintJobCreateTest {
         Printer printer = new Printer();
         printer.setId(403L);
         printer.setName("Printer-403");
+        printer.setMachineNumber("M-03");
         printer.setStatus("IDLE");
         when(printerService.getById(403L)).thenReturn(printer);
         when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(true);
-        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.assignJobIfQueued(anyLong(), anyLong(), any(), any())).thenReturn(1);
 
         Long jobId = printJobService.createJob(request(403L));
 
         assertThat(jobId).isEqualTo(1001L);
         assertThat(created.get().getStatus()).isEqualTo("ASSIGNED");
         assertThat(created.get().getPrinterId()).isEqualTo(403L);
+        assertThat(created.get().getPrinterNameSnapshot()).isEqualTo("Printer-403");
+        assertThat(created.get().getMachineNumberSnapshot()).isEqualTo("M-03");
         assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
         assertThat(printer.getIsSafeToPrint()).isFalse();
         verify(adapterFactory, never()).getAdapter(any());
@@ -180,7 +190,7 @@ class PrintJobCreateTest {
         printer.setStatus("IDLE");
         when(printerService.getById(403L)).thenReturn(printer);
         when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(false);
-        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.assignJobIfQueued(anyLong(), anyLong(), any(), any())).thenReturn(1);
 
         assertThatThrownBy(() -> printJobService.createJob(request(403L)))
                 .hasMessage("打印机已被其他请求占用或状态已变化");
@@ -202,7 +212,7 @@ class PrintJobCreateTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(true);
-        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.assignJobIfQueued(anyLong(), anyLong(), any(), any())).thenReturn(1);
 
         assertThat(printJobService.assignQueuedJob(1001L, 403L)).isTrue();
 
@@ -212,7 +222,7 @@ class PrintJobCreateTest {
         assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
         assertThat(printer.getIsSafeToPrint()).isFalse();
         var order = inOrder(printJobMapper, printerService, eventPublisher);
-        order.verify(printJobMapper).updateById(job);
+        order.verify(printJobMapper).assignJobIfQueued(1001L, 403L, "Printer-403", null);
         order.verify(printerService).bindJobIfIdle(403L, 1001L);
         order.verify(eventPublisher).publishJobStatus(job);
     }
@@ -247,7 +257,7 @@ class PrintJobCreateTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(false);
-        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.assignJobIfQueued(anyLong(), anyLong(), any(), any())).thenReturn(1);
 
         assertThatThrownBy(() -> printJobService.assignQueuedJob(1001L, 403L))
                 .hasMessage("自动派发任务失败：打印机状态保存失败");
@@ -288,6 +298,7 @@ class PrintJobCreateTest {
             created.set(job);
             return 1;
         }).when(printJobMapper).insert(any(PrintJob.class));
+        when(printJobMapper.initializeRootJobId(1001L)).thenReturn(1);
         if (needsReload) {
             when(printJobMapper.selectById(1001L)).thenAnswer(invocation -> created.get());
         }
@@ -307,6 +318,7 @@ class PrintJobCreateTest {
         file.setId(id);
         file.setUserId(userId);
         file.setIsFolder(false);
+        file.setOriginalName("demo.gcode");
         return file;
     }
 

@@ -142,11 +142,12 @@ public interface PrintJobService extends IService<PrintJob> {
     void cancelJob(Long jobId);
 
     /**
-     * 将失败任务重置为排队状态。
+     * 为 FAILED 任务创建不可变来源的新 QUEUED 重试任务，并按直接来源幂等回放。
      *
      * @param jobId 任务 ID
+     * @return 新建或回放的子任务 ID
      */
-    void retryJob(Long jobId);
+    Long retryJob(Long jobId);
 
     /**
      * 将尚未实际打印的已派发任务解除设备绑定并重新排队。

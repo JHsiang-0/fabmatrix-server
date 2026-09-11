@@ -133,4 +133,31 @@ class PrintJobControllerContractTest {
 
         verifyNoMoreInteractions(printJobService);
     }
+
+    @Test
+    void legacyAssignReturnsGoneWithoutCallingTaskService() throws Exception {
+        mockMvc.perform(post("/api/v1/print-jobs/100/assign")
+                        .with(user("operator").roles("OPERATOR"))
+                        .param("printerId", "200"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value(410));
+
+        verifyNoMoreInteractions(printJobService);
+    }
+
+    @Test
+    void legacyAssignReturnsGoneForMissingOrMalformedPrinterIdWithoutCallingTaskService() throws Exception {
+        mockMvc.perform(post("/api/v1/print-jobs/100/assign")
+                        .with(user("operator").roles("OPERATOR")))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value(410));
+
+        mockMvc.perform(post("/api/v1/print-jobs/100/assign")
+                        .with(user("operator").roles("OPERATOR"))
+                        .param("printerId", "not-a-long"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value(410));
+
+        verifyNoMoreInteractions(printJobService);
+    }
 }

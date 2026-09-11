@@ -80,7 +80,31 @@ class PrintJobAdapterTest {
         assertThat(endpoint.getValue().printerId()).isEqualTo(403L);
         assertThat(endpoint.getValue().apiKey()).isEqualTo("device-secret");
         assertThat(job.getStatus()).isEqualTo("PRINTING");
+        assertThat(job.getOperatorUsernameSnapshot()).isEqualTo("2");
         verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
+    void uploadOnlyReachesReadyWithoutFreezingOperatorSnapshot() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printFileMapper.selectById(20L)).thenReturn(file());
+        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+
+        printJobService.startPrint(1001L, 2L, "UPLOAD_ONLY");
+
+        assertThat(job.getStatus()).isEqualTo("READY");
+        assertThat(job.getOperatorId()).isNull();
+        assertThat(job.getOperatorUsernameSnapshot()).isNull();
+        verify(adapter).uploadFile(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class),
+                org.mockito.ArgumentMatchers.same(resource), org.mockito.ArgumentMatchers.eq("demo.gcode"),
+                org.mockito.ArgumentMatchers.eq(false));
     }
 
     @Test

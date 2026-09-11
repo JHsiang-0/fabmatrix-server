@@ -1,7 +1,7 @@
 # Farm 前后端接口交接与契约文档
 
 版本：v2.2
-更新时间：2026-09-11
+更新时间：2026-09-12
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
 > 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，坐标按服务端当前动态布局校验，布局上限为 30×60 且物理槽位总数不超过 1800；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
@@ -20,7 +20,7 @@
 
 历史快照字段为 `fileNameSnapshot`、`printerNameSnapshot`、`machineNumberSnapshot`、`creatorUsernameSnapshot`、`operatorUsernameSnapshot`；重试字段为 `retryOfJobId`、`rootJobId`、`attemptNumber`。
 
-TC-002 已将 queue/page/detail 切换为独立的 `PrintJobSummaryVO`/`PrintJobDetailVO`，并通过一次 LEFT JOIN 查询提供当前文件、打印机和用户摘要；TC-003 已实施多状态/完成时间分页、文件名筛选、历史终态调用约定和旧状态迁移。TC-004–TC-008 仍未完成，桌面端和其他后续契约不在本任务范围。
+TC-002 已将 queue/page/detail 切换为独立的 `PrintJobSummaryVO`/`PrintJobDetailVO`，并通过一次 LEFT JOIN 查询提供当前文件、打印机和用户摘要；TC-003 已实施多状态/完成时间分页、文件名筛选、历史终态调用约定和旧状态迁移；TC-007 已实施快照、重试子任务和旧 assign 410。TC-004–TC-006、TC-008 的前端联调仍不在本任务范围。
 
 ### 2. 查询集合和排序
 
@@ -40,7 +40,7 @@ ADMIN 可查询全部任务；OPERATOR 仅可查询本人任务。请求中的 `
 | 操作 | 当前状态边界 | 成功 data / 错误 |
 |---|---|---|
 | cancel | QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED | 进入 CANCELLED；设备命令失败 503，非法状态 422 |
-| retry | 仅 FAILED | TC-001 目标为新任务 ID 字符串；原失败任务不可变 |
+| retry | 仅 FAILED | 新建或幂等回放 QUEUED 子任务，返回新任务 ID 字符串；原失败任务不可变 |
 | requeue | 仅 ASSIGNED、READY | 解绑并进入 QUEUED；非法状态 422 |
 | reconcile | 仅 RECONCILING | 到 COMPLETED/FAILED/CANCELLED/QUEUED；参数 400，状态 422 |
 | priority | 仅 QUEUED | 成功 data=null |
@@ -49,17 +49,17 @@ ADMIN 可查询全部任务；OPERATOR 仅可查询本人任务。请求中的 `
 
 除 create/retry 的新任务 ID 字符串外，safe assign/start、cancel、requeue、reconcile、priority 等写操作 data 均为 null；前端成功后刷新详情和列表。统一错误语义为：400 参数格式/互斥/时间范围，401 未登录，403 已认证但角色或操作无权，404 不存在或不可访问，409 并发/幂等冲突，422 状态机/业务前置条件，503 设备或外部依赖失败。
 
-retry 采用新建任务记录，不使用 attempt 表。新任务为 QUEUED，无 printer/operator/start/completed/error，保留原 user/file/priority 及文件和创建人快照；`retryOfJobId` 指向直接来源，`rootJobId` 指向首次任务，`attemptNumber` 为原值加一。
+retry 采用新建任务记录，不使用 attempt 表。新任务为 QUEUED，无 printer/operator/start/completed/error 及设备/操作员快照，保留原 user/file/priority 及文件和创建人快照；`retryOfJobId` 指向直接来源，`rootJobId` 指向首次任务，`attemptNumber` 为原值加一。相同来源的重复或并发请求返回同一子任务；资源后来删除时优先回放已有子任务，lineage 不一致返回 409。
 
 ### 4. 快照和旧接口
 
 创建写入文件名与创建人快照，分配写入打印机名与机器编号快照，启动写入操作员名快照。快照一旦非空不得因改名覆盖。列表使用 current-first；history 使用 snapshot-first，缺失时回退当前可读字段，最后回退 ID。
 
-旧 `POST /print-jobs/{jobId}/assign` 已标记 deprecated，前端禁止调用。当前后端仍保留兼容实现；后续实施任务的目标是拒绝旧直启链路并返回 410。本目标错误码尚未在 TC-001 实现。
+旧 `POST /print-jobs/{jobId}/assign` 已标记 deprecated，无论是否提供 `printerId`、值能否解析，当前均固定返回 HTTP 410/业务码 410，不调用任务服务、打印机或设备；前端禁止调用。
 
 ### 5. 当前实现与实施任务
 
-TC-001 只冻结契约；TC-002 已上线 queue/page/detail 的目标读模型和摘要 JOIN 查询，safe assign、safe start、safe confirm、reconcile 的成功 `data` 类型均为 null。TC-003 已上线多状态/文件名/创建与完成时间分页及旧状态迁移；TC-007 的快照、retry 新任务记录及旧 assign 的 410 仍未实施。
+TC-001 只冻结契约；TC-002 已上线 queue/page/detail 的目标读模型和摘要 JOIN 查询，safe assign、safe start、safe confirm、reconcile 的成功 `data` 类型均为 null。TC-003 已上线多状态/文件名/创建与完成时间分页及旧状态迁移；TC-007 已上线历史快照、retry 新任务记录、重试审计和旧 assign 410。
 
 ## 1. 产品边界
 
@@ -343,10 +343,10 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?,idempotencyKey?` | 新任务 ID；同一用户同一幂等键重复请求返回原任务 |
 | POST | `/print-jobs/create` | ADMIN/OPERATOR | `fileId,priority,printerId?,idempotencyKey?` | 新任务 ID（兼容，deprecated） |
 | DELETE | `/print-jobs/{id}` | ADMIN/OPERATOR | Path ID | 取消任务（Service 统一校验、设备控制和解绑） |
-| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID，仅 FAILED | 当前重新入队；目标创建新任务并返回新 ID 字符串（未实施） |
+| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID，仅 FAILED | 新建或回放 QUEUED 子任务，返回新 ID 字符串；同一来源自然幂等 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | 已派发任务重新入队 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority` | 更新排队优先级 |
-| POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | Query：`printerId` | deprecated；当前兼容实现，后续目标拒绝并返回 410 |
+| POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | 无；额外 Query 被忽略 | deprecated；固定 HTTP 410/业务码 410，不产生服务或设备调用 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
 | POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
@@ -483,7 +483,7 @@ HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态�
 | 方法 | 目标地址 | 权限 | 请求 | 返回 | 状态 |
 |---|---|---|---|---|---|
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID | 已完成 |
-| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
+| POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID，仅 FAILED | `Result<string>` 新任务 ID | 已完成 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
 | POST | `/print-jobs/{id}/reconcile` | ADMIN/OPERATOR（按任务归属） | `{ "result": "COMPLETED|FAILED|CANCELLED|QUEUED", "reason": "..." }` | `Result<null>` | 已完成 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority`，范围 `0-100` | `Result<null>` | 已完成 |
@@ -492,7 +492,7 @@ HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态�
 
 T6.2 的 `printerId` 规则：不传时任务为 `QUEUED` 且不绑定设备；传入时先创建任务，再复用安全派发逻辑校验设备存在、为 `IDLE` 且 `currentJobId=null`，成功后任务为 `ASSIGNED`、打印机绑定任务且 `isSafeToPrint=false`，不会直接开始打印。任务记录插入影响 0 行时直接返回业务错误，不返回任务 ID；设备忙碌、设备不存在、已有任务绑定或派发状态校验失败时整体创建事务回滚；手动接口对已有绑定返回 `409`。
 
-TC-001 已冻结 retry 目标：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；原任务不可变，创建新的 `QUEUED` 任务并返回新 ID 字符串，保存 `retryOfJobId`、`rootJobId`、`attemptNumber` 及规定快照。当前实现仍返回 null 并复用原记录，目标由后续实施任务完成。非失败状态目标返回 HTTP 422，任务不存在或无权访问统一返回 HTTP 404。
+TC-007 已实现 retry：`POST /print-jobs/{id}/retry` 仅允许当前用户可见且状态为 `FAILED` 的任务；原任务不可变，创建新的 `QUEUED` 任务并返回新 ID 字符串，保存 `retryOfJobId`、`rootJobId`、`attemptNumber` 及规定快照。重复/并发请求按直接来源回放同一 child；非失败状态返回 HTTP 422，任务不存在或无权访问统一返回 HTTP 404，首次源文件不可用返回 HTTP 422，lineage 冲突返回 HTTP 409。
 
 T6.4 重新排队规则：`POST /print-jobs/{id}/requeue` 仅允许 `ASSIGNED` 或 `READY` 任务；成功后解除打印机绑定、清除运行字段、进度归零，状态变为 `QUEUED`。由于解除绑定后没有 `printerId`，不构造无设备 ID 的 `JOB_STATUS`；前端以任务列表/队列数据为准。关联设备存在时清除其 `currentJobId` 和安全确认，`PREPARING` 设备恢复为 `IDLE`；不调用设备协议。`PRINTING`、`PAUSED`、`FAILED`、`COMPLETED`、`CANCELLED` 均返回 HTTP 422，任务或设备不存在/无权访问返回 HTTP 404。
 
@@ -514,9 +514,9 @@ T6.6 取消规则已统一收敛到 `PrintJobService.cancelJob`：Controller 不
 
 批量计划确认必须保持计划所有权：普通用户只能确认自己创建的 `planId`，ADMIN 可确认任意计划。文件的 `PUBLIC` 可见性只扩大文件预览/使用范围，不扩大计划确认权限；其他用户如需派发公共文件，必须自己创建并确认新的计划。
 
-TC-002 已实施任务读模型：queue/page 使用 `PrintJobSummaryVO`，detail 使用 `PrintJobDetailVO`，列表和详情通过固定 LEFT JOIN 直接返回当前可读摘要；关联缺失保留任务并返回 null。TC-003 已完成多状态、文件名、创建/完成时间范围、稳定排序、SQL 权限下推和旧状态独立迁移；快照和重试关联字段仍由 TC-007 实施。
+TC-002 已实施任务读模型：queue/page 使用 `PrintJobSummaryVO`，detail 使用 `PrintJobDetailVO`，列表和详情通过固定 LEFT JOIN 直接返回当前可读摘要；关联缺失保留任务并返回 null。TC-003 已完成多状态、文件名、创建/完成时间范围、稳定排序、SQL 权限下推和旧状态独立迁移；TC-007 已补齐快照与重试关联字段、创建/分配/启动写入、失败父任务不可变、重试审计和 410 旧 assign。
 
-T6.8 当前已完成任务 Service 的状态/归属/设备调用测试、任务路由认证测试，以及持久化成功后绑定设备任务的 `JOB_STATUS` 事件测试。由于队列任务没有设备 ID，重试、重新排队和优先级修改不发送 `JOB_STATUS`；真实 MySQL/Redis/RustFS/打印机的端到端链路仍需在现场环境验收。
+T6.8 当前已完成任务 Service 的状态/归属/设备调用测试、任务路由认证测试，以及持久化成功后绑定设备任务的 `JOB_STATUS` 事件测试。重试首次创建会发布无设备绑定的子任务 `JOB_STATUS`，回放不重复发布；重新排队和优先级修改不发送 `JOB_STATUS`。真实 MySQL/Redis/RustFS/打印机的端到端链路仍需在现场环境验收。
 
 T7.1 已完成：`GET /auth/me` 要求登录，从 JWT 当前用户读取资料并返回脱敏 `UserVO`；未携带或无效 Token 返回 HTTP 401、业务码 `401`。原 `/auth/{userId}/profile` 保留用于兼容，前端新代码优先使用 `/auth/me`。
 
@@ -669,9 +669,11 @@ mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-hi
 mysql -u root -p farm < src/main/resources/db/migration/07-v2-dispatch-plan.sql
 mysql -u root -p farm < src/main/resources/db/migration/08-v2-atomic-printer-binding.sql
 mysql -u root -p farm < src/main/resources/db/migration/09-v2-print-job-idempotency.sql
+mysql -u root -p farm < src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
+mysql -u root -p farm < src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql
 ```
 
-`02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
+`02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。`19-v2-print-job-audit-model-mysql.sql` 会幂等补齐快照/lineage 字段、将旧任务初始化为 `root=id/attempt=1`、尽力 LEFT JOIN 回填当前资源名称并创建唯一索引；operator 快照只在 `started_at` 非空时回填，旧 READY 且未开始的任务保持 null。历史改名和已丢失字段不可恢复。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
 
 实体、Mapper 与 SQL 字段已完成静态核对：用户、打印机、打印文件、打印任务和打印机状态历史的当前字段均能在初始化表或对应增量脚本中找到；`operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表属于增量升级内容。历史 `V*.sql` 文件不代表 Spring 会自动执行的迁移，已有数据卷仍需按 `OPERATIONS.md` 手工升级并在真实 MySQL 中验收。
 
@@ -847,6 +849,8 @@ src/main/resources/db/migration/11-printer-monitor-reliability.sql
 src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql
 src/main/resources/db/migration/12-v2-audit-log.sql
 src/main/resources/db/migration/13-v2-print-file-default-folders.sql
+src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
+src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql
 ```
 
 已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并按上述顺序手工执行经过确认的增量 SQL；`11-printer-monitor-reliability.sql` 会在字段/索引缺失时补齐，允许重复执行。该迁移新增的 `monitor_enabled` 对旧打印机默认为 `0`，不会自动开始轮询；`farm.sql` 的历史种子使用显式列清单，省略的新增列由默认值填充，不会因新增列失败。迁移后应核对 8 个监控字段和 `idx_printer_monitor_enabled` 索引，并由管理员显式启用目标设备。
@@ -855,7 +859,7 @@ src/main/resources/db/migration/13-v2-print-file-default-folders.sql
 
 ### 9.2.1 Local Edition
 
-使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，监控索引由 `LocalSchemaMigration` 在字段补齐后创建。旧 Local SQLite 数据库由 `LocalSchemaMigration` 在启动时按缺失字段/索引补齐，默认目录整棵子树强制为 `PRIVATE`，并执行文件目录异常诊断；孤儿、循环、超深、同级目录重名、非文件夹父级、重复默认目录或父子 visibility 冲突会在业务启动前阻断。该流程可重复执行，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
+使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，`LocalSchemaMigration` 会幂等补齐 TC-007 的快照/lineage 列、旧任务回填和唯一索引。旧 Local SQLite 数据库由该启动迁移按缺失字段/索引补齐，默认目录整棵子树强制为 `PRIVATE`，并执行文件目录异常诊断；孤儿、循环、超深、同级目录重名、非文件夹父级、重复默认目录或父子 visibility 冲突会在业务启动前阻断。该流程可重复执行，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
 
 ### 9.3 测试环境
 

@@ -83,6 +83,14 @@ class PrintJobSummaryMapperTest {
                     started_at TIMESTAMP,
                     completed_at TIMESTAMP,
                     error_reason VARCHAR(255),
+                    file_name_snapshot VARCHAR(255),
+                    printer_name_snapshot VARCHAR(50),
+                    machine_number_snapshot VARCHAR(50),
+                    creator_username_snapshot VARCHAR(50),
+                    operator_username_snapshot VARCHAR(50),
+                    retry_of_job_id BIGINT,
+                    root_job_id BIGINT,
+                    attempt_number INT NOT NULL DEFAULT 1,
                     created_at TIMESTAMP NOT NULL,
                     updated_at TIMESTAMP NOT NULL
                 )
@@ -98,6 +106,10 @@ class PrintJobSummaryMapperTest {
 
         insertJob(20L, 100L, 200L, 10L, 12L, 30, "PRINTING", "2026-09-11 10:00:00");
         insertJob(21L, 999L, 999L, 10L, 999L, 20, "COMPLETED", "2026-09-11 11:00:00");
+        jdbcTemplate.update("UPDATE farm_print_job SET file_name_snapshot = ?, "
+                        + "printer_name_snapshot = ?, machine_number_snapshot = ?, "
+                        + "operator_username_snapshot = ? WHERE id = 21",
+                "history.gcode", "Historical Printer", "HM-01", "old-operator");
         insertJob(30L, null, null, 10L, null, 5, "QUEUED", "2026-09-11 09:00:00");
         insertJob(31L, null, null, 10L, null, 5, "QUEUED", "2026-09-11 09:00:00");
         insertJob(32L, null, null, 11L, null, 10, "QUEUED", "2026-09-11 08:00:00");
@@ -130,7 +142,7 @@ class PrintJobSummaryMapperTest {
                         PrintJobSummaryVO::getFileName, PrintJobSummaryVO::getPrinterName,
                         PrintJobSummaryVO::getCreatorUsername, PrintJobSummaryVO::getOperatorUsername,
                         PrintJobSummaryVO::getMaterialType, PrintJobSummaryVO::getNozzleSize)
-                .containsExactly(21L, null, null, "creator", null, null, null);
+                .containsExactly(21L, "history.gcode", "Historical Printer", "creator", "old-operator", null, null);
         assertThat(summaries).extracting(PrintJobSummaryVO::getId).containsExactly(30L, 31L);
     }
 
@@ -145,6 +157,23 @@ class PrintJobSummaryMapperTest {
                 "SELECT status FROM farm_print_job WHERE id = 33", String.class)).isEqualTo("PENDING");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT status FROM farm_print_job WHERE id = 34", String.class)).isEqualTo("MANUAL");
+    }
+
+    @Test
+    void terminalHistoryPrefersSnapshotsWhileActiveRowsPreferCurrentNames() {
+        jdbcTemplate.update("UPDATE farm_print_job SET status = 'FAILED', "
+                + "file_name_snapshot = ?, printer_name_snapshot = ?, machine_number_snapshot = ?, "
+                + "creator_username_snapshot = ?, operator_username_snapshot = ? WHERE id = 20",
+                "old-model.gcode", "Old Printer", "OLD-01", "old-creator", "old-operator");
+
+        PrintJobSummaryVO history = printJobMapper.selectPageSummaries(
+                new Page<>(1, 10), "FAILED", null, null, 10L, false, null, null)
+                .getRecords().stream().findFirst().orElseThrow();
+
+        assertThat(history).extracting(PrintJobSummaryVO::getFileName,
+                        PrintJobSummaryVO::getPrinterName, PrintJobSummaryVO::getMachineNumber,
+                        PrintJobSummaryVO::getCreatorUsername, PrintJobSummaryVO::getOperatorUsername)
+                .containsExactly("old-model.gcode", "Old Printer", "OLD-01", "old-creator", "old-operator");
     }
 
     @Test

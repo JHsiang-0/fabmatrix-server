@@ -35,6 +35,29 @@ class PrintJobQueryMigrationTest {
     }
 
     @Test
+    void auditModelMigrationDeclaresSnapshotsLineageAndNoSelfReference() {
+        String mysql = read("db/migration/19-v2-print-job-audit-model-mysql.sql");
+        String sqlite = read("db/migration/19-v2-print-job-audit-model-sqlite.sql");
+        for (String migration : List.of(mysql, sqlite)) {
+            assertThat(migration).contains("file_name_snapshot", "printer_name_snapshot",
+                    "machine_number_snapshot", "creator_username_snapshot",
+                    "operator_username_snapshot", "retry_of_job_id", "root_job_id",
+                    "attempt_number", "uk_print_job_retry_of_job", "uk_print_job_root_attempt")
+                    .doesNotContain("FOREIGN KEY", "REFERENCES farm_print_job");
+        }
+        assertThat(mysql).contains("VARCHAR(255)", "VARCHAR(50)", "NOT NULL DEFAULT 1",
+                "information_schema.columns", "information_schema.statistics",
+                "WHEN j.started_at IS NOT NULL");
+        assertThat(sqlite).contains("CREATE UNIQUE INDEX IF NOT EXISTS",
+                "COALESCE(file_name_snapshot", "WHERE root_job_id IS NULL",
+                "WHEN started_at IS NOT NULL");
+        String localMigration = readWorkspaceFile("src/main/java/com/example/farm/config/LocalSchemaMigration.java");
+        assertThat(localMigration).contains("migratePrintJobAuditModel();",
+                "addColumnIfMissing(\"farm_print_job\", \"file_name_snapshot\"",
+                "uk_print_job_retry_of_job", "uk_print_job_root_attempt");
+    }
+
+    @Test
     void migrationEntrypointsAndFreshSchemasKeepStatusIndexAndLocalTimeContractsAligned() {
         String farmSchema = read("db/migration/farm.sql");
         String localSchema = read("db/migration/local-schema.sql");
@@ -103,23 +126,72 @@ class PrintJobQueryMigrationTest {
     }
 
     @Test
+    void sqliteAuditModelBackfillsCurrentNamesAndIsIdempotent() throws Exception {
+        try (Connection connection = DriverManager.getConnection(
+                "jdbc:sqlite:file:print-job-audit-model-script?mode=memory&cache=shared")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            jdbc.update("INSERT INTO farm_user(id, username, password_hash) VALUES (1, 'creator-now', 'hash'), "
+                    + "(2, 'operator-now', 'hash')");
+            jdbc.update("INSERT INTO farm_print_file(id, user_id, original_name, safe_name) "
+                    + "VALUES (20, 1, 'renamed-now.gcode', 'safe.gcode')");
+            jdbc.update("INSERT INTO farm_printer(id, name, machine_number) VALUES (403, 'Printer-now', 'M-03')");
+            jdbc.update("INSERT INTO farm_print_job(id, file_id, printer_id, user_id, operator_id, status, "
+                    + "root_job_id, attempt_number, started_at) "
+                    + "VALUES (100, 20, 403, 1, 2, 'FAILED', NULL, 1, '2026-09-12 10:00:00'), "
+                    + "(101, 20, 403, 1, 2, 'READY', NULL, 1, NULL)");
+
+            runResource(jdbc, "db/migration/19-v2-print-job-audit-model-sqlite.sql");
+            runResource(jdbc, "db/migration/19-v2-print-job-audit-model-sqlite.sql");
+
+            Map<String, Object> row = jdbc.queryForMap("SELECT root_job_id, attempt_number, "
+                    + "file_name_snapshot, printer_name_snapshot, machine_number_snapshot, "
+                    + "creator_username_snapshot, operator_username_snapshot "
+                    + "FROM farm_print_job WHERE id = 100");
+            assertThat(((Number) row.get("root_job_id")).longValue()).isEqualTo(100L);
+            assertThat(((Number) row.get("attempt_number")).intValue()).isEqualTo(1);
+            assertThat(row).containsEntry("file_name_snapshot", "renamed-now.gcode")
+                    .containsEntry("printer_name_snapshot", "Printer-now")
+                    .containsEntry("machine_number_snapshot", "M-03")
+                    .containsEntry("creator_username_snapshot", "creator-now")
+                    .containsEntry("operator_username_snapshot", "operator-now");
+            assertThat(jdbc.queryForObject(
+                    "SELECT operator_username_snapshot FROM farm_print_job WHERE id = 101", String.class))
+                    .isNull();
+            assertThat(indexNames(jdbc)).contains("uk_print_job_retry_of_job", "uk_print_job_root_attempt");
+        }
+    }
+
+    @Test
     void existingLocalSchemaMigrationBackfillsLegacyStatesAndIndexesOnce() throws Exception {
         try (Connection connection = DriverManager.getConnection(
                 "jdbc:sqlite:file:print-job-query-local-schema?mode=memory&cache=shared")) {
             JdbcTemplate jdbc = jdbc(connection);
             runResource(jdbc, "db/migration/local-schema.sql");
             makeLegacyPrinterTable(jdbc);
+            jdbc.update("INSERT INTO farm_user(id, username, password_hash) "
+                    + "VALUES (91, 'local-operator', 'hash')");
             jdbc.update("INSERT INTO farm_print_job(id, user_id, status, created_at, updated_at) "
                     + "VALUES (7001, 1, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
                     + "(7002, 1, 'MANUAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
                     + "(7003, 1, 'CANCELED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            jdbc.update("INSERT INTO farm_print_job(id, user_id, operator_id, status, started_at, "
+                    + "created_at, updated_at) VALUES "
+                    + "(7004, 91, 91, 'READY', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
+                    + "(7005, 91, 91, 'FAILED', '2026-09-12 10:00:00', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
 
             LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
             migration.run();
             migration.run();
 
             assertThat(jdbc.queryForList("SELECT status FROM farm_print_job WHERE id >= 7001 ORDER BY id",
-                    String.class)).containsExactly("QUEUED", "QUEUED", "CANCELLED");
+                    String.class)).containsExactly("QUEUED", "QUEUED", "CANCELLED", "READY", "FAILED");
+            assertThat(jdbc.queryForObject(
+                    "SELECT operator_username_snapshot FROM farm_print_job WHERE id = 7004", String.class))
+                    .isNull();
+            assertThat(jdbc.queryForObject(
+                    "SELECT operator_username_snapshot FROM farm_print_job WHERE id = 7005", String.class))
+                    .isEqualTo("local-operator");
             assertThat(indexNames(jdbc)).contains("idx_print_job_history_status_completed_id",
                     "idx_print_job_active_status_created_id");
         }

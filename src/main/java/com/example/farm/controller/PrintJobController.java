@@ -147,11 +147,10 @@ public class PrintJobController {
      * 将失败任务重新放回队列，不直接操作打印机。
      */
     @Operation(summary = "重试打印任务",
-            description = "当前实现返回 data=null 并重新使用原任务记录。TC-001 目标仅允许 FAILED，创建不可变原任务的新 QUEUED 记录并返回新任务 ID 字符串；目标字段为 retryOfJobId、rootJobId、attemptNumber。")
+            description = "仅允许 FAILED；创建不可变原任务的新 QUEUED 记录并返回新任务 ID 字符串。重复请求按 retryOfJobId 幂等回放。")
     @PostMapping("/{id}/retry")
-    public Result<Void> retryJob(@PathVariable Long id) {
-        printJobService.retryJob(id);
-        return Result.success(null, "任务已重新加入队列");
+    public Result<String> retryJob(@PathVariable Long id) {
+        return Result.success(String.valueOf(printJobService.retryJob(id)), "重试任务已创建");
     }
 
     /**
@@ -200,16 +199,11 @@ public class PrintJobController {
      */
     @Deprecated
     @Operation(summary = "手动指派任务给打印机并开始（已废弃兼容接口）",
-            description = "当前仍保留兼容实现。新前端禁止调用；后续实施任务将拒绝此绕过安全确认的直启链路，目标错误码为 410。",
+            description = "固定拒绝旧直启链路并返回 410；不会调用任务服务、打印机或设备。",
             deprecated = true)
     @PostMapping("/{jobId}/assign")
-    public Result<String> assignJob(@PathVariable Long jobId, @RequestParam Long printerId) {
-        boolean success = printJobService.assignAndStartPrint(jobId, printerId);
-        if (!success) {
-            throw new BusinessException("任务派发失败，请检查任务与打印机状态");
-        }
-        log.info("手动派发任务成功: jobId={}, printerId={}", jobId, printerId);
-        return Result.success(null, "任务已下发，打印机开始执行");
+    public Result<String> assignJob(@PathVariable Long jobId) {
+        throw new BusinessException(410, "旧任务派发接口已停用，请使用安全派发和现场启动流程");
     }
 
     // =============================================

@@ -358,7 +358,7 @@ public class GlobalExceptionHandler {
             case 410 -> HttpStatus.GONE;
             case 409, 10002 -> HttpStatus.CONFLICT;
             case 422 -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case 10001, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;
+            case 10001, 5001, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;
             case 10003 -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };

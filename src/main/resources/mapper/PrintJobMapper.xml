@@ -8,6 +8,14 @@
         j.printer_id AS printer_id,
         j.user_id AS user_id,
         j.operator_id AS operator_id,
+        j.file_name_snapshot AS file_name_snapshot,
+        j.printer_name_snapshot AS printer_name_snapshot,
+        j.machine_number_snapshot AS machine_number_snapshot,
+        j.creator_username_snapshot AS creator_username_snapshot,
+        j.operator_username_snapshot AS operator_username_snapshot,
+        j.retry_of_job_id AS retry_of_job_id,
+        j.root_job_id AS root_job_id,
+        j.attempt_number AS attempt_number,
         j.priority AS priority,
         j.status AS status,
         j.progress AS progress,
@@ -16,11 +24,21 @@
         j.error_reason AS error_reason,
         j.created_at AS created_at,
         j.updated_at AS updated_at,
-        f.original_name AS file_name,
-        p.name AS printer_name,
-        p.machine_number AS machine_number,
-        creator_user.username AS creator_username,
-        operator_user.username AS operator_username,
+        CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+             THEN COALESCE(j.file_name_snapshot, f.original_name)
+             ELSE COALESCE(f.original_name, j.file_name_snapshot) END AS file_name,
+        CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+             THEN COALESCE(j.printer_name_snapshot, p.name)
+             ELSE COALESCE(p.name, j.printer_name_snapshot) END AS printer_name,
+        CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+             THEN COALESCE(j.machine_number_snapshot, p.machine_number)
+             ELSE COALESCE(p.machine_number, j.machine_number_snapshot) END AS machine_number,
+        CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+             THEN COALESCE(j.creator_username_snapshot, creator_user.username)
+             ELSE COALESCE(creator_user.username, j.creator_username_snapshot) END AS creator_username,
+        CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+             THEN COALESCE(j.operator_username_snapshot, operator_user.username)
+             ELSE COALESCE(operator_user.username, j.operator_username_snapshot) END AS operator_username,
         f.material_type AS material_type,
         f.nozzle_size AS nozzle_size
     </sql>
@@ -65,7 +83,8 @@
             AND j.user_id = #{currentUserId}
         </if>
         <if test="fileName != null and fileName != ''">
-            AND LOWER(f.original_name) LIKE CONCAT('%', LOWER(#{fileName}), '%') ESCAPE CHAR(92)
+            AND LOWER(COALESCE(f.original_name, j.file_name_snapshot))
+                LIKE CONCAT('%', LOWER(#{fileName}), '%') ESCAPE CHAR(92)
         </if>
         <if test="startTime != null">
             <choose>
@@ -121,7 +140,8 @@
             AND j.user_id = #{currentUserId}
         </if>
         <if test="fileName != null and fileName != ''">
-            AND LOWER(f.original_name) LIKE '%' || LOWER(#{fileName}) || '%' ESCAPE CHAR(92)
+            AND LOWER(COALESCE(f.original_name, j.file_name_snapshot))
+                LIKE '%' || LOWER(#{fileName}) || '%' ESCAPE CHAR(92)
         </if>
         <if test="startTime != null">
             <choose>
@@ -171,6 +191,126 @@
           AND idempotency_key = #{idempotencyKey}
         LIMIT 1
     </select>
+
+    <update id="assignJobIfQueued">
+        UPDATE farm_print_job
+        SET printer_id = #{printerId},
+            printer_name_snapshot = #{printerName},
+            machine_number_snapshot = #{machineNumber},
+            status = 'ASSIGNED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{jobId}
+          AND printer_id IS NULL
+          AND status IN ('QUEUED', 'PENDING', 'MANUAL')
+    </update>
+
+    <update id="assignJobIfQueued" databaseId="sqlite">
+        UPDATE farm_print_job
+        SET printer_id = #{printerId},
+            printer_name_snapshot = #{printerName},
+            machine_number_snapshot = #{machineNumber},
+            status = 'ASSIGNED',
+            updated_at = datetime('now', '+8 hours')
+        WHERE id = #{jobId}
+          AND printer_id IS NULL
+          AND status IN ('QUEUED', 'PENDING', 'MANUAL')
+    </update>
+
+    <update id="initializeRootJobId">
+        UPDATE farm_print_job
+        SET root_job_id = id,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{jobId}
+          AND root_job_id IS NULL
+    </update>
+
+    <update id="initializeRootJobId" databaseId="sqlite">
+        UPDATE farm_print_job
+        SET root_job_id = id,
+            updated_at = datetime('now', '+8 hours')
+        WHERE id = #{jobId}
+          AND root_job_id IS NULL
+    </update>
+
+    <select id="lockRetrySource" resultType="java.lang.Long">
+        SELECT id
+        FROM farm_print_job
+        WHERE id = #{jobId}
+        FOR UPDATE
+    </select>
+
+    <select id="lockRetrySource" databaseId="sqlite" resultType="java.lang.Long">
+        SELECT id
+        FROM farm_print_job
+        WHERE id = #{jobId}
+    </select>
+
+    <select id="selectRetryChild" resultType="com.example.farm.entity.PrintJob">
+        SELECT *
+        FROM farm_print_job
+        WHERE retry_of_job_id = #{sourceJobId}
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="selectRetryChild" databaseId="sqlite"
+            resultType="com.example.farm.entity.PrintJob">
+        SELECT *
+        FROM farm_print_job
+        WHERE retry_of_job_id = #{sourceJobId}
+        LIMIT 1
+    </select>
+
+    <select id="selectRetryChildByLineage" resultType="com.example.farm.entity.PrintJob">
+        SELECT *
+        FROM farm_print_job
+        WHERE root_job_id = #{rootJobId}
+          AND attempt_number = #{attemptNumber}
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="selectRetryChildByLineage" databaseId="sqlite"
+            resultType="com.example.farm.entity.PrintJob">
+        SELECT *
+        FROM farm_print_job
+        WHERE root_job_id = #{rootJobId}
+          AND attempt_number = #{attemptNumber}
+        LIMIT 1
+    </select>
+
+    <insert id="insertRetryIfAbsent" useGeneratedKeys="true" keyProperty="id">
+        INSERT IGNORE INTO farm_print_job (
+            file_id, printer_id, user_id, operator_id,
+            idempotency_key, file_name_snapshot, printer_name_snapshot,
+            machine_number_snapshot, creator_username_snapshot, operator_username_snapshot,
+            retry_of_job_id, root_job_id, attempt_number, priority, status, progress,
+            started_at, completed_at, error_reason, created_at, updated_at
+        ) VALUES (
+            #{fileId}, NULL, #{userId}, NULL,
+            NULL, #{fileNameSnapshot}, NULL,
+            NULL, #{creatorUsernameSnapshot}, NULL,
+            #{retryOfJobId}, #{rootJobId}, #{attemptNumber}, #{priority}, 'QUEUED', #{progress},
+            NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <insert id="insertRetryIfAbsent" databaseId="sqlite"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT OR IGNORE INTO farm_print_job (
+            file_id, printer_id, user_id, operator_id,
+            idempotency_key, file_name_snapshot, printer_name_snapshot,
+            machine_number_snapshot, creator_username_snapshot, operator_username_snapshot,
+            retry_of_job_id, root_job_id, attempt_number, priority, status, progress,
+            started_at, completed_at, error_reason, created_at, updated_at
+        ) VALUES (
+            #{fileId}, NULL, #{userId}, NULL,
+            NULL, #{fileNameSnapshot}, NULL,
+            NULL, #{creatorUsernameSnapshot}, NULL,
+            #{retryOfJobId}, #{rootJobId}, #{attemptNumber}, #{priority}, 'QUEUED', #{progress},
+            NULL, NULL, NULL, datetime('now', '+8 hours'), datetime('now', '+8 hours')
+        )
+    </insert>
 
     <!-- 文件关联任务分页：公共文件可被所有已认证用户查看其可见任务，私有文件由服务层隔离。 -->
     <select id="selectPageByFileId" resultType="com.example.farm.entity.PrintJob">

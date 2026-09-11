@@ -1,4 +1,4 @@
-# SYNC-002 动态看板布局目标契约
+# SYNC-002 动态看板布局实现契约
 
 ## 1. 状态与边界
 
@@ -87,8 +87,8 @@
   ],
   "overflowPolicy": "REJECT",
   "positionChanges": [
-    { "printerId": 311, "gridRow": 1, "gridCol": 2 },
-    { "printerId": 312, "gridRow": null, "gridCol": null }
+    { "printerId": "311", "gridRow": 1, "gridCol": 2 },
+    { "printerId": "312", "gridRow": null, "gridCol": null }
   ]
 }
 ```
@@ -106,8 +106,8 @@
     "updatedAt": "2026-09-11T10:01:00"
   },
   "changedPositions": [
-    { "printerId": 311, "gridRow": 1, "gridCol": 2 },
-    { "printerId": 312, "gridRow": null, "gridCol": null }
+    { "printerId": "311", "gridRow": 1, "gridCol": 2 },
+    { "printerId": "312", "gridRow": null, "gridCol": null }
   ],
   "unallocatedPrinters": []
 }
@@ -128,7 +128,7 @@
 
 ### DashboardPositionChangeDTO
 
-- `printerId`：必填正数 Long；同一请求中唯一。
+- `printerId`：必填正数 Long，JSON 使用十进制字符串；同一请求中唯一。
 - `gridRow/gridCol`：必须同时为空或同时非空。
 - 非空时均为正整数，并位于请求中的最终布局范围内。
 - 同一请求中的非空目标槽位不得重复，也不得与未参与本次变化的打印机冲突。
@@ -202,16 +202,16 @@ HTTP 400/404/409/422 使用具名 `DashboardLayoutProblemResultVO` envelope（Op
 }
 ```
 
-- `printerId` 必须为 null；后续需要调整 `FarmStatusMessage` 对非设备消息的校验。
+- `printerId` 必须为 null；`FarmStatusMessage` 已按非设备布局消息放行该值。
 - `layoutVersion` 必须为正数，且事件只在事务提交后发布。
 - 客户端非编辑状态收到更高版本后重新 GET 布局和设备快照。
 - 客户端编辑状态只标记草稿过期，不能自动覆盖草稿；旧版本保存由 409 拒绝。
 - 旧客户端可以忽略未知布局事件，刷新后仍从 REST 获取权威布局。
 - 布局事件不得携带或清空打印机业务状态、通信状态、任务、温度和进度。
 
-## 7. OpenAPI 实现要求
+## 7. OpenAPI 实现状态
 
-后续实现必须为 Controller、请求 DTO、过道 DTO、位置 DTO、布局 VO、保存结果 VO 和问题详情 VO 添加 `@Operation`/`@Schema`：
+Controller、请求 DTO、过道 DTO、位置 DTO、布局 VO、保存结果 VO 和问题详情 VO 已添加 `@Operation`/`@Schema`，并遵守：
 
 - GET 明确 ADMIN/OPERATOR、默认布局和限制来源。
 - PUT 明确 ADMIN、乐观锁、原子事务和 REJECT/UNALLOCATE 语义。

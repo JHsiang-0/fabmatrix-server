@@ -8,7 +8,7 @@ import lombok.Data;
 @Schema(name = "ResultDashboardLayoutProblem", description = "动态看板布局问题统一响应")
 public class DashboardLayoutProblemResultVO {
 
-    @Schema(description = "业务状态码；HTTP 语义冲突时为 409 或 422", example = "409")
+    @Schema(description = "业务状态码；布局问题按场景为 400、404、409 或 422", example = "409")
     private long code;
 
     @Schema(description = "面向用户的结果说明", example = "看板布局保存失败: SLOT_CONFLICT")

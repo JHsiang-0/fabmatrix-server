@@ -233,14 +233,14 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | PUT | `/printers/positions` | ADMIN | 位置更新数组 | 已弃用；ADMIN 兼容调用并委托动态布局原子事务 |
 | GET | `/printers/unallocated` | ADMIN/OPERATOR | Query：`keyword` | `PrinterVO[]` |
 
-### 4.1.1 动态看板布局（SYNC-002.2/002.3 已实现）
+### 4.1.1 动态看板布局（SYNC-002 已实现；旧 positions 废弃兼容）
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
 | GET | `/dashboard-layout` | ADMIN/OPERATOR | 无 | `DashboardLayoutVO`：行列、横纵过道、版本、服务端限制和更新时间 |
 | PUT | `/dashboard-layout` | ADMIN | `DashboardLayoutSaveRequest`：`expectedVersion,rowCount,columnCount,aisles,overflowPolicy,positionChanges` | `DashboardLayoutSaveResultVO`：最新布局、变更坐标和下架设备 |
 
-完整目标契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。数据库升级顺序、SQLite partial index/触发器职责和回滚见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`。
+完整实现契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。数据库升级顺序、SQLite partial index/触发器职责和回滚见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`。
 
 现有 WebSocket `version=1` 已实现五类消息：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`、`LAYOUT_UPDATED`。布局消息 `printerId=null`，仅在 `data` 中包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；不携带顶层布局字段，也不覆盖设备业务/通信状态。
 
@@ -723,7 +723,7 @@ JOB_STATUS        任务状态变化
 LAYOUT_UPDATED    共享布局版本变化（布局字段仅位于 data）
 ```
 
-当前已实现消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`；有数据库事务时，四类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。2026-09-03 的历史容器冒烟曾收到 46 台打印机的快照，后续当前实例验证为 49 台；两者均为当时数据库设备数量，不属于固定契约。前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
+当前已实现消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`，布局事务发布 `LAYOUT_UPDATED`；有数据库事务时，五类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。2026-09-03 的历史容器冒烟曾收到 46 台打印机的快照，后续当前实例验证为 49 台；两者均为当时数据库设备数量，不属于固定契约。前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
 
 ## 8. 打印机协议适配约定
 
@@ -881,7 +881,7 @@ farm.scheduler.enabled=false
 8. 返回 VO，禁止直接暴露 `apiKey` 和 `rustfsKey`。
 9. 文件分页已支持名称、材质筛选。
 10. 新建文件夹已正确设置用户归属并校验父目录。
-11. WebSocket 已完成握手鉴权、四类 `type` 消息、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；2026-09-03 已在真实启动的本地后端完成 JWT 握手和 `SNAPSHOT` 请求级验证，前端已完成告警展示、序号断档恢复和客户端测试，浏览器端完整端到端仍待联调。
+11. WebSocket 已完成握手鉴权、五类 `type` 消息（含 `LAYOUT_UPDATED`）、初始快照、离线/恢复事件、任务失败原因、协议级 Ping 保活和异常连接清理；`LAYOUT_UPDATED` 的布局字段仅位于 `data`，前端已完成告警展示、序号断档恢复和客户端测试，浏览器端完整端到端仍待联调。
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，并已在真实目标 `192.168.0.77` 完成控制、上传、Farm 安全任务和启动请求的响应级验证；完整生产任务物理链路仍待现场验收。
 

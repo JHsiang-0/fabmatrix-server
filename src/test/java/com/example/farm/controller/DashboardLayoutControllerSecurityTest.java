@@ -157,6 +157,8 @@ class DashboardLayoutControllerSecurityTest {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.code").exists())
+                .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.code.description")
+                        .value(org.hamcrest.Matchers.containsString("400、404、409 或 422")))
                 .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.message").exists())
                 .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.data.$ref")
                         .value("#/components/schemas/DashboardLayoutProblemVO"))

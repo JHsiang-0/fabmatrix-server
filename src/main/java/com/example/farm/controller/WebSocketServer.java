@@ -6,8 +6,6 @@ import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.service.FarmStatusSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
 import lombok.extern.slf4j.Slf4j;
@@ -34,9 +32,7 @@ public class WebSocketServer {
     // 为每个 Session 创建一个独立的锁对象，用于解决并发写入冲突
     private static final Map<Session, Object> sessionLocks = new ConcurrentHashMap<>();
     
-    private static final ObjectMapper objectMapper = new ObjectMapper()
-            .registerModule(new JavaTimeModule())
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private static volatile ObjectMapper objectMapper;
     private static volatile FarmStatusSnapshotService snapshotService;
     private static volatile LoginProtectUtil loginProtectUtil;
 
@@ -46,6 +42,12 @@ public class WebSocketServer {
     @Autowired
     public void setSnapshotService(FarmStatusSnapshotService service) {
         WebSocketServer.snapshotService = service;
+    }
+
+    /** 使用 Spring 全局 ObjectMapper，确保 REST 与 WebSocket 的 Long 序列化一致。 */
+    @Autowired
+    public void setObjectMapper(ObjectMapper mapper) {
+        WebSocketServer.objectMapper = mapper;
     }
 
     /**
@@ -188,7 +190,12 @@ public class WebSocketServer {
 
         String jsonMessage;
         try {
-            jsonMessage = objectMapper.writeValueAsString(data);
+            ObjectMapper mapper = objectMapper;
+            if (mapper == null) {
+                log.error("WebSocket 全局 ObjectMapper 尚未注入");
+                return;
+            }
+            jsonMessage = mapper.writeValueAsString(data);
         } catch (Exception e) {
             log.error("WebSocket 消息序列化失败", e);
             return;
@@ -241,7 +248,12 @@ public class WebSocketServer {
         
         synchronized (lock) {
             try {
-                String jsonMessage = objectMapper.writeValueAsString(data);
+                ObjectMapper mapper = objectMapper;
+                if (mapper == null) {
+                    log.error("WebSocket 全局 ObjectMapper 尚未注入");
+                    return;
+                }
+                String jsonMessage = mapper.writeValueAsString(data);
                 session.getBasicRemote().sendText(jsonMessage);
             } catch (Exception e) {
                 log.error("单播消息发送失败: sessionId={}", session.getId(), e);

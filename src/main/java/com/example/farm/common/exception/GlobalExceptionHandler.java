@@ -3,10 +3,12 @@ package com.example.farm.common.exception;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.api.ResultCode;
 import com.example.farm.entity.vo.DashboardLayoutProblemVO;
+import com.example.farm.mapper.DashboardLayoutMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -40,6 +42,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @Autowired(required = false)
+    private DashboardLayoutMapper dashboardLayoutMapper;
 
     /**
      * 生产环境通用提示
@@ -179,7 +184,20 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         log.warn("数据约束冲突: method={}, uri={}, detail={}",
                 request.getMethod(), request.getRequestURI(), e.getMessage());
-        String message = getEnvironmentMessage("数据已存在或违反业务约束");
+        String message = getEnvironmentMessage("目标槽位发生并发冲突，请重新载入布局");
+        if (isDashboardLayoutRequest(request)) {
+            Long serverVersion = null;
+            if (dashboardLayoutMapper != null) {
+                try {
+                    var layout = dashboardLayoutMapper.selectById(1L);
+                    serverVersion = layout == null ? null : layout.getVersion();
+                } catch (RuntimeException lookupException) {
+                    log.warn("读取布局冲突版本失败");
+                }
+            }
+            return failed(HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message,
+                    new DashboardLayoutProblemVO("SLOT_CONFLICT", serverVersion, null, null));
+        }
         return failed(HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message);
     }
 
@@ -355,9 +373,14 @@ public class GlobalExceptionHandler {
     }
 
     private DashboardLayoutProblemVO dashboardProblem(HttpServletRequest request, String reason) {
-        if (request.getRequestURI() != null && request.getRequestURI().endsWith("/dashboard-layout")) {
+        if (isDashboardLayoutRequest(request)) {
             return new DashboardLayoutProblemVO(reason, null, null, null);
         }
         return null;
+    }
+
+    private boolean isDashboardLayoutRequest(HttpServletRequest request) {
+        return request != null && request.getRequestURI() != null
+                && request.getRequestURI().endsWith("/dashboard-layout");
     }
 }

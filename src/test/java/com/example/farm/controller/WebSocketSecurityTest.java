@@ -9,6 +9,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.service.FarmStatusSnapshotService;
+import com.example.farm.config.CommonObjectMapperConfig;
 import jakarta.websocket.RemoteEndpoint;
 import jakarta.websocket.Session;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +44,7 @@ class WebSocketSecurityTest {
         WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(snapshotService);
         new WebSocketServer().setLoginProtectUtil(loginProtectUtil);
+        new WebSocketServer().setObjectMapper(new CommonObjectMapperConfig().objectMapper());
     }
 
     @AfterEach
@@ -52,6 +54,7 @@ class WebSocketSecurityTest {
         WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(null);
         new WebSocketServer().setLoginProtectUtil(null);
+        new WebSocketServer().setObjectMapper(null);
     }
 
     @Test
@@ -161,8 +164,8 @@ class WebSocketSecurityTest {
         new WebSocketEventPublisher().publishPrinterOffline(403L, "");
 
         verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
-                message.contains("\"type\":\"PRINTER_OFFLINE\"")
-                        && message.contains("\"printerId\":403")
+                        message.contains("\"type\":\"PRINTER_OFFLINE\"")
+                        && message.contains("\"printerId\":\"403\"")
                         && message.contains("设备无法连接")));
         new WebSocketServer().onClose(session);
     }
@@ -185,8 +188,8 @@ class WebSocketSecurityTest {
         new WebSocketEventPublisher().publishJobStatus(job);
 
         verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
-                message.contains("\"type\":\"JOB_STATUS\"")
-                        && message.contains("\"jobId\":1001")
+                        message.contains("\"type\":\"JOB_STATUS\"")
+                        && message.contains("\"jobId\":\"1001\"")
                         && message.contains("喷嘴堵塞")));
         new WebSocketServer().onClose(session);
     }

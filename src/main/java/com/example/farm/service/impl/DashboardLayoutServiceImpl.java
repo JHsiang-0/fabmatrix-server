@@ -114,6 +114,7 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
         }
 
         Map<Long, DashboardPositionChangeDTO> changes = new LinkedHashMap<>();
+        Map<String, Long> requestedSlots = new LinkedHashMap<>();
         for (DashboardPositionChangeDTO change : request.getPositionChanges()) {
             if (change == null || change.getPrinterId() == null || change.getPrinterId() <= 0) {
                 throw problem(400, "INVALID_PRINTER_ID", layout.getVersion(), List.of(), List.of());
@@ -127,6 +128,14 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
                         List.of(change.getPrinterId()), List.of());
             }
             validateRequestedCoordinate(change, request.getRowCount(), request.getColumnCount(), layout.getVersion());
+            if (change.getGridRow() != null) {
+                String slot = change.getGridRow() + ":" + change.getGridCol();
+                Long previousPrinterId = requestedSlots.putIfAbsent(slot, change.getPrinterId());
+                if (previousPrinterId != null) {
+                    throw problem(400, "DUPLICATE_SLOT", layout.getVersion(),
+                            List.of(previousPrinterId, change.getPrinterId()), List.of());
+                }
+            }
             finalPositions.put(change.getPrinterId(),
                     new Coordinate(change.getGridRow(), change.getGridCol()));
         }
@@ -158,36 +167,40 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
             }
         }
 
-        if (!affectedIds.isEmpty()
-                && printerMapper.clearPrinterPositions(affectedIds) != affectedIds.size()) {
-            throw new BusinessException("布局坐标清理失败");
-        }
-        for (Long printerId : affectedIds) {
-            Coordinate coordinate = finalPositions.get(printerId);
-            if (coordinate != null && coordinate.isAssigned()
-                    && printerMapper.updatePrinterPosition(printerId, coordinate.row(), coordinate.col()) != 1) {
-                throw new BusinessException("布局坐标保存失败");
+        try {
+            if (!affectedIds.isEmpty()
+                    && printerMapper.clearPrinterPositions(affectedIds) != affectedIds.size()) {
+                throw new BusinessException("布局坐标清理失败");
             }
-        }
+            for (Long printerId : affectedIds) {
+                Coordinate coordinate = finalPositions.get(printerId);
+                if (coordinate != null && coordinate.isAssigned()
+                        && printerMapper.updatePrinterPosition(printerId, coordinate.row(), coordinate.col()) != 1) {
+                    throw new BusinessException("布局坐标保存失败");
+                }
+            }
 
-        long nextVersion = layout.getVersion() + 1;
-        layout.setRowCount(request.getRowCount());
-        layout.setColumnCount(request.getColumnCount());
-        layout.setAislesJson(serializeAisles(normalizedAisles));
-        layout.setVersion(nextVersion);
-        layout.setUpdatedBy(SecurityContextUtil.getCurrentUserIdNullable());
-        layout.setUpdatedAt(LocalDateTime.now());
-        if (dashboardLayoutMapper.updateById(layout) != 1) {
-            throw new BusinessException("布局保存失败");
-        }
+            long nextVersion = layout.getVersion() + 1;
+            layout.setRowCount(request.getRowCount());
+            layout.setColumnCount(request.getColumnCount());
+            layout.setAislesJson(serializeAisles(normalizedAisles));
+            layout.setVersion(nextVersion);
+            layout.setUpdatedBy(SecurityContextUtil.getCurrentUserIdNullable());
+            layout.setUpdatedAt(LocalDateTime.now());
+            if (dashboardLayoutMapper.updateById(layout) != 1) {
+                throw new BusinessException("布局保存失败");
+            }
 
-        List<DashboardPositionChangeVO> changed = new ArrayList<>();
-        for (Long printerId : affectedIds) {
-            Coordinate coordinate = finalPositions.get(printerId);
-            changed.add(new DashboardPositionChangeVO(printerId, coordinate.row(), coordinate.col()));
+            List<DashboardPositionChangeVO> changed = new ArrayList<>();
+            for (Long printerId : affectedIds) {
+                Coordinate coordinate = finalPositions.get(printerId);
+                changed.add(new DashboardPositionChangeVO(printerId, coordinate.row(), coordinate.col()));
+            }
+            registerAfterCommit(nextVersion);
+            return new DashboardLayoutSaveResultVO(toView(layout), changed, unallocated);
+        } catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw problem(409, "SLOT_CONFLICT", layout.getVersion(), List.of(), List.of());
         }
-        registerAfterCommit(nextVersion);
-        return new DashboardLayoutSaveResultVO(toView(layout), changed, unallocated);
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.example.farm.common.api.Result;
 import com.example.farm.entity.vo.DashboardLayoutVO;
 import com.example.farm.entity.dto.DashboardLayoutSaveRequest;
 import com.example.farm.entity.vo.DashboardLayoutSaveResultVO;
+import com.example.farm.entity.vo.DashboardLayoutProblemVO;
 import com.example.farm.service.DashboardLayoutService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -54,9 +55,9 @@ public class DashboardLayoutController {
             @ApiResponse(responseCode = "404", description = "打印机不存在",
                     content = @Content(schema = @Schema(implementation = Result.class))),
             @ApiResponse(responseCode = "409", description = "布局版本或槽位冲突",
-                    content = @Content(schema = @Schema(implementation = Result.class))),
+                    content = @Content(schema = @Schema(implementation = DashboardLayoutProblemVO.class))),
             @ApiResponse(responseCode = "422", description = "缩容将排除已分配设备",
-                    content = @Content(schema = @Schema(implementation = Result.class))),
+                    content = @Content(schema = @Schema(implementation = DashboardLayoutProblemVO.class))),
             @ApiResponse(responseCode = "500", description = "服务端错误"),
             @ApiResponse(responseCode = "503", description = "依赖暂不可用")
     })

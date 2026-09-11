@@ -52,6 +52,18 @@ class WebSocketEventPublisherTest {
         assertThat(publisher.broadcastCount).isEqualTo(1);
     }
 
+    @Test
+    void publishesLayoutUpdateOnlyAfterTransactionCommit() {
+        TransactionSynchronizationManager.initSynchronization();
+
+        publisher.publishLayoutUpdated(2L);
+        assertThat(publisher.layoutBroadcastCount).isZero();
+
+        TransactionSynchronizationUtils.triggerAfterCommit();
+
+        assertThat(publisher.layoutBroadcastCount).isEqualTo(1);
+    }
+
     private PrintJob job() {
         PrintJob job = new PrintJob();
         job.setId(1001L);
@@ -62,10 +74,16 @@ class WebSocketEventPublisherTest {
 
     private static class RecordingPublisher extends WebSocketEventPublisher {
         private int broadcastCount;
+        private int layoutBroadcastCount;
 
         @Override
         protected void broadcastJobStatus(FarmStatusMessage message) {
             broadcastCount++;
+        }
+
+        @Override
+        protected void broadcastLayoutUpdated(FarmStatusMessage message) {
+            layoutBroadcastCount++;
         }
     }
 }

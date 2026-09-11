@@ -95,6 +95,9 @@ public interface PrinterMapper extends BaseMapper<Printer> {
                               @Param("gridRow") Integer gridRow,
                               @Param("gridCol") Integer gridCol);
 
+    /** 原子布局保存前清空本次变更设备的坐标，支持设备交换。 */
+    int clearPrinterPositions(@Param("ids") java.util.Collection<Long> ids);
+
     /**
      * 清理打印机与指定任务的绑定，并恢复为空闲状态。
      *

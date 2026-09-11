@@ -150,6 +150,10 @@ public class WebSocketServer {
         broadcast(data);
     }
 
+    public static void broadcastLayoutUpdated(FarmStatusMessage data) {
+        broadcast(data);
+    }
+
     /**
      * 发送 WebSocket 协议级 Ping。浏览器客户端会自动回复 Pong，
      * 不会产生新的业务消息类型；发送失败的连接立即清理。

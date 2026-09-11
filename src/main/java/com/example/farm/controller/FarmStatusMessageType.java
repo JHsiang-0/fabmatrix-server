@@ -7,5 +7,6 @@ public enum FarmStatusMessageType {
     SNAPSHOT,
     PRINTER_STATUS,
     PRINTER_OFFLINE,
-    JOB_STATUS
+    JOB_STATUS,
+    LAYOUT_UPDATED
 }

@@ -51,4 +51,13 @@ class FarmStatusMessageTest {
                 Map.of("status", "IDLE", "apiKey", "secret")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void createsLayoutUpdatedMessageWithoutPrinterState() {
+        FarmStatusMessage message = FarmStatusMessage.layoutUpdated(2L);
+
+        assertThat(message.type()).isEqualTo("LAYOUT_UPDATED");
+        assertThat(message.printerId()).isNull();
+        assertThat(message.data()).isEqualTo(Map.of("stateSource", "LAYOUT", "layoutVersion", 2L));
+    }
 }

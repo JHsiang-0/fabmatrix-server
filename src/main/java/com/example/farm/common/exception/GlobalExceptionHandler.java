@@ -78,6 +78,13 @@ public class GlobalExceptionHandler {
         return failed(resolveHttpStatus(e.getCode()), e.getCode(), e.getMessage());
     }
 
+    @ExceptionHandler(DashboardLayoutProblemException.class)
+    public ResponseEntity<Result<Object>> handleDashboardLayoutProblem(DashboardLayoutProblemException e) {
+        log.warn("动态布局保存被拒绝: reason={}, code={}", e.getProblem().getReason(), e.getCode());
+        return ResponseEntity.status(resolveHttpStatus(e.getCode()))
+                .body(Result.failed(e.getCode(), e.getMessage(), e.getProblem()));
+    }
+
     /**
      * 处理协议适配器异常，避免设备通信失败落入通用 500。
      */
@@ -316,6 +323,7 @@ public class GlobalExceptionHandler {
             case 401 -> HttpStatus.UNAUTHORIZED;
             case 403 -> HttpStatus.FORBIDDEN;
             case 404 -> HttpStatus.NOT_FOUND;
+            case 410 -> HttpStatus.GONE;
             case 409, 10002 -> HttpStatus.CONFLICT;
             case 422 -> HttpStatus.UNPROCESSABLE_ENTITY;
             case 10001, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;

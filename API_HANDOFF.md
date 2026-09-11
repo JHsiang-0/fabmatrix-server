@@ -230,19 +230,19 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | POST | `/printers/batch-add` | ADMIN | 扫描结果数组 | 批量新增/更新统计及逐项结果 |
 | GET | `/printers/by-mac/{macAddress}` | ADMIN/OPERATOR | Path MAC | `PrinterVO` 或 null |
 | GET | `/printers/by-ip/{ipAddress}` | ADMIN/OPERATOR | Path IP | `PrinterVO` 或 null |
-| PUT | `/printers/positions` | ADMIN | 位置更新数组 | `Result<null>` |
+| PUT | `/printers/positions` | ADMIN | 位置更新数组 | 已弃用并停用；请使用动态布局原子保存 |
 | GET | `/printers/unallocated` | ADMIN/OPERATOR | Query：`keyword` | `PrinterVO[]` |
 
-### 4.1.1 动态看板布局（SYNC-002 目标契约，尚未实现）
+### 4.1.1 动态看板布局（SYNC-002.2/002.3 已实现）
 
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
 | GET | `/dashboard-layout` | ADMIN/OPERATOR | 无 | `DashboardLayoutVO`：行列、横纵过道、版本、服务端限制和更新时间 |
 | PUT | `/dashboard-layout` | ADMIN | `DashboardLayoutSaveRequest`：`expectedVersion,rowCount,columnCount,aisles,overflowPolicy,positionChanges` | `DashboardLayoutSaveResultVO`：最新布局、变更坐标和下架设备 |
 
-完整目标契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。该接口在 SYNC-002.2/002.3 完成前不可调用。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。
+完整目标契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。
 
-计划在现有 WebSocket `version=1` 中兼容新增 `LAYOUT_UPDATED`。该消息 `printerId=null`，`data` 固定包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；旧四类消息及设备业务/通信状态语义不变。当前运行中的后端仍只支持 `SNAPSHOT/PRINTER_STATUS/PRINTER_OFFLINE/JOB_STATUS`。
+现有 WebSocket `version=1` 已兼容新增 `LAYOUT_UPDATED`。该消息 `printerId=null`，`data` 固定包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；旧四类消息及设备业务/通信状态语义不变。
 
 新增、重新录入或批量扫描入库的打印机，在下一次协议状态探测完成前返回 `status=UNKNOWN`；`ONLINE` 不属于打印机状态枚举，也不会作为业务状态写入。普通配置编辑不重置设备当前状态。
 

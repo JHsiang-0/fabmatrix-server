@@ -69,4 +69,9 @@ public class Result<T> {
     public static <T> Result<T> failed(long code, String message) {
         return new Result<>(code, message, null);
     }
+
+    /** 失败返回结果（带安全的结构化错误数据）。 */
+    public static <T> Result<T> failed(long code, String message, T data) {
+        return new Result<>(code, message, data);
+    }
 }

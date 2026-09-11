@@ -287,20 +287,12 @@ public class PrinterController {
      * @throws BusinessException 当参数为空时抛出
      */
     @PutMapping("/positions")
+    @Deprecated
     @Operation(summary = "批量更新打印机物理位置", description = "用于数字孪生看板拖拽后更新设备坐标")
     public Result<String> batchUpdatePositions(
             @Valid @RequestBody @jakarta.validation.constraints.Size(max = 100, message = "单次最多更新100台打印机位置")
             List<@Valid PrinterPositionUpdateDTO> positionUpdates) {
-        if (positionUpdates == null || positionUpdates.isEmpty()) {
-            throw new BusinessException(400, "位置更新列表不能为空");
-        }
-
-        int successCount = printerService.batchUpdatePositions(positionUpdates);
-
-        String message = String.format("成功更新 %d/%d 台设备的位置",
-                successCount, positionUpdates.size());
-
-        return Result.success(null, message);
+        throw new BusinessException(410, "旧位置接口已停用，请使用动态看板布局保存接口");
     }
 
     /**

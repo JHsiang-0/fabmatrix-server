@@ -2,7 +2,7 @@
 
 ## 1. 状态与边界
 
-本文冻结动态看板布局的后端目标契约，供后续 Controller、DTO/VO、OpenAPI、数据库迁移和前端联调实现使用。当前运行中的后端尚未提供 `/api/v1/dashboard-layout`，也尚未发送 `LAYOUT_UPDATED`；在对应任务完成前不得把本文描述为已上线能力。
+本文冻结并说明动态看板布局的后端契约，供 Controller、DTO/VO、OpenAPI、数据库迁移和前端联调使用。当前后端已提供 `/api/v1/dashboard-layout` 的 GET/PUT；前端仍需按后续 SYNC-002 任务接入。
 
 首版只有一个农场级共享布局，不引入车间实体、用户私有布局或虚假车间切换。布局由服务端持久化，浏览器 localStorage 不能成为事实来源。
 
@@ -143,7 +143,7 @@
 
 ## 4. 错误响应
 
-错误仍使用统一 `Result<DashboardLayoutProblemVO>`。为支持结构化冲突详情，后续实现需为 `Result`/异常处理增加安全的错误 data 构造能力；不得把 SQL、堆栈或内部表结构返回客户端。
+错误使用统一 `Result<DashboardLayoutProblemVO>`；结构化详情只返回稳定原因、版本和设备摘要，不返回 SQL、堆栈或内部表结构。
 
 `DashboardLayoutProblemVO`：
 
@@ -216,5 +216,5 @@
 - GET 明确 ADMIN/OPERATOR、默认布局和限制来源。
 - PUT 明确 ADMIN、乐观锁、原子事务和 REJECT/UNALLOCATE 语义。
 - 枚举、范围、nullable 坐标对和数组上限在 Schema 中可见。
-- 409/422 的响应 Schema 使用 `Result<DashboardLayoutProblemVO>`，不能只显示通用字符串。
+- 409/422 的响应 Schema 使用 `Result<DashboardLayoutProblemVO>`，不能只显示通用字符串；当前 Controller/异常处理已按此返回。
 - `/v3/api-docs` 的实际路径、字段和权限必须与本文核对后，方可将 API_HANDOFF 中“尚未实现”改为“已实现”。

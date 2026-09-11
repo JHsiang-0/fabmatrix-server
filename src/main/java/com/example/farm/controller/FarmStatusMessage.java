@@ -47,9 +47,13 @@ public record FarmStatusMessage(
         if (data == null) {
             throw new IllegalArgumentException("WebSocket data 不能为空");
         }
-        if (FarmStatusMessageType.SNAPSHOT.name().equals(type)) {
+        if (FarmStatusMessageType.SNAPSHOT.name().equals(type)
+                || FarmStatusMessageType.LAYOUT_UPDATED.name().equals(type)) {
             if (printerId != null) {
-                throw new IllegalArgumentException("SNAPSHOT 不应携带 printerId");
+                throw new IllegalArgumentException(type + " 不应携带 printerId");
+            }
+            if (FarmStatusMessageType.LAYOUT_UPDATED.name().equals(type)) {
+                validateLayoutEvent(data);
             }
         } else if (printerId == null || printerId <= 0) {
             throw new IllegalArgumentException("设备消息必须携带正数 printerId");
@@ -80,6 +84,24 @@ public record FarmStatusMessage(
     public static FarmStatusMessage snapshot(Object data) {
         return new FarmStatusMessage(FarmStatusMessageType.SNAPSHOT.name(), null,
                 System.currentTimeMillis(), data);
+    }
+
+    public static FarmStatusMessage layoutUpdated(long layoutVersion) {
+        if (layoutVersion <= 0) {
+            throw new IllegalArgumentException("layoutVersion 必须为正数");
+        }
+        return new FarmStatusMessage(FarmStatusMessageType.LAYOUT_UPDATED.name(), null,
+                System.currentTimeMillis(), java.util.Map.of(
+                        "stateSource", "LAYOUT", "layoutVersion", layoutVersion));
+    }
+
+    private static void validateLayoutEvent(Object data) {
+        if (!(data instanceof java.util.Map<?, ?> map)
+                || !"LAYOUT".equals(map.get("stateSource"))
+                || !(map.get("layoutVersion") instanceof Number version)
+                || version.longValue() <= 0) {
+            throw new IllegalArgumentException("LAYOUT_UPDATED data 必须包含有效的 stateSource 和 layoutVersion");
+        }
     }
 
     private static long nextSequence() {

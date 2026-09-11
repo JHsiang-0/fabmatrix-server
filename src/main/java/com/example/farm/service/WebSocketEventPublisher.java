@@ -90,6 +90,12 @@ public class WebSocketEventPublisher {
         publishAfterCommit(() -> broadcastJobStatus(message));
     }
 
+    /** 布局保存提交后只广播版本变化，不携带或覆盖设备状态。 */
+    public void publishLayoutUpdated(long layoutVersion) {
+        FarmStatusMessage message = FarmStatusMessage.layoutUpdated(layoutVersion);
+        publishAfterCommit(() -> broadcastLayoutUpdated(message));
+    }
+
     protected void broadcastPrinterStatus(FarmStatusMessage message) {
         WebSocketServer.broadcastPrinterStatus(message);
     }
@@ -100,6 +106,10 @@ public class WebSocketEventPublisher {
 
     protected void broadcastJobStatus(FarmStatusMessage message) {
         WebSocketServer.broadcastJobStatus(message);
+    }
+
+    protected void broadcastLayoutUpdated(FarmStatusMessage message) {
+        WebSocketServer.broadcastLayoutUpdated(message);
     }
 
     private void publishAfterCommit(Runnable publisher) {

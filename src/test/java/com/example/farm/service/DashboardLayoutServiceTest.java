@@ -3,6 +3,7 @@ package com.example.farm.service;
 import com.example.farm.entity.DashboardLayout;
 import com.example.farm.entity.vo.DashboardLayoutVO;
 import com.example.farm.mapper.DashboardLayoutMapper;
+import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.service.impl.DashboardLayoutServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,7 @@ class DashboardLayoutServiceTest {
         DashboardLayoutMapper mapper = mock(DashboardLayoutMapper.class);
         when(mapper.selectById(1L)).thenReturn(null, storedDefault());
         when(mapper.insert(any(DashboardLayout.class))).thenReturn(1);
-        DashboardLayoutServiceImpl service = new DashboardLayoutServiceImpl(mapper, new ObjectMapper());
+        DashboardLayoutServiceImpl service = new DashboardLayoutServiceImpl(mapper, new ObjectMapper(), mock(PrinterMapper.class));
 
         DashboardLayoutVO result = service.getLayout();
 
@@ -42,7 +43,7 @@ class DashboardLayoutServiceTest {
         layout.setAislesJson("[{\"id\":\" aisle \",\"axis\":\"column\","
                 + "\"afterIndex\":7,\"label\":\" 过道 \",\"size\":100}]");
         when(mapper.selectById(1L)).thenReturn(layout);
-        DashboardLayoutServiceImpl service = new DashboardLayoutServiceImpl(mapper, new ObjectMapper());
+        DashboardLayoutServiceImpl service = new DashboardLayoutServiceImpl(mapper, new ObjectMapper(), mock(PrinterMapper.class));
 
         DashboardLayoutVO result = service.getLayout();
 

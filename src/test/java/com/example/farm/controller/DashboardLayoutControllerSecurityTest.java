@@ -172,6 +172,31 @@ class DashboardLayoutControllerSecurityTest {
     }
 
     @Test
+    void apiDocsDescribeLegacyPositionsAgainstCurrentDynamicLayout() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/printers/positions'].put.deprecated").value(true))
+                .andExpect(jsonPath("$.paths['/api/v1/printers/positions'].put.description")
+                        .value(org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("当前布局内"),
+                                org.hamcrest.Matchers.containsString("30×60"),
+                                org.hamcrest.Matchers.containsString("1800"))))
+                .andExpect(jsonPath("$.components.schemas.PrinterPositionUpdateDTO.description")
+                        .value(org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("当前动态布局内"),
+                                org.hamcrest.Matchers.containsString("30×60"),
+                                org.hamcrest.Matchers.containsString("1800"))))
+                .andExpect(jsonPath("$.components.schemas.PrinterPositionUpdateDTO.properties.gridRow.description")
+                        .value(org.hamcrest.Matchers.containsString("布局行数上限 30")))
+                .andExpect(jsonPath("$.components.schemas.PrinterPositionUpdateDTO.properties.gridCol.description")
+                        .value(org.hamcrest.Matchers.containsString("布局列数上限 60")))
+                .andExpect(jsonPath("$.components.schemas.PrinterAddDTO.properties.gridRow").doesNotExist())
+                .andExpect(jsonPath("$.components.schemas.PrinterAddDTO.properties.gridCol").doesNotExist())
+                .andExpect(jsonPath("$.components.schemas.PrinterUpdateDTO.properties.gridRow").doesNotExist())
+                .andExpect(jsonPath("$.components.schemas.PrinterUpdateDTO.properties.gridCol").doesNotExist());
+    }
+
+    @Test
     void legacyPrinterPositionsDelegateToLayoutServiceAndKeepResponseCompatibility() throws Exception {
         when(dashboardLayoutService.saveLegacyPositions(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new DashboardLayoutSaveResultVO());

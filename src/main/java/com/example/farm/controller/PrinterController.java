@@ -275,12 +275,12 @@ public class PrinterController {
     }
 
     /**
-     * 【新增】批量更新打印机物理位置坐标（用于数字孪生看板拖拽）
+     * 批量更新打印机物理位置坐标（已弃用兼容入口）
      * <p>接收前端在数字孪生看板上拖拽后产生的坐标变更，批量更新设备的 grid_row 和 grid_col。</p>
      * <p>业务规则：</p>
      * <ul>
-     *     <li>gridRow 范围：1-4</li>
-     *     <li>gridCol 范围：1-12</li>
+     *     <li>非空坐标必须位于服务端当前动态布局内</li>
+     *     <li>布局上限为 30×60，物理槽位总数不超过 1800</li>
      *     <li>传入 null 表示将该设备移回待分配区</li>
      * </ul>
      *
@@ -291,7 +291,7 @@ public class PrinterController {
     @PutMapping("/positions")
     @Deprecated
     @Operation(summary = "批量更新打印机物理位置（兼容接口）",
-            description = "已弃用；转换为动态看板布局原子保存，成功响应保持旧格式")
+            description = "已弃用；接收 1-100 项数组并转换为动态看板布局原子保存。非空坐标必须位于当前布局内，布局上限为 30×60、物理槽位总数不超过 1800；成功响应保持旧格式")
     public Result<String> batchUpdatePositions(
             @RequestBody List<PrinterPositionUpdateDTO> positionUpdates) {
         if (positionUpdates == null || positionUpdates.isEmpty()) {

@@ -87,8 +87,8 @@ public interface PrinterMapper extends BaseMapper<Printer> {
      * <p>用于数字孪生看板拖拽后更新设备的 grid_row 和 grid_col</p>
      *
      * @param id 打印机 ID
-     * @param gridRow 行号（1-4），null 表示移回待分配区
-     * @param gridCol 列号（1-12），null 表示移回待分配区
+     * @param gridRow 当前动态布局内的行号，null 表示移回待分配区
+     * @param gridCol 当前动态布局内的列号，null 表示移回待分配区
      * @return 影响的行数
      */
     int updatePrinterPosition(@Param("id") Long id,

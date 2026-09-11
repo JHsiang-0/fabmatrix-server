@@ -4,7 +4,7 @@
 更新时间：2026-09-11
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
-> 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，默认 4×12、COLUMN 过道位于物理第 7 列后；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
+> 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，坐标按服务端当前动态布局校验，布局上限为 30×60 且物理槽位总数不超过 1800；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
 
 项目执行入口：[PROJECT.md](./PROJECT.md)；Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v2/`。
 
@@ -240,7 +240,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | GET | `/dashboard-layout` | ADMIN/OPERATOR | 无 | `DashboardLayoutVO`：行列、横纵过道、版本、服务端限制和更新时间 |
 | PUT | `/dashboard-layout` | ADMIN | `DashboardLayoutSaveRequest`：`expectedVersion,rowCount,columnCount,aisles,overflowPolicy,positionChanges` | `DashboardLayoutSaveResultVO`：最新布局、变更坐标和下架设备 |
 
-完整实现契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。数据库升级顺序、SQLite partial index/触发器职责和回滚见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`。
+完整实现契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；非空坐标必须位于服务端当前布局内，布局上限为行 `1–30`、列 `1–60`，物理槽位总数不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。数据库升级顺序、SQLite partial index/触发器职责和回滚见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`。
 
 现有 WebSocket `version=1` 已实现五类消息：`SNAPSHOT`、`PRINTER_STATUS`、`PRINTER_OFFLINE`、`JOB_STATUS`、`LAYOUT_UPDATED`。布局消息 `printerId=null`，仅在 `data` 中包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；不携带顶层布局字段，也不覆盖设备业务/通信状态。
 
@@ -312,7 +312,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 ### 4.5 当前输入校验约定
 
-- 打印机名称最多100个字符；IP 必须为 IPv4；MAC 支持冒号或连字符格式；固件类型只能是 `KLIPPER` 或 `RRF`（大小写兼容）；网格范围为行 `1-4`、列 `1-12`。
+- 打印机名称最多100个字符；IP 必须为 IPv4；MAC 支持冒号或连字符格式；固件类型只能是 `KLIPPER` 或 `RRF`（大小写兼容）。`PrinterAddDTO`、`PrinterUpdateDTO` 不包含位置字段；位置坐标必须通过布局保存或已弃用兼容入口提交，并位于服务端当前动态布局内。布局上限为 30×60，物理槽位总数不超过 1800。
 - 创建任务的 `fileId` 必须为正数，`priority` 范围为 `0-100`。
 - 创建任务的 `idempotencyKey` 可选，最大 100 个字符；同一用户同一键必须对应相同的文件、打印机和优先级，否则返回 HTTP 409、业务码 `409`。
 - 用户名和邮箱可用性检查的 Query 参数不能为空或只包含空格，否则返回 HTTP 400、业务码 `400`。

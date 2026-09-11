@@ -192,7 +192,6 @@ migration: BEGIN
             FROM information_schema.table_constraints tc
             JOIN information_schema.check_constraints cc
               ON cc.constraint_schema = tc.constraint_schema
-             AND cc.table_name = tc.table_name
              AND cc.constraint_name = tc.constraint_name
             WHERE tc.table_schema = DATABASE()
               AND tc.table_name = 'farm_dashboard_layout'
@@ -272,10 +271,9 @@ migration: BEGIN
         FROM information_schema.check_constraints cc
         JOIN information_schema.table_constraints tc
           ON tc.constraint_schema = cc.constraint_schema
-         AND tc.table_name = cc.table_name
          AND tc.constraint_name = cc.constraint_name
-        WHERE cc.constraint_schema = DATABASE()
-          AND cc.table_name = 'farm_printer'
+        WHERE tc.table_schema = DATABASE()
+          AND tc.table_name = 'farm_printer'
           AND cc.constraint_name = 'ck_farm_printer_grid_pair'
           AND (tc.enforced <> 'YES'
                OR REGEXP_REPLACE(LOWER(cc.check_clause), '[[:space:]`()]+', '')
@@ -304,10 +302,9 @@ migration: BEGIN
         FROM information_schema.check_constraints cc
         JOIN information_schema.table_constraints tc
           ON tc.constraint_schema = cc.constraint_schema
-         AND tc.table_name = cc.table_name
          AND tc.constraint_name = cc.constraint_name
-        WHERE cc.constraint_schema = DATABASE()
-          AND cc.table_name = 'farm_printer'
+        WHERE tc.table_schema = DATABASE()
+          AND tc.table_name = 'farm_printer'
           AND cc.constraint_name = 'ck_farm_printer_grid_positive'
           AND (tc.enforced <> 'YES'
                OR REGEXP_REPLACE(LOWER(cc.check_clause), '[[:space:]`()]+', '')
@@ -328,6 +325,7 @@ migration: BEGIN
     SELECT COUNT(*) INTO v_printer_index_object_count
     FROM information_schema.statistics
     WHERE table_schema = DATABASE()
+      AND table_name = 'farm_printer'
       AND index_name = 'uk_farm_printer_grid_position';
     SELECT COUNT(*), COALESCE(MAX(non_unique), 1),
            COALESCE(GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ','), '')

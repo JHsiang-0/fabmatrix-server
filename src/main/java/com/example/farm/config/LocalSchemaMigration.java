@@ -209,9 +209,10 @@ public class LocalSchemaMigration implements CommandLineRunner {
 
     private void validateExistingTrigger(String triggerName) {
         List<Map<String, Object>> namedObjects = jdbcTemplate.queryForList(
-                "SELECT type FROM sqlite_master WHERE name = ?", triggerName);
+                "SELECT type, tbl_name FROM sqlite_master WHERE name = ?", triggerName);
         if (namedObjects.size() > 1 || (namedObjects.size() == 1
-                && !"trigger".equals(namedObjects.get(0).get("type")))) {
+                && (!"trigger".equals(namedObjects.get(0).get("type"))
+                || !"farm_printer".equals(namedObjects.get(0).get("tbl_name"))))) {
             throw new IllegalStateException(
                     "SYNC-002.1 blocked: existing SQLite trigger " + triggerName
                             + " has incompatible structure");

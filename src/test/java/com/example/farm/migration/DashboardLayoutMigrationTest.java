@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +65,25 @@ class DashboardLayoutMigrationTest {
                     "15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro",
                     "16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro");
         }
+    }
+
+    @Test
+    void mysqlMigrationScopesInformationSchemaQueriesToActualTables() {
+        String migration = stripComments(read("db/migration/16-v2-dashboard-layout-mysql.sql"))
+                .replaceAll("\\s+", " ")
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(migration).doesNotContain("cc.table_name");
+        assertThat(migration).contains(
+                "on cc.constraint_schema = tc.constraint_schema and cc.constraint_name = tc.constraint_name",
+                "on tc.constraint_schema = cc.constraint_schema and tc.constraint_name = cc.constraint_name",
+                "where tc.table_schema = database() and tc.table_name = 'farm_dashboard_layout'",
+                "where tc.table_schema = database() and tc.table_name = 'farm_printer'");
+        assertThat(countOccurrences(migration,
+                "from information_schema.statistics where table_schema = database() "
+                        + "and table_name = 'farm_printer' "
+                        + "and index_name = 'uk_farm_printer_grid_position'"))
+                .isEqualTo(2);
     }
 
     @Test
@@ -238,6 +258,63 @@ class DashboardLayoutMigrationTest {
         }
     }
 
+    @Test
+    void sqliteSameNamedInsertTriggerOnOtherTableIsRejectedAndPreserved() throws Exception {
+        try (Connection connection = connection("insert-trigger-other-table")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            jdbc.execute("CREATE TABLE other_trigger_table (id INTEGER PRIMARY KEY)");
+            jdbc.execute("""
+                    CREATE TRIGGER trg_farm_printer_grid_position_insert
+                    BEFORE INSERT ON other_trigger_table
+                    BEGIN
+                        SELECT RAISE(IGNORE);
+                    END
+                    """);
+
+            assertThatThrownBy(() -> new LocalSchemaMigration(jdbc).run())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("existing SQLite trigger");
+            assertThat(jdbc.queryForMap("SELECT type, tbl_name FROM sqlite_master "
+                    + "WHERE name = ?", "trg_farm_printer_grid_position_insert"))
+                    .containsEntry("type", "trigger")
+                    .containsEntry("tbl_name", "other_trigger_table");
+            jdbc.update("INSERT INTO other_trigger_table (id) VALUES (1)");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM other_trigger_table", Integer.class))
+                    .isZero();
+        }
+    }
+
+    @Test
+    void sqliteSameNamedUpdateTriggerOnOtherTableIsRejectedAndPreserved() throws Exception {
+        try (Connection connection = connection("update-trigger-other-table")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            jdbc.execute("CREATE TABLE other_trigger_table (id INTEGER PRIMARY KEY, value TEXT)");
+            jdbc.update("INSERT INTO other_trigger_table (id, value) VALUES (1, 'before')");
+            jdbc.execute("""
+                    CREATE TRIGGER trg_farm_printer_grid_position_update
+                    BEFORE UPDATE OF value ON other_trigger_table
+                    BEGIN
+                        SELECT RAISE(IGNORE);
+                    END
+                    """);
+
+            assertThatThrownBy(() -> new LocalSchemaMigration(jdbc).run())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("existing SQLite trigger");
+            assertThat(jdbc.queryForMap("SELECT type, tbl_name FROM sqlite_master "
+                    + "WHERE name = ?", "trg_farm_printer_grid_position_update"))
+                    .containsEntry("type", "trigger")
+                    .containsEntry("tbl_name", "other_trigger_table");
+            jdbc.update("UPDATE other_trigger_table SET value = 'after' WHERE id = 1");
+            assertThat(jdbc.queryForObject("SELECT value FROM other_trigger_table WHERE id = 1", String.class))
+                    .isEqualTo("before");
+        }
+    }
+
     private Connection connection(String name) throws Exception {
         return DriverManager.getConnection("jdbc:sqlite:file:sync-002-1-" + name
                 + "?mode=memory&cache=shared");
@@ -286,5 +363,15 @@ class DashboardLayoutMigrationTest {
     private String stripComments(String sql) {
         return sql.replaceAll("(?s)--.*?(\\R|$)", "")
                 .replaceAll("(?s)/\\*.*?\\*/", "");
+    }
+
+    private int countOccurrences(String value, String searched) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = value.indexOf(searched, offset)) >= 0) {
+            count++;
+            offset += searched.length();
+        }
+        return count;
     }
 }

@@ -6,6 +6,8 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
+import com.example.farm.entity.vo.PrintJobDetailVO;
+import com.example.farm.entity.vo.PrintJobSummaryVO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.service.impl.PrintJobServiceImpl;
@@ -109,6 +111,57 @@ class PrintJobOwnershipTest {
         when(printJobMapper.selectById(100L)).thenReturn(job);
 
         assertThat(printJobService.getAccessibleJob(100L)).isSameAs(job);
+    }
+
+    @Test
+    void operatorCannotReadAnotherUsersJobDetail() {
+        mockUser(2L, "OPERATOR");
+        when(printJobMapper.selectAccessibleDetail(100L, 2L, false)).thenReturn(null);
+
+        assertThatThrownBy(() -> printJobService.getAccessibleJobDetail(100L))
+                .hasMessage("任务不存在")
+                .extracting("code")
+                .isEqualTo(404L);
+    }
+
+    @Test
+    void missingJobDetailUsesSameNotFoundBoundary() {
+        mockUser(2L, "OPERATOR");
+        when(printJobMapper.selectAccessibleDetail(404L, 2L, false)).thenReturn(null);
+
+        assertThatThrownBy(() -> printJobService.getAccessibleJobDetail(404L))
+                .hasMessage("任务不存在")
+                .extracting("code")
+                .isEqualTo(404L);
+    }
+
+    @Test
+    void queueSummaryQueryIsDelegatedWithSqlOwnershipBoundary() {
+        mockUser(2L, "OPERATOR");
+        List<PrintJobSummaryVO> summaries = List.of(new PrintJobSummaryVO());
+        when(printJobMapper.selectQueuedSummaries(2L, false)).thenReturn(summaries);
+
+        assertThat(printJobService.getQueuedJobsForCurrentUser()).isSameAs(summaries);
+        verify(printJobMapper).selectQueuedSummaries(2L, false);
+        verify(printJobMapper, never()).selectById(any());
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
+    @Test
+    void pageSummaryQueryKeepsExistingFiltersAndDelegatesCurrentUserToSql() {
+        mockUser(2L, "OPERATOR");
+        PrintJobQueryDTO query = new PrintJobQueryDTO();
+        query.setStatus("COMPLETED");
+        query.setPrinterId(403L);
+        query.setUserId(1L);
+        Page<PrintJobSummaryVO> page = new Page<>(1, 10);
+        when(printJobMapper.selectPageSummaries(any(Page.class), eq("COMPLETED"), eq(403L), eq(1L),
+                eq(2L), eq(false), any(), any())).thenReturn(page);
+
+        assertThat(printJobService.queryJobs(query)).isSameAs(page);
+        verify(printJobMapper).selectPageSummaries(any(Page.class), eq("COMPLETED"), eq(403L), eq(1L),
+                eq(2L), eq(false), any(), any());
     }
 
     @Test

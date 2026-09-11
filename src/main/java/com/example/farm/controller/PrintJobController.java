@@ -11,8 +11,9 @@ import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.StartPrintJobRequest;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.entity.dto.request.ReconcilePrintJobRequest;
-import com.example.farm.entity.PrintJob;
-import com.example.farm.entity.vo.PrintJobVO;
+import com.example.farm.entity.vo.PrintJobDetailVO;
+import com.example.farm.entity.vo.PrintJobOpenApiResultVO;
+import com.example.farm.entity.vo.PrintJobSummaryVO;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.DispatchPlanService;
@@ -22,6 +23,9 @@ import com.example.farm.entity.dto.request.BatchDispatchRetryPreviewRequest;
 import com.example.farm.entity.vo.BatchDispatchConfirmVO;
 import com.example.farm.entity.vo.DispatchPlanPreviewVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -52,11 +56,12 @@ public class PrintJobController {
      * @return 当前队列任务列表
      */
     @Operation(summary = "获取排队中的任务队列",
-            description = "当前实现返回 PrintJobVO[]；TC-001 目标响应为 PrintJobSummaryVO[]。仅包含 QUEUED，权限条件在查询阶段生效，目标排序为 priority DESC、createdAt ASC、id ASC。")
+            description = "返回 PrintJobSummaryVO[]；仅包含 QUEUED，权限条件在查询阶段生效，排序为 priority DESC、createdAt ASC、id ASC。关联文件、打印机和用户缺失时保留任务并返回 null 摘要字段。")
+    @ApiResponse(responseCode = "200", description = "查询成功",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.SummaryListResult.class)))
     @GetMapping("/queue")
-    public Result<List<PrintJobVO>> getQueue() {
-        return Result.success(printJobService.getQueuedJobsForCurrentUser().stream()
-                .map(PrintJobVO::from).toList());
+    public Result<List<PrintJobSummaryVO>> getQueue() {
+        return Result.success(printJobService.getQueuedJobsForCurrentUser());
     }
 
     /**
@@ -66,11 +71,13 @@ public class PrintJobController {
      * @return 分页结果
      */
     @Operation(summary = "分页查询打印任务列表",
-            description = "当前实现返回 PageResult<PrintJobVO>。TC-001 目标支持 statuses、fileName、timeField(CREATED_AT|COMPLETED_AT)；status 与 statuses 互斥，时间格式为 yyyy-MM-dd'T'HH:mm:ss local datetime，按农场时区解释，默认 Asia/Shanghai。")
+            description = "返回 PageResult<PrintJobSummaryVO>；当前阶段保留单值 status、printerId、userId、createdAt 起止时间筛选，排序为 createdAt DESC、id DESC。TC-003 再增加多状态、文件名和完成时间语义。")
+    @ApiResponse(responseCode = "200", description = "查询成功",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.SummaryPageResult.class)))
     @PostMapping("/page")
-    public Result<PageResult<PrintJobVO>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
+    public Result<PageResult<PrintJobSummaryVO>> queryJobs(@Valid @RequestBody PrintJobQueryDTO queryDTO) {
         queryDTO = requireBody(queryDTO);
-        return Result.success(PageResult.from(printJobService.queryJobs(queryDTO), PrintJobVO::from));
+        return Result.success(PageResult.from(printJobService.queryJobs(queryDTO)));
     }
 
     /**
@@ -80,11 +87,12 @@ public class PrintJobController {
      * @return 任务详情
      */
     @Operation(summary = "获取打印任务详情",
-            description = "当前实现返回 PrintJobVO；TC-001 目标响应为包含完整摘要字段的 PrintJobDetailVO。不存在或当前用户不可访问时返回 404。")
+            description = "返回 PrintJobDetailVO，包含任务、文件、打印机和用户可读摘要。不存在或当前用户不可访问时统一返回 404。")
+    @ApiResponse(responseCode = "200", description = "查询成功",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.DetailResult.class)))
     @GetMapping("/{id}")
-    public Result<PrintJobVO> getById(@PathVariable Long id) {
-        PrintJob job = printJobService.getAccessibleJob(id);
-        return Result.success(PrintJobVO.from(job));
+    public Result<PrintJobDetailVO> getById(@PathVariable Long id) {
+        return Result.success(printJobService.getAccessibleJobDetail(id));
     }
 
     /**
@@ -159,6 +167,8 @@ public class PrintJobController {
 
     @Operation(summary = "人工核对任务结果",
             description = "仅允许将 RECONCILING 任务确认成 COMPLETED、FAILED、CANCELLED 或 QUEUED；参数错误返回 400，状态错误返回 422，成功 data=null。")
+    @ApiResponse(responseCode = "200", description = "核对成功，data 固定为 null",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.VoidResult.class)))
     @PostMapping("/{id}/reconcile")
     public Result<Void> reconcileJob(@PathVariable Long id,
                                      @Valid @RequestBody ReconcilePrintJobRequest request) {
@@ -216,8 +226,10 @@ public class PrintJobController {
      */
     @Operation(summary = "派发任务（安全模式-第一步）",
             description = "仅执行 QUEUED→ASSIGNED 安全派发，不启动设备；成功 data=null。")
+    @ApiResponse(responseCode = "200", description = "派发成功，data 固定为 null",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.VoidResult.class)))
     @PostMapping("/safe/assign")
-    public Result<String> assignJobSafe(@Valid @RequestBody AssignJobRequest req) {
+    public Result<Void> assignJobSafe(@Valid @RequestBody AssignJobRequest req) {
         req = requireBody(req);
         printJobService.assignJob(req.getJobId(), req.getPrinterId());
         log.info("安全派发任务成功: jobId={}, printerId={}", req.getJobId(), req.getPrinterId());
@@ -232,9 +244,12 @@ public class PrintJobController {
      * @param req 确认请求（printerId, operatorId）
      * @return 操作结果
      */
-    @Operation(summary = "现场确认机器安全（安全模式-第二步之一）")
+    @Operation(summary = "现场确认机器安全（安全模式-第二步之一）",
+            description = "记录当前操作员的现场安全确认；成功 data=null。")
+    @ApiResponse(responseCode = "200", description = "确认成功，data 固定为 null",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.VoidResult.class)))
     @PostMapping("/safe/confirm")
-    public Result<String> confirmPrinterSafe(@Valid @RequestBody ConfirmSafeRequest req) {
+    public Result<Void> confirmPrinterSafe(@Valid @RequestBody ConfirmSafeRequest req) {
         req = requireBody(req);
         Long operatorId = SecurityContextUtil.getCurrentUserId();
         printJobService.confirmPrinterSafe(req.getPrinterId(), operatorId);
@@ -253,8 +268,10 @@ public class PrintJobController {
      */
     @Operation(summary = "现场启动打印（安全模式-第二步之二）",
             description = "必须经安全确认；按 action 进入 UPLOADING、READY 或 PRINTING 的现有流程，成功 data=null。")
+    @ApiResponse(responseCode = "200", description = "启动成功，data 固定为 null",
+            content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.VoidResult.class)))
     @PostMapping("/safe/start")
-    public Result<String> startPrint(@Valid @RequestBody StartPrintJobRequest req) {
+    public Result<Void> startPrint(@Valid @RequestBody StartPrintJobRequest req) {
         req = requireBody(req);
         Long operatorId = SecurityContextUtil.getCurrentUserId();
         String action = req.getAction();

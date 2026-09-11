@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.vo.PrintJobDetailVO;
+import com.example.farm.entity.vo.PrintJobSummaryVO;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
@@ -48,12 +50,15 @@ public interface PrintJobService extends IService<PrintJob> {
     /**
      * 获取当前登录用户可见的排队任务。管理员可查看全部队列，操作员只能查看自己的任务。
      */
-    List<PrintJob> getQueuedJobsForCurrentUser();
+    List<PrintJobSummaryVO> getQueuedJobsForCurrentUser();
 
     /**
      * 获取当前登录用户可访问的任务，不存在或无权限时统一返回 404。
      */
     PrintJob getAccessibleJob(Long jobId);
+
+    /** 获取当前登录用户可访问的任务详情摘要；不存在或无权时统一返回 404。 */
+    PrintJobDetailVO getAccessibleJobDetail(Long jobId);
 
     /** 查询批量执行使用的确定性幂等键对应任务。 */
     PrintJob getByIdempotencyKey(Long userId, String idempotencyKey);
@@ -167,7 +172,7 @@ public interface PrintJobService extends IService<PrintJob> {
      * @param queryDTO 查询条件
      * @return 分页结果
      */
-    Page<PrintJob> queryJobs(PrintJobQueryDTO queryDTO);
+    Page<PrintJobSummaryVO> queryJobs(PrintJobQueryDTO queryDTO);
 
     /**
      * 分页查询文件关联任务。

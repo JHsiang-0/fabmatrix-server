@@ -13,6 +13,8 @@ import com.example.farm.common.utils.PrintFileAccess;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.vo.PrintJobDetailVO;
+import com.example.farm.entity.vo.PrintJobSummaryVO;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.FileJobsQueryDTO;
@@ -145,14 +147,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
-    public List<PrintJob> getQueuedJobsForCurrentUser() {
+    public List<PrintJobSummaryVO> getQueuedJobsForCurrentUser() {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
-        if (SecurityContextUtil.isAdmin()) {
-            return getQueuedJobs();
-        }
-        return getQueuedJobs().stream()
-                .filter(job -> Objects.equals(job.getUserId(), currentUserId))
-                .toList();
+        return farmPrintJobMapper.selectQueuedSummaries(currentUserId, SecurityContextUtil.isAdmin());
     }
 
     @Override
@@ -166,6 +163,17 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException(404, "任务不存在");
         }
         return job;
+    }
+
+    @Override
+    public PrintJobDetailVO getAccessibleJobDetail(Long jobId) {
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        PrintJobDetailVO detail = farmPrintJobMapper.selectAccessibleDetail(
+                jobId, currentUserId, SecurityContextUtil.isAdmin());
+        if (detail == null) {
+            throw new BusinessException(404, "任务不存在");
+        }
+        return detail;
     }
 
     @Override
@@ -872,7 +880,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
-    public Page<PrintJob> queryJobs(PrintJobQueryDTO queryDTO) {
+    public Page<PrintJobSummaryVO> queryJobs(PrintJobQueryDTO queryDTO) {
         if (queryDTO == null) {
             throw new BusinessException(400, "任务查询参数不能为空");
         }
@@ -883,35 +891,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         int pageNum = queryDTO.getPageNum() != null ? queryDTO.getPageNum() : 1;
         int pageSize = queryDTO.getPageSize() != null ? queryDTO.getPageSize() : 10;
 
-        LambdaQueryWrapper<PrintJob> wrapper = new LambdaQueryWrapper<>();
-
-        // 状态精确匹配
         String queryStatus = PrintJobStatus.normalize(queryDTO.getStatus());
-        wrapper.eq(queryStatus != null && !queryStatus.isEmpty(),
-                PrintJob::getStatus, queryStatus);
-
-        // 打印机ID精确匹配
-        wrapper.eq(queryDTO.getPrinterId() != null,
-                PrintJob::getPrinterId, queryDTO.getPrinterId());
-
-        // 用户ID精确匹配
-        if (SecurityContextUtil.isAdmin()) {
-            wrapper.eq(queryDTO.getUserId() != null,
-                    PrintJob::getUserId, queryDTO.getUserId());
-        } else {
-            wrapper.eq(PrintJob::getUserId, SecurityContextUtil.getCurrentUserId());
-        }
-
-        // 创建时间范围查询
-        wrapper.ge(queryDTO.getStartTime() != null,
-                PrintJob::getCreatedAt, queryDTO.getStartTime());
-        wrapper.le(queryDTO.getEndTime() != null,
-                PrintJob::getCreatedAt, queryDTO.getEndTime());
-
-        // 按创建时间降序排列
-        wrapper.orderByDesc(PrintJob::getCreatedAt);
-
-        return this.page(new Page<>(pageNum, pageSize), wrapper);
+        Long currentUserId = SecurityContextUtil.getCurrentUserId();
+        return farmPrintJobMapper.selectPageSummaries(
+                new Page<>(pageNum, pageSize), queryStatus, queryDTO.getPrinterId(),
+                queryDTO.getUserId(), currentUserId, SecurityContextUtil.isAdmin(),
+                queryDTO.getStartTime(), queryDTO.getEndTime());
     }
 
     @Override

@@ -2,6 +2,84 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.PrintJobMapper">
 
+    <sql id="jobSummaryColumns">
+        j.id AS id,
+        j.file_id AS file_id,
+        j.printer_id AS printer_id,
+        j.user_id AS user_id,
+        j.operator_id AS operator_id,
+        j.priority AS priority,
+        j.status AS status,
+        j.progress AS progress,
+        j.started_at AS started_at,
+        j.completed_at AS completed_at,
+        j.error_reason AS error_reason,
+        j.created_at AS created_at,
+        j.updated_at AS updated_at,
+        f.original_name AS file_name,
+        p.name AS printer_name,
+        p.machine_number AS machine_number,
+        creator_user.username AS creator_username,
+        operator_user.username AS operator_username,
+        f.material_type AS material_type,
+        f.nozzle_size AS nozzle_size
+    </sql>
+
+    <sql id="jobSummaryJoins">
+        FROM farm_print_job j
+        LEFT JOIN farm_print_file f ON f.id = j.file_id
+        LEFT JOIN farm_printer p ON p.id = j.printer_id
+        LEFT JOIN farm_user creator_user ON creator_user.id = j.user_id
+        LEFT JOIN farm_user operator_user ON operator_user.id = j.operator_id
+    </sql>
+
+    <select id="selectQueuedSummaries" resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
+        SELECT
+        <include refid="jobSummaryColumns"/>
+        <include refid="jobSummaryJoins"/>
+        WHERE j.status = 'QUEUED'
+        <if test="!admin">
+            AND j.user_id = #{userId}
+        </if>
+        ORDER BY j.priority DESC, j.created_at ASC, j.id ASC
+    </select>
+
+    <select id="selectPageSummaries" resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
+        SELECT
+        <include refid="jobSummaryColumns"/>
+        <include refid="jobSummaryJoins"/>
+        WHERE 1 = 1
+        <if test="status != null and status != ''">
+            AND j.status = #{status}
+        </if>
+        <if test="printerId != null">
+            AND j.printer_id = #{printerId}
+        </if>
+        <if test="admin and userId != null">
+            AND j.user_id = #{userId}
+        </if>
+        <if test="!admin">
+            AND j.user_id = #{currentUserId}
+        </if>
+        <if test="startTime != null">
+            AND j.created_at <![CDATA[>=]]> #{startTime}
+        </if>
+        <if test="endTime != null">
+            AND j.created_at <![CDATA[<=]]> #{endTime}
+        </if>
+        ORDER BY j.created_at DESC, j.id DESC
+    </select>
+
+    <select id="selectAccessibleDetail" resultType="com.example.farm.entity.vo.PrintJobDetailVO">
+        SELECT
+        <include refid="jobSummaryColumns"/>
+        <include refid="jobSummaryJoins"/>
+        WHERE j.id = #{jobId}
+        <if test="!admin">
+            AND j.user_id = #{userId}
+        </if>
+    </select>
+
     <select id="selectByIdempotencyKey" resultType="com.example.farm.entity.PrintJob">
         SELECT *
         FROM farm_print_job

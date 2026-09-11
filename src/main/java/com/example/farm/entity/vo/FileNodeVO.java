@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.PrintFile;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -16,10 +18,10 @@ import java.util.List;
 public class FileNodeVO {
 
     @Schema(description = "节点 ID")
-    private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) private Long id;
 
     @Schema(description = "父目录 ID，根节点为 null")
-    private Long parentId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long parentId;
 
     @Schema(description = "是否为目录")
     private Boolean folder;
@@ -31,7 +33,7 @@ public class FileNodeVO {
     private Boolean isDefault;
 
     @Schema(description = "目录所属用户ID")
-    private Long userId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long userId;
 
     @Schema(description = "可见性：PRIVATE 或 PUBLIC")
     private String visibility;

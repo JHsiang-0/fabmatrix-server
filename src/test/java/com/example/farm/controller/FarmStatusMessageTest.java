@@ -26,7 +26,8 @@ class FarmStatusMessageTest {
         assertThat(message.timestamp()).isPositive();
         var json = objectMapper.readTree(objectMapper.writeValueAsString(message));
         assertThat(json.get("type").asText()).isEqualTo("PRINTER_STATUS");
-        assertThat(json.get("printerId").asLong()).isEqualTo(403L);
+        assertThat(json.get("printerId").isTextual()).isTrue();
+        assertThat(json.get("printerId").asText()).isEqualTo("403");
         assertThat(json.get("timestamp").asLong()).isPositive();
         assertThat(json.get("eventId").asText()).isNotBlank();
         assertThat(json.get("sequence").asLong()).isPositive();

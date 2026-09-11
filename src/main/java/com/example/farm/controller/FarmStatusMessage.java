@@ -3,6 +3,8 @@ package com.example.farm.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.util.Locale;
@@ -20,7 +22,7 @@ public record FarmStatusMessage(
         String type,
         String eventId,
         long sequence,
-        Long printerId,
+        @JsonSerialize(using = ToStringSerializer.class) Long printerId,
         long timestamp,
         Object data
 ) {
@@ -47,6 +49,7 @@ public record FarmStatusMessage(
         if (data == null) {
             throw new IllegalArgumentException("WebSocket data 不能为空");
         }
+        data = normalizeSemanticIds(data);
         if (FarmStatusMessageType.SNAPSHOT.name().equals(type)
                 || FarmStatusMessageType.LAYOUT_UPDATED.name().equals(type)) {
             if (printerId != null) {
@@ -102,6 +105,43 @@ public record FarmStatusMessage(
                 || version.longValue() <= 0) {
             throw new IllegalArgumentException("LAYOUT_UPDATED data 必须包含有效的 stateSource 和 layoutVersion");
         }
+    }
+
+    private static Object normalizeSemanticIds(Object value) {
+        if (value instanceof java.util.Map<?, ?> map) {
+            java.util.Map<Object, Object> normalized = new java.util.LinkedHashMap<>();
+            map.forEach((key, item) -> normalized.put(key, isSemanticIdField(String.valueOf(key))
+                    ? normalizeSemanticIdValue(item) : normalizeSemanticIds(item)));
+            return normalized;
+        }
+        if (value instanceof java.util.Collection<?> collection) {
+            return collection.stream().map(FarmStatusMessage::normalizeSemanticIds).toList();
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            java.util.List<Object> normalized = new java.util.ArrayList<>(length);
+            for (int index = 0; index < length; index++) {
+                normalized.add(normalizeSemanticIds(java.lang.reflect.Array.get(value, index)));
+            }
+            return normalized;
+        }
+        return value;
+    }
+
+    private static Object normalizeSemanticIdValue(Object value) {
+        if (value instanceof java.util.Collection<?> collection) {
+            return collection.stream().map(FarmStatusMessage::normalizeSemanticIdValue).toList();
+        }
+        if (value == null || value instanceof String) return value;
+        return String.valueOf(value);
+    }
+
+    private static boolean isSemanticIdField(String name) {
+        return switch (name) {
+            case "id", "printerId", "currentJobId", "jobId", "fileId", "userId", "operatorId",
+                    "conflicts", "outOfBoundsPrinters", "changedPositions", "unallocatedPrinters" -> true;
+            default -> false;
+        };
     }
 
     private static long nextSequence() {

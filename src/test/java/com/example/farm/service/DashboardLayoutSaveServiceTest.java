@@ -176,8 +176,16 @@ class DashboardLayoutSaveServiceTest {
         DashboardPositionChangeDTO occupied = change(11L, 1, 2);
         assertThatThrownBy(() -> service(layoutMapper, printerMapper).saveLayout(
                 request(1L, 4, 12, DashboardOverflowPolicy.REJECT, occupied)))
+                .hasMessageContaining("SLOT_CONFLICT")
+                .extracting("code").isEqualTo(409L);
+        assertThatThrownBy(() -> service(layoutMapper, printerMapper).saveLayout(
+                request(1L, 4, 12, DashboardOverflowPolicy.REJECT,
+                        change(11L, 1, 3), change(12L, 1, 3))))
                 .hasMessageContaining("DUPLICATE_SLOT")
-                .extracting("problem.conflicts").asList().contains(11L, 12L);
+                .satisfies(error -> {
+                    assertThat(error).extracting("code").isEqualTo(400L);
+                    assertThat(error).extracting("problem.conflicts").asList().contains(11L, 12L);
+                });
         verifyNoInteractions(printerMapper);
     }
 

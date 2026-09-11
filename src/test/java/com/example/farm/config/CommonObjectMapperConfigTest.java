@@ -18,17 +18,25 @@ class CommonObjectMapperConfigTest {
     private final ObjectMapper objectMapper = new CommonObjectMapperConfig().objectMapper();
 
     @Test
-    void serializesLongIdsAsStringsInRestAndWebSocketPayloads() throws Exception {
+    void serializesOnlySemanticIdsAsStrings() throws Exception {
         PrinterVO printer = new PrinterVO();
         printer.setId(LARGE_ID);
+        printer.setCurrentJobId(LARGE_ID);
         String rest = objectMapper.writeValueAsString(Result.success(printer));
         String websocket = objectMapper.writeValueAsString(
-                FarmStatusMessage.printerStatus(LARGE_ID, Map.of("jobId", LARGE_ID)));
+                FarmStatusMessage.printerStatus(LARGE_ID,
+                        Map.of("jobId", LARGE_ID, "progress", 35.5, "timestamp", 123L)));
 
-        assertThat(rest).contains("\"id\":\"9007199254740993\"");
+        assertThat(rest).contains("\"id\":\"9007199254740993\"")
+                .contains("\"currentJobId\":\"9007199254740993\"")
+                .contains("\"code\":200")
+                .containsPattern("\"timestamp\":\\d+");
         assertThat(websocket)
                 .contains("\"printerId\":\"9007199254740993\"")
-                .contains("\"jobId\":\"9007199254740993\"");
+                .contains("\"jobId\":\"9007199254740993\"")
+                .contains("\"sequence\":")
+                .contains("\"timestamp\":")
+                .contains("\"progress\":35.5");
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.DispatchPlanItem;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -11,11 +13,11 @@ public class DispatchPlanItemVO {
     @Schema(description = "计划明细 ID")
     private String itemId;
     @Schema(description = "文件 ID")
-    private Long fileId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long fileId;
     @Schema(description = "文件名称")
     private String fileName;
     @Schema(description = "打印机 ID")
-    private Long printerId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long printerId;
     @Schema(description = "打印机名称")
     private String printerName;
     @Schema(description = "打印机当前状态")
@@ -29,7 +31,7 @@ public class DispatchPlanItemVO {
     @Schema(description = "面向用户的原因说明")
     private String message;
     @Schema(description = "已创建任务 ID；未创建时为 null")
-    private Long jobId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long jobId;
     @Schema(description = "来源计划 ID；恢复项使用")
     private String sourcePlanId;
     @Schema(description = "来源明细 ID；恢复项使用")

@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.PrintFile;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -15,15 +17,15 @@ import java.time.LocalDateTime;
 @Schema(name = "PrintFileVO", description = "打印文件安全响应对象")
 public class PrintFileVO implements Serializable {
 
-    @Schema(description = "文件或目录 ID") private Long id;
-    @Schema(description = "父目录 ID；根目录为 null") private Long parentId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "文件或目录 ID") private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "父目录 ID；根目录为 null") private Long parentId;
     @Schema(description = "是否为目录")
     private Boolean folder;
     @Schema(description = "是否为系统默认目录") private Boolean isDefault;
     @Schema(description = "可见性：PRIVATE 或 PUBLIC") private String visibility;
     @Schema(description = "文件原始名称") private String originalName;
     @Schema(description = "文件大小，单位字节") private Long fileSize;
-    @Schema(description = "上传用户 ID") private Long userId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "上传用户 ID") private Long userId;
     @Schema(description = "创建时间") private LocalDateTime createdAt;
     @Schema(description = "预计打印时长，单位秒") private Integer estTime;
     @Schema(description = "耗材类型") private String materialType;

@@ -283,7 +283,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 INSERT INTO farm_dashboard_layout
                     (id, row_count, column_count, aisles_json, version, updated_by)
                 SELECT 1, 4, 12,
-                       '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]',
+                       '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":6,"label":"过道","size":100}]',
                        1, NULL
                 WHERE NOT EXISTS (
                     SELECT 1 FROM farm_dashboard_layout WHERE id = 1

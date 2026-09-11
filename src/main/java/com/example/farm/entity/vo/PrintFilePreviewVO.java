@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.PrintFile;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -13,9 +15,9 @@ import java.math.BigDecimal;
 @Schema(name = "PrintFilePreviewVO", description = "打印文件安全预览信息")
 public class PrintFilePreviewVO {
 
-    @Schema(description = "文件 ID") private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "文件 ID") private Long id;
     @Schema(description = "可见性：PRIVATE 或 PUBLIC") private String visibility;
-    @Schema(description = "上传用户 ID") private Long userId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "上传用户 ID") private Long userId;
     @Schema(description = "是否为默认目录") private Boolean isDefault;
     @Schema(description = "目录层级") private Integer level;
     @Schema(description = "当前用户是否可以创建打印任务") private Boolean canPrint;

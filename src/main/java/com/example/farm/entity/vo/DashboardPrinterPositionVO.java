@@ -1,6 +1,8 @@
 package com.example.farm.entity.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -12,6 +14,7 @@ import lombok.NoArgsConstructor;
 @Schema(name = "DashboardPrinterPositionVO", description = "打印机及其原有坐标")
 public class DashboardPrinterPositionVO {
     @Schema(description = "打印机 ID", example = "403")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long printerId;
     @Schema(description = "打印机名称", example = "A-03")
     private String name;

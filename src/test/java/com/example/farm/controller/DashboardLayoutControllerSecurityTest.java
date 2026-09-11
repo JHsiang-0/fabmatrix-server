@@ -153,6 +153,19 @@ class DashboardLayoutControllerSecurityTest {
     }
 
     @Test
+    void apiDocsDescribeNamedLayoutProblemEnvelope() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.code").exists())
+                .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.message").exists())
+                .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.data.$ref")
+                        .value("#/components/schemas/DashboardLayoutProblemVO"))
+                .andExpect(jsonPath("$.components.schemas.ResultDashboardLayoutProblem.properties.timestamp").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['409'].content").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/dashboard-layout'].put.responses['422'].content").exists());
+    }
+
+    @Test
     void legacyPrinterPositionsDelegateToLayoutServiceAndKeepResponseCompatibility() throws Exception {
         when(dashboardLayoutService.saveLegacyPositions(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new DashboardLayoutSaveResultVO());

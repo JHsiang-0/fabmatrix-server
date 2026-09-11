@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.AuditLog;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -11,8 +13,8 @@ import java.time.LocalDateTime;
 @Schema(name = "AuditLogVO", description = "操作日志安全视图")
 public class AuditLogVO {
 
-    private Long id;
-    private Long actorId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) private Long actorId;
     private String actorUsername;
     private String actorRole;
     private String action;

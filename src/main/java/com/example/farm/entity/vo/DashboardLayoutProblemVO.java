@@ -1,6 +1,8 @@
 package com.example.farm.entity.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ public class DashboardLayoutProblemVO {
     @Schema(description = "服务端当前版本；版本冲突时返回", nullable = true, example = "2")
     private Long serverVersion;
     @Schema(description = "冲突设备 ID 列表")
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
     private List<Long> conflicts = new ArrayList<>();
     @Schema(description = "缩容时越界设备完整清单")
     private List<DashboardPrinterPositionVO> outOfBoundsPrinters = new ArrayList<>();

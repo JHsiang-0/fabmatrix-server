@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.PrinterStatusHistory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -14,8 +16,8 @@ import java.time.LocalDateTime;
 @Schema(name = "PrinterStatusHistoryVO", description = "打印机状态历史安全响应")
 public class PrinterStatusHistoryVO {
 
-    private Long id;
-    private Long printerId;
+    @JsonSerialize(using = ToStringSerializer.class) private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) private Long printerId;
     @Schema(description = "统一状态：IDLE、PRINTING、PAUSED、ERROR、OFFLINE 等")
     private String status;
     @Schema(description = "设备原始状态")

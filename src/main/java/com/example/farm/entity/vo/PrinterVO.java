@@ -1,6 +1,8 @@
 package com.example.farm.entity.vo;
 
 import com.example.farm.entity.Printer;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -26,6 +28,7 @@ public class PrinterVO implements Serializable {
      * 主键ID
      */
     @Schema(description = "主键ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
     /**
@@ -65,6 +68,7 @@ public class PrinterVO implements Serializable {
     private Boolean isSafeToPrint;
 
     @Schema(description = "当前任务 ID")
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long currentJobId;
 
     @Schema(description = "当前装载耗材")

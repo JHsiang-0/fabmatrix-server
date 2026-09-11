@@ -376,7 +376,7 @@ migration: BEGIN
         (id, row_count, column_count, aisles_json, version, updated_by)
     VALUES
         (1, 4, 12,
-         '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]',
+         '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":6,"label":"过道","size":100}]',
          1, NULL)
     ON DUPLICATE KEY UPDATE id = VALUES(id);
 END$$

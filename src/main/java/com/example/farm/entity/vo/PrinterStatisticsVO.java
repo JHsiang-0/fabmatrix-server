@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -13,6 +15,7 @@ import java.time.LocalDateTime;
 @Schema(name = "PrinterStatisticsVO", description = "打印机任务统计")
 public class PrinterStatisticsVO {
 
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long printerId;
     @Schema(description = "统计开始时间；null 表示不限制")
     private LocalDateTime from;

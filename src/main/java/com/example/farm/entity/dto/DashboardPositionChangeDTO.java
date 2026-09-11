@@ -1,5 +1,7 @@
 package com.example.farm.entity.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Max;
@@ -14,6 +16,7 @@ public class DashboardPositionChangeDTO {
 
     @NotNull(message = "打印机 ID 不能为空")
     @Positive(message = "打印机 ID 必须为正数")
+    @JsonSerialize(using = ToStringSerializer.class)
     @Schema(description = "打印机 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "311")
     private Long printerId;
 

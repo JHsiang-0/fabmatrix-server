@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.User;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -19,7 +21,7 @@ public class UserVO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "用户 ID")
-    private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) private Long id;
 
     @Schema(description = "登录账号")
     private String username;

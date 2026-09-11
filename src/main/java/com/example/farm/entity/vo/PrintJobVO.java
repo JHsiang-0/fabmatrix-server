@@ -1,5 +1,7 @@
 package com.example.farm.entity.vo;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.example.farm.entity.PrintJob;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
@@ -15,11 +17,11 @@ import java.time.LocalDateTime;
 @Schema(name = "PrintJobVO", description = "打印任务安全响应对象")
 public class PrintJobVO implements Serializable {
 
-    @Schema(description = "任务 ID") private Long id;
-    @Schema(description = "切片文件 ID") private Long fileId;
-    @Schema(description = "绑定打印机 ID；排队任务为 null") private Long printerId;
-    @Schema(description = "发起任务的用户 ID") private Long userId;
-    @Schema(description = "现场操作员用户 ID") private Long operatorId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "任务 ID") private Long id;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "切片文件 ID") private Long fileId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "绑定打印机 ID；排队任务为 null") private Long printerId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "发起任务的用户 ID") private Long userId;
+    @JsonSerialize(using = ToStringSerializer.class) @Schema(description = "现场操作员用户 ID") private Long operatorId;
     @Schema(description = "任务优先级，范围 0-100") private Integer priority;
     @Schema(description = "任务状态：QUEUED、ASSIGNED、UPLOADING、READY、PRINTING、PAUSED、RECONCILING、COMPLETED、FAILED、CANCELLED") private String status;
     @Schema(description = "打印进度，范围 0-100") private BigDecimal progress;

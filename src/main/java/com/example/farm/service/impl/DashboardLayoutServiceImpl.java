@@ -55,7 +55,7 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
     private static final long LAYOUT_ID = 1L;
     private static final String DEFAULT_AISLES_JSON =
             "[{\"id\":\"default-column-aisle\",\"axis\":\"COLUMN\","
-                    + "\"afterIndex\":7,\"label\":\"过道\",\"size\":100}]";
+                    + "\"afterIndex\":6,\"label\":\"过道\",\"size\":100}]";
 
     private final DashboardLayoutMapper dashboardLayoutMapper;
     private final ObjectMapper objectMapper;
@@ -142,7 +142,7 @@ public class DashboardLayoutServiceImpl extends ServiceImpl<DashboardLayoutMappe
 
         List<Long> conflicts = findDuplicateSlots(finalPositions);
         if (!conflicts.isEmpty()) {
-            throw problem(400, "DUPLICATE_SLOT", layout.getVersion(), conflicts, List.of());
+            throw problem(409, "SLOT_CONFLICT", layout.getVersion(), conflicts, List.of());
         }
 
         List<DashboardPrinterPositionVO> outOfBounds = new ArrayList<>();

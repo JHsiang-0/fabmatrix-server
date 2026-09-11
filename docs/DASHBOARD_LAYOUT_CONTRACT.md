@@ -2,7 +2,7 @@
 
 ## 1. 状态与边界
 
-本文冻结并说明动态看板布局的后端契约，供 Controller、DTO/VO、OpenAPI、数据库迁移和前端联调使用。当前后端已提供 `/api/v1/dashboard-layout` 的 GET/PUT；前端仍需按后续 SYNC-002 任务接入。
+本文冻结并说明动态看板布局的后端契约，供 Controller、DTO/VO、OpenAPI、数据库迁移和前端联调使用。当前后端已提供 `/api/v1/dashboard-layout` 的 GET/PUT，前端已按 SYNC-002 接入。
 
 首版只有一个农场级共享布局，不引入车间实体、用户私有布局或虚假车间切换。布局由服务端持久化，浏览器 localStorage 不能成为事实来源。
 
@@ -217,4 +217,10 @@
 - PUT 明确 ADMIN、乐观锁、原子事务和 REJECT/UNALLOCATE 语义。
 - 枚举、范围、nullable 坐标对和数组上限在 Schema 中可见。
 - 409/422 的响应 Schema 使用 `Result<DashboardLayoutProblemVO>`，不能只显示通用字符串；当前 Controller/异常处理已按此返回。
-- `/v3/api-docs` 的实际路径、字段和权限必须与本文核对后，方可将 API_HANDOFF 中“尚未实现”改为“已实现”。
+- `/v3/api-docs` 的实际路径、字段和权限已按本文核对；后续修改 Controller 或 DTO 时必须同步更新本文和 API_HANDOFF。
+
+## 8. 发布与弃用
+
+数据库预检和迁移职责见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`：MySQL 先执行只读预检，再执行 16 号脚本；SQLite 由 `LocalSchemaMigration` 在预检通过后安装 partial unique index 和项目自有坐标触发器。`local-schema.sql` 仅描述新库表级 CHECK，不是已有 SQLite 文件的独立迁移入口。
+
+旧 `PUT /api/v1/printers/positions` 已停用。前端发布后只使用本资源的原子保存语义；旧客户端不得通过 positions 写入坐标，直到弃用窗口结束并移除该入口。

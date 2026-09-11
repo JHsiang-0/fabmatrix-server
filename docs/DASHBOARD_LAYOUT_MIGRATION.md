@@ -63,3 +63,13 @@ MySQL 回滚使用迁移前备份恢复到新的隔离数据库，经抽样校�
 全新 Compose MySQL 数据卷初始化时会按稳定顺序只读挂载 `farm.sql`、`02-current-schema.sql`、历史脚本以及 14、15、16 增量脚本。若新卷初始化在 16 失败，先保存容器日志和卷中的诊断信息，删除失败的新卷后重新创建；只有确认该卷不包含需要保留的数据时才允许执行针对该新卷的卷清理。`farm.sql` 是新库种子脚本，禁止用于已有库，因为它会 DROP 并重建业务表。
 
 当前未在真实 MySQL 容器或既有生产数据卷上执行验收；后端自动测试使用隔离 SQLite，MySQL 侧完成脚本静态契约检查，不能替代现场 MySQL 验收。
+
+## SYNC-002.9 发布收口
+
+升级前必须保存预检输出、数据库备份和脚本版本；成功后核对 `SHOW CREATE TABLE farm_printer`、`SHOW CREATE TABLE farm_dashboard_layout`、联合唯一索引、布局单例行及时间列语义。Local Edition 必须以 `LocalSchemaMigration` 为唯一 schema 入口，不能把 `local-schema.sql` 或 partial index 手工 SQL 当作已有库迁移。
+
+旧 `PUT /api/v1/printers/positions` 已停用并进入弃用窗口：发布后前端只使用 `/api/v1/dashboard-layout`，旧客户端不得继续写位置；需要兼容时仅保留只读页面，待所有客户端升级后移除旧入口。详细请求、错误和 WebSocket 语义见 `API_HANDOFF.md` 与 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。
+
+## 管理员操作
+
+管理员在前端编辑布局时先核对当前版本和越界清单，再保存草稿。缩容默认选择 `REJECT`；只有确认设备下架并完成二次确认后才选择 `UNALLOCATE`。收到 `409/VERSION_CONFLICT` 时重新载入权威布局，不得覆盖其他管理员的保存；收到 `422/OUT_OF_BOUNDS` 时先调整布局或明确下架清单。保存成功后检查布局版本、设备坐标成对性和实时看板，发现异常立即停止继续编辑并保留审计信息。

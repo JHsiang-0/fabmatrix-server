@@ -1,7 +1,7 @@
 # Farm 前后端接口交接与契约文档
 
-版本：v2.0
-更新时间：2026-09-03
+版本：v2.1
+更新时间：2026-09-11
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
 > 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。
@@ -240,9 +240,13 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | GET | `/dashboard-layout` | ADMIN/OPERATOR | 无 | `DashboardLayoutVO`：行列、横纵过道、版本、服务端限制和更新时间 |
 | PUT | `/dashboard-layout` | ADMIN | `DashboardLayoutSaveRequest`：`expectedVersion,rowCount,columnCount,aisles,overflowPolicy,positionChanges` | `DashboardLayoutSaveResultVO`：最新布局、变更坐标和下架设备 |
 
-完整目标契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。
+完整目标契约和 OpenAPI Schema 见 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。范围固定为单农场共享布局；行 `1–30`、列 `1–60`、物理槽位不超过 `1800`，支持最多 20 条横向/纵向过道。布局保存使用 `expectedVersion` 乐观锁并与位置变化原子提交；默认缩容策略为 `REJECT`，显式 `UNALLOCATE` 需要二次确认。数据库升级顺序、SQLite partial index/触发器职责和回滚见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`。
 
 现有 WebSocket `version=1` 已兼容新增 `LAYOUT_UPDATED`。该消息 `printerId=null`，`data` 固定包含 `stateSource="LAYOUT"` 和正数 `layoutVersion`；旧四类消息及设备业务/通信状态语义不变。
+
+布局保存错误必须按结构化 `reason` 处理：版本不一致为 `409/VERSION_CONFLICT`，最终槽位冲突为
+`409/SLOT_CONFLICT`，缩容拒绝为 `422/OUT_OF_BOUNDS`。客户端收到布局事件后通过 REST 快照收敛；编辑草稿不得被
+事件覆盖。
 
 新增、重新录入或批量扫描入库的打印机，在下一次协议状态探测完成前返回 `status=UNKNOWN`；`ONLINE` 不属于打印机状态枚举，也不会作为业务状态写入。普通配置编辑不重置设备当前状态。
 

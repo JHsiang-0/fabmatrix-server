@@ -24,7 +24,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml ps
 
 正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机协议后，只按需启用监控，具体设备通过管理员 API 设置 `monitorEnabled`，后台调度不要在 v2 误开启。
 
-已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本按 `02` 至 `13` 的依赖顺序执行，其中 `11-printer-monitor-reliability.sql` 必须早于同编号的 `11-v2-user-status-and-batch-recovery.sql`。
+已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本按 `02` 至 `16` 的依赖顺序执行，其中 `11-printer-monitor-reliability.sql` 必须早于同编号的 `11-v2-user-status-and-batch-recovery.sql`，16 号动态布局迁移必须在只读预检无结果后执行。
 
 ## v2 Local Edition（Windows/单机）
 
@@ -70,6 +70,15 @@ Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。
 
 当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；`02-current-schema.sql` 的新增列/索引检查已支持重复执行。
 
+SYNC-002 动态布局必须先执行 `dashboard-layout-precheck-mysql.sql`，确认没有半空、重复、非正数、非整数或超出默认
+4×12 的坐标，再执行 `16-v2-dashboard-layout-mysql.sql`。`farm.sql` 和 `02-current-schema.sql` 不创建或写入
+`farm_dashboard_layout`；布局表及默认行只有 16 号脚本在预检通过后创建。完整迁移、真实定义核对和回滚步骤见
+[`docs/DASHBOARD_LAYOUT_MIGRATION.md`](docs/DASHBOARD_LAYOUT_MIGRATION.md)。
+
+Local Edition 不直接把 SQLite 手工 SQL 当作 schema 迁移入口：`LocalSchemaMigration` 先预检，成功后才安装布局表、
+partial unique index 和项目自有坐标触发器；`local-schema.sql` 只描述新库表级 CHECK。不要在启动迁移前手工创建同名
+索引或触发器，错误同名对象必须保留并阻断启动。
+
 `11-printer-monitor-reliability.sql` 使用 MySQL 8 元数据检查，监控字段和 `idx_printer_monitor_enabled` 索引缺失时才添加，可安全重复执行。旧 `farm_printer` 记录新增 `monitor_enabled` 时默认值为 `0`，不会因迁移自动纳入轮询；管理员确认设备后再通过监控 API 启用。
 
 UI-004.20 文件可见性迁移使用 `15-v2-print-file-visibility-mysql.sql`（MySQL）。SQLite 没有
@@ -109,6 +118,11 @@ docker run --rm \
 docker compose up -d mysql redis rustfs
 docker compose ps
 
+# SYNC-002：先执行只读预检；输出必须为空，否则停止并保留现场
+docker compose exec -T mysql sh -c \
+  'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' \
+  < src/main/resources/db/migration/dashboard-layout-precheck-mysql.sql
+
 for migration in \
   src/main/resources/db/migration/02-current-schema.sql \
   src/main/resources/db/migration/03-remove-customer-role.sql \
@@ -123,7 +137,8 @@ for migration in \
   src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql \
   src/main/resources/db/migration/12-v2-audit-log.sql \
   src/main/resources/db/migration/13-v2-print-file-default-folders.sql \
-  src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql; do
+  src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql \
+  src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done
@@ -154,6 +169,13 @@ docker compose exec -T mysql sh -c \
     SELECT DISTINCT status FROM farm_print_job; \
     SELECT DISTINCT firmware_type FROM farm_printer; \
     SELECT visibility, COUNT(*) FROM farm_print_file GROUP BY visibility;"'
+
+# SYNC-002：只在 precheck 无结果且 16 号迁移成功后核对布局对象
+docker compose exec -T mysql sh -c \
+  'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e \
+   "SHOW CREATE TABLE farm_printer; SHOW CREATE TABLE farm_dashboard_layout; \
+    SHOW INDEX FROM farm_printer WHERE Key_name = '\''uk_farm_printer_grid_position'\''; \
+    SELECT id, row_count, column_count, version FROM farm_dashboard_layout WHERE id = 1;"'
 
 mvn spring-boot:run
 ```

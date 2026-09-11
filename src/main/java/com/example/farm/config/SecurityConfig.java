@@ -61,6 +61,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/check-email").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/admin/**").hasRole("ADMIN")
 
+                        // 动态看板布局：读取供管理员和操作员使用，保存仅限管理员（保存接口由 SYNC-002.3 提供）
+                        .requestMatchers(HttpMethod.GET, "/api/v1/dashboard-layout")
+                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/dashboard-layout")
+                        .hasRole("ADMIN")
+
                         // 打印机：操作员可以查看状态，只有管理员可以增删改和扫描设备
                         .requestMatchers(HttpMethod.GET, "/api/v1/printers/scan")
                         .hasRole("ADMIN")

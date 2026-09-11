@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.vo.PrintJobDetailVO;
 import com.example.farm.entity.vo.PrintJobSummaryVO;
+import com.example.farm.entity.enums.PrintJobTimeField;
 import org.apache.ibatis.executor.statement.StatementHandler;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.plugin.Intercepts;
@@ -216,6 +217,53 @@ class PrintJobSummaryMapperTest {
     }
 
     @Test
+    void activeStatusesUseOneServerPageAndReachTheSecondPage() {
+        for (long id = 1000L; id < 1110L; id++) {
+            insertJob(id, null, null, 10L, null, 1,
+                    id % 2 == 0 ? "ASSIGNED" : "PRINTING", "2026-09-12 00:00:00");
+        }
+
+        Page<PrintJobSummaryVO> firstPage = printJobMapper.selectPageSummaries(
+                new Page<>(1, 100),
+                List.of("ASSIGNED", "PRINTING", "READY", "UPLOADING", "PAUSED", "RECONCILING"),
+                null, null, 10L, false, null, PrintJobTimeField.CREATED_AT, null, null);
+        Page<PrintJobSummaryVO> secondPage = printJobMapper.selectPageSummaries(
+                new Page<>(2, 100),
+                List.of("ASSIGNED", "PRINTING", "READY", "UPLOADING", "PAUSED", "RECONCILING"),
+                null, null, 10L, false, null, PrintJobTimeField.CREATED_AT, null, null);
+
+        assertThat(firstPage.getTotal()).isEqualTo(111);
+        assertThat(firstPage.getRecords()).hasSize(100);
+        assertThat(secondPage.getRecords()).hasSize(11);
+        assertThat(secondPage.getRecords().get(0).getId()).isEqualTo(1009L);
+        assertThat(secondPage.getRecords().get(10).getId()).isEqualTo(20L);
+    }
+
+    @Test
+    void completedTimeSortsNullLastAndEscapedFileNameIsLiteral() {
+        jdbcTemplate.update("DELETE FROM farm_print_job WHERE id IN (20, 21)");
+        jdbcTemplate.update("INSERT INTO farm_print_file (id, original_name) VALUES (?, ?)",
+                101L, "model%_part.gcode");
+        insertJob(50L, 101L, null, 10L, null, 1, "COMPLETED", "2026-09-11 08:00:00",
+                "2026-09-12 12:00:00");
+        insertJob(51L, null, null, 10L, null, 1, "PRINTING", "2026-09-11 09:00:00", null);
+        insertJob(52L, null, null, 10L, null, 1, "FAILED", "2026-09-11 10:00:00",
+                "2026-09-12 11:00:00");
+
+        Page<PrintJobSummaryVO> completedPage = printJobMapper.selectPageSummaries(
+                new Page<>(1, 10), List.of("COMPLETED", "FAILED", "PRINTING"), null, null,
+                10L, false, null, PrintJobTimeField.COMPLETED_AT, null, null);
+        Page<PrintJobSummaryVO> escapedFilePage = printJobMapper.selectPageSummaries(
+                new Page<>(1, 10), List.of("COMPLETED"), null, null,
+                10L, false, "\\%\\_", PrintJobTimeField.COMPLETED_AT, null, null);
+
+        assertThat(completedPage.getRecords()).extracting(PrintJobSummaryVO::getId)
+                .containsExactly(50L, 52L, 51L);
+        assertThat(escapedFilePage.getTotal()).isEqualTo(1);
+        assertThat(escapedFilePage.getRecords().get(0).getId()).isEqualTo(50L);
+    }
+
+    @Test
     void detailUsesJoinAndOwnershipFilterAndReturnsDetailType() {
         PrintJobDetailVO adminDetail = printJobMapper.selectAccessibleDetail(20L, 99L, true);
         PrintJobDetailVO ownDetail = printJobMapper.selectAccessibleDetail(20L, 10L, false);
@@ -249,13 +297,18 @@ class PrintJobSummaryMapperTest {
 
     private void insertJob(Long id, Long fileId, Long printerId, Long userId, Long operatorId,
                            int priority, String status, String createdAt) {
+        insertJob(id, fileId, printerId, userId, operatorId, priority, status, createdAt, null);
+    }
+
+    private void insertJob(Long id, Long fileId, Long printerId, Long userId, Long operatorId,
+                           int priority, String status, String createdAt, String completedAt) {
         jdbcTemplate.update("""
                 INSERT INTO farm_print_job
                     (id, file_id, printer_id, user_id, operator_id, priority, status,
-                     progress, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     progress, completed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, id, fileId, printerId, userId, operatorId, priority, status,
-                BigDecimal.ZERO, createdAt, createdAt);
+                BigDecimal.ZERO, completedAt, createdAt, createdAt);
     }
 
     private void dropTables() {

@@ -8,6 +8,7 @@ import com.example.farm.entity.dto.request.PrintJobQueryDTO;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.entity.vo.PrintJobDetailVO;
 import com.example.farm.entity.vo.PrintJobSummaryVO;
+import com.example.farm.entity.enums.PrintJobTimeField;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.service.impl.PrintJobServiceImpl;
@@ -32,9 +33,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -93,6 +97,90 @@ class PrintJobOwnershipTest {
                 .hasMessage("开始时间不能晚于结束时间")
                 .extracting("code")
                 .isEqualTo(400L);
+    }
+
+    @Test
+    void rejectsMixedOrUnknownJobQueryStatuses() {
+        mockUser(1L, "OPERATOR");
+
+        PrintJobQueryDTO mixed = new PrintJobQueryDTO();
+        mixed.setStatus("COMPLETED");
+        mixed.setStatuses(List.of("FAILED"));
+        assertThatThrownBy(() -> printJobService.queryJobs(mixed))
+                .hasMessage("status 与 statuses 不能同时使用")
+                .extracting("code")
+                .isEqualTo(400L);
+
+        PrintJobQueryDTO unknown = new PrintJobQueryDTO();
+        unknown.setStatuses(List.of("NOT_A_STATUS"));
+        assertThatThrownBy(() -> printJobService.queryJobs(unknown))
+                .hasMessageContaining("未知任务状态")
+                .extracting("code")
+                .isEqualTo(400L);
+
+        verifyNoInteractions(printJobMapper);
+    }
+
+    @Test
+    void rejectsExplicitEmptyStatusesEvenWhenSingleStatusIsAbsentOrPresent() {
+        mockUser(1L, "OPERATOR");
+
+        PrintJobQueryDTO empty = new PrintJobQueryDTO();
+        empty.setStatuses(List.of());
+        assertThatThrownBy(() -> printJobService.queryJobs(empty))
+                .hasMessage("statuses 不能为空")
+                .extracting("code")
+                .isEqualTo(400L);
+
+        PrintJobQueryDTO mixedWithEmpty = new PrintJobQueryDTO();
+        mixedWithEmpty.setStatus("COMPLETED");
+        mixedWithEmpty.setStatuses(List.of());
+        assertThatThrownBy(() -> printJobService.queryJobs(mixedWithEmpty))
+                .hasMessage("status 与 statuses 不能同时使用")
+                .extracting("code")
+                .isEqualTo(400L);
+
+        verifyNoInteractions(printJobMapper);
+    }
+
+    @Test
+    void trimsFileNameBeforeApplyingThe255CharacterLimit() {
+        mockUser(1L, "OPERATOR");
+        PrintJobQueryDTO query = new PrintJobQueryDTO();
+        query.setFileName(" ".repeat(255) + "model.gcode");
+        Page<PrintJobSummaryVO> page = new Page<>(1, 10);
+        when(printJobMapper.selectPageSummaries(any(Page.class), eq(List.of()), eq(null), eq(null),
+                eq(1L), eq(false), eq("model.gcode"), eq(PrintJobTimeField.CREATED_AT), isNull(), isNull()))
+                .thenReturn(page);
+
+        assertThat(printJobService.queryJobs(query)).isSameAs(page);
+        verify(printJobMapper).selectPageSummaries(any(Page.class), eq(List.of()), eq(null), eq(null),
+                eq(1L), eq(false), eq("model.gcode"), eq(PrintJobTimeField.CREATED_AT), isNull(), isNull());
+
+        PrintJobQueryDTO tooLong = new PrintJobQueryDTO();
+        tooLong.setFileName("x".repeat(256));
+        assertThatThrownBy(() -> printJobService.queryJobs(tooLong))
+                .hasMessage("文件名筛选最多255个字符")
+                .extracting("code")
+                .isEqualTo(400L);
+    }
+
+    @Test
+    void queryNormalizesLegacyStatusAndKeepsGetPathReadOnly() {
+        mockUser(1L, "OPERATOR");
+        PrintJobQueryDTO query = new PrintJobQueryDTO();
+        query.setStatuses(List.of("PENDING", "CANCELED"));
+        Page<PrintJobSummaryVO> page = new Page<>(1, 10);
+        when(printJobMapper.selectPageSummaries(any(Page.class), eq(List.of(
+                "QUEUED", "PENDING", "MANUAL", "CANCELLED", "CANCELED")), eq(null), eq(null),
+                eq(1L), eq(false), isNull(), eq(PrintJobTimeField.CREATED_AT), isNull(), isNull()))
+                .thenReturn(page);
+
+        assertThat(printJobService.queryJobs(query)).isSameAs(page);
+        verify(printJobMapper).selectPageSummaries(any(Page.class), eq(List.of(
+                "QUEUED", "PENDING", "MANUAL", "CANCELLED", "CANCELED")), eq(null), eq(null),
+                eq(1L), eq(false), isNull(), eq(PrintJobTimeField.CREATED_AT), isNull(), isNull());
+        verify(printJobMapper, never()).updateById(any(PrintJob.class));
     }
 
     @Test
@@ -156,12 +244,13 @@ class PrintJobOwnershipTest {
         query.setPrinterId(403L);
         query.setUserId(1L);
         Page<PrintJobSummaryVO> page = new Page<>(1, 10);
-        when(printJobMapper.selectPageSummaries(any(Page.class), eq("COMPLETED"), eq(403L), eq(1L),
-                eq(2L), eq(false), any(), any())).thenReturn(page);
+        when(printJobMapper.selectPageSummaries(any(Page.class), anyList(), eq(403L), eq(1L),
+                eq(2L), eq(false), isNull(), eq(PrintJobTimeField.CREATED_AT), isNull(), isNull()))
+                .thenReturn(page);
 
         assertThat(printJobService.queryJobs(query)).isSameAs(page);
-        verify(printJobMapper).selectPageSummaries(any(Page.class), eq("COMPLETED"), eq(403L), eq(1L),
-                eq(2L), eq(false), any(), any());
+        verify(printJobMapper).selectPageSummaries(any(Page.class), eq(List.of("COMPLETED")), eq(403L), eq(1L),
+                eq(2L), eq(false), isNull(), eq(PrintJobTimeField.CREATED_AT), isNull(), isNull());
     }
 
     @Test

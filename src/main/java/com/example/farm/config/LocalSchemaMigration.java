@@ -44,6 +44,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_dispatch_plan_item", "recovery_action", "VARCHAR(64)");
         addColumnIfMissing("farm_print_file", "visibility", "VARCHAR(7) NOT NULL DEFAULT 'PRIVATE'");
         addPrinterMonitorColumnsIfMissing();
+        migratePrintJobQuerySemantics();
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_dispatch_plan_created_retry_key "
                 + "ON farm_dispatch_plan(created_by, retry_key)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_monitor_enabled "
@@ -54,6 +55,18 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();
         validatePrintFileStructure();
+    }
+
+    /** TC-003 旧任务状态回填及查询索引；只做幂等迁移，不在 GET 查询中写库。 */
+    private void migratePrintJobQuerySemantics() {
+        jdbcTemplate.update("UPDATE farm_print_job SET status = 'QUEUED' "
+                + "WHERE status IN ('PENDING', 'MANUAL')");
+        jdbcTemplate.update("UPDATE farm_print_job SET status = 'CANCELLED' "
+                + "WHERE status = 'CANCELED'");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_print_job_history_status_completed_id "
+                + "ON farm_print_job(status, completed_at, id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_print_job_active_status_created_id "
+                + "ON farm_print_job(status, created_at, id)");
     }
 
     /**

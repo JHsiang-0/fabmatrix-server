@@ -4,6 +4,8 @@ FROM eclipse-temurin:25-jre
 
 WORKDIR /app
 
+ENV TZ=Asia/Shanghai
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
@@ -17,4 +19,4 @@ COPY --chown=farm:farm target/Farm-0.0.1-SNAPSHOT.jar /app/farm.jar
 USER farm
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-jar", "/app/farm.jar"]
+ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-XX:+UseContainerSupport", "-jar", "/app/farm.jar"]

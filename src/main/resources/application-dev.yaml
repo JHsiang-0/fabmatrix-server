@@ -14,6 +14,8 @@ spring:
     password: YBW5esRQwm4fm3X2
     hikari:
       pool-name: FarmHikariPool-Dev
+      # DATETIME/LocalDateTime 使用农场 wall-clock，不做 UTC 转换。
+      connection-init-sql: SET time_zone = '+08:00'
       # 开发环境使用较小的连接池
       minimum-idle: 2
       maximum-pool-size: 10

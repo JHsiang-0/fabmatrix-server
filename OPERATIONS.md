@@ -24,7 +24,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml ps
 
 正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机协议后，只按需启用监控，具体设备通过管理员 API 设置 `monitorEnabled`，后台调度不要在 v2 误开启。
 
-已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本按 `02` 至 `16` 的依赖顺序执行，其中 `11-printer-monitor-reliability.sql` 必须早于同编号的 `11-v2-user-status-and-batch-recovery.sql`，16 号动态布局迁移必须在只读预检无结果后执行。
+已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本按 `02` 至 `18` 的依赖顺序执行，其中 `11-printer-monitor-reliability.sql` 必须早于同编号的 `11-v2-user-status-and-batch-recovery.sql`，16 号动态布局迁移必须在只读预检无结果后执行，18 号任务查询迁移负责旧状态回填和分页索引。TC-007 从 19 号迁移开始；TC-004–TC-006、TC-008 不在本次迁移范围。
 
 ## v2 Local Edition（Windows/单机）
 
@@ -68,7 +68,7 @@ Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。
 
 已有 Docker 数据卷不会重新执行 `/docker-entrypoint-initdb.d` 下的 SQL。执行增量迁移前先备份 MySQL、Redis 和 RustFS 数据；不要使用 `docker compose down -v`，该命令会删除命名数据卷。
 
-当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；`02-current-schema.sql` 的新增列/索引检查已支持重复执行。
+当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；TC-003 使用 `18-v2-print-job-query-semantics-mysql.sql`（MySQL）或 `18-v2-print-job-query-semantics-sqlite.sql`（SQLite）回填旧任务状态并建立查询索引；两者均支持重复执行。`02-current-schema.sql` 的新增列/索引检查已支持重复执行。任务时间契约冻结为 Asia/Shanghai 的不带偏移 wall-clock，不提供可覆盖时区配置：MySQL 使用服务器/JDBC `+08:00`，SQLite fresh `farm_print_job` 默认使用 `datetime('now', '+8 hours')`，应用查询直接绑定 local datetime，不转换已存时间。
 
 SYNC-002 动态布局必须先执行 `dashboard-layout-precheck-mysql.sql`，确认没有半空、重复、非正数、非整数或超出默认
 4×12 的坐标，再执行 `16-v2-dashboard-layout-mysql.sql`。`farm.sql` 和 `02-current-schema.sql` 不创建或写入
@@ -143,6 +143,16 @@ for migration in \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done
 ```
+
+TC-003 任务查询迁移必须在上述脚本之后执行：
+
+```bash
+docker compose exec -T mysql sh -c \
+  'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' \
+  < src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
+```
+
+该脚本将 `PENDING/MANUAL` 回填为 `QUEUED`、将 `CANCELED` 回填为 `CANCELLED`，并创建活动/历史分页索引。执行前先备份；Local Edition 启动时由 `LocalSchemaMigration` 执行相同的幂等回填和索引创建，手工 SQLite 脚本仅用于离线升级或核对。
 
 迁移后至少核对新增字段、历史表和规范化值，再启动应用：
 

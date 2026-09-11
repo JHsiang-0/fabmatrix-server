@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,6 +19,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -64,6 +66,14 @@ class PrintJobControllerContractTest {
                         .value(org.hamcrest.Matchers.containsInAnyOrder("string", "null")))
                 .andExpect(jsonPath("$.components.schemas.PrintJobSummaryVO.properties.completedAt.type")
                         .value(org.hamcrest.Matchers.containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.PrintJobQueryDTO.properties.statuses.type")
+                        .value("array"))
+                .andExpect(jsonPath("$.components.schemas.PrintJobQueryDTO.properties.statuses.maxItems")
+                        .value(10))
+                .andExpect(jsonPath("$.components.schemas.PrintJobQueryDTO.properties.statuses.minItems")
+                        .value(1))
+                .andExpect(jsonPath("$.components.schemas.PrintJobQueryDTO.properties.timeField.enum")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder("CREATED_AT", "COMPLETED_AT")))
                 .andExpect(jsonPath("$.components.schemas.PrintJobSummaryVO.properties.errorReason.type")
                         .value(org.hamcrest.Matchers.containsInAnyOrder("string", "null")))
                 .andExpect(jsonPath("$.components.schemas.PrintJobSummaryVO.properties.nozzleSize.type")
@@ -103,5 +113,24 @@ class PrintJobControllerContractTest {
                         .value("#/components/schemas/ResultVoid"))
                 .andExpect(jsonPath("$.paths['/api/v1/print-jobs/{id}/reconcile'].post.responses['200'].content.*.schema.$ref")
                         .value("#/components/schemas/ResultVoid"));
+    }
+
+    @Test
+    void pageRejectsExplicitEmptyStatusesBeforeInvokingService() throws Exception {
+        String emptyStatuses = "{\"pageNum\":1,\"pageSize\":10,\"statuses\":[]}";
+        mockMvc.perform(post("/api/v1/print-jobs/page")
+                        .with(user("operator").roles("OPERATOR"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(emptyStatuses))
+                .andExpect(status().isBadRequest());
+
+        String mixedEmptyStatuses = "{\"pageNum\":1,\"pageSize\":10,\"status\":\"COMPLETED\",\"statuses\":[]}";
+        mockMvc.perform(post("/api/v1/print-jobs/page")
+                        .with(user("operator").roles("OPERATOR"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mixedEmptyStatuses))
+                .andExpect(status().isBadRequest());
+
+        verifyNoMoreInteractions(printJobService);
     }
 }

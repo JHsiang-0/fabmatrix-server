@@ -94,6 +94,7 @@ server:
 
 # 应用自定义配置
 farm:
+  # 本阶段固定 Asia/Shanghai：所有任务 LocalDateTime 写入与查询均使用该 wall-clock，不做 UTC 转换。
   monitor:
     enabled: false
     # 兼容旧版本的临时限制；正式使用数据库 monitor-enabled，不配置 printer-ids 即监控所有已启用设备

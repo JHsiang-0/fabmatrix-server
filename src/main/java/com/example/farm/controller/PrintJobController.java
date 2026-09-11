@@ -71,7 +71,7 @@ public class PrintJobController {
      * @return 分页结果
      */
     @Operation(summary = "分页查询打印任务列表",
-            description = "返回 PageResult<PrintJobSummaryVO>；当前阶段保留单值 status、printerId、userId、createdAt 起止时间筛选，排序为 createdAt DESC、id DESC。TC-003 再增加多状态、文件名和完成时间语义。")
+            description = "返回 PageResult<PrintJobSummaryVO>；status 与非空 statuses 互斥，支持最多10个状态、文件名字面包含、printerId/userId 和 startTime/endTime 筛选。timeField 默认为 CREATED_AT，COMPLETED_AT 仅切换时间字段和排序、不隐式限定终态；时间包含边界，非法状态、时间字段或范围返回400。createdAt 按 DESC、id DESC 排序，completedAt 按 null last、DESC、id DESC 排序。权限条件在SQL查询阶段生效，分页固定为 count 加 data 两条SQL。")
     @ApiResponse(responseCode = "200", description = "查询成功",
             content = @Content(schema = @Schema(implementation = PrintJobOpenApiResultVO.SummaryPageResult.class)))
     @PostMapping("/page")

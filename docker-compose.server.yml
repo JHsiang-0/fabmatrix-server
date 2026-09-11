@@ -25,6 +25,8 @@ services:
         condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai
       SERVER_PORT: 8080
       MYSQL_URL: jdbc:mysql://mysql:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       MYSQL_USERNAME: farm
@@ -90,7 +92,9 @@ services:
       - ./src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro
       - ./src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro
       - ./src/main/resources/db/migration/17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro
+      - ./src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql:/docker-entrypoint-initdb.d/18-v2-print-job-query-semantics-mysql.sql:ro
     command:
+      - --default-time-zone=+08:00
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
     healthcheck:

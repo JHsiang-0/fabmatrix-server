@@ -49,8 +49,11 @@
         <include refid="jobSummaryColumns"/>
         <include refid="jobSummaryJoins"/>
         WHERE 1 = 1
-        <if test="status != null and status != ''">
-            AND j.status = #{status}
+        <if test="statuses != null and statuses.size() > 0">
+            AND j.status IN
+            <foreach collection="statuses" item="status" open="(" separator="," close=")">
+                #{status}
+            </foreach>
         </if>
         <if test="printerId != null">
             AND j.printer_id = #{printerId}
@@ -61,13 +64,94 @@
         <if test="!admin">
             AND j.user_id = #{currentUserId}
         </if>
+        <if test="fileName != null and fileName != ''">
+            AND LOWER(f.original_name) LIKE CONCAT('%', LOWER(#{fileName}), '%') ESCAPE CHAR(92)
+        </if>
         <if test="startTime != null">
-            AND j.created_at <![CDATA[>=]]> #{startTime}
+            <choose>
+                <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
+                    AND j.completed_at <![CDATA[>=]]> #{startTime}
+                </when>
+                <otherwise>
+                    AND j.created_at <![CDATA[>=]]> #{startTime}
+                </otherwise>
+            </choose>
         </if>
         <if test="endTime != null">
-            AND j.created_at <![CDATA[<=]]> #{endTime}
+            <choose>
+                <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
+                    AND j.completed_at <![CDATA[<=]]> #{endTime}
+                </when>
+                <otherwise>
+                    AND j.created_at <![CDATA[<=]]> #{endTime}
+                </otherwise>
+            </choose>
         </if>
-        ORDER BY j.created_at DESC, j.id DESC
+        <choose>
+            <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
+                ORDER BY CASE WHEN j.completed_at IS NULL THEN 1 ELSE 0 END ASC,
+                         j.completed_at DESC, j.id DESC
+            </when>
+            <otherwise>
+                ORDER BY j.created_at DESC, j.id DESC
+            </otherwise>
+        </choose>
+    </select>
+
+    <!-- SQLite 不支持 MySQL CONCAT；保留与默认查询相同的 JOIN、过滤和排序语义。 -->
+    <select id="selectPageSummaries" databaseId="sqlite"
+            resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
+        SELECT
+        <include refid="jobSummaryColumns"/>
+        <include refid="jobSummaryJoins"/>
+        WHERE 1 = 1
+        <if test="statuses != null and statuses.size() > 0">
+            AND j.status IN
+            <foreach collection="statuses" item="status" open="(" separator="," close=")">
+                #{status}
+            </foreach>
+        </if>
+        <if test="printerId != null">
+            AND j.printer_id = #{printerId}
+        </if>
+        <if test="admin and userId != null">
+            AND j.user_id = #{userId}
+        </if>
+        <if test="!admin">
+            AND j.user_id = #{currentUserId}
+        </if>
+        <if test="fileName != null and fileName != ''">
+            AND LOWER(f.original_name) LIKE '%' || LOWER(#{fileName}) || '%' ESCAPE CHAR(92)
+        </if>
+        <if test="startTime != null">
+            <choose>
+                <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
+                    AND j.completed_at &gt;= #{startTime}
+                </when>
+                <otherwise>
+                    AND j.created_at &gt;= #{startTime}
+                </otherwise>
+            </choose>
+        </if>
+        <if test="endTime != null">
+            <choose>
+                <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
+                    AND j.completed_at &lt;= #{endTime}
+                </when>
+                <otherwise>
+                    AND j.created_at &lt;= #{endTime}
+                </otherwise>
+            </choose>
+        </if>
+        <choose>
+            <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
+                ORDER BY CASE WHEN j.completed_at IS NULL THEN 1 ELSE 0 END ASC,
+                         j.completed_at DESC, j.id DESC
+            </when>
+            <otherwise>
+                ORDER BY j.created_at DESC, j.id DESC
+            </otherwise>
+        </choose>
     </select>
 
     <select id="selectAccessibleDetail" resultType="com.example.farm.entity.vo.PrintJobDetailVO">

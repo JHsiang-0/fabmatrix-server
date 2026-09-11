@@ -68,8 +68,9 @@ CREATE TABLE `farm_print_job`  (
   `started_at` datetime NULL DEFAULT NULL COMMENT '实际开始打印时间',
   `completed_at` datetime NULL DEFAULT NULL COMMENT '实际完成/失败时间',
   `error_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '失败原因（炒面、断料等）',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '任务创建时间',
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  -- MySQL DATETIME uses the Asia/Shanghai server/session wall-clock; JDBC and Compose set the same zone.
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '任务创建时间（农场本地时间）',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（农场本地时间）',
   `file_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT 'RustFS中的文件访问地址',
   `est_time` int NULL DEFAULT NULL COMMENT '预计打印耗时（秒）',
   `material_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '要求耗材类型(如 PLA, PETG, ABS)',
@@ -78,7 +79,9 @@ CREATE TABLE `farm_print_job`  (
   INDEX `idx_status`(`status` ASC) USING BTREE,
   INDEX `idx_printer_id`(`printer_id` ASC) USING BTREE,
   INDEX `idx_user_id`(`user_id` ASC) USING BTREE,
-  INDEX `idx_created_at`(`created_at` ASC) USING BTREE
+  INDEX `idx_created_at`(`created_at` ASC) USING BTREE,
+  INDEX `idx_print_job_history_status_completed_id`(`status` ASC, `completed_at` ASC, `id` ASC) USING BTREE,
+  INDEX `idx_print_job_active_status_created_id`(`status` ASC, `created_at` ASC, `id` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '打印任务与排队调度表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------

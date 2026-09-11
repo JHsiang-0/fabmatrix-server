@@ -6,6 +6,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.vo.PrintJobDetailVO;
 import com.example.farm.entity.vo.PrintJobSummaryVO;
 import com.example.farm.entity.vo.PrinterStatisticsVO;
+import com.example.farm.entity.enums.PrintJobTimeField;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -32,13 +33,30 @@ public interface PrintJobMapper extends BaseMapper<PrintJob> {
 
     /** 分页查询任务摘要；分页插件固定执行 count + data 两条 SQL。 */
     Page<PrintJobSummaryVO> selectPageSummaries(Page<PrintJobSummaryVO> page,
-                                                @Param("status") String status,
+                                                @Param("statuses") List<String> statuses,
                                                 @Param("printerId") Long printerId,
                                                 @Param("userId") Long userId,
                                                 @Param("currentUserId") Long currentUserId,
                                                 @Param("admin") boolean admin,
+                                                @Param("fileName") String fileName,
+                                                @Param("timeField") PrintJobTimeField timeField,
                                                 @Param("startTime") LocalDateTime startTime,
                                                 @Param("endTime") LocalDateTime endTime);
+
+    /** TC-002 调用方兼容门面；新查询统一走多状态参数。 */
+    default Page<PrintJobSummaryVO> selectPageSummaries(Page<PrintJobSummaryVO> page,
+                                                        String status,
+                                                        Long printerId,
+                                                        Long userId,
+                                                        Long currentUserId,
+                                                        boolean admin,
+                                                        LocalDateTime startTime,
+                                                        LocalDateTime endTime) {
+        return selectPageSummaries(page,
+                status == null || status.isBlank() ? List.of() : List.of(status),
+                printerId, userId, currentUserId, admin, null,
+                PrintJobTimeField.CREATED_AT, startTime, endTime);
+    }
 
     /** 查询当前用户可见的单条任务详情摘要，权限条件在 SQL 层固定。 */
     PrintJobDetailVO selectAccessibleDetail(@Param("jobId") Long jobId,

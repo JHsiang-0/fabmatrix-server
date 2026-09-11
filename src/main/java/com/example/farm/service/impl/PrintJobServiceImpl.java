@@ -21,6 +21,7 @@ import com.example.farm.entity.dto.request.FileJobsQueryDTO;
 import com.example.farm.entity.dto.request.UpdatePrintJobPriorityRequest;
 import com.example.farm.entity.dto.request.ReconcilePrintJobRequest;
 import com.example.farm.entity.enums.PrintJobStatus;
+import com.example.farm.entity.enums.PrintJobTimeField;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.protocol.PrinterEndpoint;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -89,21 +91,11 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
     @Override
     public List<PrintJob> getQueuedJobs() {
-        List<PrintJob> queuedJobs = this.list(new LambdaQueryWrapper<PrintJob>()
+        return this.list(new LambdaQueryWrapper<PrintJob>()
                 .in(PrintJob::getStatus, PrintJobStatus.queuedStorageValues())
                 .orderByDesc(PrintJob::getPriority)
-                .orderByAsc(PrintJob::getCreatedAt));
-        queuedJobs.forEach(job -> {
-            if (!PrintJobStatus.QUEUED.name().equals(job.getStatus())) {
-                job.setStatus(PrintJobStatus.QUEUED.name());
-                if (this.updateById(job)) {
-                    eventPublisher.publishJobStatus(job);
-                } else {
-                    log.warn("兼容任务状态规范化失败: jobId={}", job.getId());
-                }
-            }
-        });
-        return queuedJobs;
+                .orderByAsc(PrintJob::getCreatedAt)
+                .orderByAsc(PrintJob::getId));
     }
 
     @Override
@@ -888,15 +880,66 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 && queryDTO.getStartTime().isAfter(queryDTO.getEndTime())) {
             throw new BusinessException(400, "开始时间不能晚于结束时间");
         }
+        List<String> statuses = normalizeQueryStatuses(queryDTO);
+        String fileName = normalizeFileName(queryDTO.getFileName());
         int pageNum = queryDTO.getPageNum() != null ? queryDTO.getPageNum() : 1;
         int pageSize = queryDTO.getPageSize() != null ? queryDTO.getPageSize() : 10;
 
-        String queryStatus = PrintJobStatus.normalize(queryDTO.getStatus());
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
-        return farmPrintJobMapper.selectPageSummaries(
-                new Page<>(pageNum, pageSize), queryStatus, queryDTO.getPrinterId(),
+        Page<PrintJobSummaryVO> page = farmPrintJobMapper.selectPageSummaries(
+                new Page<>(pageNum, pageSize), statuses, queryDTO.getPrinterId(),
                 queryDTO.getUserId(), currentUserId, SecurityContextUtil.isAdmin(),
+                fileName, queryDTO.getTimeField() == null ? PrintJobTimeField.CREATED_AT : queryDTO.getTimeField(),
                 queryDTO.getStartTime(), queryDTO.getEndTime());
+        page.getRecords().forEach(record -> record.setStatus(PrintJobStatus.normalize(record.getStatus())));
+        return page;
+    }
+
+    private List<String> normalizeQueryStatuses(PrintJobQueryDTO queryDTO) {
+        boolean hasStatus = queryDTO.getStatus() != null && !queryDTO.getStatus().isBlank();
+        boolean hasStatuses = queryDTO.getStatuses() != null;
+        if (hasStatus && hasStatuses) {
+            throw new BusinessException(400, "status 与 statuses 不能同时使用");
+        }
+        if (hasStatuses && queryDTO.getStatuses().isEmpty()) {
+            throw new BusinessException(400, "statuses 不能为空");
+        }
+
+        List<String> requested = hasStatus
+                ? List.of(queryDTO.getStatus())
+                : (queryDTO.getStatuses() == null ? List.of() : queryDTO.getStatuses());
+        if (requested.size() > 10) {
+            throw new BusinessException(400, "任务状态最多选择10项");
+        }
+
+        List<String> storageStatuses = new ArrayList<>();
+        for (String rawStatus : requested) {
+            String status = PrintJobStatus.normalize(rawStatus);
+            if (!PrintJobStatus.isSupported(status)) {
+                throw new BusinessException(400, "未知任务状态: " + rawStatus);
+            }
+            if (!storageStatuses.contains(status)) storageStatuses.add(status);
+            if (PrintJobStatus.QUEUED.name().equals(status)) {
+                storageStatuses.add(PrintJobStatus.LEGACY_PENDING);
+                storageStatuses.add(PrintJobStatus.LEGACY_MANUAL);
+            } else if (PrintJobStatus.CANCELLED.name().equals(status)) {
+                storageStatuses.add(PrintJobStatus.LEGACY_CANCELED);
+            }
+        }
+        return storageStatuses.stream().distinct().toList();
+    }
+
+    private String normalizeFileName(String fileName) {
+        if (fileName == null) return null;
+        String trimmed = fileName.trim();
+        if (trimmed.isEmpty()) return null;
+        if (trimmed.length() > 255) {
+            throw new BusinessException(400, "文件名筛选最多255个字符");
+        }
+        return trimmed
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     @Override

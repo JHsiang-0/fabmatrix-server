@@ -54,6 +54,59 @@ BEGIN
     END IF;
 END$$
 
+DROP PROCEDURE IF EXISTS farm_add_check_if_missing$$
+CREATE PROCEDURE farm_add_check_if_missing(
+    IN p_table_name VARCHAR(64),
+    IN p_constraint_name VARCHAR(64),
+    IN p_check_clause TEXT
+)
+BEGIN
+    DECLARE v_constraint_count INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_constraint_count
+    FROM information_schema.table_constraints
+    WHERE table_schema = DATABASE()
+      AND table_name = p_table_name
+      AND constraint_name = p_constraint_name
+      AND constraint_type = 'CHECK';
+
+    IF v_constraint_count = 0 THEN
+        SET @farm_ddl = CONCAT(
+            'ALTER TABLE `', p_table_name, '` ADD CONSTRAINT `', p_constraint_name,
+            '` CHECK ', p_check_clause
+        );
+        PREPARE farm_stmt FROM @farm_ddl;
+        EXECUTE farm_stmt;
+        DEALLOCATE PREPARE farm_stmt;
+    END IF;
+END$$
+
+DROP PROCEDURE IF EXISTS farm_add_unique_index_if_missing$$
+CREATE PROCEDURE farm_add_unique_index_if_missing(
+    IN p_table_name VARCHAR(64),
+    IN p_index_name VARCHAR(64),
+    IN p_columns TEXT
+)
+BEGIN
+    DECLARE v_index_count INT DEFAULT 0;
+
+    SELECT COUNT(*) INTO v_index_count
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = p_table_name
+      AND index_name = p_index_name;
+
+    IF v_index_count = 0 THEN
+        SET @farm_ddl = CONCAT(
+            'ALTER TABLE `', p_table_name, '` ADD UNIQUE INDEX `', p_index_name,
+            '` (', p_columns, ')'
+        );
+        PREPARE farm_stmt FROM @farm_ddl;
+        EXECUTE farm_stmt;
+        DEALLOCATE PREPARE farm_stmt;
+    END IF;
+END$$
+
 CALL farm_add_column_if_missing(
     'farm_print_job', 'operator_id',
     'BIGINT NULL DEFAULT NULL COMMENT ''现场操作员ID（确认安全、启动打印时记录）'' AFTER `user_id`'
@@ -88,34 +141,33 @@ CALL farm_add_column_if_missing(
     'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''热床是否已确认安全（0-未确认，1-已确认）'' AFTER `status`'
 )$$
 
--- SYNC-002.1 fresh-volume layout. Existing volumes are upgraded by migration 16,
--- which runs a read-only coordinate precheck before any layout DDL.
-CREATE TABLE IF NOT EXISTS farm_dashboard_layout (
-    id BIGINT NOT NULL,
-    row_count SMALLINT NOT NULL,
-    column_count SMALLINT NOT NULL,
-    aisles_json TEXT NOT NULL,
-    version BIGINT NOT NULL,
-    updated_by BIGINT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    CONSTRAINT ck_farm_dashboard_layout_singleton CHECK (id = 1),
-    CONSTRAINT ck_farm_dashboard_layout_rows CHECK (row_count BETWEEN 1 AND 30),
-    CONSTRAINT ck_farm_dashboard_layout_columns CHECK (column_count BETWEEN 1 AND 60),
-    CONSTRAINT ck_farm_dashboard_layout_cells CHECK (row_count * column_count <= 1800),
-    CONSTRAINT ck_farm_dashboard_layout_version CHECK (version > 0)
-) ENGINE = InnoDB COMMENT = '农场级动态看板布局'$$
+CALL farm_add_column_if_missing(
+    'farm_printer', 'grid_row',
+    'INT NULL DEFAULT NULL COMMENT ''物理网格所在行（由看板布局服务校验）'' AFTER `nozzle_size`'
+)$$
 
-INSERT INTO farm_dashboard_layout
-    (id, row_count, column_count, aisles_json, version, updated_by)
-VALUES
-    (1, 4, 12,
-     '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]',
-     1, NULL)
-ON DUPLICATE KEY UPDATE id = VALUES(id)$$
+CALL farm_add_column_if_missing(
+    'farm_printer', 'grid_col',
+    'INT NULL DEFAULT NULL COMMENT ''物理网格所在列（由看板布局服务校验）'' AFTER `grid_row`'
+)$$
+
+-- SYNC-002.1 printer coordinate integrity only. Layout DDL and its default row
+-- belong exclusively to migration 16 after its read-only precheck succeeds.
+CALL farm_add_check_if_missing(
+    'farm_printer', 'ck_farm_printer_grid_pair',
+    '((`grid_row` IS NULL AND `grid_col` IS NULL) OR (`grid_row` IS NOT NULL AND `grid_col` IS NOT NULL))'
+)$$
+CALL farm_add_check_if_missing(
+    'farm_printer', 'ck_farm_printer_grid_positive',
+    '((`grid_row` IS NULL AND `grid_col` IS NULL) OR (`grid_row` > 0 AND `grid_col` > 0))'
+)$$
+CALL farm_add_unique_index_if_missing(
+    'farm_printer', 'uk_farm_printer_grid_position', '`grid_row`, `grid_col`'
+)$$
 
 DROP PROCEDURE IF EXISTS farm_add_column_if_missing$$
 DROP PROCEDURE IF EXISTS farm_add_index_if_missing$$
+DROP PROCEDURE IF EXISTS farm_add_check_if_missing$$
+DROP PROCEDURE IF EXISTS farm_add_unique_index_if_missing$$
 
 DELIMITER ;

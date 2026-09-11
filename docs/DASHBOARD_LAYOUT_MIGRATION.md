@@ -2,6 +2,8 @@
 
 本说明适用于 FarmMatrix Server Edition 的 MySQL 8.4 和 Local Edition 的 SQLite。布局表是农场级单例，`id` 固定为 1；默认布局为 4 行、12 列，并在物理第 7 列后放置 100px 的纵向过道。`aisles_json` 统一为 `TEXT`，JSON 结构由后续应用层校验；`updated_by` 可空且不建立外键。
 
+`farm_printer.grid_row/grid_col` 的成对与正数 CHECK、联合唯一索引属于打印机表结构：MySQL 新库由 `farm.sql` 定义，`02-current-schema.sql` 负责补齐缺失字段/约束/索引。两份脚本都不创建或写入 `farm_dashboard_layout`；布局表及默认行只有编号 16 在预检成功后创建。
+
 ## 发布顺序
 
 严格按“数据库预检/迁移 → 后端 → 前端”发布。迁移成功并完成数据库验证前，不部署依赖布局表的后端接口或前端功能。
@@ -28,7 +30,7 @@
    mysql -u <user> -p farm < src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql
    ```
 
-   脚本会在布局表任何 DDL 前再次输出并阻断异常；已有同名错误结构的布局表也会明确失败。重复执行安全，已存在的合法单例不会覆盖版本、过道或更新时间。
+   脚本会在布局表任何 DDL 前再次输出并阻断异常；已有同名错误结构的布局表也会明确失败。它会核对列顺序/类型/可空性、启用的五项 CHECK 及其真实表达式、唯一主键集合和 `created_at`/`updated_at` 的默认值与更新时间语义。重复执行安全，已存在的合法单例不会覆盖版本、过道或更新时间。编号 16 使用临时例程缓存失败状态，并在成功/失败路径都先删除例程，再由客户端执行明确的失败语句终止批处理，因此不会残留 `farm_dashboard_layout_migrate`。
 
 4. 验证：
 
@@ -46,7 +48,7 @@
 
 ## SQLite
 
-Local Edition 启动时 `local-schema.sql` 只负责新库的 `farm_printer` 坐标 CHECK 和部分唯一索引；布局表由 `LocalSchemaMigration` 在完整预检成功后创建。已有 SQLite 文件也可先手工执行只读预检：
+Local Edition 启动时 `local-schema.sql` 只负责新库 `farm_printer` 的成对/正数坐标 CHECK，不创建布局表、partial index 或坐标触发器。partial unique index 和 INSERT/UPDATE 坐标触发器由 `LocalSchemaMigration` 在完整只读预检成功后负责创建；项目自有的同名触发器会在预检后安全重建，索引则严格核对 `unique=1`、列集合和完整 partial `WHERE` 语义。布局表及默认行同样由 `LocalSchemaMigration` 在预检成功后创建。已有 SQLite 文件也可先手工执行只读预检：
 
 ```sh
 sqlite3 /path/to/farm.db < src/main/resources/db/migration/dashboard-layout-precheck-sqlite.sql

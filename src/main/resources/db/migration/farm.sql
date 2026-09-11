@@ -117,8 +117,11 @@ CREATE TABLE `farm_printer`  (
   `last_protocol_state` varchar(32) NULL DEFAULT NULL COMMENT '最近一次协议原始状态',
   `last_device_uptime` bigint NULL DEFAULT NULL COMMENT '最近一次设备运行时间（秒）',
   PRIMARY KEY (`id`) USING BTREE,
+  CONSTRAINT `ck_farm_printer_grid_pair` CHECK ((`grid_row` IS NULL AND `grid_col` IS NULL) OR (`grid_row` IS NOT NULL AND `grid_col` IS NOT NULL)),
+  CONSTRAINT `ck_farm_printer_grid_positive` CHECK ((`grid_row` IS NULL AND `grid_col` IS NULL) OR (`grid_row` > 0 AND `grid_col` > 0)),
   UNIQUE INDEX `uk_ip_address`(`ip_address` ASC) USING BTREE,
   UNIQUE INDEX `uk_mac_address`(`mac_address` ASC) USING BTREE,
+  UNIQUE INDEX `uk_farm_printer_grid_position`(`grid_row` ASC, `grid_col` ASC) USING BTREE,
   INDEX `idx_status`(`status` ASC) USING BTREE,
   INDEX `idx_ip_address`(`ip_address` ASC) USING BTREE,
   INDEX `idx_printer_monitor_enabled`(`monitor_enabled` ASC, `firmware_type` ASC) USING BTREE
@@ -173,35 +176,6 @@ INSERT INTO `farm_printer` (id, name, ip_address, mac_address, firmware_type, ap
 INSERT INTO `farm_printer` (id, name, ip_address, mac_address, firmware_type, api_key, status, current_job_id, created_at, updated_at, current_material, nozzle_size, grid_row, grid_col, machine_number) VALUES (560, 'Printer_8FD6', '192.168.0.184', '54:78:c9:93:8f:d6', 'Klipper', NULL, 'OFFLINE', NULL, '2026-03-09 11:37:47', '2026-03-12 13:48:35', 'ABS', 0.40, 3, 9, 'C-09');
 INSERT INTO `farm_printer` (id, name, ip_address, mac_address, firmware_type, api_key, status, current_job_id, created_at, updated_at, current_material, nozzle_size, grid_row, grid_col, machine_number) VALUES (561, 'Printer_A078', '192.168.0.185', '9c:b8:b4:71:a0:78', 'Klipper', NULL, 'IDLE', NULL, '2026-03-09 11:37:47', '2026-03-13 11:49:53', 'ABS', 0.40, 3, 10, 'C-10');
 INSERT INTO `farm_printer` (id, name, ip_address, mac_address, firmware_type, api_key, status, current_job_id, created_at, updated_at, current_material, nozzle_size, grid_row, grid_col, machine_number) VALUES (562, 'Printer_80B2', '192.168.0.186', '9c:b8:b4:71:80:b2', 'Klipper', NULL, 'OFFLINE', NULL, '2026-03-09 11:37:47', '2026-03-09 13:54:55', 'ABS', 0.40, NULL, NULL, NULL);
-
--- ----------------------------
--- Table structure for farm_dashboard_layout
--- ----------------------------
-DROP TABLE IF EXISTS `farm_dashboard_layout`;
-CREATE TABLE `farm_dashboard_layout` (
-  `id` bigint NOT NULL,
-  `row_count` smallint NOT NULL,
-  `column_count` smallint NOT NULL,
-  `aisles_json` text NOT NULL,
-  `version` bigint NOT NULL,
-  `updated_by` bigint NULL DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `ck_farm_dashboard_layout_singleton` CHECK (`id` = 1),
-  CONSTRAINT `ck_farm_dashboard_layout_rows` CHECK (`row_count` BETWEEN 1 AND 30),
-  CONSTRAINT `ck_farm_dashboard_layout_columns` CHECK (`column_count` BETWEEN 1 AND 60),
-  CONSTRAINT `ck_farm_dashboard_layout_cells` CHECK (`row_count` * `column_count` <= 1800),
-  CONSTRAINT `ck_farm_dashboard_layout_version` CHECK (`version` > 0)
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '农场级动态看板布局';
-
--- ----------------------------
--- Records of farm_dashboard_layout
--- ----------------------------
-INSERT INTO `farm_dashboard_layout`
-  (`id`, `row_count`, `column_count`, `aisles_json`, `version`, `updated_by`)
-VALUES
-  (1, 4, 12, '[{"id":"default-column-aisle","axis":"COLUMN","afterIndex":7,"label":"过道","size":100}]', 1, NULL);
 
 -- ----------------------------
 -- Table structure for farm_user

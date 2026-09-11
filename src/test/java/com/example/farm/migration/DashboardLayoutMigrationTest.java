@@ -10,6 +10,8 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.List;
@@ -40,17 +42,24 @@ class DashboardLayoutMigrationTest {
     @Test
     void mysqlScriptsAndComposeKeepMigrationContractStatic() {
         String migration = read("db/migration/16-v2-dashboard-layout-mysql.sql");
-        assertThat(migration).contains("SIGNAL SQLSTATE '45000'", "farm_dashboard_layout",
+        assertThat(migration).contains("DROP PROCEDURE IF EXISTS farm_dashboard_layout_migrate$$",
+                "farm_dashboard_layout_migration_abort", "farm_dashboard_layout",
                 "ck_farm_dashboard_layout_singleton", "row_count BETWEEN 1 AND 30",
                 "column_count BETWEEN 1 AND 60", "row_count * column_count <= 1800",
                 "version > 0", "ON DUPLICATE KEY UPDATE");
+        assertThat(migration).doesNotContain("SIGNAL SQLSTATE");
         assertThat(migration).doesNotContain("UPDATE farm_printer", "machine_number");
-        assertThat(read("db/migration/farm.sql")).contains("farm_dashboard_layout",
-                "default-column-aisle", "updated_by");
-        assertThat(read("db/migration/02-current-schema.sql")).contains("farm_dashboard_layout",
-                "row_count BETWEEN 1 AND 30", "column_count BETWEEN 1 AND 60");
+        assertThat(read("db/migration/farm.sql")).contains("ck_farm_printer_grid_pair",
+                "ck_farm_printer_grid_positive", "uk_farm_printer_grid_position",
+                "grid_row", "grid_col")
+                .doesNotContain("farm_dashboard_layout");
+        assertThat(read("db/migration/02-current-schema.sql")).contains("ck_farm_printer_grid_pair",
+                "ck_farm_printer_grid_positive", "uk_farm_printer_grid_position",
+                "grid_row", "grid_col")
+                .doesNotContain("farm_dashboard_layout", "CREATE TABLE farm_dashboard_layout",
+                        "INSERT INTO farm_dashboard_layout");
         for (String compose : List.of("docker-compose.yml", "docker-compose.server.yml")) {
-            String yaml = readAbsolute("D:/WorkSpace/Java/fabmatrix-server/" + compose);
+            String yaml = readWorkspaceFile(compose);
             assertThat(yaml).contains("14-v2-user-default-folder-names-mysql.sql:/docker-entrypoint-initdb.d/14-v2-user-default-folder-names-mysql.sql:ro",
                     "15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro",
                     "16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro");
@@ -163,6 +172,72 @@ class DashboardLayoutMigrationTest {
         }
     }
 
+    @Test
+    void sqliteWrongIndexAndSameNamedPseudoObjectsAreRejected() throws Exception {
+        try (Connection connection = connection("wrong-index")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            jdbc.execute("CREATE INDEX uk_farm_printer_grid_position "
+                    + "ON farm_printer(grid_row, grid_col)");
+
+            assertThatThrownBy(() -> new LocalSchemaMigration(jdbc).run())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("existing SQLite index");
+        }
+
+        try (Connection connection = connection("index-pseudo-object")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            jdbc.execute("CREATE TABLE uk_farm_printer_grid_position (id INTEGER)");
+
+            assertThatThrownBy(() -> new LocalSchemaMigration(jdbc).run())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("existing SQLite index");
+        }
+
+        try (Connection connection = connection("trigger-pseudo-object")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            jdbc.execute("CREATE TABLE trg_farm_printer_grid_position_insert (id INTEGER)");
+
+            assertThatThrownBy(() -> new LocalSchemaMigration(jdbc).run())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("existing SQLite trigger");
+        }
+    }
+
+    @Test
+    void sqliteProjectOwnedWrongTriggersAreRebuiltAfterPrecheck() throws Exception {
+        try (Connection connection = connection("wrong-trigger")) {
+            JdbcTemplate jdbc = jdbc(connection);
+            runResource(jdbc, "db/migration/local-schema.sql");
+            makeLegacyPrinterTable(jdbc);
+            jdbc.execute("""
+                    CREATE TRIGGER trg_farm_printer_grid_position_insert
+                    BEFORE INSERT ON farm_printer
+                    WHEN 1
+                    BEGIN
+                        SELECT RAISE(IGNORE);
+                    END
+                    """);
+
+            new LocalSchemaMigration(jdbc).run();
+
+            String triggerSql = jdbc.queryForObject("SELECT sql FROM sqlite_master "
+                    + "WHERE type = 'trigger' AND name = ?", String.class,
+                    "trg_farm_printer_grid_position_insert");
+            assertThat(triggerSql.replaceAll("\\s+", "").toLowerCase())
+                    .contains("whennot((new.grid_rowisnullandnew.grid_colisnull)or")
+                    .contains("raise(abort,'farm_printergridcoordinatesmustbeapositiveintegerpairorbothnull')");
+            assertThatThrownBy(() -> jdbc.update("INSERT INTO farm_printer "
+                    + "(id, name, grid_row, grid_col) VALUES (99, 'invalid', 1, NULL)"))
+                    .hasMessageContaining("grid coordinates");
+        }
+    }
+
     private Connection connection(String name) throws Exception {
         return DriverManager.getConnection("jdbc:sqlite:file:sync-002-1-" + name
                 + "?mode=memory&cache=shared");
@@ -188,9 +263,10 @@ class DashboardLayoutMigrationTest {
         return readBytes(getClass().getClassLoader().getResourceAsStream(resource), resource);
     }
 
-    private String readAbsolute(String resource) {
+    private String readWorkspaceFile(String resource) {
         try {
-            return java.nio.file.Files.readString(java.nio.file.Path.of(resource));
+            Path projectRoot = Path.of(System.getProperty("user.dir"));
+            return Files.readString(projectRoot.resolve(resource).normalize());
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
         }

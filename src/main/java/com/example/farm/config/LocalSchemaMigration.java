@@ -106,9 +106,14 @@ public class LocalSchemaMigration implements CommandLineRunner {
     }
 
     private void validateExistingDashboardLayout() {
-        if (count("SELECT COUNT(*) FROM sqlite_master "
-                + "WHERE type = 'table' AND name = 'farm_dashboard_layout'") == 0) {
+        List<Map<String, Object>> layoutObjects = jdbcTemplate.queryForList(
+                "SELECT type FROM sqlite_master WHERE name = 'farm_dashboard_layout'");
+        if (layoutObjects.isEmpty()) {
             return;
+        }
+        if (layoutObjects.size() != 1 || !"table".equals(layoutObjects.get(0).get("type"))) {
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: existing farm_dashboard_layout has incompatible structure");
         }
 
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(
@@ -154,19 +159,31 @@ public class LocalSchemaMigration implements CommandLineRunner {
 
     private void validateExistingPrinterCoordinateGuards() {
         validateExistingIndex("uk_farm_printer_grid_position", List.of("grid_row", "grid_col"));
-        validateExistingTrigger("trg_farm_printer_grid_position_insert", "beforeinsertonfarm_printer");
-        validateExistingTrigger("trg_farm_printer_grid_position_update",
-                "beforeupdateofgrid_row,grid_colonfarm_printer");
+        validateExistingTrigger("trg_farm_printer_grid_position_insert");
+        validateExistingTrigger("trg_farm_printer_grid_position_update");
     }
 
     private void validateExistingIndex(String indexName, List<String> expectedColumns) {
+        List<Map<String, Object>> namedObjects = jdbcTemplate.queryForList(
+                "SELECT type FROM sqlite_master WHERE name = ?", indexName);
+        if (namedObjects.size() > 1 || (namedObjects.size() == 1
+                && !"index".equals(namedObjects.get(0).get("type")))) {
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: existing SQLite index " + indexName
+                            + " has incompatible structure");
+        }
         List<Map<String, Object>> indexes = jdbcTemplate.queryForList("PRAGMA index_list(farm_printer)");
         Map<String, Object> index = indexes.stream()
                 .filter(row -> indexName.equals(row.get("name")))
                 .findFirst()
                 .orElse(null);
-        if (index == null) {
+        if (namedObjects.isEmpty() && index == null) {
             return;
+        }
+        if (index == null) {
+            throw new IllegalStateException(
+                    "SYNC-002.1 blocked: existing SQLite index " + indexName
+                            + " has incompatible structure");
         }
         List<String> actualColumns = jdbcTemplate.queryForList(
                         "PRAGMA index_info(" + indexName + ")").stream()
@@ -175,23 +192,26 @@ public class LocalSchemaMigration implements CommandLineRunner {
                         ((Number) right.get("seqno")).intValue()))
                 .map(row -> String.valueOf(row.get("name")))
                 .toList();
+        boolean unique = index.get("unique") instanceof Number number && number.intValue() == 1;
         boolean partial = index.get("partial") instanceof Number number && number.intValue() == 1;
         String indexSql = jdbcTemplate.queryForObject("SELECT sql FROM sqlite_master "
                 + "WHERE type = 'index' AND name = ?", String.class, indexName);
-        String normalizedSql = indexSql.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
-        if (!partial || !actualColumns.equals(expectedColumns)
-                || !normalizedSql.contains("wheregrid_rowisnotnullandgrid_colisnotnull")) {
+        String normalizedSql = normalizeSql(indexSql);
+        String expectedSql = normalizeSql("CREATE UNIQUE INDEX " + indexName
+                + " ON farm_printer(grid_row, grid_col) "
+                + "WHERE grid_row IS NOT NULL AND grid_col IS NOT NULL");
+        if (!unique || !partial || !actualColumns.equals(expectedColumns)
+                || !normalizedSql.equals(expectedSql)) {
             throw new IllegalStateException(
                     "SYNC-002.1 blocked: existing SQLite index " + indexName + " has incompatible structure");
         }
     }
 
-    private void validateExistingTrigger(String triggerName, String requiredToken) {
-        String triggerSql = jdbcTemplate.query("SELECT sql FROM sqlite_master "
-                        + "WHERE type = 'trigger' AND name = ?", resultSet ->
-                resultSet.next() ? resultSet.getString(1) : null, triggerName);
-        if (triggerSql != null
-                && !triggerSql.replaceAll("\\s+", "").toLowerCase(Locale.ROOT).contains(requiredToken)) {
+    private void validateExistingTrigger(String triggerName) {
+        List<Map<String, Object>> namedObjects = jdbcTemplate.queryForList(
+                "SELECT type FROM sqlite_master WHERE name = ?", triggerName);
+        if (namedObjects.size() > 1 || (namedObjects.size() == 1
+                && !"trigger".equals(namedObjects.get(0).get("type")))) {
             throw new IllegalStateException(
                     "SYNC-002.1 blocked: existing SQLite trigger " + triggerName
                             + " has incompatible structure");
@@ -202,8 +222,9 @@ public class LocalSchemaMigration implements CommandLineRunner {
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_farm_printer_grid_position "
                 + "ON farm_printer(grid_row, grid_col) "
                 + "WHERE grid_row IS NOT NULL AND grid_col IS NOT NULL");
+        jdbcTemplate.execute("DROP TRIGGER IF EXISTS trg_farm_printer_grid_position_insert");
         jdbcTemplate.execute("""
-                CREATE TRIGGER IF NOT EXISTS trg_farm_printer_grid_position_insert
+                CREATE TRIGGER trg_farm_printer_grid_position_insert
                 BEFORE INSERT ON farm_printer
                 WHEN NOT (
                     (NEW.grid_row IS NULL AND NEW.grid_col IS NULL)
@@ -216,8 +237,9 @@ public class LocalSchemaMigration implements CommandLineRunner {
                     SELECT RAISE(ABORT, 'farm_printer grid coordinates must be a positive integer pair or both NULL');
                 END
                 """);
+        jdbcTemplate.execute("DROP TRIGGER IF EXISTS trg_farm_printer_grid_position_update");
         jdbcTemplate.execute("""
-                CREATE TRIGGER IF NOT EXISTS trg_farm_printer_grid_position_update
+                CREATE TRIGGER trg_farm_printer_grid_position_update
                 BEFORE UPDATE OF grid_row, grid_col ON farm_printer
                 WHEN NOT (
                     (NEW.grid_row IS NULL AND NEW.grid_col IS NULL)
@@ -230,6 +252,10 @@ public class LocalSchemaMigration implements CommandLineRunner {
                     SELECT RAISE(ABORT, 'farm_printer grid coordinates must be a positive integer pair or both NULL');
                 END
                 """);
+    }
+
+    private String normalizeSql(String sql) {
+        return sql.replaceAll("[\\s`\\\"\\[\\]]+", "").toLowerCase(Locale.ROOT);
     }
 
     private void migrateDashboardLayout() {

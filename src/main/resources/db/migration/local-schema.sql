@@ -54,9 +54,11 @@ CREATE TABLE IF NOT EXISTS farm_printer (
     )
 );
 
--- The partial unique index and INSERT/UPDATE guards are created by
--- LocalSchemaMigration after its read-only coordinate precheck. This keeps an
--- existing database with duplicate coordinates diagnosable before any DDL.
+-- This table-level CHECK is part of the new-database schema. The partial
+-- unique index and INSERT/UPDATE guards are owned by LocalSchemaMigration and
+-- are created (or the project-owned triggers are rebuilt) only after its
+-- read-only coordinate precheck. This keeps an existing database with
+-- duplicate coordinates diagnosable before any guard DDL.
 
 CREATE TABLE IF NOT EXISTS farm_print_job (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

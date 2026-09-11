@@ -738,7 +738,7 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 
 ### 7.2 消息格式
 
-当前消息版本固定为 `version=1`；前端应先按 `version` 分支解析，未知版本应保留 REST 快照兜底。每条业务消息还带唯一 `eventId` 和单进程递增 `sequence`；重连后不能依赖 sequence 连续，必须重新请求 REST 快照。前端在已连接期间发现 sequence 断档时，也应重新请求打印机 REST 快照恢复当前状态，不能伪造缺失事件。
+当前消息版本固定为 `version=1`；前端应先按 `version` 分支解析，未知版本应保留 REST 快照兜底。每条逻辑事件带唯一 `eventId`；`sequence` 在真实发送时按 WebSocket 会话分配，是该会话实际可见消息流的严格递增序列。权限过滤、事务回滚和仅发送给其他会话的 `SNAPSHOT` 不会制造序列缺口；并发发送按会话串行化。重连后不能依赖旧 sequence 连续，必须重新请求 REST 快照。前端在已连接期间发现 sequence 断档时，也应重新请求打印机和任务 REST 快照恢复当前状态，不能伪造缺失事件。
 
 统一使用：
 
@@ -766,7 +766,7 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 }
 ```
 
-服务端当前实际发送的顶层字段为 `version`、`type`、`eventId`、`sequence`、`printerId`、`timestamp`、`data`；`eventId` 每条消息唯一，`sequence` 为单进程递增值。客户端重连或发现版本/序列不连续时，应重新请求 REST 快照。
+服务端当前实际发送的顶层字段为 `version`、`type`、`eventId`、`sequence`、`printerId`、`timestamp`、`data`；`eventId` 为逻辑事件唯一标识，`sequence` 为目标会话实际发送序列。`JOB_STATUS` 的 `data.jobId` 始终是任务 ID 字符串，`data.currentJobId` 是打印机当前绑定任务：`QUEUED`、`COMPLETED`、`FAILED`、`CANCELLED` 显式为 `null`，活动态只有在实际绑定打印机时才为该任务 ID；废弃任务状态 `PREPARING` 在 WebSocket 边界规范化为 `UPLOADING`，正式 active 集合仅为 `ASSIGNED/UPLOADING/READY/PRINTING/PAUSED/RECONCILING`。`printerId` 可以为 `null`，无打印机任务仍发布事件。ADMIN 接收全部任务事件，OPERATOR 只接收本人任务，过滤事件不会泄露其他任务元数据。客户端重连或发现版本/序列不连续时，应重新请求打印机和任务 REST 快照。
 
 消息类型冻结为：
 
@@ -778,7 +778,7 @@ JOB_STATUS        任务状态变化
 LAYOUT_UPDATED    共享布局版本变化（布局字段仅位于 data）
 ```
 
-当前已实现消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在任务状态 `updateById` 成功后发布 `JOB_STATUS`，布局事务发布 `LAYOUT_UPDATED`；有数据库事务时，五类业务事件统一在事务提交后广播，事务回滚不广播；无事务的监控场景直接发布。没有绑定打印机的排队任务不发送任务事件。服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。2026-09-03 的历史容器冒烟曾收到 46 台打印机的快照，后续当前实例验证为 49 台；两者均为当时数据库设备数量，不属于固定契约。前端已完成自动重连、告警展示、重复/乱序事件丢弃、sequence 断档后的 REST 快照恢复和客户端测试，浏览器端完整端到端与真实设备事件仍待后续联调。本阶段已完成握手鉴权，生产环境不再允许匿名广播。
+当前已实现消息类型和 `FarmStatusMessage` 顶层结构，并由服务端校验类型、时间戳、关联 ID 和敏感字段。鉴权成功后服务端发送一次 `SNAPSHOT`，其 `data.printers` 使用安全 `PrinterVO`，没有打印机时返回空数组。监控任务通过 `WebSocketEventPublisher` 发布 `PRINTER_STATUS` 和 `PRINTER_OFFLINE`：状态/进度数据变化时推送，连续离线只推送一次，设备恢复后重新推送状态。任务服务和监控任务在事务提交后发布 `JOB_STATUS`，任务事件按会话权限过滤，事务回滚不广播；无打印机任务同样发布，事件中的 `printerId/currentJobId` 按上述规则明确为空值。布局事务发布 `LAYOUT_UPDATED`；服务端按 `farm.websocket.heartbeat-interval`（Spring Duration，默认 `30s`）发送协议级 Ping，连接上限按 `farm.websocket.max-connections` 配置（默认 100），失败连接会清理。前端需在断线、断档或重连时同时完成打印机和任务 REST 恢复；SNAPSHOT 本身不解除 stale 标记。
 
 ## 8. 打印机协议适配约定
 

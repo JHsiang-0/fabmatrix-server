@@ -31,6 +31,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobCreateTest {
@@ -69,6 +70,20 @@ class PrintJobCreateTest {
         assertThat(created.get().getStatus()).isEqualTo("QUEUED");
         assertThat(created.get().getPrinterId()).isNull();
         verify(printerService, never()).getById(any());
+        verify(eventPublisher).publishJobStatus(created.get());
+    }
+
+    @Test
+    void compatibilitySubmissionPublishesQueuedJobWithoutPrinter() {
+        when(printFileMapper.selectById(20L)).thenReturn(file(20L, 1L));
+        AtomicReference<PrintJob> created = stubInsert(false);
+
+        Long jobId = printJobService.submitJob(20L, 1L, 5);
+
+        assertThat(jobId).isEqualTo(1001L);
+        assertThat(created.get().getStatus()).isEqualTo("QUEUED");
+        assertThat(created.get().getPrinterId()).isNull();
+        verify(eventPublisher).publishJobStatus(created.get());
     }
 
     @Test
@@ -109,6 +124,7 @@ class PrintJobCreateTest {
 
         assertThat(repeated).isEqualTo(first);
         verify(printJobMapper).insert(any(PrintJob.class));
+        verify(eventPublisher, times(1)).publishJobStatus(created.get());
     }
 
     @Test

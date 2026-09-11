@@ -84,6 +84,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (!this.save(job)) {
             throw new BusinessException("提交打印任务失败：任务记录保存失败");
         }
+        eventPublisher.publishJobStatus(job);
         recordSuccess("JOB_CREATE", "JOB", job.getId(), "打印任务 #" + job.getId());
         log.info("提交打印任务成功: jobId={}, userId={}, fileId={}, priority={}", job.getId(), userId, fileId, job.getPriority());
         return job.getId();
@@ -233,6 +234,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
         if (req.getPrinterId() != null) {
             assignJob(job.getId(), req.getPrinterId());
+        } else {
+            eventPublisher.publishJobStatus(job);
         }
         recordSuccess("JOB_CREATE", "JOB", job.getId(), "打印任务 #" + job.getId());
         LogUtil.dataChange("创建打印任务", "FarmPrintJob", job.getId(),

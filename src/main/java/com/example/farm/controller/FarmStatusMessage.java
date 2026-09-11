@@ -4,12 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Farm WebSocket 对外消息契约。
@@ -24,7 +24,8 @@ public record FarmStatusMessage(
         long sequence,
         @JsonSerialize(using = ToStringSerializer.class) Long printerId,
         long timestamp,
-        Object data
+        Object data,
+        @JsonIgnore Long audienceUserId
 ) {
 
     public static final String CURRENT_VERSION = "1";
@@ -32,7 +33,6 @@ public record FarmStatusMessage(
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-    private static final AtomicLong SEQUENCE = new AtomicLong();
 
     public FarmStatusMessage {
         version = version == null || version.isBlank() ? CURRENT_VERSION : version.trim();
@@ -58,7 +58,8 @@ public record FarmStatusMessage(
             if (FarmStatusMessageType.LAYOUT_UPDATED.name().equals(type)) {
                 validateLayoutEvent(data);
             }
-        } else if (printerId == null || printerId <= 0) {
+        } else if (!FarmStatusMessageType.JOB_STATUS.name().equals(type)
+                && (printerId == null || printerId <= 0)) {
             throw new IllegalArgumentException("设备消息必须携带正数 printerId");
         }
         rejectSensitiveFields(data);
@@ -66,7 +67,7 @@ public record FarmStatusMessage(
 
     /** 兼容现有服务端调用方的构造函数，统一补充契约版本。 */
     public FarmStatusMessage(String type, Long printerId, long timestamp, Object data) {
-        this(CURRENT_VERSION, type, UUID.randomUUID().toString(), nextSequence(), printerId, timestamp, data);
+        this(CURRENT_VERSION, type, UUID.randomUUID().toString(), 1L, printerId, timestamp, data, null);
     }
 
     public static FarmStatusMessage printerStatus(Long printerId, Object data) {
@@ -82,6 +83,19 @@ public record FarmStatusMessage(
     public static FarmStatusMessage jobStatus(Long printerId, Object data) {
         return new FarmStatusMessage(FarmStatusMessageType.JOB_STATUS.name(), printerId,
                 System.currentTimeMillis(), data);
+    }
+
+    /** 带任务归属的内部事件；audienceUserId 由 WebSocketServer 过滤且不会序列化。 */
+    public static FarmStatusMessage jobStatusForUser(Long printerId, Long audienceUserId, Object data) {
+        return new FarmStatusMessage(CURRENT_VERSION, FarmStatusMessageType.JOB_STATUS.name(),
+                UUID.randomUUID().toString(), 1L, printerId, System.currentTimeMillis(),
+                data, audienceUserId);
+    }
+
+    /** WebSocketServer 在获得目标会话发送锁后分配该会话序列。 */
+    public FarmStatusMessage withSequence(long nextSequence) {
+        return new FarmStatusMessage(version, type, eventId, nextSequence, printerId, timestamp, data,
+                audienceUserId);
     }
 
     public static FarmStatusMessage snapshot(Object data) {
@@ -153,10 +167,6 @@ public record FarmStatusMessage(
                     "conflicts", "outOfBoundsPrinters", "changedPositions", "unallocatedPrinters" -> true;
             default -> false;
         };
-    }
-
-    private static long nextSequence() {
-        return SEQUENCE.updateAndGet(previous -> previous == Long.MAX_VALUE ? 1 : previous + 1);
     }
 
     private static String normalizeType(String value) {

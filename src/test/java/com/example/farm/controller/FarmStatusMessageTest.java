@@ -72,4 +72,20 @@ class FarmStatusMessageTest {
         assertThat(json.at("/data/conflicts/0/printerId").asText()).isEqualTo("9007199254740993");
         assertThat(json.at("/data/conflicts/0/gridRow").isNumber()).isTrue();
     }
+
+    @Test
+    void allowsUnboundJobStatusAndKeepsExplicitNullBinding() throws Exception {
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("jobId", "9007199254740993");
+        data.put("currentJobId", null);
+        data.put("status", "QUEUED");
+        FarmStatusMessage message = FarmStatusMessage.jobStatusForUser(null, 7L, data);
+
+        var json = objectMapper.readTree(objectMapper.writeValueAsString(message.withSequence(1)));
+        assertThat(json.get("printerId").isNull()).isTrue();
+        assertThat(json.at("/data/jobId").isTextual()).isTrue();
+        assertThat(json.at("/data/jobId").asText()).isEqualTo("9007199254740993");
+        assertThat(json.at("/data/currentJobId").isNull()).isTrue();
+        assertThat(json.get("audienceUserId")).isNull();
+    }
 }

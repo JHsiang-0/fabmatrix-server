@@ -8,6 +8,9 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WebSocketEventPublisherTest {
@@ -53,6 +56,87 @@ class WebSocketEventPublisherTest {
     }
 
     @Test
+    void snapshotsEachJobStatusAtPublishTimeWithinTheSameTransaction() {
+        PrintJob job = job();
+        TransactionSynchronizationManager.initSynchronization();
+
+        job.setStatus("UPLOADING");
+        publisher.publishJobStatus(job);
+        job.setStatus("PRINTING");
+        publisher.publishJobStatus(job);
+
+        assertThat(publisher.messages).isEmpty();
+        TransactionSynchronizationUtils.triggerAfterCommit();
+
+        assertThat(publisher.messages).hasSize(2);
+        assertThat(publisher.messages)
+                .extracting(message -> String.valueOf(
+                        ((java.util.Map<?, ?>) message.data()).get("status")))
+                .containsExactly("UPLOADING", "PRINTING");
+        assertThat(publisher.messages)
+                .extracting(FarmStatusMessage::eventId)
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void publishesUnboundJobAndClearsBindingForTerminalStatus() {
+        PrintJob job = job();
+        job.setPrinterId(null);
+        job.setStatus("COMPLETED");
+
+        publisher.publishJobStatus(job);
+
+        assertThat(publisher.broadcastCount).isEqualTo(1);
+        assertThat(publisher.lastMessage.printerId()).isNull();
+        assertThat(publisher.lastMessage.data()).isInstanceOf(java.util.Map.class);
+        var data = (java.util.Map<?, ?>) publisher.lastMessage.data();
+        assertThat(data.get("jobId")).isEqualTo("1001");
+        assertThat(data.get("currentJobId")).isNull();
+    }
+
+    @Test
+    void onlyAdvertisesActiveBindingWhenPrinterActuallyPointsToTheJob() {
+        PrinterService printerService = org.mockito.Mockito.mock(PrinterService.class);
+        com.example.farm.entity.Printer printer = new com.example.farm.entity.Printer();
+        printer.setId(403L);
+        printer.setCurrentJobId(1001L);
+        org.mockito.Mockito.when(printerService.getById(403L)).thenReturn(printer);
+        publisher.setPrinterService(printerService);
+
+        publisher.publishJobStatus(job());
+
+        var data = (java.util.Map<?, ?>) publisher.lastMessage.data();
+        assertThat(data.get("currentJobId")).isEqualTo("1001");
+
+        printer.setCurrentJobId(1002L);
+        publisher.publishJobStatus(job());
+        var unboundData = (java.util.Map<?, ?>) publisher.lastMessage.data();
+        assertThat(unboundData.get("currentJobId")).isNull();
+    }
+
+    @Test
+    void normalizesDeprecatedPreparingJobStatusToUploading() {
+        PrintJob job = job();
+        job.setStatus("PREPARING");
+
+        publisher.publishJobStatus(job);
+
+        var data = (java.util.Map<?, ?>) publisher.lastMessage.data();
+        assertThat(data.get("status")).isEqualTo("UPLOADING");
+    }
+
+    @Test
+    void queuedStatusAlwaysClearsCurrentBinding() {
+        PrintJob job = job();
+        job.setStatus("QUEUED");
+
+        publisher.publishJobStatus(job);
+
+        var data = (java.util.Map<?, ?>) publisher.lastMessage.data();
+        assertThat(data.get("currentJobId")).isNull();
+    }
+
+    @Test
     void publishesLayoutUpdateOnlyAfterTransactionCommit() {
         TransactionSynchronizationManager.initSynchronization();
 
@@ -75,10 +159,14 @@ class WebSocketEventPublisherTest {
     private static class RecordingPublisher extends WebSocketEventPublisher {
         private int broadcastCount;
         private int layoutBroadcastCount;
+        private FarmStatusMessage lastMessage;
+        private final List<FarmStatusMessage> messages = new ArrayList<>();
 
         @Override
         protected void broadcastJobStatus(FarmStatusMessage message) {
             broadcastCount++;
+            lastMessage = message;
+            messages.add(message);
         }
 
         @Override

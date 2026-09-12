@@ -6,6 +6,7 @@ import java.awt.Color;
 import java.awt.Desktop;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.Font;
 import java.awt.Image;
 import java.awt.MenuItem;
 import java.awt.PopupMenu;
@@ -31,7 +32,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Arrays;
 import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -42,6 +47,20 @@ public final class FabMatrixTray {
     private static final String SERVICE_NAME = "FabMatrixServer";
     private static final int PORT = 8080;
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(2);
+    private static final int MENU_FONT_SIZE = 12;
+    private static final List<String> CJK_FONT_FAMILIES = List.of(
+            "Microsoft YaHei UI", "Microsoft YaHei", "SimSun", "Noto Sans CJK SC",
+            "Noto Sans CJK", "Noto Sans CJK TC", "Noto Sans SC", "Source Han Sans SC",
+            "WenQuanYi Zen Hei");
+    private static final String[] CHINESE_TRAY_TEXTS = {
+            "服务：检查中", "健康：检查中", "刷新", "启动服务", "停止服务", "重启服务",
+            "复制首选局域网服务地址", "复制本机服务地址", "打开 files", "打开 logs", "管理员编辑配置",
+            "退出托盘（不停止服务）", "运行中", "已停止", "变更中", "未安装", "未知", "就绪", "不可用",
+            "服务：", "健康：", "FabMatrix Server | 服务 ", " | 健康 ",
+            "无法添加 FabMatrix 托盘图标: ", "将通过 Windows 服务控制器正常停止 FabMatrixServer。是否继续？",
+            "UAC helper 超时", "缺少控制脚本: ", "服务操作失败: ", "打开配置失败: ",
+            "无法打开目录: ", "已复制 ", "复制地址失败: "
+    };
 
     private FabMatrixTray() {
     }
@@ -53,6 +72,10 @@ public final class FabMatrixTray {
         }
         if (args.length == 1 && "--self-test-uac-command".equals(args[0])) {
             runUacCommandSelfTest();
+            return;
+        }
+        if (args.length == 1 && "--self-test-menu-font".equals(args[0])) {
+            runMenuFontSelfTest();
             return;
         }
         if (!SystemTray.isSupported() || GraphicsEnvironment.isHeadless()) {
@@ -80,41 +103,51 @@ public final class FabMatrixTray {
         private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
         private final Path appRoot = findAppRoot();
         private final Path dataRoot = findDataRoot(appRoot);
-        private final MenuItem serviceStatus = new MenuItem("服务：检查中");
-        private final MenuItem healthStatus = new MenuItem("健康：检查中");
+        private final Font menuFont;
+        private final TrayText text;
+        private final MenuItem serviceStatus;
+        private final MenuItem healthStatus;
         private TrayIcon trayIcon;
 
         private Controller(CountDownLatch exit) {
             this.exit = exit;
+            MenuFontSelection selection = selectMenuFont();
+            menuFont = selection.font;
+            text = new TrayText(selection.supportsChinese);
+            serviceStatus = new MenuItem(text.serviceChecking());
+            healthStatus = new MenuItem(text.healthChecking());
+            serviceStatus.setFont(menuFont);
+            healthStatus.setFont(menuFont);
             serviceStatus.setEnabled(false);
             healthStatus.setEnabled(false);
         }
 
         private void start() {
             PopupMenu menu = new PopupMenu();
+            menu.setFont(menuFont);
             menu.add(serviceStatus);
             menu.add(healthStatus);
             menu.addSeparator();
-            addAction(menu, "刷新", event -> refreshStatus());
-            addAction(menu, "启动服务", event -> controlService("start", false));
-            addAction(menu, "停止服务", event -> controlService("stop", true));
-            addAction(menu, "重启服务", event -> controlService("restart", true));
+            addAction(menu, text.refresh(), event -> refreshStatus());
+            addAction(menu, text.startService(), event -> controlService("start", false));
+            addAction(menu, text.stopService(), event -> controlService("stop", true));
+            addAction(menu, text.restartService(), event -> controlService("restart", true));
             menu.addSeparator();
-            addAction(menu, "复制首选局域网服务地址", event -> copyText(preferredAddress()));
-            addAction(menu, "复制本机服务地址", event -> copyText("http://127.0.0.1:" + PORT));
-            addAction(menu, "打开 files", event -> openDirectory(dataRoot.resolve("files")));
-            addAction(menu, "打开 logs", event -> openDirectory(dataRoot.resolve("logs")));
-            addAction(menu, "管理员编辑配置", event -> editConfig());
+            addAction(menu, text.copyPreferredAddress(), event -> copyText(preferredAddress()));
+            addAction(menu, text.copyLocalAddress(), event -> copyText("http://127.0.0.1:" + PORT));
+            addAction(menu, text.openFiles(), event -> openDirectory(dataRoot.resolve("files")));
+            addAction(menu, text.openLogs(), event -> openDirectory(dataRoot.resolve("logs")));
+            addAction(menu, text.editConfig(), event -> editConfig());
             menu.addSeparator();
-            addAction(menu, "退出托盘（不停止服务）", event -> shutdown());
+            addAction(menu, text.exitTray(), event -> shutdown());
 
-            trayIcon = new TrayIcon(createBrandIcon(), "FabMatrix Server", menu);
+            trayIcon = new TrayIcon(createBrandIcon(), text.trayTooltip(ServiceState.UNKNOWN, false), menu);
             trayIcon.setImageAutoSize(true);
             trayIcon.addActionListener(event -> refreshStatus());
             try {
                 SystemTray.getSystemTray().add(trayIcon);
             } catch (Exception error) {
-                System.err.println("无法添加 FabMatrix 托盘图标: " + error.getMessage());
+                System.err.println(text.trayAddFailed(error.getMessage()));
                 shutdown();
                 return;
             }
@@ -124,6 +157,7 @@ public final class FabMatrixTray {
 
         private void addAction(PopupMenu menu, String label, java.awt.event.ActionListener listener) {
             MenuItem item = new MenuItem(label);
+            item.setFont(menuFont);
             item.addActionListener(listener);
             menu.add(item);
         }
@@ -132,10 +166,10 @@ public final class FabMatrixTray {
             ServiceState service = readServiceState();
             boolean healthy = service == ServiceState.RUNNING && isHealthy();
             javax.swing.SwingUtilities.invokeLater(() -> {
-                serviceStatus.setLabel("服务：" + service.label);
-                healthStatus.setLabel("健康：" + (healthy ? "就绪" : "不可用"));
+                serviceStatus.setLabel(text.serviceStatus(service));
+                healthStatus.setLabel(text.healthStatus(healthy));
                 if (trayIcon != null) {
-                    trayIcon.setToolTip("FabMatrix Server | 服务 " + service.label + " | 健康 " + (healthy ? "就绪" : "不可用"));
+                    trayIcon.setToolTip(text.trayTooltip(service, healthy));
                 }
             });
         }
@@ -173,8 +207,7 @@ public final class FabMatrixTray {
         private void controlService(String action, boolean confirmStop) {
             if (confirmStop) {
                 int answer = JOptionPane.showConfirmDialog(null,
-                        "将通过 Windows 服务控制器正常停止 FabMatrixServer。是否继续？",
-                        "FabMatrix Server", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                        text.confirmStop(), text.dialogTitle(), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (answer != JOptionPane.YES_OPTION) return;
             }
             executor.execute(() -> {
@@ -182,7 +215,7 @@ public final class FabMatrixTray {
                     runElevatedPowerShell("service-control.ps1", "-Action", action);
                     refreshStatus();
                 } catch (Exception error) {
-                    showError("服务操作失败: " + error.getMessage());
+                    showError(text.serviceOperationFailed(error.getMessage()));
                 }
             });
         }
@@ -191,14 +224,14 @@ public final class FabMatrixTray {
             try {
                 runElevatedPowerShellCommand(buildElevatedEditorCommand(dataRoot.resolve("config/application.yml")));
             } catch (Exception error) {
-                showError("打开配置失败: " + error.getMessage());
+                showError(text.editConfigFailed(error.getMessage()));
             }
         }
 
         private void runElevatedPowerShell(String scriptName, String... arguments) throws Exception {
             Path script = appRoot.resolve("service").resolve(scriptName);
             if (!Files.isRegularFile(script)) {
-                throw new IOException("缺少控制脚本: " + script);
+                throw new IOException(text.missingControlScript(script));
             }
             runElevatedPowerShellCommand(buildElevatedScriptCommand(script, arguments));
         }
@@ -210,7 +243,7 @@ public final class FabMatrixTray {
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (!process.waitFor(60, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                throw new IOException("UAC helper 超时");
+                throw new IOException(text.uacHelperTimedOut());
             }
             if (process.exitValue() != 0) throw new IOException(output.trim());
         }
@@ -220,16 +253,16 @@ public final class FabMatrixTray {
                 Files.createDirectories(directory);
                 Desktop.getDesktop().open(directory.toFile());
             } catch (Exception error) {
-                showError("无法打开目录: " + error.getMessage());
+                showError(text.openDirectoryFailed(error.getMessage()));
             }
         }
 
         private void copyText(String value) {
             try {
                 java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(value), null);
-                if (trayIcon != null) trayIcon.displayMessage("FabMatrix Server", "已复制 " + value, TrayIcon.MessageType.INFO);
+                if (trayIcon != null) trayIcon.displayMessage(text.dialogTitle(), text.copied(value), TrayIcon.MessageType.INFO);
             } catch (Exception error) {
-                showError("复制地址失败: " + error.getMessage());
+                showError(text.copyAddressFailed(error.getMessage()));
             }
         }
 
@@ -255,7 +288,7 @@ public final class FabMatrixTray {
 
         private void showError(String message) {
             javax.swing.SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, message,
-                    "FabMatrix Server", JOptionPane.ERROR_MESSAGE));
+                    text.dialogTitle(), JOptionPane.ERROR_MESSAGE));
         }
 
         private void shutdown() {
@@ -266,12 +299,134 @@ public final class FabMatrixTray {
     }
 
     private enum ServiceState {
-        RUNNING("运行中"), STOPPED("已停止"), PENDING("变更中"), NOT_INSTALLED("未安装"), UNKNOWN("未知");
+        RUNNING("运行中", "Running"), STOPPED("已停止", "Stopped"), PENDING("变更中", "Changing"),
+        NOT_INSTALLED("未安装", "Not installed"), UNKNOWN("未知", "Unknown");
 
-        private final String label;
+        private final String chineseLabel;
+        private final String englishLabel;
 
-        ServiceState(String label) {
-            this.label = label;
+        ServiceState(String chineseLabel, String englishLabel) {
+            this.chineseLabel = chineseLabel;
+            this.englishLabel = englishLabel;
+        }
+
+        private String label(boolean chinese) {
+            return chinese ? chineseLabel : englishLabel;
+        }
+    }
+
+    private static final class MenuFontSelection {
+        private final Font font;
+        private final boolean supportsChinese;
+
+        private MenuFontSelection(Font font, boolean supportsChinese) {
+            this.font = font;
+            this.supportsChinese = supportsChinese;
+        }
+    }
+
+    private static MenuFontSelection selectMenuFont() {
+        Set<String> availableFamilies = new HashSet<>(Arrays.asList(
+                GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
+        for (String family : CJK_FONT_FAMILIES) {
+            if (!availableFamilies.contains(family)) continue;
+            Font font = new Font(family, Font.PLAIN, MENU_FONT_SIZE);
+            if (firstUndisplayable(font, CHINESE_TRAY_TEXTS) == null) {
+                return new MenuFontSelection(font, true);
+            }
+        }
+        return new MenuFontSelection(new Font(Font.DIALOG, Font.PLAIN, MENU_FONT_SIZE), false);
+    }
+
+    private static String firstUndisplayable(Font font, String[] texts) {
+        for (String text : texts) {
+            if (font.canDisplayUpTo(text) != -1) return text;
+        }
+        return null;
+    }
+
+    private static boolean containsChinese(String text) {
+        return text.codePoints().anyMatch(codePoint -> codePoint >= 0x3400 && codePoint <= 0x9FFF);
+    }
+
+    private static void runMenuFontSelfTest() {
+        MenuFontSelection selection = selectMenuFont();
+        if (selection.supportsChinese) {
+            String unsupported = firstUndisplayable(selection.font, CHINESE_TRAY_TEXTS);
+            if (unsupported != null) {
+                throw new IllegalStateException("Selected tray font cannot display Chinese text: " + unsupported);
+            }
+            System.out.println("FabMatrix tray menu font self-test passed with Chinese font: " + selection.font.getFamily());
+            return;
+        }
+
+        TrayText englishText = new TrayText(false);
+        String[] fallbackTexts = englishText.selfTestTexts();
+        String unsupported = firstUndisplayable(selection.font, fallbackTexts);
+        if (unsupported != null || Arrays.stream(fallbackTexts).anyMatch(FabMatrixTray::containsChinese)) {
+            throw new IllegalStateException("English tray fallback is incomplete or not readable");
+        }
+        System.out.println("FabMatrix tray menu font self-test passed with readable English fallback.");
+    }
+
+    private static final class TrayText {
+        private final boolean chinese;
+
+        private TrayText(boolean chinese) {
+            this.chinese = chinese;
+        }
+
+        private String serviceChecking() { return chinese ? "服务：检查中" : "Service: checking..."; }
+        private String healthChecking() { return chinese ? "健康：检查中" : "Health: checking..."; }
+        private String refresh() { return chinese ? "刷新" : "Refresh"; }
+        private String startService() { return chinese ? "启动服务" : "Start service"; }
+        private String stopService() { return chinese ? "停止服务" : "Stop service"; }
+        private String restartService() { return chinese ? "重启服务" : "Restart service"; }
+        private String copyPreferredAddress() { return chinese ? "复制首选局域网服务地址" : "Copy preferred LAN address"; }
+        private String copyLocalAddress() { return chinese ? "复制本机服务地址" : "Copy local service address"; }
+        private String openFiles() { return chinese ? "打开 files" : "Open files"; }
+        private String openLogs() { return chinese ? "打开 logs" : "Open logs"; }
+        private String editConfig() { return chinese ? "管理员编辑配置" : "Edit configuration as administrator"; }
+        private String exitTray() { return chinese ? "退出托盘（不停止服务）" : "Exit tray (service keeps running)"; }
+        private String serviceStatus(ServiceState state) { return (chinese ? "服务：" : "Service: ") + state.label(chinese); }
+        private String healthStatus(boolean healthy) {
+            return (chinese ? "健康：" : "Health: ") + (healthy ? (chinese ? "就绪" : "Ready") : (chinese ? "不可用" : "Unavailable"));
+        }
+        private String trayTooltip(ServiceState state, boolean healthy) {
+            return chinese ? "FabMatrix Server | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用")
+                    : "FabMatrix Server | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable");
+        }
+        private String dialogTitle() { return "FabMatrix Server"; }
+        private String confirmStop() {
+            return chinese ? "将通过 Windows 服务控制器正常停止 FabMatrixServer。是否继续？"
+                    : "FabMatrixServer will be stopped normally through the Windows Service Controller. Continue?";
+        }
+        private String trayAddFailed(String reason) { return (chinese ? "无法添加 FabMatrix 托盘图标: " : "Unable to add the FabMatrix tray icon: ") + reason; }
+        private String uacHelperTimedOut() { return chinese ? "UAC helper 超时" : "The UAC helper timed out"; }
+        private String missingControlScript(Path script) { return (chinese ? "缺少控制脚本: " : "Control script is missing: ") + script; }
+        private String serviceOperationFailed(String reason) { return (chinese ? "服务操作失败: " : "Service operation failed: ") + reason; }
+        private String editConfigFailed(String reason) { return (chinese ? "打开配置失败: " : "Could not open configuration: ") + reason; }
+        private String openDirectoryFailed(String reason) { return (chinese ? "无法打开目录: " : "Could not open directory: ") + reason; }
+        private String copied(String value) { return (chinese ? "已复制 " : "Copied ") + value; }
+        private String copyAddressFailed(String reason) { return (chinese ? "复制地址失败: " : "Could not copy address: ") + reason; }
+
+        private String[] selfTestTexts() {
+            String[] texts = {
+                    serviceChecking(), healthChecking(), refresh(), startService(), stopService(), restartService(),
+                    copyPreferredAddress(), copyLocalAddress(), openFiles(), openLogs(), editConfig(), exitTray(),
+                    confirmStop(), trayAddFailed("reason"), uacHelperTimedOut(), missingControlScript(Path.of("script")),
+                    serviceOperationFailed("reason"), editConfigFailed("reason"), openDirectoryFailed("reason"),
+                    copied("address"), copyAddressFailed("reason")
+            };
+            String[] allTexts = Arrays.copyOf(texts, texts.length + (ServiceState.values().length * 2) + 2);
+            int index = texts.length;
+            for (ServiceState state : ServiceState.values()) {
+                allTexts[index++] = serviceStatus(state);
+                allTexts[index++] = trayTooltip(state, true);
+            }
+            allTexts[index++] = healthStatus(true);
+            allTexts[index] = healthStatus(false);
+            return allTexts;
         }
     }
 

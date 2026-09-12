@@ -341,6 +341,7 @@ icon=$trayIconPropertyPath
         '--input', $inputPath,
         '--main-jar', $jar.Name,
         '--dest', $imagePath,
+        '--add-modules', 'ALL-MODULE-PATH',
         '--java-options', '-Dfile.encoding=UTF-8',
         '--java-options', '-Dspring.profiles.active=local',
         '--icon', $serverIconPath,

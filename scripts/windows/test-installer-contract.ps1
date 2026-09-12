@@ -453,6 +453,11 @@ Assert-Contains $tray 'selectBrandIcon\(loadPackagedBrandIcon\(\)\)' 'packaged t
 Assert-Contains $tray 'packagedIcon != null \? packagedIcon : createFallbackBrandIcon\(\)' 'Java2D tray icon fallback selection'
 Assert-Contains $tray 'private static Image createFallbackBrandIcon\(\)' 'Java2D tray icon fallback implementation'
 Assert-Contains $tray '--self-test-brand-icon|runBrandIconSelfTest' 'headless brand icon self-test'
+Assert-Contains $tray 'Microsoft YaHei UI|Microsoft YaHei|SimSun|Noto Sans CJK' 'system Chinese font candidates'
+Assert-Contains $tray 'canDisplayUpTo|CHINESE_TRAY_TEXTS' 'complete Chinese tray text display check'
+Assert-Contains $tray 'PopupMenu menu[\s\S]*setFont\(menuFont\)|item\.setFont\(menuFont\)' 'uniform AWT tray menu font application'
+Assert-Contains $tray '--self-test-menu-font|runMenuFontSelfTest' 'headless menu font self-test'
+Assert-Contains $build "'--add-modules'.*'ALL-MODULE-PATH'" 'jpackage complete JDK runtime module path'
 Assert-Contains $backup 'database.*farm\.db|config.*application\.yml|files' 'backup coverage'
 Assert-Contains $backup '\$\{FARM_DATA_DIR\}' 'portable backup config'
 Assert-Contains $restore 'Move-Item|restore-staging|installedNames|rollback was attempted' 'replacement restore and rollback'
@@ -613,6 +618,26 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     }
     $trayJarPath = Join-Path $payload 'app\FabMatrixTray.jar'
     Assert-Exists $trayJarPath 'payload tray JAR'
+    $runtimeModulesPath = Join-Path $payload 'runtime\lib\modules'
+    Assert-Exists $runtimeModulesPath 'payload runtime module image'
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $settings = (& java -XshowSettings:properties -version 2>&1 | Out-String)
+    $ErrorActionPreference = $previousErrorAction
+    $match = [regex]::Match($settings, '(?m)^\s*java\.home\s*=\s*(.+?)\s*$')
+    if (-not $match.Success) { throw 'Unable to locate the current JDK for payload runtime inspection.' }
+    $jimage = Join-Path ($match.Groups[1].Value.Trim()) 'bin\jimage.exe'
+    Assert-Exists $jimage 'current JDK jimage tool'
+    $runtimeImageListing = (& $jimage list $runtimeModulesPath | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "Unable to inspect payload runtime module image: $LASTEXITCODE" }
+    $runtimeModules = @([regex]::Matches($runtimeImageListing, '(?m)^Module:\s+(\S+)\s*$') |
+            ForEach-Object { $_.Groups[1].Value })
+    foreach ($requiredModule in @('java.desktop', 'java.net.http', 'java.sql', 'java.naming',
+            'java.management', 'java.instrument', 'jdk.localedata', 'jdk.unsupported')) {
+        if ($requiredModule -notin $runtimeModules) {
+            throw "Payload runtime is missing required JDK module: $requiredModule"
+        }
+    }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $trayArchive = [IO.Compression.ZipFile]::OpenRead($trayJarPath)
     try {
@@ -626,10 +651,17 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
         throw "Packaged tray launcher brand icon self-test failed: $($trayLauncherProcess.ExitCode)"
     }
     Write-Host 'FabMatrix packaged tray launcher brand icon self-test passed.'
+    $trayMenuFontProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-menu-font' -Wait -PassThru
+    if ($trayMenuFontProcess.ExitCode -ne 0) {
+        throw "Packaged tray launcher menu font self-test failed: $($trayMenuFontProcess.ExitCode)"
+    }
+    Write-Host 'FabMatrix packaged tray launcher menu font self-test passed.'
     $payloadJava = Get-Command java.exe -ErrorAction SilentlyContinue
     if ($null -eq $payloadJava) { throw 'Java is required to execute the packaged tray brand icon self-test.' }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray brand icon self-test failed: $LASTEXITCODE" }
+    & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'
+    if ($LASTEXITCODE -ne 0) { throw "Packaged tray menu font self-test failed: $LASTEXITCODE" }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ReleaseInfoPath)) {
@@ -658,6 +690,8 @@ if (-not $SkipTrayCompile) {
         if ($LASTEXITCODE -ne 0) { throw "Tray brand icon self-test failed: $LASTEXITCODE" }
         & $java '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-uac-command'
         if ($LASTEXITCODE -ne 0) { throw "Tray UAC command self-test failed: $LASTEXITCODE" }
+        & $java '-Djava.awt.headless=true' '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'
+        if ($LASTEXITCODE -ne 0) { throw "Tray menu font self-test failed: $LASTEXITCODE" }
     } finally {
         if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force }
     }

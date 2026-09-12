@@ -189,6 +189,7 @@
 - [~] T16.5 已完成 Local profile 启动、health 探活和关键 Mapper/文件存储集成测试；覆盖 PUBLIC 根文件的重复迁移保持、非文件夹父级启动阻断及不同用户同名 PRIVATE 默认根目录；REST/WebSocket 全契约对比仍待补齐。
 - [~] T16.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、统一数据布局、真实旧 Farm 配置/数据非破坏性迁移、升级状态保留与安装失败传播、服务/防火墙/显式私有 ACL、独立纯 JDK 托盘控制器、带 ACL 回滚的可移植备份恢复和临时目录契约回归；已构建安装包并校验产物。干净 Windows 机器上的 C 盘/非 C 盘安装、升级、卸载、graceful shutdown 日志和数据保留验收仍待完成。
 - [x] T16.7 为 Windows Local Edition 增加可替换的安装器、主程序、托盘启动器和运行时托盘图标资源，提供仅清理已知构建产物的安全 CleanOutput 流程，补充契约测试和使用说明；已使用 `server_logo.png` 生成并替换全套 Windows 图标，在本机使用 Inno Setup 6 完成 Full 构建，392 tests passed，发布候选的体积和 SHA-256 以输出目录中的 `release-info.txt`、`checksums.txt` 为准。
+- [x] T16.8（P1.7.8）修复 Windows Local Edition 托盘菜单中文显示为方块：按 `canDisplayUpTo` 选择可显示全部托盘中文文案的系统字体，统一应用到 PopupMenu、状态项和动作项；无可用中文字体时完整回退到可读英文菜单、状态和 tooltip；jpackage 使用 `ALL-MODULE-PATH` 保留完整 JDK runtime（含 `jdk.localedata` 和服务运行必需模块），并增加源码、打包 launcher 及打包 runtime 模块的自检和契约覆盖；已完成 Full 构建，392 tests passed。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

@@ -1,18 +1,36 @@
 package com.example.farm.tray;
 
 import javax.imageio.ImageIO;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
+import javax.swing.JPopupMenu;
+import javax.swing.JWindow;
+import javax.swing.SwingUtilities;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
+import java.awt.AWTEvent;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Desktop;
-import java.awt.Graphics2D;
-import java.awt.GraphicsEnvironment;
+import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.Image;
-import java.awt.MenuItem;
-import java.awt.PopupMenu;
+import java.awt.Insets;
+import java.awt.KeyboardFocusManager;
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.SystemTray;
+import java.awt.Toolkit;
 import java.awt.TrayIcon;
-import java.awt.event.ActionEvent;
+import java.awt.Window;
+import java.awt.event.AWTEventListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,8 +49,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.Base64;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
@@ -105,8 +124,12 @@ public final class FabMatrixTray {
         private final Path dataRoot = findDataRoot(appRoot);
         private final Font menuFont;
         private final TrayText text;
-        private final MenuItem serviceStatus;
-        private final MenuItem healthStatus;
+        private JMenuItem serviceStatus;
+        private JMenuItem healthStatus;
+        private JPopupMenu popupMenu;
+        private JWindow menuAnchor;
+        private AWTEventListener popupDismissListener;
+        private boolean popupGestureHandled;
         private TrayIcon trayIcon;
 
         private Controller(CountDownLatch exit) {
@@ -114,36 +137,25 @@ public final class FabMatrixTray {
             MenuFontSelection selection = selectMenuFont();
             menuFont = selection.font;
             text = new TrayText(selection.supportsChinese);
-            serviceStatus = new MenuItem(text.serviceChecking());
-            healthStatus = new MenuItem(text.healthChecking());
-            serviceStatus.setFont(menuFont);
-            healthStatus.setFont(menuFont);
-            serviceStatus.setEnabled(false);
-            healthStatus.setEnabled(false);
         }
 
         private void start() {
-            PopupMenu menu = new PopupMenu();
-            menu.setFont(menuFont);
-            menu.add(serviceStatus);
-            menu.add(healthStatus);
-            menu.addSeparator();
-            addAction(menu, text.refresh(), event -> refreshStatus());
-            addAction(menu, text.startService(), event -> controlService("start", false));
-            addAction(menu, text.stopService(), event -> controlService("stop", true));
-            addAction(menu, text.restartService(), event -> controlService("restart", true));
-            menu.addSeparator();
-            addAction(menu, text.copyPreferredAddress(), event -> copyText(preferredAddress()));
-            addAction(menu, text.copyLocalAddress(), event -> copyText("http://127.0.0.1:" + PORT));
-            addAction(menu, text.openFiles(), event -> openDirectory(dataRoot.resolve("files")));
-            addAction(menu, text.openLogs(), event -> openDirectory(dataRoot.resolve("logs")));
-            addAction(menu, text.editConfig(), event -> editConfig());
-            menu.addSeparator();
-            addAction(menu, text.exitTray(), event -> shutdown());
-
-            trayIcon = new TrayIcon(createBrandIcon(), text.trayTooltip(ServiceState.UNKNOWN, false), menu);
+            requireEdt();
+            initializeMenu();
+            trayIcon = new TrayIcon(createBrandIcon(), text.trayTooltip(ServiceState.UNKNOWN, false));
             trayIcon.setImageAutoSize(true);
             trayIcon.addActionListener(event -> refreshStatus());
+            trayIcon.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent event) {
+                    handlePopupGesture(event);
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent event) {
+                    handlePopupGesture(event);
+                }
+            });
             try {
                 SystemTray.getSystemTray().add(trayIcon);
             } catch (Exception error) {
@@ -155,19 +167,169 @@ public final class FabMatrixTray {
             executor.scheduleWithFixedDelay(this::refreshStatus, 5, 5, TimeUnit.SECONDS);
         }
 
-        private void addAction(PopupMenu menu, String label, java.awt.event.ActionListener listener) {
-            MenuItem item = new MenuItem(label);
+        private void initializeMenu() {
+            requireEdt();
+            popupMenu = new JPopupMenu();
+            popupMenu.setFont(menuFont);
+            popupMenu.setLightWeightPopupEnabled(false);
+            serviceStatus = addMenuItem(popupMenu, text.serviceChecking());
+            healthStatus = addMenuItem(popupMenu, text.healthChecking());
+            serviceStatus.setEnabled(false);
+            healthStatus.setEnabled(false);
+            popupMenu.addSeparator();
+            addAction(popupMenu, text.refresh(), this::refreshStatus);
+            addAction(popupMenu, text.startService(), () -> controlService("start", false));
+            addAction(popupMenu, text.stopService(), () -> controlService("stop", true));
+            addAction(popupMenu, text.restartService(), () -> controlService("restart", true));
+            popupMenu.addSeparator();
+            addAction(popupMenu, text.copyPreferredAddress(), () -> copyText(preferredAddress()));
+            addAction(popupMenu, text.copyLocalAddress(), () -> copyText("http://127.0.0.1:" + PORT));
+            addAction(popupMenu, text.openFiles(), () -> openDirectory(dataRoot.resolve("files")));
+            addAction(popupMenu, text.openLogs(), () -> openDirectory(dataRoot.resolve("logs")));
+            addAction(popupMenu, text.editConfig(), this::editConfig);
+            popupMenu.addSeparator();
+            addAction(popupMenu, text.exitTray(), this::shutdown);
+            popupMenu.addPopupMenuListener(new PopupMenuListener() {
+                @Override
+                public void popupMenuWillBecomeVisible(PopupMenuEvent event) {
+                }
+
+                @Override
+                public void popupMenuWillBecomeInvisible(PopupMenuEvent event) {
+                    disposeMenuAnchor();
+                }
+
+                @Override
+                public void popupMenuCanceled(PopupMenuEvent event) {
+                    disposeMenuAnchor();
+                }
+            });
+        }
+
+        private JMenuItem addMenuItem(JPopupMenu menu, String label) {
+            JMenuItem item = new JMenuItem(label);
             item.setFont(menuFont);
-            item.addActionListener(listener);
             menu.add(item);
+            return item;
+        }
+
+        private void addAction(JPopupMenu menu, String label, Runnable action) {
+            JMenuItem item = addMenuItem(menu, label);
+            item.addActionListener(event -> action.run());
+        }
+
+        private void handlePopupGesture(MouseEvent event) {
+            boolean popupButton = event.isPopupTrigger() || SwingUtilities.isRightMouseButton(event);
+            if (!popupButton) return;
+
+            if (event.getID() == MouseEvent.MOUSE_PRESSED) {
+                popupGestureHandled = false;
+                if (!event.isPopupTrigger()) return;
+            }
+            if (popupGestureHandled) {
+                if (event.getID() == MouseEvent.MOUSE_RELEASED) popupGestureHandled = false;
+                return;
+            }
+
+            popupGestureHandled = true;
+            Point location = new Point(event.getX(), event.getY());
+            SwingUtilities.invokeLater(() -> showPopupMenu(location));
+            if (event.getID() == MouseEvent.MOUSE_RELEASED) popupGestureHandled = false;
+        }
+
+        private void showPopupMenu(Point requestedLocation) {
+            requireEdt();
+            hidePopupMenu();
+            Dimension menuSize = popupMenu.getPreferredSize();
+            Point menuLocation = constrainPopupLocation(requestedLocation, menuSize);
+
+            JWindow anchor = new JWindow();
+            anchor.setType(Window.Type.POPUP);
+            anchor.setAlwaysOnTop(true);
+            anchor.setFocusableWindowState(true);
+            anchor.setBounds(menuLocation.x, menuLocation.y, 1, 1);
+            menuAnchor = anchor;
+            try {
+                anchor.setVisible(true);
+                anchor.requestFocus();
+                popupMenu.show(anchor, 0, 0);
+                installPopupDismissListener();
+            } catch (RuntimeException error) {
+                if (popupMenu.isVisible()) {
+                    popupMenu.setVisible(false);
+                } else {
+                    disposeMenuAnchor();
+                }
+                throw error;
+            }
+        }
+
+        private void installPopupDismissListener() {
+            requireEdt();
+            removePopupDismissListener();
+            popupDismissListener = event -> {
+                if (event instanceof MouseEvent mouseEvent && mouseEvent.getID() == MouseEvent.MOUSE_PRESSED) {
+                    if (!isPopupInteraction(mouseEvent, popupMenu)) {
+                        SwingUtilities.invokeLater(this::hidePopupMenu);
+                    }
+                    return;
+                }
+                if (event instanceof WindowEvent windowEvent &&
+                        (windowEvent.getID() == WindowEvent.WINDOW_DEACTIVATED ||
+                                windowEvent.getID() == WindowEvent.WINDOW_LOST_FOCUS) &&
+                        !isMenuWindow(windowEvent.getOppositeWindow())) {
+                    SwingUtilities.invokeLater(this::hidePopupMenuIfFocusOutside);
+                }
+            };
+            Toolkit.getDefaultToolkit().addAWTEventListener(popupDismissListener,
+                    AWTEvent.MOUSE_EVENT_MASK | AWTEvent.WINDOW_EVENT_MASK | AWTEvent.WINDOW_FOCUS_EVENT_MASK);
+        }
+
+        private void hidePopupMenuIfFocusOutside() {
+            requireEdt();
+            Window focusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
+            if (!isMenuWindow(focusedWindow)) hidePopupMenu();
+        }
+
+        private boolean isMenuWindow(Window window) {
+            if (window == null) return false;
+            Window popupWindow = popupMenu == null ? null : SwingUtilities.getWindowAncestor(popupMenu);
+            return window == menuAnchor || window == popupWindow;
+        }
+
+        private void removePopupDismissListener() {
+            requireEdt();
+            AWTEventListener listener = popupDismissListener;
+            popupDismissListener = null;
+            if (listener != null) Toolkit.getDefaultToolkit().removeAWTEventListener(listener);
+        }
+
+        private void hidePopupMenu() {
+            requireEdt();
+            if (popupMenu != null && popupMenu.isVisible()) {
+                popupMenu.setVisible(false);
+            } else {
+                disposeMenuAnchor();
+            }
+        }
+
+        private void disposeMenuAnchor() {
+            requireEdt();
+            removePopupDismissListener();
+            JWindow anchor = menuAnchor;
+            menuAnchor = null;
+            if (anchor != null) {
+                anchor.setVisible(false);
+                anchor.dispose();
+            }
         }
 
         private void refreshStatus() {
             ServiceState service = readServiceState();
             boolean healthy = service == ServiceState.RUNNING && isHealthy();
-            javax.swing.SwingUtilities.invokeLater(() -> {
-                serviceStatus.setLabel(text.serviceStatus(service));
-                healthStatus.setLabel(text.healthStatus(healthy));
+            SwingUtilities.invokeLater(() -> {
+                serviceStatus.setText(text.serviceStatus(service));
+                healthStatus.setText(text.healthStatus(healthy));
                 if (trayIcon != null) {
                     trayIcon.setToolTip(text.trayTooltip(service, healthy));
                 }
@@ -259,7 +421,7 @@ public final class FabMatrixTray {
 
         private void copyText(String value) {
             try {
-                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(value), null);
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(value), null);
                 if (trayIcon != null) trayIcon.displayMessage(text.dialogTitle(), text.copied(value), TrayIcon.MessageType.INFO);
             } catch (Exception error) {
                 showError(text.copyAddressFailed(error.getMessage()));
@@ -287,15 +449,65 @@ public final class FabMatrixTray {
         }
 
         private void showError(String message) {
-            javax.swing.SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, message,
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null, message,
                     text.dialogTitle(), JOptionPane.ERROR_MESSAGE));
         }
 
         private void shutdown() {
-            if (trayIcon != null) SystemTray.getSystemTray().remove(trayIcon);
+            if (!SwingUtilities.isEventDispatchThread()) {
+                SwingUtilities.invokeLater(this::shutdown);
+                return;
+            }
+            hidePopupMenu();
+            TrayIcon icon = trayIcon;
+            trayIcon = null;
+            if (icon != null) SystemTray.getSystemTray().remove(icon);
             executor.shutdownNow();
             exit.countDown();
         }
+
+        private static void requireEdt() {
+            if (!SwingUtilities.isEventDispatchThread()) {
+                throw new IllegalStateException("Swing tray menu access must run on the EDT");
+            }
+        }
+    }
+
+    private static Point constrainPopupLocation(Point requestedLocation, Dimension popupSize) {
+        Rectangle usableBounds = usableScreenBounds(requestedLocation);
+        int maximumX = Math.max(usableBounds.x, usableBounds.x + usableBounds.width - popupSize.width);
+        int maximumY = Math.max(usableBounds.y, usableBounds.y + usableBounds.height - popupSize.height);
+        int x = Math.max(usableBounds.x, Math.min(requestedLocation.x, maximumX));
+        int y = Math.max(usableBounds.y, Math.min(requestedLocation.y, maximumY));
+        return new Point(x, y);
+    }
+
+    private static boolean isPopupInteraction(AWTEvent event, JPopupMenu menu) {
+        if (!(event instanceof MouseEvent mouseEvent) || mouseEvent.getID() != MouseEvent.MOUSE_PRESSED) {
+            return false;
+        }
+        Object source = mouseEvent.getSource();
+        return source instanceof Component component &&
+                (component == menu || SwingUtilities.isDescendingFrom(component, menu));
+    }
+
+    private static Rectangle usableScreenBounds(Point location) {
+        GraphicsEnvironment environment = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        GraphicsConfiguration configuration = environment.getDefaultScreenDevice().getDefaultConfiguration();
+        for (GraphicsDevice device : environment.getScreenDevices()) {
+            GraphicsConfiguration candidate = device.getDefaultConfiguration();
+            if (candidate.getBounds().contains(location)) {
+                configuration = candidate;
+                break;
+            }
+        }
+        Rectangle bounds = configuration.getBounds();
+        Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(configuration);
+        return new Rectangle(
+                bounds.x + insets.left,
+                bounds.y + insets.top,
+                Math.max(1, bounds.width - insets.left - insets.right),
+                Math.max(1, bounds.height - insets.top - insets.bottom));
     }
 
     private enum ServiceState {
@@ -349,24 +561,71 @@ public final class FabMatrixTray {
         return text.codePoints().anyMatch(codePoint -> codePoint >= 0x3400 && codePoint <= 0x9FFF);
     }
 
-    private static void runMenuFontSelfTest() {
-        MenuFontSelection selection = selectMenuFont();
-        if (selection.supportsChinese) {
-            String unsupported = firstUndisplayable(selection.font, CHINESE_TRAY_TEXTS);
-            if (unsupported != null) {
-                throw new IllegalStateException("Selected tray font cannot display Chinese text: " + unsupported);
+    private static void runMenuFontSelfTest() throws Exception {
+        Controller controller = new Controller(new CountDownLatch(1));
+        try {
+            if (controller.text.chinese) {
+                String unsupported = firstUndisplayable(controller.menuFont, CHINESE_TRAY_TEXTS);
+                if (unsupported != null) {
+                    throw new IllegalStateException("Selected tray font cannot display Chinese text: " + unsupported);
+                }
+            } else {
+                String[] fallbackTexts = controller.text.selfTestTexts();
+                String unsupported = firstUndisplayable(controller.menuFont, fallbackTexts);
+                if (unsupported != null || Arrays.stream(fallbackTexts).anyMatch(FabMatrixTray::containsChinese)) {
+                    throw new IllegalStateException("English tray fallback is incomplete or not readable");
+                }
             }
-            System.out.println("FabMatrix tray menu font self-test passed with Chinese font: " + selection.font.getFamily());
-            return;
+
+            SwingUtilities.invokeAndWait(() -> {
+                controller.initializeMenu();
+                validateSwingMenuModel(controller.popupMenu, controller.menuFont, controller.text);
+            });
+        } finally {
+            controller.executor.shutdownNow();
         }
 
-        TrayText englishText = new TrayText(false);
-        String[] fallbackTexts = englishText.selfTestTexts();
-        String unsupported = firstUndisplayable(selection.font, fallbackTexts);
-        if (unsupported != null || Arrays.stream(fallbackTexts).anyMatch(FabMatrixTray::containsChinese)) {
-            throw new IllegalStateException("English tray fallback is incomplete or not readable");
+        if (controller.text.chinese) {
+            System.out.println("FabMatrix Swing tray menu self-test passed with Chinese font: " +
+                    controller.menuFont.getFamily());
+        } else {
+            System.out.println("FabMatrix Swing tray menu self-test passed with readable English fallback.");
         }
-        System.out.println("FabMatrix tray menu font self-test passed with readable English fallback.");
+    }
+
+    private static void validateSwingMenuModel(JPopupMenu menu, Font expectedFont, TrayText text) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            throw new IllegalStateException("Swing tray menu self-test must run on the EDT");
+        }
+        if (!expectedFont.equals(menu.getFont())) {
+            throw new IllegalStateException("Swing popup menu did not retain the selected tray font");
+        }
+
+        List<JMenuItem> menuItems = new ArrayList<>();
+        for (Component component : menu.getComponents()) {
+            if (component instanceof JMenuItem item) menuItems.add(item);
+        }
+        String[] expectedTexts = text.menuItemTexts();
+        if (menuItems.size() != expectedTexts.length) {
+            throw new IllegalStateException("Swing tray menu item count is incomplete");
+        }
+        for (int index = 0; index < expectedTexts.length; index++) {
+            JMenuItem item = menuItems.get(index);
+            if (!expectedTexts[index].equals(item.getText()) || !expectedFont.equals(item.getFont())) {
+                throw new IllegalStateException("Swing tray menu item text or font mismatch at index " + index);
+            }
+        }
+        if (menuItems.get(0).isEnabled() || menuItems.get(1).isEnabled()) {
+            throw new IllegalStateException("Swing tray status menu items must remain read-only");
+        }
+
+        MouseEvent menuClick = new MouseEvent(menuItems.get(2), MouseEvent.MOUSE_PRESSED,
+                System.currentTimeMillis(), 0, 1, 1, 1, false, MouseEvent.BUTTON1);
+        MouseEvent outsideClick = new MouseEvent(new JMenuItem("outside"), MouseEvent.MOUSE_PRESSED,
+                System.currentTimeMillis(), 0, 1, 1, 1, false, MouseEvent.BUTTON1);
+        if (!isPopupInteraction(menuClick, menu) || isPopupInteraction(outsideClick, menu)) {
+            throw new IllegalStateException("Swing tray popup click classification is unsafe");
+        }
     }
 
     private static final class TrayText {
@@ -409,6 +668,13 @@ public final class FabMatrixTray {
         private String openDirectoryFailed(String reason) { return (chinese ? "无法打开目录: " : "Could not open directory: ") + reason; }
         private String copied(String value) { return (chinese ? "已复制 " : "Copied ") + value; }
         private String copyAddressFailed(String reason) { return (chinese ? "复制地址失败: " : "Could not copy address: ") + reason; }
+
+        private String[] menuItemTexts() {
+            return new String[]{
+                    serviceChecking(), healthChecking(), refresh(), startService(), stopService(), restartService(),
+                    copyPreferredAddress(), copyLocalAddress(), openFiles(), openLogs(), editConfig(), exitTray()
+            };
+        }
 
         private String[] selfTestTexts() {
             String[] texts = {

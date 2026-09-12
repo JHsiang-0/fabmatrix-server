@@ -74,7 +74,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [~] P1.7.5 已补充两种形态的启动、数据目录检查、备份恢复说明和 Server Edition 镜像构建记录；Windows 安装/卸载和正式发布验证仍待完成。
 - [~] P1.7.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、按安装盘符选择数据根、真实旧配置迁移归一化、升级状态恢复、安装失败传播、私有网络防火墙、显式 ACL 清理、独立托盘和带 ACL 回滚的可移植恢复，并构建校验安装包；干净 Windows 机器上的 C/非 C 安装升级卸载、graceful shutdown 日志及数据保留验收仍待完成。
 - [x] P1.7.7 Windows Local Edition 安装器、主程序、托盘启动器和运行时托盘图标支持固定资源目录替换；已使用 `server_logo.png` 生成并替换全套 Windows 图标，安全清理旧产物后在本机使用 Inno Setup 6 完成 Full 构建，392 tests passed，发布候选的体积和 SHA-256 以输出目录中的 `release-info.txt`、`checksums.txt` 为准。
-- [x] P1.7.8 修复 Windows Local Edition 托盘中文方块：选择可显示全部托盘中文文案的系统字体并统一设置到 AWT PopupMenu/MenuItem；缺少中文字体时使用完整英文菜单、状态和 tooltip 回退；jpackage 使用 `ALL-MODULE-PATH` 保留完整 JDK runtime（含 `jdk.localedata` 和服务运行必需模块），并由源码、打包 launcher、打包 runtime 模块自检和安装器契约测试覆盖；已完成 Full 构建，392 tests passed。
+- [x] P1.7.8 修复 Windows Local Edition 托盘中文方块：使用 Swing `JPopupMenu`/`JMenuItem` 自绘菜单规避 Windows AWT native peer 忽略 Java 字体，保留中文字体完整性检查和英文回退；右键菜单由可释放的 `JWindow` anchor 承载并按当前显示器可用边界定位，外部点击或焦点离开时关闭且不受 popup 自身焦点切换影响；jpackage 保留完整 JDK runtime，源码、打包 launcher、Swing 菜单模型和 runtime 模块均有契约自检。已完成 Full 安装包构建、契约检查及 392 项 Maven 测试。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

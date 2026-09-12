@@ -107,6 +107,22 @@ function Assert-SafeOutputPath([string]$Path, [string]$ProjectRoot) {
     return $resolvedOutput
 }
 
+function Remove-SafeGeneratedPath([string]$Path, [string]$OutputPath, [string]$ProjectRoot) {
+    $safeOutput = Assert-SafeOutputPath $OutputPath $ProjectRoot
+    $candidatePath = Assert-PathContainedBy $Path $safeOutput
+    [void](Assert-NoReparsePointsInPath $candidatePath)
+    if (-not (Test-Path -LiteralPath $candidatePath)) { return }
+    $candidate = Get-Item -LiteralPath $candidatePath -Force
+    if ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Refusing to remove a reparse-point generated item: $candidatePath"
+    }
+    if ($candidate.PSIsContainer) {
+        Remove-Item -LiteralPath $candidatePath -Recurse -Force
+    } else {
+        Remove-Item -LiteralPath $candidatePath -Force
+    }
+}
+
 function Clear-KnownOutput([string]$OutputPath, [string]$ProjectRoot) {
     $safeOutput = Assert-SafeOutputPath $OutputPath $ProjectRoot
     if (-not (Test-Path -LiteralPath $safeOutput)) { return }
@@ -116,17 +132,7 @@ function Clear-KnownOutput([string]$OutputPath, [string]$ProjectRoot) {
         $isKnown = $_.Name -in $knownNames -or $_.Name -match $knownInstallerPattern -or
             (-not $_.PSIsContainer -and $_.Name -match '^acceptance-[^\\/]+\.log$')
         if (-not $isKnown) { return }
-        $candidatePath = Assert-PathContainedBy $_.FullName $safeOutput
-        [void](Assert-NoReparsePointsInPath $candidatePath)
-        $candidate = Get-Item -LiteralPath $candidatePath -Force
-        if ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw "Refusing to remove a reparse-point generated item: $candidatePath"
-        }
-        if ($candidate.PSIsContainer) {
-            Remove-Item -LiteralPath $candidatePath -Recurse -Force
-        } else {
-            Remove-Item -LiteralPath $candidatePath -Force
-        }
+        Remove-SafeGeneratedPath $_.FullName $safeOutput $ProjectRoot
     }
 }
 
@@ -236,6 +242,7 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, $utf8)
 }
 
+$outputPath = Assert-SafeOutputPath $outputPath $projectRoot
 Write-Host "Project: $projectRoot"
 Test-WindowsBrandAssets $assetsPath
 if ($CleanOutput) {
@@ -288,13 +295,13 @@ try {
     $traySource = Join-Path $projectRoot 'src\main\java\com\example\farm\tray\FabMatrixTray.java'
     if (-not (Test-Path -LiteralPath $traySource)) { throw "Tray source was not found: $traySource" }
     $trayClasses = Join-Path $workPath 'tray-classes'
-    Remove-Item -LiteralPath $inputPath -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $trayClasses -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SafeGeneratedPath $inputPath $outputPath $projectRoot
+    Remove-SafeGeneratedPath $trayClasses $outputPath $projectRoot
     New-Item -ItemType Directory -Force -Path $inputPath, $imagePath, $vendorPath, $trayClasses | Out-Null
     Invoke-Checked $javac @('--release', '25', '-encoding', 'UTF-8', '-d', $trayClasses, $traySource)
     Copy-Item -LiteralPath $trayPngPath -Destination (Join-Path $trayClasses 'tray.png') -Force
     $trayJar = Join-Path $inputPath 'FabMatrixTray.jar'
-    Remove-Item -LiteralPath $trayJar -Force -ErrorAction SilentlyContinue
+    Remove-SafeGeneratedPath $trayJar $outputPath $projectRoot
     Invoke-Checked $jarTool @('--create', '--file', $trayJar, '-C', $trayClasses, '.')
     Copy-Item -LiteralPath $jar.FullName -Destination (Join-Path $inputPath $jar.Name) -Force
     $inputFiles = @(Get-ChildItem -LiteralPath $inputPath -File)
@@ -314,7 +321,7 @@ try {
         Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/winsw/winsw/v2.12.0/LICENSE.txt' -OutFile $licensePath
     }
 
-    Remove-Item -LiteralPath $imagePath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SafeGeneratedPath $imagePath $outputPath $projectRoot
     New-Item -ItemType Directory -Force -Path $imagePath | Out-Null
     $launcherProperties = Join-Path $workPath 'FabMatrixTray.properties'
     Write-Utf8NoBom $launcherProperties @"
@@ -346,7 +353,7 @@ icon=$trayIconPropertyPath
     Write-Host "App image: $appImageRoot"
     if ($Mode -eq 'AppImage') { return }
 
-    Remove-Item -LiteralPath $payloadPath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SafeGeneratedPath $payloadPath $outputPath $projectRoot
     New-Item -ItemType Directory -Force -Path $payloadPath | Out-Null
     Copy-Item -Path (Join-Path $appImageRoot '*') -Destination $payloadPath -Recurse -Force
     New-Item -ItemType Directory -Force -Path (Join-Path $payloadPath 'service') | Out-Null

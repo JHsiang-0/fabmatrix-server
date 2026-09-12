@@ -96,11 +96,52 @@ $parameterNames = @($buildAst.ParamBlock.Parameters | ForEach-Object { $_.Name.V
 if ('CleanOutput' -notin $parameterNames) { throw 'Build script does not expose -CleanOutput.' }
 $buildFunctionAsts = @{}
 foreach ($functionName in @('Resolve-AbsolutePath', 'Assert-NoReparsePointsInPath', 'Assert-PathContainedBy',
-        'Assert-SafeOutputPath', 'Clear-KnownOutput')) {
+        'Assert-SafeOutputPath', 'Remove-SafeGeneratedPath', 'Clear-KnownOutput')) {
     $functionAst = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
     if ($null -eq $functionAst) { throw "Build script does not expose required function: $functionName" }
     $buildFunctionAsts[$functionName] = $functionAst
     Invoke-Expression $functionAst.Extent.Text
+}
+$safeOutputAssignments = @($buildAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$outputPath' -and
+            $node.Right.Extent.Text -match '^Assert-SafeOutputPath\s+\$outputPath\s+\$projectRoot$'
+        }, $true))
+if ($safeOutputAssignments.Count -ne 1) {
+    throw 'Build script must unconditionally validate OutputDir before the build workflow starts.'
+}
+$brandAssetsCommand = $buildAst.Find({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Test-WindowsBrandAssets'
+    }, $true)
+if ($null -eq $brandAssetsCommand -or
+    $safeOutputAssignments[0].Extent.EndOffset -gt $brandAssetsCommand.Extent.StartOffset) {
+    throw 'Build script validates OutputDir too late in the build workflow.'
+}
+$removeCommands = @($buildAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Remove-Item'
+        }, $true))
+foreach ($removeCommand in $removeCommands) {
+    $owner = $removeCommand.Parent
+    while ($null -ne $owner -and $owner -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) {
+        $owner = $owner.Parent
+    }
+    if ($null -eq $owner -or $owner.Name -ne 'Remove-SafeGeneratedPath') {
+        throw "Build script bypasses Remove-SafeGeneratedPath: $($removeCommand.Extent.Text)"
+    }
+}
+$safeGeneratedRemovals = @($buildAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Remove-SafeGeneratedPath'
+        }, $true))
+foreach ($requiredPathVariable in @('$inputPath', '$trayClasses', '$trayJar', '$imagePath', '$payloadPath')) {
+    if (-not ($safeGeneratedRemovals | Where-Object {
+                $_.CommandElements.Count -ge 2 -and $_.CommandElements[1].Extent.Text -eq $requiredPathVariable
+            })) {
+        throw "Build staging deletion does not use Remove-SafeGeneratedPath for $requiredPathVariable."
+    }
 }
 $jpackageAssignment = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$jpackageArgs' }, $true)
 if ($null -eq $jpackageAssignment) { throw 'Build script jpackage arguments are not represented as an assignment.' }
@@ -148,21 +189,40 @@ try {
     if (Test-Path -LiteralPath $cleanTemp) { Remove-Item -LiteralPath $cleanTemp -Recurse -Force }
 }
 
-# Create real Windows junctions so ancestor and candidate reparse-point defenses are executed, not inferred from text.
+# Create real Windows junctions so cleanup and default-build staging defenses are executed, not inferred from text.
 $junctionTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixJunctionContract-' + [guid]::NewGuid().ToString('N'))
 $ancestorJunction = Join-Path $junctionTemp 'ancestor-link'
 $candidateJunction = Join-Path $junctionTemp 'candidate-output\work'
+$stagingWorkJunction = Join-Path $junctionTemp 'staging-ancestor-output\work'
+$stagingCandidateOutput = Join-Path $junctionTemp 'staging-candidate-output'
+$stagingCandidateNames = @('input', 'tray-classes', 'app-image', 'payload')
+$stagingCandidateJunctions = @($stagingCandidateNames | ForEach-Object { Join-Path $stagingCandidateOutput "work\$_" })
 try {
     $ancestorTarget = Join-Path $junctionTemp 'ancestor-target'
     $ancestorTargetOutput = Join-Path $ancestorTarget 'output'
     $candidateOutput = Join-Path $junctionTemp 'candidate-output'
     $candidateTarget = Join-Path $junctionTemp 'candidate-target'
-    New-Item -ItemType Directory -Force -Path (Join-Path $ancestorTargetOutput 'work'), $candidateOutput, $candidateTarget | Out-Null
+    $stagingWorkTarget = Join-Path $junctionTemp 'staging-work-target'
+    $stagingAncestorOutput = Join-Path $junctionTemp 'staging-ancestor-output'
+    New-Item -ItemType Directory -Force -Path (Join-Path $ancestorTargetOutput 'work'), $candidateOutput, $candidateTarget,
+        $stagingWorkTarget, $stagingAncestorOutput, (Join-Path $stagingCandidateOutput 'work') | Out-Null
     New-Item -ItemType File -Force -Path (Join-Path $ancestorTargetOutput 'work\must-survive.txt'),
-        (Join-Path $candidateTarget 'must-survive.txt') | Out-Null
+        (Join-Path $candidateTarget 'must-survive.txt'), (Join-Path $stagingWorkTarget 'must-survive.txt') | Out-Null
+    $stagingCandidateTargets = @{}
+    foreach ($name in $stagingCandidateNames) {
+        $target = Join-Path $junctionTemp "staging-$name-target"
+        New-Item -ItemType Directory -Force -Path $target | Out-Null
+        New-Item -ItemType File -Force -Path (Join-Path $target 'must-survive.txt') | Out-Null
+        $stagingCandidateTargets[$name] = $target
+    }
     try {
         New-Item -ItemType Junction -Path $ancestorJunction -Target $ancestorTarget -ErrorAction Stop | Out-Null
         New-Item -ItemType Junction -Path $candidateJunction -Target $candidateTarget -ErrorAction Stop | Out-Null
+        New-Item -ItemType Junction -Path $stagingWorkJunction -Target $stagingWorkTarget -ErrorAction Stop | Out-Null
+        foreach ($name in $stagingCandidateNames) {
+            $stagingJunction = Join-Path $stagingCandidateOutput "work\$name"
+            New-Item -ItemType Junction -Path $stagingJunction -Target $stagingCandidateTargets[$name] -ErrorAction Stop | Out-Null
+        }
     } catch {
         throw "Unable to create required junction fixtures; reparse-point protection was not validated or skipped: $($_.Exception.Message)"
     }
@@ -170,8 +230,18 @@ try {
     Assert-Exists (Join-Path $ancestorTargetOutput 'work\must-survive.txt') 'ancestor junction target sentinel'
     Assert-ThrowsMatching { Clear-KnownOutput $candidateOutput $projectRoot } 'reparse point' 'known output item junction'
     Assert-Exists (Join-Path $candidateTarget 'must-survive.txt') 'candidate junction target sentinel'
+    Assert-ThrowsMatching {
+        Remove-SafeGeneratedPath (Join-Path $stagingAncestorOutput 'work\input') $stagingAncestorOutput $projectRoot
+    } 'reparse point' 'default-build work ancestor junction'
+    Assert-Exists (Join-Path $stagingWorkTarget 'must-survive.txt') 'default-build work junction target sentinel'
+    foreach ($name in $stagingCandidateNames) {
+        Assert-ThrowsMatching {
+            Remove-SafeGeneratedPath (Join-Path $stagingCandidateOutput "work\$name") $stagingCandidateOutput $projectRoot
+        } 'reparse point' "default-build $name junction"
+        Assert-Exists (Join-Path $stagingCandidateTargets[$name] 'must-survive.txt') "default-build $name junction target sentinel"
+    }
 } finally {
-    foreach ($junction in @($candidateJunction, $ancestorJunction)) {
+    foreach ($junction in @($stagingCandidateJunctions + @($stagingWorkJunction, $candidateJunction, $ancestorJunction))) {
         if (Test-Path -LiteralPath $junction) { [IO.Directory]::Delete($junction) }
     }
     if (Test-Path -LiteralPath $junctionTemp) { Remove-Item -LiteralPath $junctionTemp -Recurse -Force }
@@ -247,7 +317,7 @@ Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot 
 Assert-Contains $uninstall "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'uninstall closes only tray executables'
 Assert-NotContains $build "'\-Xrs'" 'service launcher must receive console control events'
 Assert-Contains $build "'--win-console'" 'console main launcher'
-Assert-Contains $build 'Remove-Item -LiteralPath \$inputPath|inputFiles.Count -ne 2' 'clean and exclusive jpackage input'
+Assert-Contains $build 'Remove-SafeGeneratedPath \$inputPath|inputFiles.Count -ne 2' 'safe clean and exclusive jpackage input'
 Assert-Contains $build 'maintenance.*local-backup\.ps1|local-backup\.ps1.*maintenance' 'maintenance payload scripts'
 Assert-Contains $build 'System\.Diagnostics\.ProcessStartInfo|Invoke-CapturedProcess' 'safe native Java metadata capture'
 Assert-Contains $build "releaseInfo -match 'NativeCommandError\|CategoryInfo'" 'release metadata error pollution guard'
@@ -428,6 +498,12 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     } finally {
         $trayArchive.Dispose()
     }
+    $trayLauncherPath = Join-Path $payload 'FabMatrixTray.exe'
+    $trayLauncherProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-brand-icon' -Wait -PassThru
+    if ($trayLauncherProcess.ExitCode -ne 0) {
+        throw "Packaged tray launcher brand icon self-test failed: $($trayLauncherProcess.ExitCode)"
+    }
+    Write-Host 'FabMatrix packaged tray launcher brand icon self-test passed.'
     $payloadJava = Get-Command java.exe -ErrorAction SilentlyContinue
     if ($null -eq $payloadJava) { throw 'Java is required to execute the packaged tray brand icon self-test.' }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'

@@ -1,27 +1,25 @@
 #!/usr/bin/env sh
 set -eu
-
-backup_dir="${1:?用法: local-restore.sh <备份目录> [数据目录] RESTORE}"
-data_dir="${2:-./data}"
-confirmation="${3:-}"
-
-if [ "$confirmation" != "RESTORE" ]; then
-  echo "为避免误覆盖，请使用第三个参数 RESTORE 确认恢复。" >&2
-  exit 2
-fi
-if [ ! -f "$backup_dir/farm.db" ]; then
-  echo "备份目录中缺少 farm.db: $backup_dir" >&2
-  exit 1
-fi
-
-stamp="$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$data_dir"
-preserved="$data_dir/pre-restore-$stamp"
+backup_dir="${1:?用法: local-restore.sh <备份目录> [数据根] RESTORE}"
+data_root="${2:-./data}"
+confirm="${3:-}"
+[ "$confirm" = RESTORE ] || { echo "恢复必须显式提供 RESTORE" >&2; exit 1; }
+backup_db="$backup_dir/database/farm.db"
+backup_config="$backup_dir/config/application.yml"
+backup_files="$backup_dir/files"
+[ -f "$backup_db" ] || { echo "备份目录中缺少 database/farm.db: $backup_dir" >&2; exit 1; }
+[ -f "$backup_config" ] || { echo "备份目录中缺少 config/application.yml: $backup_dir" >&2; exit 1; }
+[ -d "$backup_files" ] || { echo "备份目录中缺少 files: $backup_dir" >&2; exit 1; }
+stamp=$(date +%Y%m%d-%H%M%S)
+preserved="$data_root/backups/pre-restore-$stamp"
 mkdir -p "$preserved"
-if [ -f "$data_dir/farm.db" ]; then cp "$data_dir/farm.db" "$preserved/farm.db"; fi
-if [ -d "$data_dir/files" ]; then mv "$data_dir/files" "$preserved/files"; fi
-cp "$backup_dir/farm.db" "$data_dir/farm.db"
-if [ -d "$backup_dir/files" ]; then cp -R "$backup_dir/files" "$data_dir/files"; fi
-
-echo "Local Edition restore completed: $data_dir"
-echo "Previous data preserved at: $preserved"
+for relative in database config files; do
+  if [ -e "$data_root/$relative" ]; then cp -R "$data_root/$relative" "$preserved/$relative"; fi
+done
+mkdir -p "$data_root/database" "$data_root/config" "$data_root/files"
+cp "$backup_db" "$data_root/database/farm.db"
+cp "$backup_config" "$data_root/config/application.yml"
+cp -R "$backup_files"/. "$data_root/files"/
+echo "Local Edition restore completed: $data_root"
+echo "Previous config/database/files preserved at: $preserved"
+echo "Consistency: stop FabMatrixServer before running this script; no service control is performed."

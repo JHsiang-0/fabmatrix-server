@@ -1,47 +1,19 @@
 param(
-  [string]$OutputDir = "./dist/local-installer",
-  [string]$Version = "2.0.0"
+  [string]$OutputDir = 'dist\windows-installer',
+  [ValidatePattern('^\d+\.\d+\.\d+$')]
+  [string]$Version = '2.0.0',
+  [ValidateSet('Full', 'AppImage', 'Payload')]
+  [string]$Mode = 'Full',
+  [switch]$SkipTests,
+  [switch]$NoClean
 )
 
-$ErrorActionPreference = "Stop"
-
-if (-not (Get-Command jpackage -ErrorAction SilentlyContinue)) {
-  throw "未找到 jpackage。请在 Windows 上安装并配置 Java 25 JDK。"
+$ErrorActionPreference = 'Stop'
+$formalEntryPoint = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'windows\build-installer.ps1'
+if (-not (Test-Path -LiteralPath $formalEntryPoint -PathType Leaf)) {
+  throw "正式 Windows 构建入口不存在: $formalEntryPoint"
 }
 
-Write-Host "Building Farm Local Edition jar..."
-mvn -q clean package -DskipTests
-
-$jar = Join-Path (Get-Location) "target/Farm-0.0.1-SNAPSHOT.jar"
-if (-not (Test-Path $jar -PathType Leaf)) {
-  throw "未找到后端 jar: $jar"
-}
-
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-$output = (Resolve-Path $OutputDir).Path
-$inputDir = Join-Path $output "input"
-New-Item -ItemType Directory -Force -Path $inputDir | Out-Null
-Copy-Item $jar (Join-Path $inputDir (Split-Path $jar -Leaf)) -Force
-
-$args = @(
-  "--type", "exe",
-  "--name", "FarmLocal",
-  "--app-version", $Version,
-  "--vendor", "Farm",
-  "--description", "Farm 局域网 3D 打印农场管理系统（Local Edition）",
-  "--input", $inputDir,
-  "--main-jar", (Split-Path $jar -Leaf),
-  "--dest", $output,
-  "--java-options", "-Dfile.encoding=UTF-8",
-  "--java-options", "-Dspring.profiles.active=local",
-  "--win-dir-chooser",
-  "--win-menu",
-  "--win-menu-group", "Farm",
-  "--win-shortcut",
-  "--win-console"
-)
-
-Write-Host "Building Windows installer..."
-& jpackage @args
-if ($LASTEXITCODE -ne 0) { throw "jpackage 构建失败，退出码: $LASTEXITCODE" }
-Write-Host "Installer created under: $output"
+Write-Host 'scripts/build-local-installer.ps1 is a compatibility wrapper.'
+& $formalEntryPoint -OutputDir $OutputDir -Version $Version -Mode $Mode -SkipTests:$SkipTests -NoClean:$NoClean
+if ($LASTEXITCODE -ne 0) { throw "正式构建入口失败: $LASTEXITCODE" }

@@ -1,8 +1,8 @@
 param(
     [ValidateSet('Local', 'Server')]
     [string]$Edition = 'Local',
-    [string]$ConfigDir = 'C:\ProgramData\Farm\config',
-    [string]$DataRoot = 'C:\ProgramData\Farm',
+    [string]$ConfigDir = 'C:\ProgramData\FabMatrix\config',
+    [string]$DataRoot = 'C:\ProgramData\FabMatrix',
     [int]$Port = 8080,
     [string]$SpringProfile = '',
     [string]$MysqlUrl = 'jdbc:mysql://localhost:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=true',
@@ -39,11 +39,13 @@ function ConvertTo-YamlSingleQuoted([string]$Value) {
 $configDir = [IO.Path]::GetFullPath($ConfigDir)
 $dataRoot = [IO.Path]::GetFullPath($DataRoot)
 $configPath = Join-Path $configDir 'application.yml'
+$databaseDir = Join-Path $dataRoot 'database'
+$databasePath = Join-Path $databaseDir 'farm.db'
+$fileDir = if ([string]::IsNullOrWhiteSpace($LocalFileDir)) { Join-Path $dataRoot 'files' } else { [IO.Path]::GetFullPath($LocalFileDir) }
 $logsDir = Join-Path $dataRoot 'logs'
-$dataDir = if ([string]::IsNullOrWhiteSpace($LocalDataDir)) { Join-Path $dataRoot 'data' } else { [IO.Path]::GetFullPath($LocalDataDir) }
-$fileDir = if ([string]::IsNullOrWhiteSpace($LocalFileDir)) { Join-Path $dataRoot 'uploads' } else { [IO.Path]::GetFullPath($LocalFileDir) }
+$backupsDir = Join-Path $dataRoot 'backups'
 
-foreach ($directory in @($dataRoot, $configDir, $logsDir, $dataDir, $fileDir)) {
+foreach ($directory in @($dataRoot, $configDir, $databaseDir, $fileDir, $logsDir, $backupsDir)) {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
 }
 
@@ -59,26 +61,37 @@ $profile = if ([string]::IsNullOrWhiteSpace($SpringProfile)) {
     if ($Edition -eq 'Local') { 'local' } else { 'prod' }
 } else { $SpringProfile }
 
-$dataDirYaml = ConvertTo-YamlSingleQuoted ($dataDir -replace '\\', '/')
 $fileDirYaml = ConvertTo-YamlSingleQuoted ($fileDir -replace '\\', '/')
 $logsDirYaml = ConvertTo-YamlSingleQuoted ($logsDir -replace '\\', '/')
 $corsYaml = ConvertTo-YamlSingleQuoted $CorsOrigins
 
 if ($Edition -eq 'Local') {
     $content = @"
-# Farm Windows configuration. Generated at install time; do not commit this file.
+# FabMatrix Server Windows Local Edition configuration. Generated at install time; do not commit this file.
 spring:
   profiles:
     active: local
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    url: $(ConvertTo-YamlSingleQuoted ("jdbc:sqlite:" + ($databasePath -replace '\\', '/')))
+  sql:
+    init:
+      mode: always
 server:
+  address: 0.0.0.0
   port: $Port
+  shutdown: graceful
 logging:
   file:
-    path: $logsDirYaml
-    name: farm
+    name: $(ConvertTo-YamlSingleQuoted (($logsDir + '\farm.log') -replace '\\', '/'))
 farm:
   local:
     storage-path: $fileDirYaml
+  monitor:
+    enabled: false
+  scheduler:
+    enabled: false
   security:
     cors-allowed-origins: $corsYaml
     first-admin-setup-enabled: true
@@ -86,10 +99,15 @@ jwt:
   secret-key: $(ConvertTo-YamlSingleQuoted $JwtSecret)
 admin:
   secret-key: $(ConvertTo-YamlSingleQuoted $AdminSecret)
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 "@
 } else {
     $content = @"
-# Farm Windows Server Edition configuration. Generated at install time; do not commit this file.
+# FabMatrix Server Windows Server Edition configuration. Generated at install time; do not commit this file.
 spring:
   profiles:
     active: $(ConvertTo-YamlSingleQuoted $profile)
@@ -102,8 +120,12 @@ spring:
       host: $(ConvertTo-YamlSingleQuoted $RedisHost)
       port: $RedisPort
       password: $(ConvertTo-YamlSingleQuoted $RedisPassword)
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
 server:
+  address: 0.0.0.0
   port: $Port
+  shutdown: graceful
 logging:
   file:
     path: $logsDirYaml
@@ -118,8 +140,15 @@ jwt:
 admin:
   secret-key: $(ConvertTo-YamlSingleQuoted $AdminSecret)
 farm:
+  scheduler:
+    enabled: false
   security:
     cors-allowed-origins: $corsYaml
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 "@
 }
 

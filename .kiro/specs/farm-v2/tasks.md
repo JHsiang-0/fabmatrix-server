@@ -187,6 +187,7 @@
 - [x] T16.3 已将打印机缓存、登录保护和单后端锁替换为本地进程实现；Local Edition 启动不要求 Redis。
 - [~] T16.4 已创建数据目录、阻断本地路径穿越、检查可写和最低磁盘空间，并提供带恢复前保留措施的 SQLite+文件备份/恢复脚本及 Windows jpackage 构建脚本；正式恢复演练和 Windows 安装包验收仍待完成。
 - [~] T16.5 已完成 Local profile 启动、health 探活和关键 Mapper/文件存储集成测试；覆盖 PUBLIC 根文件的重复迁移保持、非文件夹父级启动阻断及不同用户同名 PRIVATE 默认根目录；REST/WebSocket 全契约对比仍待补齐。
+- [~] T16.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、统一数据布局、服务/防火墙/ACL、独立纯 JDK 托盘控制器、备份恢复脚本和非破坏性契约回归；已构建安装包并校验产物。干净 Windows 机器上的 C 盘/非 C 盘安装、升级、卸载和数据保留验收仍待完成。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

@@ -12,13 +12,17 @@ spring:
     exclude:
       - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
       - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   sql:
     init:
       mode: always
       schema-locations: classpath:db/migration/local-schema.sql
 
 server:
+  address: 0.0.0.0
   port: ${SERVER_PORT:8080}
+  shutdown: graceful
 
 farm:
   local:
@@ -42,6 +46,6 @@ farm:
 
 springdoc:
   api-docs:
-    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
   swagger-ui:
-    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}

@@ -35,11 +35,17 @@ mvn clean package -DskipTests
 java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server.port=8080
 ```
 
-默认数据目录为 `${user.home}/FarmData`（Windows 通常为当前用户目录下的 `FarmData`），其中 `farm.db` 是 SQLite 数据库，`files` 保存 G-code 和缩略图。可用 `FARM_DATA_DIR=D:/FarmData` 指定 Windows 数据根目录。已提供 `scripts/build-local-installer.ps1`，该脚本必须在 Windows Java 25 JDK 环境执行并依赖 `jpackage`；当前已验证脚本参数和 Local profile，Windows `.exe` 仍需在 Windows 发布机实际构建和验收。
+手动运行 Local profile 时默认数据目录为 `${user.home}/FarmData`，可用 `FARM_DATA_DIR=D:/FarmData` 指定。正式 Windows 安装包使用统一数据根：安装在系统盘时为 `C:\ProgramData\FabMatrix`，安装在非系统盘时为 `{app}\data`；两者均包含 `config\application.yml`、`database\farm.db`、`files`、`logs`、`backups`。正式唯一构建入口为 `scripts/windows/build-installer.ps1`，旧的 `scripts/build-local-installer.ps1` 仅委托该入口。
+
+Windows 安装包默认程序目录为 `{autopf}\FabMatrix`，固定服务名为 `FabMatrixServer`，监听 `0.0.0.0:8080`，Local profile 使用 SQLite、本地 files、关闭 scheduler 和 Swagger/OpenAPI，并启用 graceful shutdown。安装器只开放 Windows Firewall `Private` profile 的对应 TCP 端口，不开放 Public；配置/database 仅允许 SYSTEM/Administrators 完全控制，files/logs/backups 对 Users 只读。升级前会停止旧/新服务和托盘并兼容清理旧 `Farm` 服务注册；安装、升级、卸载均不删除业务数据根。
+
+托盘控制器 `FabMatrixTray.exe` 使用与后端共享的 jpackage Java runtime，以普通权限运行，通过 SCM 和 `127.0.0.1:8080/actuator/health` 展示服务/健康状态，支持刷新、正常启动/停止/重启、复制局域网/本机地址、打开 files/logs/backups、管理员编辑配置和退出。退出托盘不会停止服务；无 SystemTray 时友好退出。
 
 全新 Local Edition 数据目录不预置管理员账号。首次启动后由前端调用 `GET /api/v1/auth/setup/status`，在 `setupAvailable=true` 时调用 `POST /api/v1/auth/setup/admin` 创建管理员；成功后直接返回 JWT。该接口只在 Local Edition 且数据库没有任何用户时可用，初始化后返回 409，不能再次匿名创建管理员。
 
-Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份必须同时保存 `farm.db` 和 `files` 目录，示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataDir D:/FarmData`；恢复时先停止 Farm，再使用 `local-restore.ps1 -BackupDir D:/Backups/farm-local-... -DataDir D:/FarmData -Confirm RESTORE`，脚本会先把当前数据移到 `pre-restore-时间戳` 再恢复。Linux 使用 `sh scripts/local-restore.sh <备份目录> <数据目录> RESTORE`。恢复后重新启动并检查 `/actuator/health`、文件列表和任务列表，不要只恢复数据库而遗漏文件目录。
+Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。备份/恢复脚本要求先停止 `FabMatrixServer`，脚本不会自动停服；备份至少保存 `database/farm.db`、`files` 和 `config/application.yml`。示例命令为 `powershell -ExecutionPolicy Bypass -File scripts/local-backup.ps1 -DataRoot D:/FarmData`；恢复使用 `local-restore.ps1 -BackupDir D:/FarmData/backups/farm-local-... -DataRoot D:/FarmData -Confirm RESTORE`，脚本会先把当前三者复制到 `backups/pre-restore-时间戳`，只覆盖备份中对应内容，不删除原数据。Linux 使用 `sh scripts/local-restore.sh <备份目录> <数据根> RESTORE`。恢复后重新启动并检查 `/actuator/health`、文件列表和任务列表，不要只恢复数据库而遗漏文件目录。
+
+安装包构建前可运行 `powershell -File scripts/windows/test-installer-contract.ps1` 做非破坏性路径、保留数据、防火墙、服务和托盘编译回归；完整构建为 `powershell -File scripts/windows/build-installer.ps1`，也支持 `-Mode AppImage` 和 `-Mode Payload`。不要运行真实备份/恢复脚本作为构建验证。
 
 ### 历史幽灵绑定修复记录
 

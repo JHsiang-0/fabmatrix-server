@@ -17,8 +17,34 @@ backup_files="$backup_dir/files"
 normalize_config() {
   source_file="$1"
   target_file="$2"
-  awk '
+  has_sqlite=0
+  has_datasource=0
+  has_spring=0
+  grep -Eq '^[[:space:]]+url:[[:space:]].*jdbc:sqlite:' "$source_file" && has_sqlite=1
+  grep -Eq '^  datasource:[[:space:]]*($|#)' "$source_file" && has_datasource=1
+  grep -Eq '^spring:[[:space:]]*($|#)' "$source_file" && has_spring=1
+  awk -v has_sqlite="$has_sqlite" -v has_datasource="$has_datasource" -v has_spring="$has_spring" '
     BEGIN { sq = sprintf("%c", 39) }
+    BEGIN {
+      if (!has_sqlite && !has_datasource && !has_spring) {
+        print "spring:"
+        print "  datasource:"
+        print "    url: " sq "jdbc:sqlite:${FARM_DATA_DIR}/database/farm.db" sq
+      }
+    }
+    /^spring:[[:space:]]*($|#)/ {
+      print
+      if (!has_sqlite && !has_datasource) {
+        print "  datasource:"
+        print "    url: " sq "jdbc:sqlite:${FARM_DATA_DIR}/database/farm.db" sq
+      }
+      next
+    }
+    /^  datasource:[[:space:]]*($|#)/ {
+      print
+      if (!has_sqlite) print "    url: " sq "jdbc:sqlite:${FARM_DATA_DIR}/database/farm.db" sq
+      next
+    }
     /^[[:space:]]*url:[[:space:]].*jdbc:sqlite:/ {
       match($0, /^[[:space:]]*url:[[:space:]]*/)
       print substr($0, 1, RLENGTH) sq "jdbc:sqlite:${FARM_DATA_DIR}/database/farm.db" sq
@@ -29,7 +55,12 @@ normalize_config() {
       print substr($0, 1, RLENGTH) sq "${FARM_DATA_DIR}/files" sq
       next
     }
-    /^[[:space:]]*name:[[:space:]].*[\\/]logs[\\/]farm\.log/ {
+    /^[[:space:]]*path:[[:space:]].*[\\/]logs/ {
+      match($0, /^[[:space:]]*path:[[:space:]]*/)
+      print substr($0, 1, RLENGTH) sq "${FARM_DATA_DIR}/logs" sq
+      next
+    }
+    /^[[:space:]]*name:[[:space:]]*(["]?farm["]?|.*[\\/]logs[\\/]farm\.log)/ {
       match($0, /^[[:space:]]*name:[[:space:]]*/)
       print substr($0, 1, RLENGTH) sq "${FARM_DATA_DIR}/logs/farm.log" sq
       next
@@ -81,3 +112,4 @@ rmdir "$staging" 2>/dev/null || true
 echo "Local Edition restore completed: $data_root"
 echo "Previous config/database/files moved to: $preserved"
 echo "Consistency: stop FabMatrixServer first; config/database/files were fully replaced, including stale SQLite WAL/SHM files."
+echo "ACL note: Linux does not apply the Windows SYSTEM/Administrators policy; retain appropriate ownership and mode controls on this data root."

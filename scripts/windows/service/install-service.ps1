@@ -21,6 +21,7 @@ $backupsDir = Join-Path $DataRoot 'backups'
 $xmlPath = Join-Path $serviceDir 'FabMatrixServerService.xml'
 
 . (Join-Path $serviceDir 'service-xml.ps1')
+. (Join-Path $serviceDir 'data-acl.ps1')
 
 function Get-ServiceIfPresent([string]$Name) {
     return Get-Service -Name $Name -ErrorAction SilentlyContinue
@@ -67,28 +68,6 @@ function Read-PreservedServiceState {
     return Get-ExistingServiceState
 }
 
-function Invoke-Icacls([string]$Path, [string[]]$Arguments) {
-    & icacls.exe $Path @Arguments | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "ACL update failed ($LASTEXITCODE): $Path" }
-}
-
-function Set-DataPermissions {
-    if (-not (Get-Command icacls.exe -ErrorAction SilentlyContinue)) {
-        throw 'icacls.exe is required to protect FabMatrix config, database and backups.'
-    }
-
-    $system = '*S-1-5-18:(OI)(CI)F'
-    $administrators = '*S-1-5-32-544:(OI)(CI)F'
-    $usersReadOnly = '*S-1-5-32-545:(OI)(CI)RX'
-
-    foreach ($privateDir in @($configDir, $databaseDir, $backupsDir)) {
-        Invoke-Icacls $privateDir @('/inheritance:r', '/grant:r', $system, $administrators, '/T', '/C')
-    }
-    foreach ($sharedDir in @($filesDir, $logsDir)) {
-        Invoke-Icacls $sharedDir @('/inheritance:r', '/grant:r', $system, $administrators, $usersReadOnly, '/T', '/C')
-    }
-}
-
 function Set-PrivateFirewallRule {
     if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) -or
         -not (Get-Command New-NetFirewallRule -ErrorAction SilentlyContinue)) {
@@ -127,7 +106,7 @@ if ($null -ne (Get-ServiceIfPresent 'FabMatrixServer')) {
 }
 Remove-ServiceIfPresent 'Farm'
 
-Set-DataPermissions
+Set-FabMatrixDataAcl -DataRoot $DataRoot
 
 $xml = New-FabMatrixServiceXml -InstallDir $InstallDir -DataRoot $DataRoot -StartMode $servicePlan.StartMode
 $utf8 = New-Object System.Text.UTF8Encoding($false)

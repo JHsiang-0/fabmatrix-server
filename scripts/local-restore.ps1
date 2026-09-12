@@ -13,6 +13,21 @@ if ($dataPath.Equals($volumeRoot, [StringComparison]::OrdinalIgnoreCase)) {
   throw 'DataRoot must not be a volume root.'
 }
 
+function Import-MaintenanceHelper([string]$Name) {
+  foreach ($candidate in @(
+      (Join-Path $PSScriptRoot $Name),
+      (Join-Path $PSScriptRoot "windows\service\$Name"))) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      . $candidate
+      return
+    }
+  }
+  throw "Maintenance helper is missing: $Name"
+}
+
+Import-MaintenanceHelper 'portable-config.ps1'
+Import-MaintenanceHelper 'data-acl.ps1'
+
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $service -and $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
   throw "Stop service $ServiceName before restore. This script does not stop it."
@@ -26,22 +41,6 @@ foreach ($required in @($backupDb, $backupConfig)) {
 }
 if (-not (Test-Path -LiteralPath $backupFiles -PathType Container)) { throw "Required backup directory is missing: $backupFiles" }
 
-function Set-PortableLocalConfig([string]$Path) {
-  $content = [IO.File]::ReadAllText($Path)
-  $portableRoot = '${FARM_DATA_DIR}'
-  $content = [regex]::Replace($content, '(?im)^(\s*url:\s*).*jdbc:sqlite:.*$', {
-      param($match) $match.Groups[1].Value + "'jdbc:sqlite:$portableRoot/database/farm.db'"
-    })
-  $content = [regex]::Replace($content, '(?im)^(\s*storage-path:\s*).+$', {
-      param($match) $match.Groups[1].Value + "'$portableRoot/files'"
-    })
-  $content = [regex]::Replace($content, '(?im)^(\s*name:\s*).*[\\/]logs[\\/]farm\.log[''\"]?\s*$', {
-      param($match) $match.Groups[1].Value + "'$portableRoot/logs/farm.log'"
-    })
-  $utf8 = New-Object System.Text.UTF8Encoding($false)
-  [IO.File]::WriteAllText($Path, $content, $utf8)
-}
-
 $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
 $preserved = Join-Path $dataPath "backups\pre-restore-$stamp"
 $staging = Join-Path $dataPath ('.restore-staging-' + [guid]::NewGuid().ToString('N'))
@@ -53,7 +52,7 @@ try {
   Copy-Item -LiteralPath $backupDb -Destination (Join-Path $staging 'database\farm.db') -Force
   Copy-Item -LiteralPath $backupConfig -Destination (Join-Path $staging 'config\application.yml') -Force
   Get-ChildItem -LiteralPath $backupFiles -Force | Copy-Item -Destination (Join-Path $staging 'files') -Recurse -Force
-  Set-PortableLocalConfig (Join-Path $staging 'config\application.yml')
+  Set-FabMatrixPortableConfig (Join-Path $staging 'config\application.yml')
 
   New-Item -ItemType Directory -Force -Path $preserved | Out-Null
   foreach ($relative in @('config', 'database', 'files')) {
@@ -67,7 +66,9 @@ try {
     Move-Item -LiteralPath (Join-Path $staging $relative) -Destination (Join-Path $dataPath $relative)
     $installedNames.Add($relative)
   }
+  Set-FabMatrixDataAcl -DataRoot $dataPath
 } catch {
+  $restoreError = $_.Exception.Message
   for ($index = $installedNames.Count - 1; $index -ge 0; $index--) {
     $relative = $installedNames[$index]
     $installed = Join-Path $dataPath $relative
@@ -81,11 +82,12 @@ try {
       Move-Item -LiteralPath $saved -Destination $current -ErrorAction SilentlyContinue
     }
   }
-  throw "Restore failed; original data rollback was attempted. Retain staging/pre-restore evidence. $($_.Exception.Message)"
+  try { Set-FabMatrixDataAcl -DataRoot $dataPath } catch { }
+  throw "Restore failed; original data rollback was attempted. Retain staging/pre-restore evidence. $restoreError"
 } finally {
   if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host "Local Edition restore completed: $dataPath"
 Write-Host "Previous config/database/files moved to: $preserved"
-Write-Host 'Consistency: FabMatrixServer was stopped; config/database/files were fully replaced, including removal of stale SQLite WAL/SHM files.'
+Write-Host 'Consistency: FabMatrixServer was stopped; data was fully replaced and the Windows private/read-only ACL policy was reapplied.'

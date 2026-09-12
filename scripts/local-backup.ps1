@@ -8,6 +8,20 @@ $ErrorActionPreference = 'Stop'
 $dataPath = [IO.Path]::GetFullPath($DataRoot)
 $backupPath = if ([string]::IsNullOrWhiteSpace($BackupRoot)) { Join-Path $dataPath 'backups' } else { [IO.Path]::GetFullPath($BackupRoot) }
 
+function Import-PortableConfigHelper {
+  foreach ($candidate in @(
+      (Join-Path $PSScriptRoot 'portable-config.ps1'),
+      (Join-Path $PSScriptRoot 'windows\service\portable-config.ps1'))) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      . $candidate
+      return
+    }
+  }
+  throw 'Maintenance helper is missing: portable-config.ps1'
+}
+
+Import-PortableConfigHelper
+
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $service -and $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
   throw "Stop service $ServiceName before backup to keep SQLite consistent. This script does not stop it."
@@ -25,17 +39,9 @@ function Set-PortableDataRoot([string]$Path, [string]$SourceRoot) {
   $windowsRoot = $SourceRoot.TrimEnd('\')
   $forwardRoot = ($windowsRoot -replace '\\', '/')
   $content = $content.Replace($windowsRoot, $portableRoot).Replace($forwardRoot, $portableRoot)
-  $content = [regex]::Replace($content, '(?im)^(\s*url:\s*).*jdbc:sqlite:.*$', {
-      param($match) $match.Groups[1].Value + "'jdbc:sqlite:$portableRoot/database/farm.db'"
-    })
-  $content = [regex]::Replace($content, '(?im)^(\s*storage-path:\s*).+$', {
-      param($match) $match.Groups[1].Value + "'$portableRoot/files'"
-    })
-  $content = [regex]::Replace($content, '(?im)^(\s*name:\s*).*[\\/]logs[\\/]farm\.log[''\"]?\s*$', {
-      param($match) $match.Groups[1].Value + "'$portableRoot/logs/farm.log'"
-    })
   $utf8 = New-Object System.Text.UTF8Encoding($false)
   [IO.File]::WriteAllText($Path, $content, $utf8)
+  Set-FabMatrixPortableConfig -Path $Path
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'

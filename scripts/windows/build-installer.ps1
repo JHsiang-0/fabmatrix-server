@@ -25,14 +25,34 @@ function Invoke-Checked([string]$FilePath, [string[]]$Arguments) {
     }
 }
 
+function Invoke-CapturedProcess([string]$FilePath, [string]$Arguments) {
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = $Arguments
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw "Unable to start process: $FilePath" }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) { throw "Command failed ($($process.ExitCode)): $FilePath $Arguments`n$stderr" }
+    return [pscustomobject]@{ StdOut = $stdout; StdErr = $stderr; ExitCode = $process.ExitCode }
+}
+
 function Get-JavaHome {
     if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
         return (Resolve-Path $env:JAVA_HOME).Path
     }
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    $settings = (& java -XshowSettings:properties -version 2>&1 | Out-String)
-    $ErrorActionPreference = $previousErrorAction
+    $javaCommand = Get-Command java.exe -ErrorAction SilentlyContinue
+    if (-not $javaCommand) { throw 'Unable to locate java.exe; set JAVA_HOME.' }
+    $capture = Invoke-CapturedProcess -FilePath $javaCommand.Source -Arguments '-XshowSettings:properties -version'
+    $settings = $capture.StdErr + [Environment]::NewLine + $capture.StdOut
     $match = [regex]::Match($settings, '(?m)^\s*java\.home\s*=\s*(.+?)\s*$')
     if (-not $match.Success) { throw 'Unable to determine java.home; set JAVA_HOME.' }
     return $match.Groups[1].Value.Trim()
@@ -66,10 +86,8 @@ $jpackage = Join-Path $javaHome 'bin\jpackage.exe'
 foreach ($tool in @($javaExe, $javac, $jarTool, $jpackage)) {
     if (-not (Test-Path -LiteralPath $tool)) { throw "Java 25 JDK tool not found: $tool" }
 }
-$previousErrorAction = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-$javaVersion = (& $javaExe -version 2>&1 | Select-Object -First 1 | Out-String).Trim()
-$ErrorActionPreference = $previousErrorAction
+$javaCapture = Invoke-CapturedProcess -FilePath $javaExe -Arguments '-version'
+$javaVersion = @($javaCapture.StdErr -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })[0].Trim()
 if ($javaVersion -notmatch 'version "25\.') { throw "Java 25 is required; current version: $javaVersion" }
 Write-Host "Java: $javaVersion"
 
@@ -165,8 +183,9 @@ win-console=false
     New-Item -ItemType Directory -Force -Path $payloadPath | Out-Null
     Copy-Item -Path (Join-Path $appImageRoot '*') -Destination $payloadPath -Recurse -Force
     New-Item -ItemType Directory -Force -Path (Join-Path $payloadPath 'service') | Out-Null
-    foreach ($name in @('Farm-Configure.ps1', 'capture-upgrade-state.ps1', 'install-service.ps1',
-            'migrate-legacy-data.ps1', 'service-control.ps1', 'service-xml.ps1', 'uninstall-service.ps1')) {
+    foreach ($name in @('Farm-Configure.ps1', 'capture-upgrade-state.ps1', 'data-acl.ps1', 'install-service.ps1',
+            'migrate-legacy-data.ps1', 'portable-config.ps1', 'recover-upgrade-state.ps1',
+            'service-control.ps1', 'service-xml.ps1', 'uninstall-service.ps1')) {
         Copy-Item -LiteralPath (Join-Path $scriptRoot "service\$name") -Destination (Join-Path $payloadPath "service\$name") -Force
     }
     Copy-Item -LiteralPath $winswPath -Destination (Join-Path $payloadPath 'service\FabMatrixServerService.exe') -Force
@@ -176,6 +195,8 @@ win-console=false
     New-Item -ItemType Directory -Force -Path $maintenancePath | Out-Null
     Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-backup.ps1') -Destination (Join-Path $maintenancePath 'local-backup.ps1') -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-restore.ps1') -Destination (Join-Path $maintenancePath 'local-restore.ps1') -Force
+    Copy-Item -LiteralPath (Join-Path $scriptRoot 'service\data-acl.ps1') -Destination (Join-Path $maintenancePath 'data-acl.ps1') -Force
+    Copy-Item -LiteralPath (Join-Path $scriptRoot 'service\portable-config.ps1') -Destination (Join-Path $maintenancePath 'portable-config.ps1') -Force
     Invoke-Checked 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         (Join-Path $scriptRoot 'test-installer-contract.ps1'), '-SkipTrayCompile', '-PayloadPath', $payloadPath)
     Write-Host "Payload: $payloadPath"
@@ -211,6 +232,9 @@ Default port: 8080
 Data layout: config/database/files/logs/backups
 Firewall: TCP 8080, Private profile only
 "@
+    if ($releaseInfo -match 'NativeCommandError|CategoryInfo') {
+        throw 'release-info.txt contains PowerShell native error metadata.'
+    }
     Write-Utf8NoBom (Join-Path $outputPath 'release-info.txt') $releaseInfo
     Write-Host "Installer: $installer"
     Write-Host "Size: $installerSize bytes"

@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $newRoot = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
 $legacyRoot = [IO.Path]::GetFullPath($LegacyDataRoot).TrimEnd('\')
+. (Join-Path $PSScriptRoot 'portable-config.ps1')
 if ($newRoot.Equals($legacyRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Legacy and new data roots must be different.'
 }
@@ -13,23 +14,6 @@ if ($newRoot.Equals($legacyRoot, [StringComparison]::OrdinalIgnoreCase)) {
 function Test-DirectoryHasContent([string]$Path) {
     return (Test-Path -LiteralPath $Path -PathType Container) -and
         ($null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop | Select-Object -First 1))
-}
-
-function Set-PortableLocalConfig([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
-    $content = [IO.File]::ReadAllText($Path)
-    $portableRoot = '${FARM_DATA_DIR}'
-    $content = [regex]::Replace($content, '(?im)^(\s*url:\s*).*jdbc:sqlite:.*$', {
-            param($match) $match.Groups[1].Value + "'jdbc:sqlite:$portableRoot/database/farm.db'"
-        })
-    $content = [regex]::Replace($content, '(?im)^(\s*storage-path:\s*).+$', {
-            param($match) $match.Groups[1].Value + "'$portableRoot/files'"
-        })
-    $content = [regex]::Replace($content, '(?im)^(\s*name:\s*).*[\\/]logs[\\/]farm\.log[''\"]?\s*$', {
-            param($match) $match.Groups[1].Value + "'$portableRoot/logs/farm.log'"
-        })
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [IO.File]::WriteAllText($Path, $content, $utf8)
 }
 
 $newDb = Join-Path $newRoot 'database\farm.db'
@@ -86,7 +70,7 @@ try {
     }
     if (Test-Path -LiteralPath $legacyConfig -PathType Container) {
         Copy-Item -LiteralPath $legacyConfig -Destination (Join-Path $staging 'config') -Recurse -Force
-        Set-PortableLocalConfig (Join-Path $staging 'config\application.yml')
+        Set-FabMatrixPortableConfig (Join-Path $staging 'config\application.yml')
     }
 
     New-Item -ItemType Directory -Force -Path $newRoot | Out-Null

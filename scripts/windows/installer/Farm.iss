@@ -36,7 +36,7 @@ ChangesEnvironment=no
 
 [Tasks]
 Name: "service_autostart"; Description: "随 Windows 自动启动 FabMatrixServer 服务"; Flags: checkedonce
-Name: "tray_autostart"; Description: "登录 Windows 时自动启动 FabMatrix 托盘控制器"; Flags: unchecked
+Name: "tray_autostart"; Description: "登录 Windows 时自动启动 FabMatrix 托盘控制器"; Flags: checkedonce
 Name: "launch_tray"; Description: "安装完成后启动 FabMatrix 托盘控制器"; Flags: checkedonce
 
 [Files]
@@ -52,8 +52,6 @@ Name: "{code:GetDataRoot}\logs"; Flags: uninsneveruninstall
 Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080 -AutoStart -PreserveExistingState -StateFile ""{tmp}\FabMatrixServer-upgrade-state.json"""; Tasks: service_autostart; Flags: runhidden waituntilterminated; StatusMsg: "正在注册并启动 FabMatrixServer Windows 服务..."
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080 -PreserveExistingState -StateFile ""{tmp}\FabMatrixServer-upgrade-state.json"""; Tasks: not service_autostart; Flags: runhidden waituntilterminated; StatusMsg: "正在注册 FabMatrixServer Windows 服务..."
 Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"
 
 [UninstallRun]
@@ -93,4 +91,55 @@ begin
   Result := '';
   if not CaptureStateAndStopPreviousProcesses() then
     Result := '无法可靠停止旧 Farm/FabMatrixServer 服务或托盘进程，安装已中止。请检查服务状态后重试。';
+end;
+
+procedure RestoreExistingServiceState();
+var
+  ResultCode: Integer;
+  PowerShell: String;
+  RecoveryScript: String;
+  StateFile: String;
+begin
+  ResultCode := -1;
+  PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  RecoveryScript := ExpandConstant('{app}\service\recover-upgrade-state.ps1');
+  StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
+  if FileExists(RecoveryScript) then
+    Exec(PowerShell, '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + RecoveryScript +
+      '" -StateFile "' + StateFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure InstallServiceChecked();
+var
+  ResultCode: Integer;
+  PowerShell: String;
+  InstallScript: String;
+  StateFile: String;
+  Parameters: String;
+begin
+  ResultCode := -1;
+  PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  InstallScript := ExpandConstant('{app}\service\install-service.ps1');
+  StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
+  Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + InstallScript +
+    '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + GetDataRoot('') +
+    '" -Port 8080 -PreserveExistingState -StateFile "' + StateFile + '"';
+  if WizardIsTaskSelected('service_autostart') then
+    Parameters := Parameters + ' -AutoStart';
+
+  WizardForm.StatusLabel.Caption := '正在注册 FabMatrixServer Windows 服务...';
+  if (not Exec(PowerShell, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
+     (ResultCode <> 0) then
+  begin
+    RestoreExistingServiceState();
+    SuppressibleMsgBox('FabMatrixServer 服务安装失败（退出码 ' + IntToStr(ResultCode) +
+      '）。安装将中止；已尽力恢复升级前仍存在的服务状态。请检查安装日志。', mbCriticalError, MB_OK, IDOK);
+    RaiseException('FabMatrixServer service installation failed with exit code ' + IntToStr(ResultCode));
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    InstallServiceChecked();
 end;

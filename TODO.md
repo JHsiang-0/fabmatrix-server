@@ -73,6 +73,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [x] P1.7.4 已提供 v1 Server Edition 的 Farm、MySQL、Redis、RustFS 正式 Docker Compose 编排、密钥注入、健康检查和数据卷说明。
 - [~] P1.7.5 已补充两种形态的启动、数据目录检查、备份恢复说明和 Server Edition 镜像构建记录；Windows 安装/卸载和正式发布验证仍待完成。
 - [~] P1.7.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、按安装盘符选择数据根、真实旧配置迁移归一化、升级状态恢复、安装失败传播、私有网络防火墙、显式 ACL 清理、独立托盘和带 ACL 回滚的可移植恢复，并构建校验安装包；干净 Windows 机器上的 C/非 C 安装升级卸载、graceful shutdown 日志及数据保留验收仍待完成。
+- [x] P1.7.7 Windows Local Edition 安装器、主程序、托盘启动器和运行时托盘图标支持固定资源目录替换；构建支持安全清理旧产物，并已通过 AppImage/Payload 发布候选验证；Full Inno Setup 编译待发布机执行。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

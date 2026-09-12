@@ -5,7 +5,8 @@ param(
     [ValidateSet('Full', 'AppImage', 'Payload')]
     [string]$Mode = 'Full',
     [switch]$SkipTests,
-    [switch]$NoClean
+    [switch]$NoClean,
+    [switch]$CleanOutput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +18,127 @@ $payloadPath = Join-Path $workPath 'payload'
 $inputPath = Join-Path $workPath 'input'
 $imagePath = Join-Path $workPath 'app-image'
 $vendorPath = Join-Path $workPath 'vendor'
+$assetsPath = Join-Path $scriptRoot 'assets'
+$serverIconPath = Join-Path $assetsPath 'server.ico'
+$trayIconPath = Join-Path $assetsPath 'tray.ico'
+$trayPngPath = Join-Path $assetsPath 'tray.png'
+$trayIconPropertyPath = $trayIconPath -replace '\\', '/'
+
+function Resolve-AbsolutePath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A non-empty path is required.' }
+    try {
+        return [IO.Path]::GetFullPath($Path)
+    } catch {
+        throw "Unable to resolve path: $Path"
+    }
+}
+
+function Assert-SafeOutputPath([string]$Path, [string]$ProjectRoot) {
+    $resolvedOutput = Resolve-AbsolutePath $Path
+    $resolvedProject = (Resolve-Path -LiteralPath $ProjectRoot).Path
+    $resolvedOutputTrimmed = $resolvedOutput.TrimEnd('\')
+    $root = ([IO.Path]::GetPathRoot($resolvedOutput)).TrimEnd('\')
+    if ([string]::Equals($resolvedOutputTrimmed, $root, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clean a filesystem root: $resolvedOutput"
+    }
+    if ([string]::Equals($resolvedOutputTrimmed, $resolvedProject.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) -or
+        $resolvedProject.StartsWith($resolvedOutputTrimmed + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clean the repository root or its parent: $resolvedOutput"
+    }
+    $protectedRoots = @(
+        (Join-Path $resolvedProject 'src'),
+        (Join-Path $resolvedProject 'scripts'),
+        (Join-Path $resolvedProject 'scripts\windows'),
+        (Join-Path $resolvedProject 'scripts\windows\assets'),
+        (Join-Path $resolvedProject 'public')
+    ) | ForEach-Object { (Resolve-AbsolutePath $_).TrimEnd('\') }
+    foreach ($protected in $protectedRoots) {
+        if ([string]::Equals($resolvedOutputTrimmed, $protected, [StringComparison]::OrdinalIgnoreCase) -or
+            $resolvedOutputTrimmed.StartsWith($protected + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $protected.StartsWith($resolvedOutputTrimmed + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean protected or nested path: $resolvedOutput"
+        }
+    }
+    foreach ($protectedExact in @((Join-Path $resolvedProject 'dist'), (Join-Path $resolvedProject 'target'))) {
+        if ([string]::Equals($resolvedOutputTrimmed, (Resolve-AbsolutePath $protectedExact).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean protected build root: $resolvedOutput"
+        }
+    }
+    if (Test-Path -LiteralPath $resolvedOutput) {
+        $outputItem = Get-Item -LiteralPath $resolvedOutput -Force
+        if ($outputItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to clean a reparse-point output directory: $resolvedOutput"
+        }
+    }
+    return $resolvedOutput
+}
+
+function Clear-KnownOutput([string]$OutputPath, [string]$ProjectRoot) {
+    $safeOutput = Assert-SafeOutputPath $OutputPath $ProjectRoot
+    if (-not (Test-Path -LiteralPath $safeOutput)) { return }
+    $knownInstallerPattern = '^(FabMatrixServer-Setup|Farm-Setup)(-[^\\/]+)?\.exe$'
+    $knownNames = @('work', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'precommit-check')
+    Get-ChildItem -LiteralPath $safeOutput -Force | ForEach-Object {
+        $isKnown = $_.Name -in $knownNames -or $_.Name -match $knownInstallerPattern -or
+            (-not $_.PSIsContainer -and $_.Name -match '^acceptance-[^\\/]+\.log$')
+        if (-not $isKnown) { return }
+        if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to remove a reparse-point generated item: $($_.FullName)"
+        }
+        if ($_.PSIsContainer) {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        } else {
+            Remove-Item -LiteralPath $_.FullName -Force
+        }
+    }
+}
+
+function Assert-ValidBrandAsset([string]$Path, [ValidateSet('ico', 'png')][string]$Kind) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Brand asset is missing: $Path" }
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    if ($Kind -eq 'ico') {
+        if ($bytes.Length -lt 6 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or
+            $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
+            throw "Brand asset is not a valid ICO header: $Path"
+        }
+        $count = [BitConverter]::ToUInt16($bytes, 4)
+        if ($count -lt 1 -or $bytes.Length -lt 6 + (16 * $count)) { throw "ICO directory is invalid: $Path" }
+        for ($index = 0; $index -lt $count; $index++) {
+            $entryOffset = 6 + (16 * $index)
+            $size = [BitConverter]::ToUInt32($bytes, $entryOffset + 8)
+            $offset = [BitConverter]::ToUInt32($bytes, $entryOffset + 12)
+            if ($size -lt 8 -or $offset -lt (6 + (16 * $count)) -or $offset + $size -gt $bytes.Length) {
+                throw "ICO image directory entry is outside the file: $Path"
+            }
+            if ($bytes[$offset] -ne 0x89 -or $bytes[$offset + 1] -ne 0x50 -or
+                $bytes[$offset + 2] -ne 0x4E -or $bytes[$offset + 3] -ne 0x47) {
+                throw "ICO image entry is not PNG encoded: $Path"
+            }
+        }
+    } else {
+        $signature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        $signatureMatches = $bytes.Length -ge 8
+        for ($index = 0; $signatureMatches -and $index -lt $signature.Length; $index++) {
+            $signatureMatches = $bytes[$index] -eq $signature[$index]
+        }
+        if ($bytes.Length -lt 33 -or -not $signatureMatches) {
+            throw "Brand asset is not a valid PNG signature: $Path"
+        }
+        $width = [Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($bytes, 16))
+        $height = [Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($bytes, 20))
+        if ([Text.Encoding]::ASCII.GetString($bytes, 12, 4) -ne 'IHDR' -or
+            $width -le 0 -or $height -le 0) {
+            throw "PNG IHDR is invalid: $Path"
+        }
+    }
+}
+
+function Test-WindowsBrandAssets([string]$AssetsDir) {
+    Assert-ValidBrandAsset (Join-Path $AssetsDir 'installer.ico') 'ico'
+    Assert-ValidBrandAsset (Join-Path $AssetsDir 'server.ico') 'ico'
+    Assert-ValidBrandAsset (Join-Path $AssetsDir 'tray.ico') 'ico'
+    Assert-ValidBrandAsset (Join-Path $AssetsDir 'tray.png') 'png'
+}
 
 function Invoke-Checked([string]$FilePath, [string[]]$Arguments) {
     & $FilePath @Arguments
@@ -78,6 +200,11 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
 }
 
 Write-Host "Project: $projectRoot"
+Test-WindowsBrandAssets $assetsPath
+if ($CleanOutput) {
+    Write-Host "Cleaning known generated output items under: $outputPath"
+    Clear-KnownOutput $outputPath $projectRoot
+}
 $javaHome = Get-JavaHome
 $javaExe = Join-Path $javaHome 'bin\java.exe'
 $javac = Join-Path $javaHome 'bin\javac.exe'
@@ -128,6 +255,7 @@ try {
     Remove-Item -LiteralPath $trayClasses -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $inputPath, $imagePath, $vendorPath, $trayClasses | Out-Null
     Invoke-Checked $javac @('--release', '25', '-encoding', 'UTF-8', '-d', $trayClasses, $traySource)
+    Copy-Item -LiteralPath $trayPngPath -Destination (Join-Path $trayClasses 'tray.png') -Force
     $trayJar = Join-Path $inputPath 'FabMatrixTray.jar'
     Remove-Item -LiteralPath $trayJar -Force -ErrorAction SilentlyContinue
     Invoke-Checked $jarTool @('--create', '--file', $trayJar, '-C', $trayClasses, '.')
@@ -157,6 +285,7 @@ main-jar=FabMatrixTray.jar
 main-class=com.example.farm.tray.FabMatrixTray
 java-options=-Dfile.encoding=UTF-8
 win-console=false
+icon=$trayIconPropertyPath
 "@
     $jpackageArgs = @(
         '--type', 'app-image',
@@ -169,6 +298,7 @@ win-console=false
         '--dest', $imagePath,
         '--java-options', '-Dfile.encoding=UTF-8',
         '--java-options', '-Dspring.profiles.active=local',
+        '--icon', $serverIconPath,
         '--win-console',
         '--add-launcher', "FabMatrixTray=$launcherProperties"
     )
@@ -204,7 +334,7 @@ win-console=false
 
     New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
     $iss = Join-Path $scriptRoot 'installer\Farm.iss'
-    $issArgs = @('/Qp', "/DAppVersion=$Version", "/DPayloadDir=$payloadPath", "/DOutputDir=$outputPath", $iss)
+    $issArgs = @('/Qp', "/DAppVersion=$Version", "/DPayloadDir=$payloadPath", "/DOutputDir=$outputPath", "/DAssetsDir=$assetsPath", $iss)
     Invoke-Checked $iscc $issArgs
 
     $installer = Join-Path $outputPath 'FabMatrixServer-Setup.exe'

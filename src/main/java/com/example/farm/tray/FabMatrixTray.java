@@ -1,5 +1,6 @@
 package com.example.farm.tray;
 
+import javax.imageio.ImageIO;
 import javax.swing.JOptionPane;
 import java.awt.Color;
 import java.awt.Desktop;
@@ -13,6 +14,7 @@ import java.awt.TrayIcon;
 import java.awt.event.ActionEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -293,6 +295,19 @@ public final class FabMatrixTray {
     }
 
     private static Image createBrandIcon() {
+        try (InputStream resource = FabMatrixTray.class.getResourceAsStream("/tray.png")) {
+            if (resource != null) {
+                BufferedImage packagedIcon = ImageIO.read(resource);
+                if (packagedIcon != null) return packagedIcon;
+            }
+            System.err.println("FabMatrix tray resource tray.png is unavailable; using the Java2D fallback icon.");
+        } catch (Exception error) {
+            System.err.println("Unable to load packaged tray.png; using the Java2D fallback icon: " + error.getMessage());
+        }
+        return createFallbackBrandIcon();
+    }
+
+    private static Image createFallbackBrandIcon() {
         BufferedImage image = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
         graphics.setColor(new Color(28, 91, 160));

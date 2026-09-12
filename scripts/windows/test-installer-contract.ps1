@@ -7,6 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path
+$assets = Join-Path $scriptRoot 'assets'
+$build = Join-Path $scriptRoot 'build-installer.ps1'
 
 function Assert-Contains([string]$Path, [string]$Pattern, [string]$Description) {
     $content = Get-Content -Raw -LiteralPath $Path
@@ -22,6 +24,108 @@ function Assert-Exists([string]$Path, [string]$Description) {
     if (-not (Test-Path -LiteralPath $Path)) { throw "Contract path missing: $Description ($Path)" }
 }
 
+function Assert-Throws([scriptblock]$Action, [string]$Description) {
+    try {
+        & $Action
+    } catch {
+        return
+    }
+    throw "Contract check expected failure: $Description"
+}
+
+function Get-IcoDimensions([string]$Path) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 6 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
+        throw "ICO header is invalid: $Path"
+    }
+    $count = [BitConverter]::ToUInt16($bytes, 4)
+    if ($count -lt 1 -or $bytes.Length -lt 6 + (16 * $count)) { throw "ICO directory is invalid: $Path" }
+    $dimensions = @()
+    for ($index = 0; $index -lt $count; $index++) {
+        $entryOffset = 6 + (16 * $index)
+        $width = if ($bytes[$entryOffset] -eq 0) { 256 } else { [int]$bytes[$entryOffset] }
+        $height = if ($bytes[$entryOffset + 1] -eq 0) { 256 } else { [int]$bytes[$entryOffset + 1] }
+        $size = [BitConverter]::ToUInt32($bytes, $entryOffset + 8)
+        $offset = [BitConverter]::ToUInt32($bytes, $entryOffset + 12)
+        if ($width -ne $height -or $size -lt 8 -or $offset -lt (6 + (16 * $count)) -or $offset + $size -gt $bytes.Length) {
+            throw "ICO directory entry is invalid: $Path"
+        }
+        if ($bytes[$offset] -ne 0x89 -or $bytes[$offset + 1] -ne 0x50 -or $bytes[$offset + 2] -ne 0x4E -or $bytes[$offset + 3] -ne 0x47) {
+            throw "ICO entry is not PNG encoded: $Path"
+        }
+        $dimensions += $width
+    }
+    return $dimensions
+}
+
+foreach ($assetName in @('installer.ico', 'server.ico', 'tray.ico', 'tray.png')) {
+    Assert-Exists (Join-Path $assets $assetName) "brand asset $assetName"
+}
+$expectedIconDimensions = @(16, 24, 32, 48, 64, 128, 256)
+foreach ($icoName in @('installer.ico', 'server.ico', 'tray.ico')) {
+    $dimensions = @(Get-IcoDimensions (Join-Path $assets $icoName)) | Sort-Object -Unique
+    if (($dimensions -join ',') -ne ($expectedIconDimensions -join ',')) {
+        throw "ICO does not contain the required Windows sizes: $icoName ($($dimensions -join ', '))"
+    }
+}
+$pngBytes = [IO.File]::ReadAllBytes((Join-Path $assets 'tray.png'))
+$pngSignature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+for ($index = 0; $index -lt $pngSignature.Length; $index++) {
+    if ($pngBytes.Length -lt 33 -or $pngBytes[$index] -ne $pngSignature[$index]) { throw 'tray.png is not a valid PNG.' }
+}
+if ([Text.Encoding]::ASCII.GetString($pngBytes, 12, 4) -ne 'IHDR') { throw 'tray.png has no IHDR chunk.' }
+
+$buildSource = Get-Content -LiteralPath $build -Raw -Encoding UTF8
+$buildTokens = $null
+$buildParseErrors = $null
+$buildAst = [System.Management.Automation.Language.Parser]::ParseInput($buildSource, $build, [ref]$buildTokens, [ref]$buildParseErrors)
+if ($buildParseErrors.Count -ne 0) { throw "Build script AST parse failed: $($buildParseErrors[0].Message)" }
+$parameterNames = @($buildAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+if ('CleanOutput' -notin $parameterNames) { throw 'Build script does not expose -CleanOutput.' }
+$buildFunctionAsts = @{}
+foreach ($functionName in @('Resolve-AbsolutePath', 'Assert-SafeOutputPath', 'Clear-KnownOutput')) {
+    $functionAst = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
+    if ($null -eq $functionAst) { throw "Build script does not expose required function: $functionName" }
+    $buildFunctionAsts[$functionName] = $functionAst
+    Invoke-Expression $functionAst.Extent.Text
+}
+$jpackageAssignment = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$jpackageArgs' }, $true)
+if ($null -eq $jpackageAssignment) { throw 'Build script jpackage arguments are not represented as an assignment.' }
+foreach ($requiredLauncherToken in @('--icon', '--add-launcher', '--win-console')) {
+    if ($jpackageAssignment.Extent.Text -notmatch [regex]::Escape($requiredLauncherToken)) { throw "jpackage arguments omit $requiredLauncherToken." }
+}
+if ($buildSource -notmatch '(?m)^icon=\$trayIconPropertyPath$' -or $buildSource -notmatch 'Copy-Item -LiteralPath \$trayPngPath') {
+    throw 'Tray launcher icon/resource wiring is missing from the build script.'
+}
+
+# Exercise the cleanup function only against a disposable fixture. Unknown content and the output directory survive.
+$cleanTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixCleanOutputContract-' + [guid]::NewGuid().ToString('N'))
+try {
+    $fixtureOutput = Join-Path $cleanTemp 'output'
+    New-Item -ItemType Directory -Force -Path (Join-Path $fixtureOutput 'work'), (Join-Path $fixtureOutput 'precommit-check') | Out-Null
+    foreach ($knownFile in @('FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
+        New-Item -ItemType File -Force -Path (Join-Path $fixtureOutput $knownFile) | Out-Null
+    }
+    New-Item -ItemType File -Force -Path (Join-Path $fixtureOutput 'keep-me.txt') | Out-Null
+    Clear-KnownOutput $fixtureOutput $projectRoot
+    foreach ($knownPath in @('work', 'precommit-check', 'FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
+        if (Test-Path -LiteralPath (Join-Path $fixtureOutput $knownPath)) { throw "CleanOutput retained known generated item: $knownPath" }
+    }
+    Assert-Exists (Join-Path $fixtureOutput 'keep-me.txt') 'unknown output fixture'
+    Assert-Exists $fixtureOutput 'output directory itself'
+    foreach ($dangerousPath in @($projectRoot, (Join-Path $projectRoot 'dist'), (Join-Path $projectRoot 'src'),
+            (Join-Path $projectRoot 'scripts'), (Join-Path $projectRoot 'scripts\windows\assets'),
+            (Split-Path $projectRoot -Parent), [IO.Path]::GetPathRoot($projectRoot))) {
+        Assert-Throws { Clear-KnownOutput $dangerousPath $projectRoot } "dangerous output path $dangerousPath"
+    }
+    $defaultOutput = Join-Path $projectRoot 'dist\windows-installer'
+    if ((Assert-SafeOutputPath $defaultOutput $projectRoot) -ne [IO.Path]::GetFullPath($defaultOutput)) {
+        throw 'Default dist\windows-installer output path was unexpectedly rejected.'
+    }
+} finally {
+    if (Test-Path -LiteralPath $cleanTemp) { Remove-Item -LiteralPath $cleanTemp -Recurse -Force }
+}
+
 $installer = Join-Path $scriptRoot 'installer\Farm.iss'
 $configure = Join-Path $scriptRoot 'service\Farm-Configure.ps1'
 $install = Join-Path $scriptRoot 'service\install-service.ps1'
@@ -33,7 +137,6 @@ $dataAcl = Join-Path $scriptRoot 'service\data-acl.ps1'
 $recovery = Join-Path $scriptRoot 'service\recover-upgrade-state.ps1'
 $serviceXml = Join-Path $scriptRoot 'service\service-xml.ps1'
 $control = Join-Path $scriptRoot 'service\service-control.ps1'
-$build = Join-Path $scriptRoot 'build-installer.ps1'
 $tray = Join-Path $projectRoot 'src\main\java\com\example\farm\tray\FabMatrixTray.java'
 $backup = Join-Path $projectRoot 'scripts\local-backup.ps1'
 $restore = Join-Path $projectRoot 'scripts\local-restore.ps1'
@@ -98,6 +201,11 @@ Assert-Contains $build 'maintenance.*local-backup\.ps1|local-backup\.ps1.*mainte
 Assert-Contains $build 'System\.Diagnostics\.ProcessStartInfo|Invoke-CapturedProcess' 'safe native Java metadata capture'
 Assert-Contains $build "releaseInfo -match 'NativeCommandError\|CategoryInfo'" 'release metadata error pollution guard'
 Assert-NotContains $build '& \$javaExe -version 2>&1|& java -XshowSettings:properties -version 2>&1' 'PowerShell native error-stream Java capture'
+Assert-Contains $build 'AssetsDir|installerIconPath|serverIconPath|trayIconPath|trayPngPath' 'fixed replaceable brand asset directory'
+Assert-Contains $build 'if \(\$CleanOutput\)[\s\S]*Clear-KnownOutput' 'explicit safe output cleanup switch'
+Assert-Contains $build 'if \(-not \$NoClean\)[\s\S]*maven @\(''clean''\)' 'preserved NoClean Maven semantics'
+Assert-Contains $installer 'SetupIconFile=\{#AssetsDir\}\\installer\.ico' 'installer icon resource'
+Assert-Contains $tray 'getResourceAsStream\("/tray\.png"\)|createFallbackBrandIcon' 'classpath tray icon with fallback'
 Assert-Contains $backup 'database.*farm\.db|config.*application\.yml|files' 'backup coverage'
 Assert-Contains $backup '\$\{FARM_DATA_DIR\}' 'portable backup config'
 Assert-Contains $restore 'Move-Item|restore-staging|installedNames|rollback was attempted' 'replacement restore and rollback'
@@ -255,6 +363,15 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
             'service\capture-upgrade-state.ps1', 'service\data-acl.ps1', 'service\migrate-legacy-data.ps1',
             'service\portable-config.ps1', 'service\recover-upgrade-state.ps1', 'service\service-xml.ps1')) {
         Assert-Exists (Join-Path $payload $relative) "payload $relative"
+    }
+    $trayJarPath = Join-Path $payload 'app\FabMatrixTray.jar'
+    Assert-Exists $trayJarPath 'payload tray JAR'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $trayArchive = [IO.Compression.ZipFile]::OpenRead($trayJarPath)
+    try {
+        if ($null -eq $trayArchive.GetEntry('tray.png')) { throw 'Packaged tray JAR does not contain tray.png.' }
+    } finally {
+        $trayArchive.Dispose()
     }
 }
 

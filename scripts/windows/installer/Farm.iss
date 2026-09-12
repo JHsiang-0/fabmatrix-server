@@ -7,6 +7,9 @@
 #ifndef OutputDir
 #define OutputDir "..\..\dist\windows-installer"
 #endif
+#ifndef AssetsDir
+#define AssetsDir "..\assets"
+#endif
 
 [Setup]
 AppId={{A9C3F9A1-4E74-4C8A-9B08-9E9C0B7A4F2D}
@@ -33,6 +36,7 @@ VersionInfoDescription=FabMatrix Server Windows Local Edition installer
 VersionInfoProductName=FabMatrix Server
 VersionInfoProductVersion={#AppVersion}
 ChangesEnvironment=no
+SetupIconFile={#AssetsDir}\installer.ico
 
 [Tasks]
 Name: "service_autostart"; Description: "随 Windows 自动启动 FabMatrixServer 服务"; Flags: checkedonce

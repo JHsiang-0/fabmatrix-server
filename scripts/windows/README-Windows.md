@@ -40,11 +40,33 @@ powershell -ExecutionPolicy Bypass -File maintenance\local-restore.ps1 `
 
 ## 构建和回归检查
 
+### 可替换品牌资源
+
+构建使用固定资源目录 `scripts\windows\assets\`：
+
+- `installer.ico`：Inno Setup 安装器图标。
+- `server.ico`：FabMatrixServer 主 launcher 图标。
+- `tray.ico`：FabMatrixTray 附加 launcher 图标。
+- `tray.png`：运行时托盘图标，作为 `FabMatrixTray.jar` 的 classpath 资源。
+
+三个 ICO 为包含 16、24、32、48、64、128、256 像素图像的透明 Windows ICO；PNG 必须是透明 PNG。可直接替换这四个独立文件，不要求文件内容相同；替换后必须重新运行 jpackage/Inno 构建，已生成的 EXE/JAR 不会自动更新。默认资源由前端公共品牌图标生成，源文件为 `D:\WorkSpace\Vue\fabmatrix-client\public\icon.png`。
+
+### 输出清理边界
+
+默认构建不会清理输出目录。需要清理旧发布候选时显式使用：
+
+```powershell
+.\scripts\windows\build-installer.ps1 -CleanOutput
+```
+
+`-CleanOutput` 只删除解析后的 `OutputDir` 内已知生成项：`work`、`precommit-check`、当前或旧的 `FabMatrixServer-Setup*.exe`/`Farm-Setup*.exe`、`checksums.txt`、`release-info.txt`、输出副本 `README-Windows.md` 和顶层 `acceptance-*.log`；不会删除 `OutputDir` 本身或其中其他未知文件。脚本会拒绝文件系统根、仓库根、`dist`/`target`、源码/脚本/资源目录及其父级，也拒绝重解析点。`-NoClean` 仍只保留原语义：跳过 Maven `clean`，不改变 `-CleanOutput` 的显式行为。
+
 在仓库根目录执行：
 
 ```powershell
 .\scripts\windows\test-installer-contract.ps1
 .\scripts\windows\build-installer.ps1                 # 默认完整安装包
+.\scripts\windows\build-installer.ps1 -CleanOutput    # 清理已知旧产物后构建
 .\scripts\windows\build-installer.ps1 -Mode AppImage  # 只生成 jpackage app-image
 .\scripts\windows\build-installer.ps1 -Mode Payload   # 只生成 Inno payload
 ```

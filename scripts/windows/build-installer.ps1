@@ -33,8 +33,45 @@ function Resolve-AbsolutePath([string]$Path) {
     }
 }
 
+function Assert-NoReparsePointsInPath([string]$Path) {
+    $resolvedPath = Resolve-AbsolutePath $Path
+    $pathRoot = [IO.Path]::GetPathRoot($resolvedPath)
+    if ([string]::IsNullOrWhiteSpace($pathRoot)) { throw "Path has no filesystem root: $resolvedPath" }
+    $currentPath = $pathRoot
+    $rootAttributes = [IO.File]::GetAttributes($currentPath)
+    if ($rootAttributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Refusing a path containing a reparse point: $currentPath"
+    }
+    $components = @()
+    $relativePath = $resolvedPath.Substring($pathRoot.Length)
+    if (-not [string]::IsNullOrWhiteSpace($relativePath)) {
+        $components = @($relativePath -split '[\\/]' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+    foreach ($component in $components) {
+        $currentPath = [IO.Path]::Combine($currentPath, $component)
+        try {
+            $attributes = [IO.File]::GetAttributes($currentPath)
+        } catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
+            break
+        }
+        if ($attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing a path containing a reparse point: $currentPath"
+        }
+    }
+    return $resolvedPath
+}
+
+function Assert-PathContainedBy([string]$Path, [string]$ParentPath) {
+    $resolvedPath = (Resolve-AbsolutePath $Path).TrimEnd('\')
+    $resolvedParent = (Resolve-AbsolutePath $ParentPath).TrimEnd('\')
+    if (-not $resolvedPath.StartsWith($resolvedParent + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Path is not contained by the expected output directory: $resolvedPath"
+    }
+    return $resolvedPath
+}
+
 function Assert-SafeOutputPath([string]$Path, [string]$ProjectRoot) {
-    $resolvedOutput = Resolve-AbsolutePath $Path
+    $resolvedOutput = Assert-NoReparsePointsInPath $Path
     $resolvedProject = (Resolve-Path -LiteralPath $ProjectRoot).Path
     $resolvedOutputTrimmed = $resolvedOutput.TrimEnd('\')
     $root = ([IO.Path]::GetPathRoot($resolvedOutput)).TrimEnd('\')
@@ -64,11 +101,8 @@ function Assert-SafeOutputPath([string]$Path, [string]$ProjectRoot) {
             throw "Refusing to clean protected build root: $resolvedOutput"
         }
     }
-    if (Test-Path -LiteralPath $resolvedOutput) {
-        $outputItem = Get-Item -LiteralPath $resolvedOutput -Force
-        if ($outputItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw "Refusing to clean a reparse-point output directory: $resolvedOutput"
-        }
+    if (Test-Path -LiteralPath $resolvedOutput -PathType Leaf) {
+        throw "Output path is not a directory: $resolvedOutput"
     }
     return $resolvedOutput
 }
@@ -82,13 +116,16 @@ function Clear-KnownOutput([string]$OutputPath, [string]$ProjectRoot) {
         $isKnown = $_.Name -in $knownNames -or $_.Name -match $knownInstallerPattern -or
             (-not $_.PSIsContainer -and $_.Name -match '^acceptance-[^\\/]+\.log$')
         if (-not $isKnown) { return }
-        if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw "Refusing to remove a reparse-point generated item: $($_.FullName)"
+        $candidatePath = Assert-PathContainedBy $_.FullName $safeOutput
+        [void](Assert-NoReparsePointsInPath $candidatePath)
+        $candidate = Get-Item -LiteralPath $candidatePath -Force
+        if ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to remove a reparse-point generated item: $candidatePath"
         }
-        if ($_.PSIsContainer) {
-            Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        if ($candidate.PSIsContainer) {
+            Remove-Item -LiteralPath $candidatePath -Recurse -Force
         } else {
-            Remove-Item -LiteralPath $_.FullName -Force
+            Remove-Item -LiteralPath $candidatePath -Force
         }
     }
 }

@@ -47,6 +47,10 @@ public final class FabMatrixTray {
     }
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && "--self-test-brand-icon".equals(args[0])) {
+            runBrandIconSelfTest();
+            return;
+        }
         if (args.length == 1 && "--self-test-uac-command".equals(args[0])) {
             runUacCommandSelfTest();
             return;
@@ -295,6 +299,10 @@ public final class FabMatrixTray {
     }
 
     private static Image createBrandIcon() {
+        return selectBrandIcon(loadPackagedBrandIcon());
+    }
+
+    private static Image loadPackagedBrandIcon() {
         try (InputStream resource = FabMatrixTray.class.getResourceAsStream("/tray.png")) {
             if (resource != null) {
                 BufferedImage packagedIcon = ImageIO.read(resource);
@@ -304,7 +312,11 @@ public final class FabMatrixTray {
         } catch (Exception error) {
             System.err.println("Unable to load packaged tray.png; using the Java2D fallback icon: " + error.getMessage());
         }
-        return createFallbackBrandIcon();
+        return null;
+    }
+
+    private static Image selectBrandIcon(Image packagedIcon) {
+        return packagedIcon != null ? packagedIcon : createFallbackBrandIcon();
     }
 
     private static Image createFallbackBrandIcon() {
@@ -317,6 +329,18 @@ public final class FabMatrixTray {
         graphics.drawString("FM", 3, 21);
         graphics.dispose();
         return image;
+    }
+
+    private static void runBrandIconSelfTest() {
+        Image packagedIcon = loadPackagedBrandIcon();
+        if (packagedIcon == null || packagedIcon.getWidth(null) <= 0 || packagedIcon.getHeight(null) <= 0) {
+            throw new IllegalStateException("Packaged tray.png could not be decoded");
+        }
+        Image fallbackIcon = selectBrandIcon(null);
+        if (fallbackIcon.getWidth(null) != 32 || fallbackIcon.getHeight(null) != 32) {
+            throw new IllegalStateException("Java2D fallback icon is invalid");
+        }
+        System.out.println("FabMatrix tray packaged and fallback brand icon self-test passed.");
     }
 
     private static String quotePowerShell(String value) {

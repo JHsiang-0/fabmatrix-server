@@ -33,6 +33,18 @@ function Assert-Throws([scriptblock]$Action, [string]$Description) {
     throw "Contract check expected failure: $Description"
 }
 
+function Assert-ThrowsMatching([scriptblock]$Action, [string]$Pattern, [string]$Description) {
+    try {
+        & $Action
+    } catch {
+        if ($_.Exception.Message -notmatch $Pattern) {
+            throw "Contract check failed for the wrong reason: $Description ($($_.Exception.Message))"
+        }
+        return
+    }
+    throw "Contract check expected failure: $Description"
+}
+
 function Get-IcoDimensions([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
     if ($bytes.Length -lt 6 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
@@ -83,7 +95,8 @@ if ($buildParseErrors.Count -ne 0) { throw "Build script AST parse failed: $($bu
 $parameterNames = @($buildAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
 if ('CleanOutput' -notin $parameterNames) { throw 'Build script does not expose -CleanOutput.' }
 $buildFunctionAsts = @{}
-foreach ($functionName in @('Resolve-AbsolutePath', 'Assert-SafeOutputPath', 'Clear-KnownOutput')) {
+foreach ($functionName in @('Resolve-AbsolutePath', 'Assert-NoReparsePointsInPath', 'Assert-PathContainedBy',
+        'Assert-SafeOutputPath', 'Clear-KnownOutput')) {
     $functionAst = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
     if ($null -eq $functionAst) { throw "Build script does not expose required function: $functionName" }
     $buildFunctionAsts[$functionName] = $functionAst
@@ -93,6 +106,14 @@ $jpackageAssignment = $buildAst.Find({ param($node) $node -is [System.Management
 if ($null -eq $jpackageAssignment) { throw 'Build script jpackage arguments are not represented as an assignment.' }
 foreach ($requiredLauncherToken in @('--icon', '--add-launcher', '--win-console')) {
     if ($jpackageAssignment.Extent.Text -notmatch [regex]::Escape($requiredLauncherToken)) { throw "jpackage arguments omit $requiredLauncherToken." }
+}
+$serverIconBinding = [regex]::Escape("'--icon'") + '\s*,\s*\$serverIconPath'
+if ($jpackageAssignment.Extent.Text -notmatch $serverIconBinding) {
+    throw 'jpackage --icon is not immediately bound to $serverIconPath.'
+}
+$trayIconAssignment = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$trayIconPropertyPath' }, $true)
+if ($null -eq $trayIconAssignment -or $trayIconAssignment.Right.Extent.Text -notmatch '^\$trayIconPath\s+-replace') {
+    throw 'Tray launcher property icon path is not derived from $trayIconPath.'
 }
 if ($buildSource -notmatch '(?m)^icon=\$trayIconPropertyPath$' -or $buildSource -notmatch 'Copy-Item -LiteralPath \$trayPngPath') {
     throw 'Tray launcher icon/resource wiring is missing from the build script.'
@@ -122,8 +143,38 @@ try {
     if ((Assert-SafeOutputPath $defaultOutput $projectRoot) -ne [IO.Path]::GetFullPath($defaultOutput)) {
         throw 'Default dist\windows-installer output path was unexpectedly rejected.'
     }
+    Assert-Throws { Assert-PathContainedBy (Join-Path $fixtureOutput '..\escape') $fixtureOutput } 'output containment escape'
 } finally {
     if (Test-Path -LiteralPath $cleanTemp) { Remove-Item -LiteralPath $cleanTemp -Recurse -Force }
+}
+
+# Create real Windows junctions so ancestor and candidate reparse-point defenses are executed, not inferred from text.
+$junctionTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixJunctionContract-' + [guid]::NewGuid().ToString('N'))
+$ancestorJunction = Join-Path $junctionTemp 'ancestor-link'
+$candidateJunction = Join-Path $junctionTemp 'candidate-output\work'
+try {
+    $ancestorTarget = Join-Path $junctionTemp 'ancestor-target'
+    $ancestorTargetOutput = Join-Path $ancestorTarget 'output'
+    $candidateOutput = Join-Path $junctionTemp 'candidate-output'
+    $candidateTarget = Join-Path $junctionTemp 'candidate-target'
+    New-Item -ItemType Directory -Force -Path (Join-Path $ancestorTargetOutput 'work'), $candidateOutput, $candidateTarget | Out-Null
+    New-Item -ItemType File -Force -Path (Join-Path $ancestorTargetOutput 'work\must-survive.txt'),
+        (Join-Path $candidateTarget 'must-survive.txt') | Out-Null
+    try {
+        New-Item -ItemType Junction -Path $ancestorJunction -Target $ancestorTarget -ErrorAction Stop | Out-Null
+        New-Item -ItemType Junction -Path $candidateJunction -Target $candidateTarget -ErrorAction Stop | Out-Null
+    } catch {
+        throw "Unable to create required junction fixtures; reparse-point protection was not validated or skipped: $($_.Exception.Message)"
+    }
+    Assert-ThrowsMatching { Clear-KnownOutput (Join-Path $ancestorJunction 'output') $projectRoot } 'reparse point' 'ancestor junction output path'
+    Assert-Exists (Join-Path $ancestorTargetOutput 'work\must-survive.txt') 'ancestor junction target sentinel'
+    Assert-ThrowsMatching { Clear-KnownOutput $candidateOutput $projectRoot } 'reparse point' 'known output item junction'
+    Assert-Exists (Join-Path $candidateTarget 'must-survive.txt') 'candidate junction target sentinel'
+} finally {
+    foreach ($junction in @($candidateJunction, $ancestorJunction)) {
+        if (Test-Path -LiteralPath $junction) { [IO.Directory]::Delete($junction) }
+    }
+    if (Test-Path -LiteralPath $junctionTemp) { Remove-Item -LiteralPath $junctionTemp -Recurse -Force }
 }
 
 $installer = Join-Path $scriptRoot 'installer\Farm.iss'
@@ -205,7 +256,11 @@ Assert-Contains $build 'AssetsDir|installerIconPath|serverIconPath|trayIconPath|
 Assert-Contains $build 'if \(\$CleanOutput\)[\s\S]*Clear-KnownOutput' 'explicit safe output cleanup switch'
 Assert-Contains $build 'if \(-not \$NoClean\)[\s\S]*maven @\(''clean''\)' 'preserved NoClean Maven semantics'
 Assert-Contains $installer 'SetupIconFile=\{#AssetsDir\}\\installer\.ico' 'installer icon resource'
-Assert-Contains $tray 'getResourceAsStream\("/tray\.png"\)|createFallbackBrandIcon' 'classpath tray icon with fallback'
+Assert-Contains $tray 'getResourceAsStream\("/tray\.png"\)' 'classpath tray icon loading'
+Assert-Contains $tray 'selectBrandIcon\(loadPackagedBrandIcon\(\)\)' 'packaged tray icon selection'
+Assert-Contains $tray 'packagedIcon != null \? packagedIcon : createFallbackBrandIcon\(\)' 'Java2D tray icon fallback selection'
+Assert-Contains $tray 'private static Image createFallbackBrandIcon\(\)' 'Java2D tray icon fallback implementation'
+Assert-Contains $tray '--self-test-brand-icon|runBrandIconSelfTest' 'headless brand icon self-test'
 Assert-Contains $backup 'database.*farm\.db|config.*application\.yml|files' 'backup coverage'
 Assert-Contains $backup '\$\{FARM_DATA_DIR\}' 'portable backup config'
 Assert-Contains $restore 'Move-Item|restore-staging|installedNames|rollback was attempted' 'replacement restore and rollback'
@@ -373,6 +428,10 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     } finally {
         $trayArchive.Dispose()
     }
+    $payloadJava = Get-Command java.exe -ErrorAction SilentlyContinue
+    if ($null -eq $payloadJava) { throw 'Java is required to execute the packaged tray brand icon self-test.' }
+    & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'
+    if ($LASTEXITCODE -ne 0) { throw "Packaged tray brand icon self-test failed: $LASTEXITCODE" }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ReleaseInfoPath)) {
@@ -396,6 +455,9 @@ if (-not $SkipTrayCompile) {
         New-Item -ItemType Directory -Force -Path $temp | Out-Null
         & $javac '--release' '25' '-encoding' 'UTF-8' '-d' $temp $tray
         if ($LASTEXITCODE -ne 0) { throw "Tray source compilation failed: $LASTEXITCODE" }
+        Copy-Item -LiteralPath (Join-Path $assets 'tray.png') -Destination (Join-Path $temp 'tray.png') -Force
+        & $java '-Djava.awt.headless=true' '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'
+        if ($LASTEXITCODE -ne 0) { throw "Tray brand icon self-test failed: $LASTEXITCODE" }
         & $java '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-uac-command'
         if ($LASTEXITCODE -ne 0) { throw "Tray UAC command self-test failed: $LASTEXITCODE" }
     } finally {

@@ -41,6 +41,7 @@ Name: "launch_tray"; Description: "安装完成后启动 FabMatrix 托盘控制�
 
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\service\capture-upgrade-state.ps1"; Flags: dontcopy
 
 [Dirs]
 Name: "{code:GetDataRoot}"; Flags: uninsneveruninstall
@@ -51,8 +52,8 @@ Name: "{code:GetDataRoot}\logs"; Flags: uninsneveruninstall
 Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080 -AutoStart"; Tasks: service_autostart; Flags: runhidden waituntilterminated; StatusMsg: "正在注册并启动 FabMatrixServer Windows 服务..."
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080"; Tasks: not service_autostart; Flags: runhidden waituntilterminated; StatusMsg: "正在注册 FabMatrixServer Windows 服务..."
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080 -AutoStart -PreserveExistingState -StateFile ""{tmp}\FabMatrixServer-upgrade-state.json"""; Tasks: service_autostart; Flags: runhidden waituntilterminated; StatusMsg: "正在注册并启动 FabMatrixServer Windows 服务..."
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080 -PreserveExistingState -StateFile ""{tmp}\FabMatrixServer-upgrade-state.json"""; Tasks: not service_autostart; Flags: runhidden waituntilterminated; StatusMsg: "正在注册 FabMatrixServer Windows 服务..."
 Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"
 
 [UninstallRun]
@@ -65,32 +66,31 @@ Name: "{userstartup}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; 
 [Code]
 function GetDataRoot(Param: String): String;
 begin
-  if CompareText(ExtractFileDrive(ExpandConstant('{app}')), ExtractFileDrive(ExpandConstant('{sysdrive}'))) = 0 then
+  if CompareText(ExtractFileDrive(ExpandConstant('{app}')), ExtractFileDrive(ExpandConstant('{sd}'))) = 0 then
     Result := ExpandConstant('{commonappdata}\FabMatrix')
   else
     Result := AddBackslash(ExpandConstant('{app}')) + 'data';
 end;
 
-function StopPreviousProcesses(): Boolean;
+function CaptureStateAndStopPreviousProcesses(): Boolean;
 var
   ResultCode: Integer;
   PowerShell: String;
-  Command: String;
+  CaptureScript: String;
+  StateFile: String;
 begin
+  ExtractTemporaryFile('capture-upgrade-state.ps1');
   PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
-  Command := '$ErrorActionPreference=''Stop''; ' +
-    'foreach($n in @(''FabMatrixServer'',''Farm'')){ $s=Get-Service -Name $n -ErrorAction SilentlyContinue; ' +
-    'if($s -and $s.Status -ne ''Stopped''){ Stop-Service -InputObject $s -ErrorAction Stop; ' +
-    '$s.WaitForStatus(''Stopped'',[TimeSpan]::FromSeconds(30)); $s.Refresh(); ' +
-    'if($s.Status -ne ''Stopped''){ throw (''服务未能停止: '' + $n) } } }; ' +
-    'Get-Process -Name ''FarmTray'',''FabMatrixTray'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction Stop';
-  Result := Exec(PowerShell, '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Command + '"',
+  CaptureScript := ExpandConstant('{tmp}\capture-upgrade-state.ps1');
+  StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
+  Result := Exec(PowerShell, '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + CaptureScript +
+    '" -StateFile "' + StateFile + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
-  if not StopPreviousProcesses() then
+  if not CaptureStateAndStopPreviousProcesses() then
     Result := '无法可靠停止旧 Farm/FabMatrixServer 服务或托盘进程，安装已中止。请检查服务状态后重试。';
 end;

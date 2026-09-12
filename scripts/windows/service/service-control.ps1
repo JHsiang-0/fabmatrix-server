@@ -9,14 +9,14 @@ $serviceName = 'FabMatrixServer'
 
 function Get-RequiredService {
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if ($null -eq $service) { throw "未找到 Windows 服务: $serviceName" }
+    if ($null -eq $service) { throw "Windows service not found: $serviceName" }
     return $service
 }
 
 function Wait-ServiceStatus($Service, [System.ServiceProcess.ServiceControllerStatus]$Expected) {
     $Service.WaitForStatus($Expected, [TimeSpan]::FromSeconds(30))
     $Service.Refresh()
-    if ($Service.Status -ne $Expected) { throw "服务未进入预期状态: $serviceName -> $Expected" }
+    if ($Service.Status -ne $Expected) { throw "Service did not reach expected state: $serviceName -> $Expected" }
 }
 
 function Start-FabMatrixServer {

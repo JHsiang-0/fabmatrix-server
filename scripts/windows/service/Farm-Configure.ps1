@@ -17,8 +17,6 @@ param(
     [string]$JwtSecret = '',
     [string]$AdminSecret = '',
     [string]$CorsOrigins = '*',
-    [string]$LocalDataDir = '',
-    [string]$LocalFileDir = '',
     [switch]$Force
 )
 
@@ -40,8 +38,7 @@ $configDir = [IO.Path]::GetFullPath($ConfigDir)
 $dataRoot = [IO.Path]::GetFullPath($DataRoot)
 $configPath = Join-Path $configDir 'application.yml'
 $databaseDir = Join-Path $dataRoot 'database'
-$databasePath = Join-Path $databaseDir 'farm.db'
-$fileDir = if ([string]::IsNullOrWhiteSpace($LocalFileDir)) { Join-Path $dataRoot 'files' } else { [IO.Path]::GetFullPath($LocalFileDir) }
+$fileDir = Join-Path $dataRoot 'files'
 $logsDir = Join-Path $dataRoot 'logs'
 $backupsDir = Join-Path $dataRoot 'backups'
 
@@ -61,11 +58,14 @@ $profile = if ([string]::IsNullOrWhiteSpace($SpringProfile)) {
     if ($Edition -eq 'Local') { 'local' } else { 'prod' }
 } else { $SpringProfile }
 
-$fileDirYaml = ConvertTo-YamlSingleQuoted ($fileDir -replace '\\', '/')
 $logsDirYaml = ConvertTo-YamlSingleQuoted ($logsDir -replace '\\', '/')
 $corsYaml = ConvertTo-YamlSingleQuoted $CorsOrigins
 
 if ($Edition -eq 'Local') {
+    $portableDataRoot = '${FARM_DATA_DIR}'
+    $portableDatabase = ConvertTo-YamlSingleQuoted "jdbc:sqlite:$portableDataRoot/database/farm.db"
+    $portableFiles = ConvertTo-YamlSingleQuoted "$portableDataRoot/files"
+    $portableLog = ConvertTo-YamlSingleQuoted "$portableDataRoot/logs/farm.log"
     $content = @"
 # FabMatrix Server Windows Local Edition configuration. Generated at install time; do not commit this file.
 spring:
@@ -74,7 +74,7 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 20s
   datasource:
-    url: $(ConvertTo-YamlSingleQuoted ("jdbc:sqlite:" + ($databasePath -replace '\\', '/')))
+    url: $portableDatabase
   sql:
     init:
       mode: always
@@ -84,10 +84,10 @@ server:
   shutdown: graceful
 logging:
   file:
-    name: $(ConvertTo-YamlSingleQuoted (($logsDir + '\farm.log') -replace '\\', '/'))
+    name: $portableLog
 farm:
   local:
-    storage-path: $fileDirYaml
+    storage-path: $portableFiles
   monitor:
     enabled: false
   scheduler:

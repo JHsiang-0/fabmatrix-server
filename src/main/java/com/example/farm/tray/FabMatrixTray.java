@@ -20,6 +20,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -27,10 +28,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Base64;
 import java.util.Enumeration;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -46,6 +45,10 @@ public final class FabMatrixTray {
     }
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && "--self-test-uac-command".equals(args[0])) {
+            runUacCommandSelfTest();
+            return;
+        }
         if (!SystemTray.isSupported() || GraphicsEnvironment.isHeadless()) {
             System.out.println("FabMatrix tray is unavailable on this desktop; the FabMatrixServer service is unchanged.");
             return;
@@ -95,7 +98,6 @@ public final class FabMatrixTray {
             addAction(menu, "复制本机服务地址", event -> copyText("http://127.0.0.1:" + PORT));
             addAction(menu, "打开 files", event -> openDirectory(dataRoot.resolve("files")));
             addAction(menu, "打开 logs", event -> openDirectory(dataRoot.resolve("logs")));
-            addAction(menu, "打开 backups", event -> openDirectory(dataRoot.resolve("backups")));
             addAction(menu, "管理员编辑配置", event -> editConfig());
             menu.addSeparator();
             addAction(menu, "退出托盘（不停止服务）", event -> shutdown());
@@ -181,9 +183,7 @@ public final class FabMatrixTray {
 
         private void editConfig() {
             try {
-                Files.createDirectories(dataRoot.resolve("config"));
-                runElevatedPowerShellCommand("$p=Start-Process -FilePath 'notepad.exe' -Verb RunAs -Wait -PassThru -ArgumentList '" +
-                        escapePowerShell(dataRoot.resolve("config/application.yml").toString()) + "'; exit $p.ExitCode");
+                runElevatedPowerShellCommand(buildElevatedEditorCommand(dataRoot.resolve("config/application.yml")));
             } catch (Exception error) {
                 showError("打开配置失败: " + error.getMessage());
             }
@@ -194,26 +194,14 @@ public final class FabMatrixTray {
             if (!Files.isRegularFile(script)) {
                 throw new IOException("缺少控制脚本: " + script);
             }
-            List<String> commandArguments = new ArrayList<>();
-            commandArguments.add("-NoProfile");
-            commandArguments.add("-ExecutionPolicy");
-            commandArguments.add("Bypass");
-            commandArguments.add("-File");
-            commandArguments.add(script.toString());
-            Collections.addAll(commandArguments, arguments);
-            StringBuilder list = new StringBuilder();
-            for (String argument : commandArguments) {
-                if (list.length() > 0) list.append(',');
-                list.append((char) 39).append(escapePowerShell(argument)).append((char) 39);
-            }
-            runElevatedPowerShellCommand("$p=Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList @(" +
-                    list + "); exit $p.ExitCode");
+            runElevatedPowerShellCommand(buildElevatedScriptCommand(script, arguments));
         }
 
         private void runElevatedPowerShellCommand(String command) throws Exception {
-            Process process = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+            Process process = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    encodePowerShell(command))
                     .redirectErrorStream(true).start();
-            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (!process.waitFor(60, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 throw new IOException("UAC helper 超时");
@@ -316,8 +304,47 @@ public final class FabMatrixTray {
         return image;
     }
 
-    private static String escapePowerShell(String value) {
-        return value.replace("'", "''");
+    private static String quotePowerShell(String value) {
+        return "'" + value.replace("'", "''") + "'";
+    }
+
+    private static String encodePowerShell(String command) {
+        return Base64.getEncoder().encodeToString(command.getBytes(StandardCharsets.UTF_16LE));
+    }
+
+    private static String buildElevatedScriptCommand(Path script, String... arguments) {
+        return buildElevationCommand(buildScriptInvocation(script, arguments));
+    }
+
+    private static String buildScriptInvocation(Path script, String... arguments) {
+        StringBuilder invocation = new StringBuilder("& ").append(quotePowerShell(script.toString()));
+        for (String argument : arguments) invocation.append(' ').append(quotePowerShell(argument));
+        return invocation.toString();
+    }
+
+    private static String buildElevatedEditorCommand(Path configPath) {
+        return buildElevationCommand("& 'notepad.exe' " + quotePowerShell(configPath.toString()));
+    }
+
+    private static String buildElevationCommand(String innerCommand) {
+        String innerEncoded = encodePowerShell(innerCommand);
+        return "$p=Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru " +
+                "-ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','" + innerEncoded + "'); exit $p.ExitCode";
+    }
+
+    private static void runUacCommandSelfTest() {
+        Path script = Paths.get("D:\\Program Files\\Fab'Matrix\\service\\service-control.ps1");
+        Path config = Paths.get("D:\\Program Files\\Fab'Matrix\\data\\config\\application.yml");
+        String innerScriptCommand = buildScriptInvocation(script, "-Action", "restart");
+        String scriptCommand = buildElevatedScriptCommand(script, "-Action", "restart");
+        String editorCommand = buildElevatedEditorCommand(config);
+        if (!innerScriptCommand.contains("'D:\\Program Files\\Fab''Matrix\\service\\service-control.ps1'") ||
+                scriptCommand.contains(script.toString()) || editorCommand.contains(config.toString()) ||
+                !new String(Base64.getDecoder().decode(encodePowerShell(scriptCommand)), StandardCharsets.UTF_16LE).equals(scriptCommand) ||
+                !new String(Base64.getDecoder().decode(encodePowerShell(editorCommand)), StandardCharsets.UTF_16LE).equals(editorCommand)) {
+            throw new IllegalStateException("Encoded UAC command construction failed");
+        }
+        System.out.println("FabMatrix tray encoded UAC command self-test passed.");
     }
 
     private static final class TrayLock implements AutoCloseable {

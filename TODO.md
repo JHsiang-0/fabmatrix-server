@@ -72,7 +72,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [~] P1.7.3 已有 SQLite 初始表结构、幂等索引和可重复初始化，并完成关键 SQLite Mapper 方言测试；已提供带恢复前保留措施的备份/恢复脚本，MySQL 数据导入边界和正式恢复演练仍待完成。
 - [x] P1.7.4 已提供 v1 Server Edition 的 Farm、MySQL、Redis、RustFS 正式 Docker Compose 编排、密钥注入、健康检查和数据卷说明。
 - [~] P1.7.5 已补充两种形态的启动、数据目录检查、备份恢复说明和 Server Edition 镜像构建记录；Windows 安装/卸载和正式发布验证仍待完成。
-- [~] P1.7.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、按安装盘符选择数据根目录、私有网络防火墙规则、ACL 和独立托盘控制器，并构建校验安装包；干净 Windows 机器上的 C/非 C 安装升级卸载及数据保留验收仍待完成。
+- [~] P1.7.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、按安装盘符选择数据根目录、旧数据迁移与升级服务状态保留、私有网络防火墙规则、私有备份 ACL、独立托盘和可移植备份恢复，并构建校验安装包；干净 Windows 机器上的 C/非 C 安装升级卸载、graceful shutdown 日志及数据保留验收仍待完成。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

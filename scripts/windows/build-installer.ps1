@@ -34,7 +34,7 @@ function Get-JavaHome {
     $settings = (& java -XshowSettings:properties -version 2>&1 | Out-String)
     $ErrorActionPreference = $previousErrorAction
     $match = [regex]::Match($settings, '(?m)^\s*java\.home\s*=\s*(.+?)\s*$')
-    if (-not $match.Success) { throw '无法从 Java 获取 java.home；请设置 JAVA_HOME。' }
+    if (-not $match.Success) { throw 'Unable to determine java.home; set JAVA_HOME.' }
     return $match.Groups[1].Value.Trim()
 }
 
@@ -49,7 +49,7 @@ function Find-InnoCompiler {
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate) { return $candidate }
     }
-    throw '未找到 Inno Setup ISCC.exe。请安装 Inno Setup 6。'
+    throw 'Inno Setup 6 ISCC.exe was not found.'
 }
 
 function Write-Utf8NoBom([string]$Path, [string]$Content) {
@@ -64,13 +64,13 @@ $javac = Join-Path $javaHome 'bin\javac.exe'
 $jarTool = Join-Path $javaHome 'bin\jar.exe'
 $jpackage = Join-Path $javaHome 'bin\jpackage.exe'
 foreach ($tool in @($javaExe, $javac, $jarTool, $jpackage)) {
-    if (-not (Test-Path -LiteralPath $tool)) { throw "Java 25 JDK 中未找到工具: $tool" }
+    if (-not (Test-Path -LiteralPath $tool)) { throw "Java 25 JDK tool not found: $tool" }
 }
 $previousErrorAction = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $javaVersion = (& $javaExe -version 2>&1 | Select-Object -First 1 | Out-String).Trim()
 $ErrorActionPreference = $previousErrorAction
-if ($javaVersion -notmatch 'version "25\.') { throw "必须使用 Java 25，当前为: $javaVersion" }
+if ($javaVersion -notmatch 'version "25\.') { throw "Java 25 is required; current version: $javaVersion" }
 Write-Host "Java: $javaVersion"
 
 $maven = $null
@@ -80,7 +80,7 @@ if ($mvnCommand) {
 } elseif (Test-Path -LiteralPath (Join-Path $projectRoot 'mvnw.cmd')) {
     $maven = Join-Path $projectRoot 'mvnw.cmd'
 } else {
-    throw '未找到 Maven 或 mvnw.cmd。'
+    throw 'Maven or mvnw.cmd was not found.'
 }
 Write-Host "Maven: $maven"
 $iscc = if ($Mode -eq 'Full') { Find-InnoCompiler } else { $null }
@@ -101,11 +101,12 @@ try {
         Where-Object { $_.Name -notlike '*.original' } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
-    if (-not $jar) { throw '打包后未找到 FabMatrix Server JAR。' }
+    if (-not $jar) { throw 'FabMatrix Server JAR was not found after packaging.' }
 
     $traySource = Join-Path $projectRoot 'src\main\java\com\example\farm\tray\FabMatrixTray.java'
-    if (-not (Test-Path -LiteralPath $traySource)) { throw "未找到托盘源码: $traySource" }
+    if (-not (Test-Path -LiteralPath $traySource)) { throw "Tray source was not found: $traySource" }
     $trayClasses = Join-Path $workPath 'tray-classes'
+    Remove-Item -LiteralPath $inputPath -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $trayClasses -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $inputPath, $imagePath, $vendorPath, $trayClasses | Out-Null
     Invoke-Checked $javac @('--release', '25', '-encoding', 'UTF-8', '-d', $trayClasses, $traySource)
@@ -113,13 +114,18 @@ try {
     Remove-Item -LiteralPath $trayJar -Force -ErrorAction SilentlyContinue
     Invoke-Checked $jarTool @('--create', '--file', $trayJar, '-C', $trayClasses, '.')
     Copy-Item -LiteralPath $jar.FullName -Destination (Join-Path $inputPath $jar.Name) -Force
+    $inputFiles = @(Get-ChildItem -LiteralPath $inputPath -File)
+    $expectedInputNames = @($jar.Name, 'FabMatrixTray.jar')
+    if ($inputFiles.Count -ne 2 -or @($inputFiles | Where-Object { $_.Name -notin $expectedInputNames }).Count -ne 0) {
+        throw "jpackage input must contain only the current server and tray JARs: $($inputFiles.Name -join ', ')"
+    }
 
     $winswUrl = 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe'
     $winswSha256 = '05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA'
     $winswPath = Join-Path $vendorPath 'FabMatrixServerService.exe'
     if (-not (Test-Path -LiteralPath $winswPath)) { Invoke-WebRequest -Uri $winswUrl -OutFile $winswPath }
     $actualWinSwHash = (Get-FileHash -LiteralPath $winswPath -Algorithm SHA256).Hash.ToUpperInvariant()
-    if ($actualWinSwHash -ne $winswSha256) { throw "WinSW SHA-256 校验失败：$actualWinSwHash" }
+    if ($actualWinSwHash -ne $winswSha256) { throw "WinSW SHA-256 verification failed: $actualWinSwHash" }
     $licensePath = Join-Path $vendorPath 'WinSW-LICENSE.txt'
     if (-not (Test-Path -LiteralPath $licensePath)) {
         Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/winsw/winsw/v2.12.0/LICENSE.txt' -OutFile $licensePath
@@ -145,13 +151,13 @@ win-console=false
         '--dest', $imagePath,
         '--java-options', '-Dfile.encoding=UTF-8',
         '--java-options', '-Dspring.profiles.active=local',
-        '--java-options', '-Xrs',
+        '--win-console',
         '--add-launcher', "FabMatrixTray=$launcherProperties"
     )
     Invoke-Checked $jpackage $jpackageArgs
     $appImageRoot = Join-Path $imagePath 'FabMatrixServer'
-    if (-not (Test-Path -LiteralPath (Join-Path $appImageRoot 'FabMatrixServer.exe'))) { throw 'jpackage 未生成 FabMatrixServer.exe。' }
-    if (-not (Test-Path -LiteralPath (Join-Path $appImageRoot 'FabMatrixTray.exe'))) { throw 'jpackage 未生成 FabMatrixTray.exe。' }
+    if (-not (Test-Path -LiteralPath (Join-Path $appImageRoot 'FabMatrixServer.exe'))) { throw 'jpackage did not create FabMatrixServer.exe.' }
+    if (-not (Test-Path -LiteralPath (Join-Path $appImageRoot 'FabMatrixTray.exe'))) { throw 'jpackage did not create FabMatrixTray.exe.' }
     Write-Host "App image: $appImageRoot"
     if ($Mode -eq 'AppImage') { return }
 
@@ -159,12 +165,19 @@ win-console=false
     New-Item -ItemType Directory -Force -Path $payloadPath | Out-Null
     Copy-Item -Path (Join-Path $appImageRoot '*') -Destination $payloadPath -Recurse -Force
     New-Item -ItemType Directory -Force -Path (Join-Path $payloadPath 'service') | Out-Null
-    foreach ($name in @('Farm-Configure.ps1', 'install-service.ps1', 'uninstall-service.ps1', 'service-control.ps1')) {
+    foreach ($name in @('Farm-Configure.ps1', 'capture-upgrade-state.ps1', 'install-service.ps1',
+            'migrate-legacy-data.ps1', 'service-control.ps1', 'service-xml.ps1', 'uninstall-service.ps1')) {
         Copy-Item -LiteralPath (Join-Path $scriptRoot "service\$name") -Destination (Join-Path $payloadPath "service\$name") -Force
     }
     Copy-Item -LiteralPath $winswPath -Destination (Join-Path $payloadPath 'service\FabMatrixServerService.exe') -Force
     Copy-Item -LiteralPath $licensePath -Destination (Join-Path $payloadPath 'service\WinSW-LICENSE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $scriptRoot 'README-Windows.md') -Destination (Join-Path $payloadPath 'README-Windows.md') -Force
+    $maintenancePath = Join-Path $payloadPath 'maintenance'
+    New-Item -ItemType Directory -Force -Path $maintenancePath | Out-Null
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-backup.ps1') -Destination (Join-Path $maintenancePath 'local-backup.ps1') -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-restore.ps1') -Destination (Join-Path $maintenancePath 'local-restore.ps1') -Force
+    Invoke-Checked 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        (Join-Path $scriptRoot 'test-installer-contract.ps1'), '-SkipTrayCompile', '-PayloadPath', $payloadPath)
     Write-Host "Payload: $payloadPath"
     if ($Mode -eq 'Payload') { return }
 
@@ -174,7 +187,7 @@ win-console=false
     Invoke-Checked $iscc $issArgs
 
     $installer = Join-Path $outputPath 'FabMatrixServer-Setup.exe'
-    if (-not (Test-Path -LiteralPath $installer)) { throw "Inno Setup 未生成安装包: $installer" }
+    if (-not (Test-Path -LiteralPath $installer)) { throw "Inno Setup did not create installer: $installer" }
     $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToUpperInvariant()
     $installerSize = (Get-Item -LiteralPath $installer).Length
     Write-Utf8NoBom (Join-Path $outputPath 'README-Windows.md') (Get-Content -Raw (Join-Path $scriptRoot 'README-Windows.md'))

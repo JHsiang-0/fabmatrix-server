@@ -18,7 +18,7 @@ function Stop-ServiceIfPresent([string]$Name) {
     $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
     $service.Refresh()
     if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
-        throw "服务未能停止，卸载已中止: $Name"
+        throw "Service did not stop; uninstall aborted: $Name"
     }
 }
 
@@ -27,15 +27,20 @@ function Remove-ServiceIfPresent([string]$Name) {
     if ($null -eq $service) { return }
     Stop-ServiceIfPresent $Name
     & sc.exe delete $Name | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Windows 服务删除失败 ($LASTEXITCODE): $Name" }
+    if ($LASTEXITCODE -ne 0) { throw "Windows service deletion failed ($LASTEXITCODE): $Name" }
 }
 
+# Release only the known tray launchers before Inno removes EXE/runtime files.
+# This never targets backend or printer processes.
+Get-Process -Name 'FabMatrixTray', 'FarmTray' -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction Stop
+
 Remove-ServiceIfPresent 'FabMatrixServer'
-# 兼容清理历史服务注册；不触碰历史 Farm 数据目录。
+# Remove the legacy registration only; legacy Farm data is retained.
 Remove-ServiceIfPresent 'Farm'
 
 if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
-    throw '当前 Windows 没有可用的 Windows Firewall PowerShell cmdlet，无法确认私有网络规则已移除。'
+    throw 'Windows Firewall PowerShell cmdlets are required to remove the Private inbound rule.'
 }
 $ruleName = 'FabMatrixServer-Private-TCP'
 $rule = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue

@@ -111,6 +111,16 @@ $safeOutputAssignments = @($buildAst.FindAll({
 if ($safeOutputAssignments.Count -ne 1) {
     throw 'Build script must unconditionally validate OutputDir before the build workflow starts.'
 }
+$outputResolveAssignments = @($buildAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$outputPath' -and
+            $node.Right.Extent.Text -match '^Resolve-AbsolutePath\s+\$OutputDir\s+\$projectRoot$'
+        }, $true))
+if ($outputResolveAssignments.Count -ne 1 -or
+    $outputResolveAssignments[0].Extent.EndOffset -gt $safeOutputAssignments[0].Extent.StartOffset) {
+    throw 'Build script does not validate the raw OutputDir before output safety checks.'
+}
 $brandAssetsCommand = $buildAst.Find({
         param($node)
         $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Test-WindowsBrandAssets'
@@ -180,9 +190,35 @@ try {
             (Split-Path $projectRoot -Parent), [IO.Path]::GetPathRoot($projectRoot))) {
         Assert-Throws { Clear-KnownOutput $dangerousPath $projectRoot } "dangerous output path $dangerousPath"
     }
+    $protectedAliasTargets = @(
+        [pscustomobject]@{ Label = 'repository root'; Path = $projectRoot; Sentinel = (Join-Path $projectRoot 'AGENTS.md') },
+        [pscustomobject]@{ Label = 'scripts/windows'; Path = (Join-Path $projectRoot 'scripts\windows'); Sentinel = (Join-Path $projectRoot 'scripts\windows\README-Windows.md') },
+        [pscustomobject]@{ Label = 'src'; Path = (Join-Path $projectRoot 'src'); Sentinel = (Join-Path $projectRoot 'src\main\java\com\example\farm\tray\FabMatrixTray.java') }
+    )
+    foreach ($target in $protectedAliasTargets) {
+        $sentinelHash = (Get-FileHash -LiteralPath $target.Sentinel -Algorithm SHA256).Hash
+        $driveLetter = $target.Path.Substring(0, 1)
+        $driveTail = $target.Path.Substring(3)
+        $aliases = @(
+            "\\?\$($target.Path)",
+            "\\.\$($target.Path)",
+            "\??\$($target.Path)",
+            "\\localhost\$driveLetter`$\$driveTail"
+        )
+        foreach ($alias in $aliases) {
+            Assert-ThrowsMatching { Assert-SafeOutputPath $alias $projectRoot } 'not supported' "$($target.Label) device/UNC alias"
+            if ((Get-FileHash -LiteralPath $target.Sentinel -Algorithm SHA256).Hash -ne $sentinelHash) {
+                throw "Protected source sentinel changed while rejecting $($target.Label) alias: $($target.Sentinel)"
+            }
+        }
+    }
     $defaultOutput = Join-Path $projectRoot 'dist\windows-installer'
     if ((Assert-SafeOutputPath $defaultOutput $projectRoot) -ne [IO.Path]::GetFullPath($defaultOutput)) {
         throw 'Default dist\windows-installer output path was unexpectedly rejected.'
+    }
+    if ((Resolve-AbsolutePath 'dist\windows-installer' $projectRoot) -ne [IO.Path]::GetFullPath($defaultOutput) -or
+        (Resolve-AbsolutePath $fixtureOutput) -ne [IO.Path]::GetFullPath($fixtureOutput)) {
+        throw 'Ordinary project-relative or local-drive output path was unexpectedly rejected.'
     }
     Assert-Throws { Assert-PathContainedBy (Join-Path $fixtureOutput '..\escape') $fixtureOutput } 'output containment escape'
 } finally {

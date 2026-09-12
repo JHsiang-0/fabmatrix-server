@@ -12,25 +12,40 @@ param(
 $ErrorActionPreference = 'Stop'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path
-$outputPath = if ([IO.Path]::IsPathRooted($OutputDir)) { [IO.Path]::GetFullPath($OutputDir) } else { [IO.Path]::GetFullPath((Join-Path $projectRoot $OutputDir)) }
-$workPath = Join-Path $outputPath 'work'
-$payloadPath = Join-Path $workPath 'payload'
-$inputPath = Join-Path $workPath 'input'
-$imagePath = Join-Path $workPath 'app-image'
-$vendorPath = Join-Path $workPath 'vendor'
 $assetsPath = Join-Path $scriptRoot 'assets'
 $serverIconPath = Join-Path $assetsPath 'server.ico'
 $trayIconPath = Join-Path $assetsPath 'tray.ico'
 $trayPngPath = Join-Path $assetsPath 'tray.png'
 $trayIconPropertyPath = $trayIconPath -replace '\\', '/'
 
-function Resolve-AbsolutePath([string]$Path) {
+function Resolve-AbsolutePath([string]$Path, [string]$BasePath = '') {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A non-empty path is required.' }
+    $normalizedInput = $Path.Replace('/', '\')
+    if ($normalizedInput.StartsWith('\\', [StringComparison]::Ordinal) -or
+        $normalizedInput.StartsWith('\??\', [StringComparison]::Ordinal) -or
+        $normalizedInput -match '^[A-Za-z]:(?!\\)' -or
+        ([IO.Path]::IsPathRooted($Path) -and $normalizedInput -notmatch '^[A-Za-z]:\\')) {
+        throw "Windows device namespaces, UNC/NT paths, and drive-relative paths are not supported: $Path"
+    }
+    $candidatePath = if (-not [IO.Path]::IsPathRooted($Path) -and -not [string]::IsNullOrWhiteSpace($BasePath)) {
+        Join-Path $BasePath $Path
+    } else {
+        $Path
+    }
     try {
-        return [IO.Path]::GetFullPath($Path)
+        $resolvedPath = [IO.Path]::GetFullPath($candidatePath)
     } catch {
         throw "Unable to resolve path: $Path"
     }
+    $normalizedResolved = $resolvedPath.Replace('/', '\')
+    $resolvedRoot = [IO.Path]::GetPathRoot($normalizedResolved)
+    if ($normalizedResolved.StartsWith('\\', [StringComparison]::Ordinal) -or
+        $normalizedResolved.StartsWith('\??\', [StringComparison]::Ordinal) -or
+        $normalizedResolved -notmatch '^[A-Za-z]:\\' -or
+        $resolvedRoot -notmatch '^[A-Za-z]:\\$') {
+        throw "Resolved path is not an ordinary local drive path: $resolvedPath"
+    }
+    return $resolvedPath
 }
 
 function Assert-NoReparsePointsInPath([string]$Path) {
@@ -72,7 +87,7 @@ function Assert-PathContainedBy([string]$Path, [string]$ParentPath) {
 
 function Assert-SafeOutputPath([string]$Path, [string]$ProjectRoot) {
     $resolvedOutput = Assert-NoReparsePointsInPath $Path
-    $resolvedProject = (Resolve-Path -LiteralPath $ProjectRoot).Path
+    $resolvedProject = Resolve-AbsolutePath $ProjectRoot
     $resolvedOutputTrimmed = $resolvedOutput.TrimEnd('\')
     $root = ([IO.Path]::GetPathRoot($resolvedOutput)).TrimEnd('\')
     if ([string]::Equals($resolvedOutputTrimmed, $root, [StringComparison]::OrdinalIgnoreCase)) {
@@ -242,7 +257,13 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, $utf8)
 }
 
+$outputPath = Resolve-AbsolutePath $OutputDir $projectRoot
 $outputPath = Assert-SafeOutputPath $outputPath $projectRoot
+$workPath = Join-Path $outputPath 'work'
+$payloadPath = Join-Path $workPath 'payload'
+$inputPath = Join-Path $workPath 'input'
+$imagePath = Join-Path $workPath 'app-image'
+$vendorPath = Join-Path $workPath 'vendor'
 Write-Host "Project: $projectRoot"
 Test-WindowsBrandAssets $assetsPath
 if ($CleanOutput) {

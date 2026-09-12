@@ -9,6 +9,7 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path
 $assets = Join-Path $scriptRoot 'assets'
 $build = Join-Path $scriptRoot 'build-installer.ps1'
+$contractDistRoot = Join-Path $projectRoot 'dist'
 
 function Assert-Contains([string]$Path, [string]$Pattern, [string]$Description) {
     $content = Get-Content -Raw -LiteralPath $Path
@@ -43,6 +44,26 @@ function Assert-ThrowsMatching([scriptblock]$Action, [string]$Pattern, [string]$
         return
     }
     throw "Contract check expected failure: $Description"
+}
+
+function Remove-DistContractFixture([string]$Path) {
+    $resolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $resolvedDist = [IO.Path]::GetFullPath($contractDistRoot).TrimEnd('\')
+    if (-not [string]::Equals([IO.Path]::GetDirectoryName($resolvedPath), $resolvedDist, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolvedPath) -notmatch '^installer-contract-[0-9a-z-]+$') {
+        throw "Refusing to remove an unexpected dist contract fixture: $resolvedPath"
+    }
+    if (Test-Path -LiteralPath $resolvedPath) { Remove-Item -LiteralPath $resolvedPath -Recurse -Force }
+}
+
+function Remove-TempContractFixture([string]$Path) {
+    $resolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $resolvedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if (-not [string]::Equals([IO.Path]::GetDirectoryName($resolvedPath), $resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolvedPath) -notmatch '^FabMatrixExternalOutputContract-[0-9a-f]+$') {
+        throw "Refusing to remove an unexpected temp contract fixture: $resolvedPath"
+    }
+    if (Test-Path -LiteralPath $resolvedPath) { Remove-Item -LiteralPath $resolvedPath -Recurse -Force }
 }
 
 function Get-IcoDimensions([string]$Path) {
@@ -101,6 +122,15 @@ foreach ($functionName in @('Resolve-AbsolutePath', 'Assert-NoReparsePointsInPat
     if ($null -eq $functionAst) { throw "Build script does not expose required function: $functionName" }
     $buildFunctionAsts[$functionName] = $functionAst
     Invoke-Expression $functionAst.Extent.Text
+}
+$safeOutputFunctionText = $buildFunctionAsts['Assert-SafeOutputPath'].Extent.Text
+$reparseFunctionText = $buildFunctionAsts['Assert-NoReparsePointsInPath'].Extent.Text
+$strictDistPolicyFallbackReady = $safeOutputFunctionText -match 'Join-Path\s+\$resolvedProject\s+''dist''' -and
+    $safeOutputFunctionText -match 'StartsWith\(\$allowedOutputRoot\s*\+\s*''\\''' -and
+    $safeOutputFunctionText -match 'Assert-NoReparsePointsInPath\s+\$resolvedOutput' -and
+    $reparseFunctionText -match 'canonicalItem\.Name'
+if (-not $strictDistPolicyFallbackReady) {
+    throw 'Build script does not expose the strict dist-subdirectory and canonical-component policy required for capability fallbacks.'
 }
 $safeOutputAssignments = @($buildAst.FindAll({
             param($node)
@@ -170,10 +200,10 @@ if ($buildSource -notmatch '(?m)^icon=\$trayIconPropertyPath$' -or $buildSource 
     throw 'Tray launcher icon/resource wiring is missing from the build script.'
 }
 
-# Exercise the cleanup function only against a disposable fixture. Unknown content and the output directory survive.
-$cleanTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixCleanOutputContract-' + [guid]::NewGuid().ToString('N'))
+# Exercise the cleanup function only against a disposable direct child of the repository dist directory.
+$cleanTemp = Join-Path $contractDistRoot ('installer-contract-clean-' + [guid]::NewGuid().ToString('N'))
 try {
-    $fixtureOutput = Join-Path $cleanTemp 'output'
+    $fixtureOutput = $cleanTemp
     New-Item -ItemType Directory -Force -Path (Join-Path $fixtureOutput 'work'), (Join-Path $fixtureOutput 'precommit-check') | Out-Null
     foreach ($knownFile in @('FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
         New-Item -ItemType File -Force -Path (Join-Path $fixtureOutput $knownFile) | Out-Null
@@ -206,7 +236,7 @@ try {
             "\\localhost\$driveLetter`$\$driveTail"
         )
         foreach ($alias in $aliases) {
-            Assert-ThrowsMatching { Assert-SafeOutputPath $alias $projectRoot } 'not supported' "$($target.Label) device/UNC alias"
+            Assert-ThrowsMatching { Assert-SafeOutputPath $alias $projectRoot } 'ordinary local-drive' "$($target.Label) device/UNC alias"
             if ((Get-FileHash -LiteralPath $target.Sentinel -Algorithm SHA256).Hash -ne $sentinelHash) {
                 throw "Protected source sentinel changed while rejecting $($target.Label) alias: $($target.Sentinel)"
             }
@@ -220,13 +250,69 @@ try {
         (Resolve-AbsolutePath $fixtureOutput) -ne [IO.Path]::GetFullPath($fixtureOutput)) {
         throw 'Ordinary project-relative or local-drive output path was unexpectedly rejected.'
     }
+    $shortPath = $null
+    if (Get-Command cmd.exe -ErrorAction SilentlyContinue) {
+        $shortPathLines = @(& cmd.exe /d /c "for %I in (`"$fixtureOutput`") do @echo %~sI")
+        if ($LASTEXITCODE -eq 0 -and $shortPathLines.Count -gt 0) {
+            $shortPath = ([string]$shortPathLines[-1]).Trim()
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($shortPath) -and
+        -not [string]::Equals($shortPath, $fixtureOutput, [StringComparison]::OrdinalIgnoreCase) -and
+        (Test-Path -LiteralPath $shortPath)) {
+        Assert-ThrowsMatching { Assert-SafeOutputPath $shortPath $projectRoot } 'strict subdirectory|non-canonical|short-name' '8.3 short output alias'
+        Assert-Exists (Join-Path $fixtureOutput 'keep-me.txt') 'short-path rejection sentinel'
+    } else {
+        Write-Host '8.3 short-path fixture unavailable; strict dist-root and canonical-component policy fallback passed.'
+    }
+
+    $substCreated = $false
+    $substDrive = @('Z', 'Y', 'X', 'W', 'V') | Where-Object {
+        -not (Get-PSDrive -Name $_ -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath "$_`:\")
+    } | Select-Object -First 1
+    if ($substDrive -and (Get-Command subst.exe -ErrorAction SilentlyContinue)) {
+        & subst.exe "$substDrive`:" $projectRoot | Out-Null
+        $substCreated = $LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath "$substDrive`:\")
+    }
+    if ($substCreated) {
+        try {
+            $mappedOutput = "$substDrive`:\dist\$([IO.Path]::GetFileName($fixtureOutput))"
+            Assert-ThrowsMatching { Assert-SafeOutputPath $mappedOutput $projectRoot } 'strict subdirectory' 'SUBST output alias'
+            Assert-Exists (Join-Path $fixtureOutput 'keep-me.txt') 'SUBST rejection sentinel'
+            Write-Host 'SUBST output alias rejection passed.'
+        } finally {
+            & subst.exe "$substDrive`:" /D | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Unable to remove SUBST contract drive: $substDrive`:" }
+        }
+    } else {
+        Write-Host 'SUBST fixture unavailable; strict dist-root policy fallback passed.'
+    }
     Assert-Throws { Assert-PathContainedBy (Join-Path $fixtureOutput '..\escape') $fixtureOutput } 'output containment escape'
 } finally {
-    if (Test-Path -LiteralPath $cleanTemp) { Remove-Item -LiteralPath $cleanTemp -Recurse -Force }
+    Remove-DistContractFixture $cleanTemp
+}
+
+$externalTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixExternalOutputContract-' + [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Force -Path $externalTemp | Out-Null
+    $externalSentinel = Join-Path $externalTemp 'must-survive.txt'
+    [IO.File]::WriteAllText($externalSentinel, 'external-output-sentinel')
+    $externalHash = (Get-FileHash -LiteralPath $externalSentinel -Algorithm SHA256).Hash
+    Assert-ThrowsMatching { Assert-SafeOutputPath $externalTemp $projectRoot } 'strict subdirectory' 'external temp output directory'
+    if ((Get-FileHash -LiteralPath $externalSentinel -Algorithm SHA256).Hash -ne $externalHash) {
+        throw 'External temp output sentinel changed while rejecting the path.'
+    }
+    $projectSentinelHash = (Get-FileHash -LiteralPath (Join-Path $projectRoot 'pom.xml') -Algorithm SHA256).Hash
+    Assert-ThrowsMatching { Assert-SafeOutputPath (Join-Path $projectRoot 'target\installer-contract-outside') $projectRoot } 'strict subdirectory' 'local non-dist output directory'
+    if ((Get-FileHash -LiteralPath (Join-Path $projectRoot 'pom.xml') -Algorithm SHA256).Hash -ne $projectSentinelHash) {
+        throw 'Repository sentinel changed while rejecting a local non-dist path.'
+    }
+} finally {
+    Remove-TempContractFixture $externalTemp
 }
 
 # Create real Windows junctions so cleanup and default-build staging defenses are executed, not inferred from text.
-$junctionTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixJunctionContract-' + [guid]::NewGuid().ToString('N'))
+$junctionTemp = Join-Path $contractDistRoot ('installer-contract-junction-' + [guid]::NewGuid().ToString('N'))
 $ancestorJunction = Join-Path $junctionTemp 'ancestor-link'
 $candidateJunction = Join-Path $junctionTemp 'candidate-output\work'
 $stagingWorkJunction = Join-Path $junctionTemp 'staging-ancestor-output\work'
@@ -280,7 +366,7 @@ try {
     foreach ($junction in @($stagingCandidateJunctions + @($stagingWorkJunction, $candidateJunction, $ancestorJunction))) {
         if (Test-Path -LiteralPath $junction) { [IO.Directory]::Delete($junction) }
     }
-    if (Test-Path -LiteralPath $junctionTemp) { Remove-Item -LiteralPath $junctionTemp -Recurse -Force }
+    Remove-DistContractFixture $junctionTemp
 }
 
 $installer = Join-Path $scriptRoot 'installer\Farm.iss'

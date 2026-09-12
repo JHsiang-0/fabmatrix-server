@@ -59,7 +59,9 @@ powershell -ExecutionPolicy Bypass -File maintenance\local-restore.ps1 `
 .\scripts\windows\build-installer.ps1 -CleanOutput
 ```
 
-`-CleanOutput` 只删除解析后的 `OutputDir` 内已知生成项：`work`、`precommit-check`、当前或旧的 `FabMatrixServer-Setup*.exe`/`Farm-Setup*.exe`、`checksums.txt`、`release-info.txt`、输出副本 `README-Windows.md` 和顶层 `acceptance-*.log`；不会删除 `OutputDir` 本身或其中其他未知文件。脚本会拒绝文件系统根、仓库根、`dist`/`target`、源码/脚本/资源目录及其父级，也拒绝重解析点。`-NoClean` 仍只保留原语义：跳过 Maven `clean`，不改变 `-CleanOutput` 的显式行为。
+`OutputDir` 只允许使用当前仓库 `dist\` 的严格子目录；默认值 `dist\windows-installer` 可直接使用，但不能把 `OutputDir` 设为 `dist` 本身、仓库外目录、UNC/设备路径、短路径别名、映射盘或 SUBST 盘符。输出目录自身及从文件系统根开始的所有已存在祖先也不能是重解析点。需要把安装器发布到仓库外位置时，应先在 `dist` 子目录完成构建和校验，再单独复制最终安装器，不要把外部发布目录直接传给构建脚本。
+
+`-CleanOutput` 只删除解析后的 `OutputDir` 内已知生成项：`work`、`precommit-check`、当前或旧的 `FabMatrixServer-Setup*.exe`/`Farm-Setup*.exe`、`checksums.txt`、`release-info.txt`、输出副本 `README-Windows.md` 和顶层 `acceptance-*.log`；不会删除 `OutputDir` 本身或其中其他未知文件。`-NoClean` 仍只保留原语义：跳过 Maven `clean`，不改变 `-CleanOutput` 的显式行为。
 
 在仓库根目录执行：
 

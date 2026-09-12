@@ -21,13 +21,13 @@ $trayIconPropertyPath = $trayIconPath -replace '\\', '/'
 function Resolve-AbsolutePath([string]$Path, [string]$BasePath = '') {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A non-empty path is required.' }
     $normalizedInput = $Path.Replace('/', '\')
-    if ($normalizedInput.StartsWith('\\', [StringComparison]::Ordinal) -or
-        $normalizedInput.StartsWith('\??\', [StringComparison]::Ordinal) -or
-        $normalizedInput -match '^[A-Za-z]:(?!\\)' -or
-        ([IO.Path]::IsPathRooted($Path) -and $normalizedInput -notmatch '^[A-Za-z]:\\')) {
-        throw "Windows device namespaces, UNC/NT paths, and drive-relative paths are not supported: $Path"
+    $isLocalAbsolute = [IO.Path]::IsPathRooted($Path) -and $normalizedInput -match '^[A-Za-z]:\\'
+    $isProjectRelative = -not [IO.Path]::IsPathRooted($Path) -and $normalizedInput -notmatch '^[A-Za-z]:' -and
+        -not [string]::IsNullOrWhiteSpace($BasePath)
+    if (-not $isLocalAbsolute -and -not $isProjectRelative) {
+        throw "Only an ordinary local-drive absolute path or a project-relative path is supported: $Path"
     }
-    $candidatePath = if (-not [IO.Path]::IsPathRooted($Path) -and -not [string]::IsNullOrWhiteSpace($BasePath)) {
+    $candidatePath = if ($isProjectRelative) {
         Join-Path $BasePath $Path
     } else {
         $Path
@@ -39,9 +39,7 @@ function Resolve-AbsolutePath([string]$Path, [string]$BasePath = '') {
     }
     $normalizedResolved = $resolvedPath.Replace('/', '\')
     $resolvedRoot = [IO.Path]::GetPathRoot($normalizedResolved)
-    if ($normalizedResolved.StartsWith('\\', [StringComparison]::Ordinal) -or
-        $normalizedResolved.StartsWith('\??\', [StringComparison]::Ordinal) -or
-        $normalizedResolved -notmatch '^[A-Za-z]:\\' -or
+    if ($normalizedResolved -notmatch '^[A-Za-z]:\\' -or
         $resolvedRoot -notmatch '^[A-Za-z]:\\$') {
         throw "Resolved path is not an ordinary local drive path: $resolvedPath"
     }
@@ -69,6 +67,10 @@ function Assert-NoReparsePointsInPath([string]$Path) {
         } catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
             break
         }
+        $canonicalItem = Get-Item -LiteralPath $currentPath -Force
+        if (-not [string]::Equals($component, $canonicalItem.Name, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing a non-canonical or short-name path component: $currentPath"
+        }
         if ($attributes -band [IO.FileAttributes]::ReparsePoint) {
             throw "Refusing a path containing a reparse point: $currentPath"
         }
@@ -86,36 +88,14 @@ function Assert-PathContainedBy([string]$Path, [string]$ParentPath) {
 }
 
 function Assert-SafeOutputPath([string]$Path, [string]$ProjectRoot) {
-    $resolvedOutput = Assert-NoReparsePointsInPath $Path
+    $resolvedOutput = Resolve-AbsolutePath $Path
     $resolvedProject = Resolve-AbsolutePath $ProjectRoot
     $resolvedOutputTrimmed = $resolvedOutput.TrimEnd('\')
-    $root = ([IO.Path]::GetPathRoot($resolvedOutput)).TrimEnd('\')
-    if ([string]::Equals($resolvedOutputTrimmed, $root, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to clean a filesystem root: $resolvedOutput"
+    $allowedOutputRoot = (Resolve-AbsolutePath (Join-Path $resolvedProject 'dist')).TrimEnd('\')
+    if (-not $resolvedOutputTrimmed.StartsWith($allowedOutputRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "OutputDir must be a strict subdirectory of the repository dist directory: $allowedOutputRoot"
     }
-    if ([string]::Equals($resolvedOutputTrimmed, $resolvedProject.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase) -or
-        $resolvedProject.StartsWith($resolvedOutputTrimmed + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to clean the repository root or its parent: $resolvedOutput"
-    }
-    $protectedRoots = @(
-        (Join-Path $resolvedProject 'src'),
-        (Join-Path $resolvedProject 'scripts'),
-        (Join-Path $resolvedProject 'scripts\windows'),
-        (Join-Path $resolvedProject 'scripts\windows\assets'),
-        (Join-Path $resolvedProject 'public')
-    ) | ForEach-Object { (Resolve-AbsolutePath $_).TrimEnd('\') }
-    foreach ($protected in $protectedRoots) {
-        if ([string]::Equals($resolvedOutputTrimmed, $protected, [StringComparison]::OrdinalIgnoreCase) -or
-            $resolvedOutputTrimmed.StartsWith($protected + '\', [StringComparison]::OrdinalIgnoreCase) -or
-            $protected.StartsWith($resolvedOutputTrimmed + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to clean protected or nested path: $resolvedOutput"
-        }
-    }
-    foreach ($protectedExact in @((Join-Path $resolvedProject 'dist'), (Join-Path $resolvedProject 'target'))) {
-        if ([string]::Equals($resolvedOutputTrimmed, (Resolve-AbsolutePath $protectedExact).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to clean protected build root: $resolvedOutput"
-        }
-    }
+    $resolvedOutput = Assert-NoReparsePointsInPath $resolvedOutput
     if (Test-Path -LiteralPath $resolvedOutput -PathType Leaf) {
         throw "Output path is not a directory: $resolvedOutput"
     }

@@ -85,9 +85,9 @@ Authorization: Bearer <token>
 ### 2.1 基础地址
 
 ```text
-HTTP API: http://<server-host>:8080/api/v1
-Swagger:  http://<server-host>:8080/swagger-ui.html
-WebSocket: ws://<server-host>:8080/ws/farm-status
+HTTP API: http://<server-host>:28081/api/v1
+Swagger:  http://<server-host>:28081/swagger-ui.html
+WebSocket: ws://<server-host>:28081/ws/farm-status
 ```
 
 正式 WebSocket 地址为 `/ws/farm-status`。当前代码没有实现 `/ws` 别名，前端不得连接 `/ws`。
@@ -727,13 +727,13 @@ mysql -u root -p farm < src/main/resources/db/migration/19-v2-print-job-audit-mo
 ### 7.1 连接
 
 ```text
-ws://<server-host>:8080/ws/farm-status
+ws://<server-host>:28081/ws/farm-status
 ```
 
 连接时必须携带登录返回的 JWT：
 
 ```text
-ws://<server-host>:8080/ws/farm-status?token=<JWT>
+ws://<server-host>:28081/ws/farm-status?token=<JWT>
 ```
 
 WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用查询参数传递：`/ws/farm-status?token=<JWT>`；缺少、无效或过期 Token 的连接会被服务端拒绝。服务端以数据库 `farm_user.enabled` 为准检查账号状态：已禁用用户不能使用既有 JWT 建立 WebSocket 连接；状态查询异常时同样拒绝连接，不允许鉴权依赖故障时放行。WebSocket 握手在升级后无法返回 REST JSON，客户端应将关闭视为鉴权失败并重新请求 `/auth/me` 或重新登录。当前连接仍是农场级广播，后续如需按打印机订阅再增加细粒度隔离。
@@ -827,7 +827,7 @@ mvn spring-boot:run
 MySQL:  localhost:3306
 Redis:  localhost:6379
 RustFS: localhost:9000
-应用:   localhost:8080
+应用:   localhost:28081
 ```
 
 ### 9.2 数据库
@@ -1028,8 +1028,8 @@ src/main/java/com/example/farm/protocol/RrfApiClient.java
 运行服务后访问：
 
 ```text
-http://localhost:8080/swagger-ui.html
-http://localhost:8080/v3/api-docs
+http://localhost:28081/swagger-ui.html
+http://localhost:28081/v3/api-docs
 ```
 
 Swagger 反映当前 Controller 上的 OpenAPI 注解；WebSocket `@ServerEndpoint` 不会作为 REST OpenAPI 路由展示。本文第 4 节正式 API 与当前 Controller 对应，批量接口的请求体、响应体、枚举和 Bearer Token 说明已同步。新增或修改 Controller 后，必须同步本文并检查 `/v3/api-docs`。

@@ -61,7 +61,7 @@ logging:
 
 # 开发环境服务器配置
 server:
-  port: 8080
+  port: ${SERVER_PORT:28081}
   tomcat:
     # 开发环境使用较小的线程池
     threads:

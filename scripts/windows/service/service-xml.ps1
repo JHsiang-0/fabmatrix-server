@@ -37,6 +37,7 @@ function New-FabMatrixServiceXml {
     param(
         [Parameter(Mandatory = $true)][string]$InstallDir,
         [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$Port,
         [ValidateSet('Automatic', 'Manual')][string]$StartMode = 'Manual'
     )
 
@@ -48,6 +49,7 @@ function New-FabMatrixServiceXml {
     $workingDirectoryXml = ConvertTo-XmlText $installPath
     $argumentsXml = ConvertTo-XmlText $arguments
     $dataXml = ConvertTo-XmlText $dataPath
+    $portXml = ConvertTo-XmlText ([string]$Port)
     $logsXml = ConvertTo-XmlText (Join-Path $dataPath 'logs')
     $serviceLogsXml = ConvertTo-XmlText (Join-Path $dataPath 'logs\service')
 
@@ -60,6 +62,7 @@ function New-FabMatrixServiceXml {
   <workingdirectory>$workingDirectoryXml</workingdirectory>
   <arguments>$argumentsXml</arguments>
   <env name="FARM_DATA_DIR" value="$dataXml" />
+  <env name="SERVER_PORT" value="$portXml" />
   <env name="LOG_PATH" value="$logsXml" />
   <logpath>$serviceLogsXml</logpath>
   <log mode="roll-by-size">

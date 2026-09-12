@@ -3,7 +3,7 @@ param(
     [string]$Edition = 'Local',
     [string]$ConfigDir = 'C:\ProgramData\FabMatrix\config',
     [string]$DataRoot = 'C:\ProgramData\FabMatrix',
-    [int]$Port = 8080,
+    [int]$Port = 28081,
     [string]$SpringProfile = '',
     [string]$MysqlUrl = 'jdbc:mysql://localhost:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=true',
     [string]$MysqlUsername = 'farm',

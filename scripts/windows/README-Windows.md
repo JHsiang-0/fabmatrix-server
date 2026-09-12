@@ -8,18 +8,18 @@
 - 安装盘符为系统盘时，数据根：`{commonappdata}\FabMatrix`（通常为 `C:\ProgramData\FabMatrix`）
 - 安装盘符不是系统盘时，数据根：`{app}\data`
 - 两种布局都包含：`config\application.yml`、`database\farm.db`、`files`、`logs`、`backups`
-- 默认监听：`0.0.0.0:8080`；Profile：`local`；后台 scheduler：关闭；Swagger/OpenAPI：关闭
+- 新安装默认监听：`0.0.0.0:28081`；Profile：`local`；后台 scheduler：关闭；Swagger/OpenAPI：关闭。升级时保留已有配置端口。
 - 固定 Windows 服务名：`FabMatrixServer`
 
 安装器在复制新文件前会记录已有 `Farm`/`FabMatrixServer` 服务的 StartType 和是否正在运行，再正常停止服务和旧/新托盘进程。升级完成后恢复原启动类型和运行状态；全新安装才使用安装选项决定 Automatic/Manual 和是否立即启动。旧 `Farm` 服务注册可被清理，但任何业务数据目录都不会删除。升级、卸载均保留数据根。卸载前只关闭 `FabMatrixTray`/`FarmTray`，随后移除程序文件、服务注册和本安装器创建的私有 TCP 防火墙规则，不递归删除 `config`、`database`、`files`、`logs` 或 `backups`。
 
 从旧版升级时，在旧服务已正常停止且新数据根尚未初始化的前提下，安装脚本检测 `C:\ProgramData\Farm`：先在旧根的 `backups\pre-fabmatrix-migration-*` 完整保留迁移源，再将 `data\farm.db` 映射到 `database\farm.db`、`uploads` 映射到 `files`、`config` 映射到 `config`。上一版 `Farm-Configure.ps1` 生成的配置没有 `spring.datasource.url`，迁移器会主动补入 `${FARM_DATA_DIR}/database/farm.db`，并把 files/logs 改为同一占位，同时保留原端口、CORS 和密钥。新根已有数据库、配置或文件时绝不覆盖；迁移或服务注册失败会中止安装、保留旧数据和迁移备份，并尽力恢复仍存在的原服务启动类型/运行状态。
 
-安装器只为 Windows Firewall 的 `Private` profile 创建与端口一致的 TCP 入站规则，不开放 `Public` profile。ACL 会先清除 Users、Authenticated Users、Everyone 等旧显式 ACE，再将 `config`、`database` 和 `backups` 限制为 SYSTEM/Administrators 完全控制；`files`、`logs` 可供 Users 只读，但不可写。
+安装器只解析一次实际端口，并将同一值写入 WinSW 服务级 `SERVER_PORT`、Windows Firewall `Private` TCP 入站规则及 `{app}\service-state\effective-port.txt`。该元数据只包含端口，显式授予 Users 读取/执行但不授予写入；不开放 `Public` profile，也不放宽业务数据 ACL。ACL 会先清除 Users、Authenticated Users、Everyone 等旧显式 ACE，再将 `config`、`database` 和 `backups` 限制为 SYSTEM/Administrators 完全控制；`files`、`logs` 可供 Users 只读，但不可写。已有纯数字 `8080` 等端口在升级时保留并冻结到服务环境；修改端口后必须重新运行安装器/服务注册流程，单独编辑配置并重启不会覆盖服务级 `SERVER_PORT`。
 
 ## 托盘控制器
 
-开始菜单快捷方式指向 `FabMatrixTray.exe`，安装器默认勾选（可取消）登录自启动和安装后启动。托盘以普通权限运行，使用 PowerShell `-EncodedCommand` 和短时 UAC helper 可靠处理含空格/单引号的安装路径，执行服务启动、正常停止、重启和管理员配置编辑；它轮询 SCM 的 `FabMatrixServer` 状态，并通过 `http://127.0.0.1:8080/actuator/health` 判定就绪。托盘支持刷新、状态/健康显示、复制局域网或本机地址、打开 `files`/`logs`、管理员编辑配置和退出。`backups` 为管理员私有目录，不由普通权限托盘直接打开。
+开始菜单快捷方式指向 `FabMatrixTray.exe`，安装器默认勾选（可取消）登录自启动和安装后启动。托盘以普通权限运行，使用 PowerShell `-EncodedCommand` 和短时 UAC helper 可靠处理含空格/单引号的安装路径，执行服务启动、正常停止、重启和管理员配置编辑；它优先读取普通用户可读的 `{app}\service-state\effective-port.txt`，并通过 `http://127.0.0.1:<安装时生效端口>/actuator/health` 判定就绪。元数据缺失或无效时才依次回退托盘进程 `SERVER_PORT`、可读的 `config\application.yml` 和 `28081`，配置解析兼容纯数字与 `${SERVER_PORT:旧值}`。托盘支持刷新、状态/健康显示、复制局域网或本机地址、打开 `files`/`logs`、管理员编辑配置和退出。`config`、`database`、`backups` 仍为管理员私有目录，不因托盘读取端口而放宽。
 
 “退出托盘（不停止服务）”只退出托盘进程，不会停止后端服务。没有可用 `SystemTray` 时会友好退出并保持服务不变。托盘不调用任何打印机控制 API。
 

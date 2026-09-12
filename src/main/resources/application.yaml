@@ -80,7 +80,7 @@ logging:
 
 # 服务器基础配置
 server:
-  port: 8080
+  port: ${SERVER_PORT:28081}
   servlet:
     context-path: /
   tomcat:

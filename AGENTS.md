@@ -83,10 +83,10 @@ mvn clean
 ## 5. Spring Profile 与端口
 
 - `application.yaml` 默认激活 `dev`。
-- `dev` 使用本机映射的 MySQL、Redis、RustFS，端口通常为 `8080`。
+- `dev` 使用本机映射的 MySQL、Redis、RustFS，HTTP/WebSocket 默认端口为 `28081`，可由 `SERVER_PORT` 覆盖。
 - `dev` 中 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，没有真实打印机时不要打开监控，否则会轮询不存在的设备并产生错误日志。
 - `test` 使用 H2，关闭调度任务和 WebSocket，服务端口为随机端口。
-- `prod` 使用环境变量配置敏感信息，端口默认为 `8080`，生产环境调度任务默认会启用（任务条件缺省时 `matchIfMissing=true`）。
+- `prod` 使用环境变量配置敏感信息，端口默认为 `28081`（可由 `SERVER_PORT` 覆盖），生产环境调度任务默认会启用（任务条件缺省时 `matchIfMissing=true`）。
 
 生产环境至少需要提供：
 
@@ -98,11 +98,11 @@ mvn clean
 
 不要把生产密钥直接写进 `application-prod.yaml` 或提交到版本库。`application-prod.yaml` 是后端运行配置，不是前端配置。
 
-如果 IDEA 中已有应用占用 8080，先检查端口，或为测试应用指定其他端口：
+如果 IDEA 中已有应用占用 28081，先检查端口，或为测试应用指定其他端口：
 
 ```bash
-ss -ltnp | rg ':8080'
-mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081"
+ss -ltnp | rg ':28081'
+mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=28082"
 ```
 
 ## 6. Docker Compose 与数据安全
@@ -209,7 +209,7 @@ Authorization: Bearer <token>
 - 任务：`/print-jobs/queue`、`page`、`create`、`/{id}`、`safe/assign`、`safe/confirm`、`safe/start`
 - 控制：`/control/{id}/emergency-stop`、`/control/{id}/pause`
 
-SpringDoc 默认可访问：`http://localhost:8080/swagger-ui.html`。Swagger 和 `/v3/api-docs` 当前公开，生产环境是否公开应根据局域网边界另行决定。
+SpringDoc 默认可访问：`http://localhost:28081/swagger-ui.html`。Swagger 和 `/v3/api-docs` 当前公开，生产环境是否公开应根据局域网边界另行决定。
 
 `API_HANDOFF.md` 是当前接口交接文档；接口以 Controller、`SecurityConfig` 和 `/v3/api-docs` 为准。历史 API 文档不再维护。
 

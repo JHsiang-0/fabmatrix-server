@@ -17,6 +17,6 @@ RUN apt-get update \
 COPY --chown=farm:farm target/Farm-0.0.1-SNAPSHOT.jar /app/farm.jar
 
 USER farm
-EXPOSE 8080
+EXPOSE 28081
 
 ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-XX:+UseContainerSupport", "-jar", "/app/farm.jar"]

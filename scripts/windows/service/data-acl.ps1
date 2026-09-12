@@ -53,3 +53,24 @@ function Set-FabMatrixDataAcl {
         Set-FabMatrixDirectoryAcl -Path (Join-Path $root $relative) -UsersReadOnly
     }
 }
+
+function Set-FabMatrixRuntimeMetadataAcl {
+    param([Parameter(Mandatory = $true)][string]$InstallDir)
+
+    if (-not (Get-Command icacls.exe -ErrorAction SilentlyContinue)) {
+        throw 'icacls.exe is required to publish FabMatrix runtime metadata safely.'
+    }
+
+    $runtimeMetadataDir = Join-Path ([IO.Path]::GetFullPath($InstallDir)) 'service-state'
+    Set-FabMatrixDirectoryAcl -Path $runtimeMetadataDir -UsersReadOnly
+
+    $metadataPath = Join-Path $runtimeMetadataDir 'effective-port.txt'
+    if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+        throw "FabMatrix effective port metadata is missing: $metadataPath"
+    }
+
+    # The recursive directory hardening removes inheritance from existing files, so publish
+    # an explicit file ACE for ordinary tray users after the directory policy is final.
+    Invoke-FabMatrixIcacls -Path $metadataPath -Arguments @('/grant:r',
+        '*S-1-5-18:F', '*S-1-5-32-544:F', '*S-1-5-32-545:RX', '/Q')
+}

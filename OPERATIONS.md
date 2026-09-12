@@ -7,7 +7,7 @@
 3. 等待 Compose 中 MySQL 和 Redis 的 `healthy` 状态，再启动应用：`mvn spring-boot:run`。
 4. 无真实打印机时保持 `farm.monitor.enabled=false` 和 `farm.scheduler.enabled=false`；有真实设备并确认协议配置后再启用监控任务。
 
-应用默认使用 `dev` profile，HTTP 端口为 `8080`。健康探针为 `GET /actuator/health`，只返回整体状态，不公开依赖详情；`info` 端点需要登录。
+应用默认使用 `dev` profile，HTTP/WebSocket 端口为 `28081`，可由 `SERVER_PORT` 覆盖。健康探针为 `GET /actuator/health`，只返回整体状态，不公开依赖详情；`info` 端点需要登录。
 
 ## v1 Server Edition Docker 部署
 
@@ -32,14 +32,14 @@ Local Edition 使用 SQLite 和本地文件目录，不需要启动 Docker、MyS
 
 ```bash
 mvn clean package -DskipTests
-java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server.port=8080
+java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server.port=28081
 ```
 
 手动运行 Local profile 时默认数据目录为 `${user.home}/FarmData`，可用 `FARM_DATA_DIR=D:/FarmData` 指定。正式 Windows 安装包使用统一数据根：安装在系统盘时为 `C:\ProgramData\FabMatrix`，安装在非系统盘时为 `{app}\data`；两者均包含 `config\application.yml`、`database\farm.db`、`files`、`logs`、`backups`。正式唯一构建入口为 `scripts/windows/build-installer.ps1`，旧的 `scripts/build-local-installer.ps1` 仅委托该入口。
 
-Windows 安装包默认程序目录为 `{autopf}\FabMatrix`，固定服务名为 `FabMatrixServer`，监听 `0.0.0.0:8080`，Local profile 使用 SQLite、本地 files、关闭 scheduler 和 Swagger/OpenAPI，并启用 graceful shutdown。安装器只开放 Windows Firewall `Private` profile 的对应 TCP 端口，不开放 Public；ACL 先移除 Users/Authenticated Users/Everyone 旧显式 ACE，配置/database/backups 仅允许 SYSTEM/Administrators 完全控制，files/logs 对 Users 只读。升级前捕获旧服务 StartType/运行状态并停止旧/新服务和托盘，升级后恢复该状态；全新安装才由选项决定。服务安装由 Inno `[Code]` 同步检查退出码，失败会明确中止并尽力恢复仍存在的原服务状态。旧 `C:\ProgramData\Farm` 仅在新根未初始化时先创建迁移备份，再按 `data\farm.db -> database\farm.db`、`uploads -> files`、`config -> config` 非破坏性迁移；真实旧配置即使没有 datasource URL，也会补齐 `${FARM_DATA_DIR}` database/files/logs 路径并保留端口、CORS 和密钥。安装、升级、卸载均不删除旧或新业务数据根。
+Windows 安装包默认程序目录为 `{autopf}\FabMatrix`，固定服务名为 `FabMatrixServer`，新安装监听 `0.0.0.0:28081`，Local profile 使用 SQLite、本地 files、关闭 scheduler 和 Swagger/OpenAPI，并启用 graceful shutdown。安装器只解析一次实际端口，将同一值写入 WinSW 服务级 `SERVER_PORT`、Windows Firewall `Private` 入站规则和 `{app}\service-state\effective-port.txt`；普通 Users 对该非敏感元数据仅有读取/执行权限，不开放 Public，也不放宽数据 ACL。配置/database/backups 仅允许 SYSTEM/Administrators 完全控制，files/logs 对 Users 只读。升级前捕获旧服务 StartType/运行状态并停止旧/新服务和托盘，升级后恢复该状态；全新安装才由选项决定。已有纯数字 `8080` 等配置会被冻结为本次安装的服务实际端口，直至管理员修改配置并重新运行安装器/服务注册流程；仅编辑配置后重启不会越过服务级 `SERVER_PORT`。服务安装由 Inno `[Code]` 同步检查退出码，失败会明确中止并尽力恢复仍存在的原服务状态。旧 `C:\ProgramData\Farm` 仅在新根未初始化时先创建迁移备份，再按 `data\farm.db -> database\farm.db`、`uploads -> files`、`config -> config` 非破坏性迁移；真实旧配置即使没有 datasource URL，也会补齐 `${FARM_DATA_DIR}` database/files/logs 路径并保留端口、CORS 和密钥。安装、升级、卸载均不删除旧或新业务数据根。
 
-托盘控制器 `FabMatrixTray.exe` 使用与后端共享的 jpackage Java runtime，以普通权限运行，通过 SCM 和 `127.0.0.1:8080/actuator/health` 展示服务/健康状态，支持刷新、正常启动/停止/重启、复制局域网/本机地址、打开 files/logs、管理员编辑配置和退出。UAC 调用使用 `-EncodedCommand` 处理含空格/单引号的路径；backups 为管理员私有目录，不从普通托盘直接打开。退出托盘不会停止服务；无 SystemTray 时友好退出。
+托盘控制器 `FabMatrixTray.exe` 使用与后端共享的 jpackage Java runtime，以普通权限运行，通过 SCM 和可读的 `{app}\service-state\effective-port.txt` 探测 `http://127.0.0.1:<安装时生效端口>/actuator/health`，并用于显示服务/健康状态及复制局域网/本机地址。元数据缺失或无效时，才依次回退托盘进程的 `SERVER_PORT`、数据根 `config\application.yml`（若可读）和 `28081`；配置仍支持纯数字和 `${SERVER_PORT:旧值}`。托盘支持刷新、正常启动/停止/重启、打开 files/logs、管理员编辑配置和退出。UAC 调用使用 `-EncodedCommand` 处理含空格/单引号的路径；config/database/backups 的私有 ACL 不为托盘放宽。退出托盘不会停止服务；无 SystemTray 时友好退出。
 
 全新 Local Edition 数据目录不预置管理员账号。首次启动后由前端调用 `GET /api/v1/auth/setup/status`，在 `setupAvailable=true` 时调用 `POST /api/v1/auth/setup/admin` 创建管理员；成功后直接返回 JWT。该接口只在 Local Edition 且数据库没有任何用户时可用，初始化后返回 409，不能再次匿名创建管理员。
 

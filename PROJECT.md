@@ -64,7 +64,7 @@ tasks.md
 - 当前设备协议通过统一适配器支持 Klipper/Moonraker 与 RRF 3.7
 - v1 Server Edition 使用 Docker Compose 编排 Farm、MySQL、Redis、RustFS
 - v2 Local Edition 已具备 SQLite、本地文件存储和进程内缓存/锁的基础 profile；完整 Windows 发布包和备份恢复仍待验收
-- 开发环境默认端口 `8080`
+- 开发环境 HTTP/WebSocket 默认端口 `28081`，可由 `SERVER_PORT` 覆盖
 - 开发环境默认关闭定时监控任务，避免没有真实打印机时持续报错
 
 ## 4. 当前完成基线

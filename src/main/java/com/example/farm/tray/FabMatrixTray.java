@@ -56,6 +56,8 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -64,7 +66,11 @@ import java.util.concurrent.TimeUnit;
 /** Pure JDK tray controller. It never controls printers and exiting it leaves the service running. */
 public final class FabMatrixTray {
     private static final String SERVICE_NAME = "FabMatrixServer";
-    private static final int PORT = 8080;
+    private static final int DEFAULT_PORT = 28081;
+    private static final String PORT_METADATA_DIRECTORY = "service-state";
+    private static final String PORT_METADATA_FILE = "effective-port.txt";
+    private static final Pattern SERVER_PORT_PLACEHOLDER =
+            Pattern.compile("^\\$\\{\\s*SERVER_PORT\\s*:\\s*(\\d{1,5})\\s*}$");
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(2);
     private static final int MENU_FONT_SIZE = 12;
     private static final List<String> CJK_FONT_FAMILIES = List.of(
@@ -97,6 +103,10 @@ public final class FabMatrixTray {
             runMenuFontSelfTest();
             return;
         }
+        if (args.length == 1 && "--self-test-port-config".equals(args[0])) {
+            runPortConfigSelfTest();
+            return;
+        }
         if (!SystemTray.isSupported() || GraphicsEnvironment.isHeadless()) {
             System.out.println("FabMatrix tray is unavailable on this desktop; the FabMatrixServer service is unchanged.");
             return;
@@ -122,6 +132,7 @@ public final class FabMatrixTray {
         private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
         private final Path appRoot = findAppRoot();
         private final Path dataRoot = findDataRoot(appRoot);
+        private final int port = readEffectivePort(appRoot, dataRoot);
         private final Font menuFont;
         private final TrayText text;
         private JMenuItem serviceStatus;
@@ -142,7 +153,7 @@ public final class FabMatrixTray {
         private void start() {
             requireEdt();
             initializeMenu();
-            trayIcon = new TrayIcon(createBrandIcon(), text.trayTooltip(ServiceState.UNKNOWN, false));
+            trayIcon = new TrayIcon(createBrandIcon(), text.trayTooltip(ServiceState.UNKNOWN, false, port));
             trayIcon.setImageAutoSize(true);
             trayIcon.addActionListener(event -> refreshStatus());
             trayIcon.addMouseListener(new MouseAdapter() {
@@ -183,7 +194,7 @@ public final class FabMatrixTray {
             addAction(popupMenu, text.restartService(), () -> controlService("restart", true));
             popupMenu.addSeparator();
             addAction(popupMenu, text.copyPreferredAddress(), () -> copyText(preferredAddress()));
-            addAction(popupMenu, text.copyLocalAddress(), () -> copyText("http://127.0.0.1:" + PORT));
+            addAction(popupMenu, text.copyLocalAddress(), () -> copyText("http://127.0.0.1:" + port));
             addAction(popupMenu, text.openFiles(), () -> openDirectory(dataRoot.resolve("files")));
             addAction(popupMenu, text.openLogs(), () -> openDirectory(dataRoot.resolve("logs")));
             addAction(popupMenu, text.editConfig(), this::editConfig);
@@ -328,10 +339,10 @@ public final class FabMatrixTray {
             ServiceState service = readServiceState();
             boolean healthy = service == ServiceState.RUNNING && isHealthy();
             SwingUtilities.invokeLater(() -> {
-                serviceStatus.setText(text.serviceStatus(service));
-                healthStatus.setText(text.healthStatus(healthy));
+                serviceStatus.setText(text.serviceStatus(service, port));
+                healthStatus.setText(text.healthStatus(healthy, port));
                 if (trayIcon != null) {
-                    trayIcon.setToolTip(text.trayTooltip(service, healthy));
+                    trayIcon.setToolTip(text.trayTooltip(service, healthy, port));
                 }
             });
         }
@@ -357,7 +368,7 @@ public final class FabMatrixTray {
 
         private boolean isHealthy() {
             try {
-                HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + PORT + "/actuator/health"))
+                HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/actuator/health"))
                         .timeout(HTTP_TIMEOUT).GET().build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 return response.statusCode() == 200 && response.body().contains("UP");
@@ -438,14 +449,14 @@ public final class FabMatrixTray {
                     while (addresses.hasMoreElements()) {
                         InetAddress address = addresses.nextElement();
                         if (address instanceof Inet4Address && address.isSiteLocalAddress()) {
-                            return "http://" + address.getHostAddress() + ":" + PORT;
+                            return "http://" + address.getHostAddress() + ":" + port;
                         }
                     }
                 }
             } catch (Exception ignored) {
                 // Fall through to localhost when the network stack is unavailable.
             }
-            return "http://127.0.0.1:" + PORT;
+            return "http://127.0.0.1:" + port;
         }
 
         private void showError(String message) {
@@ -561,6 +572,119 @@ public final class FabMatrixTray {
         return text.codePoints().anyMatch(codePoint -> codePoint >= 0x3400 && codePoint <= 0x9FFF);
     }
 
+    private static int readEffectivePort(Path appRoot, Path dataRoot) {
+        Path metadataPath = appRoot.resolve(PORT_METADATA_DIRECTORY).resolve(PORT_METADATA_FILE);
+        Path configPath = dataRoot.resolve("config/application.yml");
+        return resolveEffectivePort(metadataPath, System.getenv("SERVER_PORT"), configPath);
+    }
+
+    private static int resolveEffectivePort(Path metadataPath, String environmentPort, Path configPath) {
+        try {
+            Integer installedPort = readPortMetadata(metadataPath);
+            if (installedPort != null) return installedPort;
+        } catch (IOException ignored) {
+            // Missing or unreadable metadata falls through to legacy resolution.
+        }
+        Integer explicitPort = parsePortValue(environmentPort);
+        if (explicitPort != null) return explicitPort;
+        try {
+            Integer configuredPort = readPortFromConfig(configPath);
+            if (configuredPort != null) return configuredPort;
+        } catch (IOException ignored) {
+            // A missing or unreadable config must not prevent the tray from starting.
+        }
+        return DEFAULT_PORT;
+    }
+
+    private static Integer readPortMetadata(Path metadataPath) throws IOException {
+        if (!Files.isRegularFile(metadataPath)) return null;
+        return parsePortValue(Files.readString(metadataPath, StandardCharsets.UTF_8));
+    }
+
+    private static Integer readPortFromConfig(Path configPath) throws IOException {
+        if (!Files.isRegularFile(configPath)) return null;
+        boolean inServerSection = false;
+        int serverIndent = -1;
+        for (String line : Files.readAllLines(configPath, StandardCharsets.UTF_8)) {
+            String trimmed = line.replace("\uFEFF", "").trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+            int indent = line.length() - line.stripLeading().length();
+            if (!inServerSection) {
+                if (trimmed.matches("server:\\s*(?:#.*)?")) {
+                    inServerSection = true;
+                    serverIndent = indent;
+                }
+                continue;
+            }
+            if (indent <= serverIndent) break;
+            int separator = trimmed.indexOf(':');
+            if (separator > 0 && "port".equals(trimmed.substring(0, separator).trim())) {
+                return parsePortValue(trimmed.substring(separator + 1));
+            }
+        }
+        return null;
+    }
+
+    private static Integer parsePortValue(String value) {
+        if (value == null) return null;
+        String candidate = value.trim().replaceFirst("#.*$", "").trim();
+        if (candidate.length() >= 2 &&
+                ((candidate.startsWith("'") && candidate.endsWith("'")) ||
+                        (candidate.startsWith("\"") && candidate.endsWith("\"")))) {
+            candidate = candidate.substring(1, candidate.length() - 1).trim();
+        }
+        Matcher placeholder = SERVER_PORT_PLACEHOLDER.matcher(candidate);
+        if (placeholder.matches()) candidate = placeholder.group(1);
+        if (!candidate.matches("\\d{1,5}")) return null;
+        try {
+            int port = Integer.parseInt(candidate);
+            return port >= 1 && port <= 65535 ? port : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static void runPortConfigSelfTest() throws IOException {
+        Path tempDirectory = Files.createTempDirectory("fabmatrix-tray-port-");
+        Path metadataPath = tempDirectory.resolve(PORT_METADATA_DIRECTORY).resolve(PORT_METADATA_FILE);
+        Path configPath = tempDirectory.resolve("config/application.yml");
+        try {
+            Files.createDirectories(configPath.getParent());
+            Files.writeString(configPath, "server:\n  port: 8080\n", StandardCharsets.UTF_8);
+            if (resolveEffectivePort(metadataPath, "", configPath) != 8080) {
+                throw new IllegalStateException("Pure numeric server.port was not preserved");
+            }
+            Files.writeString(configPath, "server:\n  port: ${SERVER_PORT:8181}\n", StandardCharsets.UTF_8);
+            if (resolveEffectivePort(metadataPath, "", configPath) != 8181) {
+                throw new IllegalStateException("SERVER_PORT placeholder fallback was not parsed");
+            }
+            if (resolveEffectivePort(metadataPath, "8282", configPath) != 8282) {
+                throw new IllegalStateException("Explicit SERVER_PORT did not take priority");
+            }
+            Files.createDirectories(metadataPath.getParent());
+            Files.writeString(metadataPath, "8383\n", StandardCharsets.UTF_8);
+            if (resolveEffectivePort(metadataPath, "8282", configPath) != 8383) {
+                throw new IllegalStateException("Installed effective port metadata was not authoritative");
+            }
+            Files.writeString(metadataPath, "invalid\n", StandardCharsets.UTF_8);
+            if (resolveEffectivePort(metadataPath, "invalid", configPath) != 8181) {
+                throw new IllegalStateException("Invalid SERVER_PORT did not fall back to config");
+            }
+            Files.delete(metadataPath);
+            Files.delete(configPath);
+            if (resolveEffectivePort(metadataPath, "", configPath) != DEFAULT_PORT) {
+                throw new IllegalStateException("Missing config did not use the new default port");
+            }
+            System.out.println("FabMatrix tray effective port metadata self-test passed.");
+        } finally {
+            Files.deleteIfExists(metadataPath);
+            Files.deleteIfExists(metadataPath.getParent());
+            Files.deleteIfExists(configPath);
+            Files.deleteIfExists(configPath.getParent());
+            Files.deleteIfExists(tempDirectory);
+        }
+    }
+
     private static void runMenuFontSelfTest() throws Exception {
         Controller controller = new Controller(new CountDownLatch(1));
         try {
@@ -647,13 +771,16 @@ public final class FabMatrixTray {
         private String openLogs() { return chinese ? "打开 logs" : "Open logs"; }
         private String editConfig() { return chinese ? "管理员编辑配置" : "Edit configuration as administrator"; }
         private String exitTray() { return chinese ? "退出托盘（不停止服务）" : "Exit tray (service keeps running)"; }
-        private String serviceStatus(ServiceState state) { return (chinese ? "服务：" : "Service: ") + state.label(chinese); }
-        private String healthStatus(boolean healthy) {
-            return (chinese ? "健康：" : "Health: ") + (healthy ? (chinese ? "就绪" : "Ready") : (chinese ? "不可用" : "Unavailable"));
+        private String serviceStatus(ServiceState state, int port) {
+            return (chinese ? "服务：" : "Service: ") + state.label(chinese) + (chinese ? "（端口 " : " (port ") + port + (chinese ? "）" : ")");
         }
-        private String trayTooltip(ServiceState state, boolean healthy) {
-            return chinese ? "FabMatrix Server | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用")
-                    : "FabMatrix Server | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable");
+        private String healthStatus(boolean healthy, int port) {
+            return (chinese ? "健康：" : "Health: ") + (healthy ? (chinese ? "就绪" : "Ready") : (chinese ? "不可用" : "Unavailable")) +
+                    (chinese ? "（端口 " : " (port ") + port + (chinese ? "）" : ")");
+        }
+        private String trayTooltip(ServiceState state, boolean healthy, int port) {
+            return chinese ? "FabMatrix Server | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用") + " | 端口 " + port
+                    : "FabMatrix Server | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable") + " | Port " + port;
         }
         private String dialogTitle() { return "FabMatrix Server"; }
         private String confirmStop() {
@@ -687,11 +814,11 @@ public final class FabMatrixTray {
             String[] allTexts = Arrays.copyOf(texts, texts.length + (ServiceState.values().length * 2) + 2);
             int index = texts.length;
             for (ServiceState state : ServiceState.values()) {
-                allTexts[index++] = serviceStatus(state);
-                allTexts[index++] = trayTooltip(state, true);
+                allTexts[index++] = serviceStatus(state, DEFAULT_PORT);
+                allTexts[index++] = trayTooltip(state, true, DEFAULT_PORT);
             }
-            allTexts[index++] = healthStatus(true);
-            allTexts[index] = healthStatus(false);
+            allTexts[index++] = healthStatus(true, DEFAULT_PORT);
+            allTexts[index] = healthStatus(false, DEFAULT_PORT);
             return allTexts;
         }
     }

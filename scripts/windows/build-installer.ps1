@@ -404,9 +404,9 @@ Installer: FabMatrixServer-Setup.exe
 Installer bytes: $installerSize
 Installer SHA-256: $installerHash
 Default profile: local
-Default port: 8080
+Default port: 28081
 Data layout: config/database/files/logs/backups
-Firewall: TCP 8080, Private profile only
+Firewall: TCP 28081, Private profile only (existing configured port is preserved)
 "@
     if ($releaseInfo -match 'NativeCommandError|CategoryInfo') {
         throw 'release-info.txt contains PowerShell native error metadata.'

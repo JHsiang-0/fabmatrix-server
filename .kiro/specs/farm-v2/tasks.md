@@ -190,6 +190,7 @@
 - [~] T16.6 已完成 FabMatrix Server Windows Local Edition 正式安装包脚本、统一数据布局、真实旧 Farm 配置/数据非破坏性迁移、升级状态保留与安装失败传播、服务/防火墙/显式私有 ACL、独立纯 JDK 托盘控制器、带 ACL 回滚的可移植备份恢复和临时目录契约回归；已构建安装包并校验产物。干净 Windows 机器上的 C 盘/非 C 盘安装、升级、卸载、graceful shutdown 日志和数据保留验收仍待完成。
 - [x] T16.7 为 Windows Local Edition 增加可替换的安装器、主程序、托盘启动器和运行时托盘图标资源，提供仅清理已知构建产物的安全 CleanOutput 流程，补充契约测试和使用说明；已使用 `server_logo.png` 生成并替换全套 Windows 图标，在本机使用 Inno Setup 6 完成 Full 构建，392 tests passed，发布候选的体积和 SHA-256 以输出目录中的 `release-info.txt`、`checksums.txt` 为准。
 - [x] T16.8（P1.7.8）修复 Windows Local Edition 托盘菜单中文显示为方块：使用 Swing `JPopupMenu`/`JMenuItem` 自绘菜单规避 Windows AWT native peer 忽略 Java 字体，按 `canDisplayUpTo` 选择中文字体并保留完整英文回退；右键菜单通过可释放的 `JWindow` anchor 显示并约束在当前显示器可用边界内，外部点击或焦点离开时关闭且不受 popup 自身焦点切换影响；jpackage 使用 `ALL-MODULE-PATH` 保留完整 JDK runtime，并覆盖源码、打包 launcher、Swing 菜单模型及 runtime 模块自检。已完成 Full 安装包构建、契约检查及 392 项 Maven 测试。
+- [x] T16.9（P1.7.9）将新部署的默认 HTTP/WebSocket 端口统一为 `28081`：覆盖 dev/local/prod、Server Edition Docker、Windows Local Edition 安装器/防火墙/托盘及前端首次连接默认值；显式环境变量和客户端已保存地址继续优先；升级安装保留已有 `application.yml` 端口，并让 Windows 服务、防火墙及普通权限托盘共用安装时解析的实际端口，通过非敏感只读元数据避免托盘读取受保护配置；已补充默认值、覆盖、ACL 与安装器契约回归。`mvnw.cmd test` 392 项、Windows 安装器契约、前端 342 项测试、lint、普通/Desktop 构建及干净环境 Electron dist 回归均通过。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

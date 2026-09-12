@@ -2,7 +2,7 @@ param(
     [string]$InstallDir = 'C:\Program Files\FabMatrix',
     [string]$DataRoot = 'C:\ProgramData\FabMatrix',
     [ValidateRange(1, 65535)]
-    [int]$Port = 8080
+    [int]$Port = 28081
 )
 
 $ErrorActionPreference = 'Stop'

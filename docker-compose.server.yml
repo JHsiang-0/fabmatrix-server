@@ -27,7 +27,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       TZ: Asia/Shanghai
       JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai
-      SERVER_PORT: 8080
+      SERVER_PORT: ${SERVER_PORT:-28081}
       MYSQL_URL: jdbc:mysql://mysql:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       MYSQL_USERNAME: farm
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
@@ -51,12 +51,12 @@ services:
       SPRINGDOC_API_DOCS_ENABLED: ${SPRINGDOC_API_DOCS_ENABLED:-false}
       SPRINGDOC_SWAGGER_UI_ENABLED: ${SPRINGDOC_SWAGGER_UI_ENABLED:-false}
     ports:
-      - "${FARM_BIND_ADDRESS:-0.0.0.0}:${FARM_HTTP_PORT:-8080}:8080"
+      - "${FARM_BIND_ADDRESS:-0.0.0.0}:${FARM_HTTP_PORT:-28081}:${SERVER_PORT:-28081}"
     volumes:
       - farm_app_logs:/app/logs
       - farm_app_uploads:/app/uploads
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${SERVER_PORT:-28081}/actuator/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

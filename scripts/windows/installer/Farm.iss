@@ -59,7 +59,7 @@ Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"
 
 [UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\uninstall-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 8080"; RunOnceId: "FabMatrixServer"; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\uninstall-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 28081"; RunOnceId: "FabMatrixServer"; Flags: runhidden waituntilterminated
 
 [Icons]
 Name: "{group}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; WorkingDir: "{app}"
@@ -127,7 +127,7 @@ begin
   StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
   Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + InstallScript +
     '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + GetDataRoot('') +
-    '" -Port 8080 -PreserveExistingState -StateFile "' + StateFile + '"';
+    '" -Port 28081 -PreserveExistingState -StateFile "' + StateFile + '"';
   if WizardIsTaskSelected('service_autostart') then
     Parameters := Parameters + ' -AutoStart';
 

@@ -383,6 +383,12 @@ $control = Join-Path $scriptRoot 'service\service-control.ps1'
 $tray = Join-Path $projectRoot 'src\main\java\com\example\farm\tray\FabMatrixTray.java'
 $backup = Join-Path $projectRoot 'scripts\local-backup.ps1'
 $restore = Join-Path $projectRoot 'scripts\local-restore.ps1'
+$baseConfig = Join-Path $projectRoot 'src\main\resources\application.yaml'
+$devConfig = Join-Path $projectRoot 'src\main\resources\application-dev.yaml'
+$localConfig = Join-Path $projectRoot 'src\main\resources\application-local.yaml'
+$dockerfile = Join-Path $projectRoot 'Dockerfile'
+$compose = Join-Path $projectRoot 'docker-compose.server.yml'
+$serverEnv = Join-Path $projectRoot '.env.server.example'
 
 # Parse every Windows PowerShell script without executing service/firewall operations.
 Get-ChildItem -LiteralPath $scriptRoot -Recurse -File -Filter '*.ps1' | ForEach-Object {
@@ -412,8 +418,18 @@ Assert-Contains $installer 'Exec\(PowerShell, Parameters.*ResultCode|ResultCode 
 Assert-Contains $installer 'RestoreExistingServiceState|recover-upgrade-state\.ps1' 'upgrade failure state recovery'
 Assert-Contains $installer 'RaiseException' 'service install failure abort'
 Assert-Contains $installer 'Name: "tray_autostart"[^\r\n]*Flags: checkedonce' 'default tray autostart choice'
+foreach ($config in @($baseConfig, $devConfig, $localConfig)) {
+    Assert-Contains $config '\$\{SERVER_PORT:28081\}' "default SERVER_PORT for $config"
+}
+Assert-Contains $dockerfile 'EXPOSE 28081' 'Dockerfile default port'
+Assert-Contains $compose 'SERVER_PORT: \$\{SERVER_PORT:-28081\}' 'Compose container port override'
+Assert-Contains $compose 'FARM_HTTP_PORT:-28081.*SERVER_PORT:-28081' 'Compose host/container port mapping'
+Assert-Contains $compose '127\.0\.0\.1:\$\$\{SERVER_PORT:-28081\}/actuator/health' 'Compose healthcheck port'
+Assert-Contains $serverEnv 'FARM_HTTP_PORT=28081' 'Server Edition host port default'
+Assert-Contains $installer '28081' 'installer default port metadata'
 
 Assert-Contains $configure 'address: 0\.0\.0\.0' 'server address'
+Assert-Contains $configure '\[int\]\$Port = 28081' 'new installer default port'
 Assert-Contains $configure 'shutdown: graceful' 'graceful shutdown'
 Assert-Contains $configure 'enabled: false' 'scheduler and Swagger disabled'
 Assert-Contains $configure "portableDataRoot = '\$\{FARM_DATA_DIR\}'" 'portable data root placeholder'
@@ -421,18 +437,28 @@ Assert-Contains $configure 'portableDataRoot/database/farm\.db|database/farm\.db
 Assert-Contains $configure 'portableDataRoot/files|portableFiles' 'portable files path'
 Assert-Contains $install '<id>FabMatrixServer</id>|New-FabMatrixServiceXml' 'fixed service name'
 Assert-Contains $install 'Private|New-NetFirewallRule' 'private firewall rule'
+Assert-Contains $install 'Get-FabMatrixEffectivePort|ConvertTo-FabMatrixPort|SERVER_PORT' 'effective port resolution'
+Assert-Contains $install 'Write-FabMatrixEffectivePortMetadata[^\r\n]*EffectivePort \$effectivePort' 'tray metadata uses resolved effective port'
+Assert-Contains $install 'New-FabMatrixServiceXml[^\r\n]*Port \$effectivePort' 'WinSW service uses resolved effective port'
+Assert-Contains $install 'Set-PrivateFirewallRule -EffectivePort \$effectivePort' 'firewall uses resolved effective port'
+Assert-Contains $install 'SelfTestPortConfig|Test-FabMatrixPortConfig' 'installer port parser self-test'
+Assert-Contains $uninstall '\[int\]\$Port = 28081' 'new uninstall default port'
 Assert-NotContains $install 'Profile\s+Private[^\r\n]*Public|Profile.*Public' 'public firewall profile'
 Assert-Contains $install 'Set-FabMatrixDataAcl' 'shared data ACL policy'
+Assert-Contains $install 'Set-FabMatrixRuntimeMetadataAcl' 'runtime metadata ACL application'
 Assert-Contains $dataAcl 'S-1-5-32-545|S-1-5-11' 'explicit broad ACL removal identities'
 Assert-Contains $dataAcl '/remove:g|/remove:d' 'explicit broad ACL removal operations'
+Assert-Contains $dataAcl 'service-state|UsersReadOnly' 'runtime metadata Users read-only ACL intent'
 Assert-Contains $capture 'StartMode|WasRunning|Stop-ServiceReliably' 'upgrade state capture'
 Assert-Contains $migrate 'data\\farm\.db|uploads|pre-fabmatrix-migration|New data root is already initialized' 'legacy migration mapping and guard'
 Assert-Contains $migrate 'Set-FabMatrixPortableConfig' 'legacy config normalization'
 Assert-Contains $portableConfig 'datasource|FARM_DATA_DIR|storage-path|logs/farm\.log' 'portable path insertion and normalization'
 Assert-Contains $recovery 'StartMode|WasRunning|sc\.exe config' 'best-effort original service recovery'
 Assert-Contains $serviceXml '&quot;|ConvertTo-XmlText|stoptimeout>30sec' 'quoted escaped WinSW arguments and stop timeout'
+Assert-Contains $serviceXml '<env name="SERVER_PORT" value="\$portXml" />' 'WinSW service-level effective port environment'
 Assert-Contains $control 'ValidateSet' 'tray service actions'
 Assert-Contains $tray 'SystemTray|FabMatrixTray' 'pure JDK tray controller'
+Assert-Contains $tray 'service-state.*effective-port\.txt|PORT_METADATA_DIRECTORY.*PORT_METADATA_FILE' 'tray installed effective port metadata path'
 Assert-Contains $tray 'tray\.lock|tryLock' 'single instance'
 Assert-Contains $tray 'EncodedCommand|self-test-uac-command' 'encoded UAC command construction'
 Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot browse private backups'
@@ -473,6 +499,10 @@ Assert-Contains $restore 'Set-FabMatrixDataAcl' 'restore reapplies data ACL poli
 Assert-Contains $restore "Import-MaintenanceHelper 'data-acl\.ps1'" 'packaged restore ACL helper'
 
 # Generate and parse WinSW XML for paths with spaces; this does not install a service.
+$portSelfTestOutput = (& $install -SelfTestPortConfig | Out-String)
+if ($portSelfTestOutput -notmatch 'parser and metadata self-test passed') {
+    throw 'Installer effective port parser/metadata self-test did not complete.'
+}
 . $serviceXml
 $autoStopped = Resolve-FabMatrixServicePlan -PreservedState ([pscustomobject]@{
         ExistingServiceName = 'Farm'; StartMode = 'Auto'; WasRunning = $false
@@ -488,16 +518,21 @@ if ($autoStopped.StartMode -ne 'Automatic' -or $autoStopped.ShouldStart -or
     -not $disabled.DisableAfterInstall -or $disabled.ShouldStart) {
     throw 'Upgrade service StartType/running-state plan was not preserved.'
 }
-$xmlText = New-FabMatrixServiceXml -InstallDir 'D:\Program Files\FabMatrix' -DataRoot 'D:\Program Files\FabMatrix\data' -StartMode Automatic
+$contractEffectivePort = 8080
+$xmlText = New-FabMatrixServiceXml -InstallDir 'D:\Program Files\FabMatrix' -DataRoot 'D:\Program Files\FabMatrix\data' -Port $contractEffectivePort -StartMode Automatic
 $xmlDocument = [xml]$xmlText
 $expectedArguments = '--spring.config.additional-location="file:D:/Program Files/FabMatrix/data/config/"'
 if ([string]$xmlDocument.service.arguments -ne $expectedArguments -or $xmlText -notmatch '&quot;') {
     throw 'WinSW XML dry-run did not preserve quoted Program Files config URL.'
 }
+$servicePortEnvironment = @($xmlDocument.service.env | Where-Object { $_.name -eq 'SERVER_PORT' })
+if ($servicePortEnvironment.Count -ne 1 -or [int]$servicePortEnvironment[0].value -ne $contractEffectivePort) {
+    throw 'WinSW XML did not freeze the resolved legacy effective port.'
+}
 if ([int](([string]$xmlDocument.service.stoptimeout) -replace '\D', '') -lt 20) {
     throw 'WinSW stop timeout is shorter than graceful shutdown timeout.'
 }
-$specialXml = New-FabMatrixServiceXml -InstallDir 'D:\Program Files\Fab&Matrix' -DataRoot 'D:\Program Files\Fab&Matrix\data'
+$specialXml = New-FabMatrixServiceXml -InstallDir 'D:\Program Files\Fab&Matrix' -DataRoot 'D:\Program Files\Fab&Matrix\data' -Port 28081
 if ($specialXml -notmatch 'Fab&amp;Matrix' -or ([xml]$specialXml).service.arguments -notmatch 'Fab&Matrix') {
     throw 'WinSW XML dry-run did not XML-escape special path characters.'
 }
@@ -511,6 +546,7 @@ try {
     $generatedConfig = Join-Path $configDir 'application.yml'
     Assert-Contains $generatedConfig '\$\{FARM_DATA_DIR\}/database/farm\.db' 'generated portable SQLite path'
     Assert-Contains $generatedConfig '\$\{FARM_DATA_DIR\}/files' 'generated portable files path'
+    Assert-Contains $generatedConfig 'port: 28081' 'generated default server port'
     if ((Get-Content -LiteralPath $generatedConfig -Raw).Contains(($configData -replace '\\', '/'))) {
         throw 'Generated Local config retained its source-machine absolute path.'
     }
@@ -587,6 +623,15 @@ try {
     . $dataAcl
     Set-FabMatrixDataAcl -DataRoot $aclTemp
 
+    $aclInstallDir = Join-Path $aclTemp 'install'
+    $runtimeMetadataDir = Join-Path $aclInstallDir 'service-state'
+    $runtimeMetadataPath = Join-Path $runtimeMetadataDir 'effective-port.txt'
+    New-Item -ItemType Directory -Force -Path $runtimeMetadataDir | Out-Null
+    [IO.File]::WriteAllText($runtimeMetadataPath, "8080`r`n")
+    & icacls.exe $runtimeMetadataDir '/grant' "*$currentSid`:(OI)(CI)F" '*S-1-5-32-545:(OI)(CI)F' '/T' '/C' '/Q' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Unable to seed runtime metadata ACL fixture: $runtimeMetadataDir" }
+    Set-FabMatrixRuntimeMetadataAcl -InstallDir $aclInstallDir
+
     foreach ($relative in @('config', 'database', 'backups')) {
         $rules = (Get-Acl -LiteralPath (Join-Path $aclTemp $relative)).Access
         $sids = @($rules | ForEach-Object {
@@ -608,6 +653,18 @@ try {
         if ($null -eq $usersRule -or ($usersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0) {
             throw "Shared ACL must grant Users read-only access on $relative"
         }
+    }
+    $runtimeUsersRule = (Get-Acl -LiteralPath $runtimeMetadataPath).Access | Where-Object {
+        try { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-545' }
+        catch { $false }
+    } | Select-Object -First 1
+    if ($null -eq $runtimeUsersRule -or
+        ($runtimeUsersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq 0 -or
+        ($runtimeUsersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0) {
+        throw "Runtime effective port metadata must grant Users read/execute without write; actual rights: $($runtimeUsersRule.FileSystemRights)"
+    }
+    if (([IO.File]::ReadAllText($runtimeMetadataPath)).Trim() -ne '8080') {
+        throw 'Runtime metadata ACL application changed the preserved legacy effective port.'
     }
 } finally {
     if (Test-Path -LiteralPath $aclTemp) {
@@ -658,6 +715,10 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     if ($trayLauncherProcess.ExitCode -ne 0) {
         throw "Packaged tray launcher brand icon self-test failed: $($trayLauncherProcess.ExitCode)"
     }
+    $trayPortProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-port-config' -Wait -PassThru
+    if ($trayPortProcess.ExitCode -ne 0) {
+        throw "Packaged tray launcher port config self-test failed: $($trayPortProcess.ExitCode)"
+    }
     Write-Host 'FabMatrix packaged tray launcher brand icon self-test passed.'
     $trayMenuFontProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-menu-font' -Wait -PassThru
     if ($trayMenuFontProcess.ExitCode -ne 0) {
@@ -668,6 +729,8 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     if ($null -eq $payloadJava) { throw 'Java is required to execute the packaged tray brand icon self-test.' }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray brand icon self-test failed: $LASTEXITCODE" }
+    & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-port-config'
+    if ($LASTEXITCODE -ne 0) { throw "Packaged tray port config self-test failed: $LASTEXITCODE" }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray menu font self-test failed: $LASTEXITCODE" }
 }
@@ -696,6 +759,8 @@ if (-not $SkipTrayCompile) {
         Copy-Item -LiteralPath (Join-Path $assets 'tray.png') -Destination (Join-Path $temp 'tray.png') -Force
         & $java '-Djava.awt.headless=true' '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'
         if ($LASTEXITCODE -ne 0) { throw "Tray brand icon self-test failed: $LASTEXITCODE" }
+        & $java '-Djava.awt.headless=true' '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-port-config'
+        if ($LASTEXITCODE -ne 0) { throw "Tray port config self-test failed: $LASTEXITCODE" }
         & $java '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-uac-command'
         if ($LASTEXITCODE -ne 0) { throw "Tray UAC command self-test failed: $LASTEXITCODE" }
         & $java '-Djava.awt.headless=true' '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'

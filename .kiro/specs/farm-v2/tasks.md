@@ -201,6 +201,10 @@
 - [x] T16.17（P1.7.17）修复 Windows Local Edition 旧 SQLite 升级启动顺序：`local-schema.sql` 不再在旧 `farm_print_job` 补齐 TC-007 演进列前创建 `retry/root` 唯一索引，索引统一由 `LocalSchemaMigration` 在补列和回填后幂等创建；审计初始 Local schema 到当前演进字段/索引并修正现有 legacy 假覆盖测试，新增真实 pre-TC007 bootstrap 顺序测试和临时 SQLite 文件的 Local profile 启动/HTTP health 集成探针，保留旧任务及文件/打印机关联。`mvnw.cmd test` 393 项、Windows installer contract 和 Full installer build 均通过。安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119600999 bytes，SHA-256 为 `9CDD4A4B22140B79CFB3677D580A7EC36E1880369357C587B32A43AD13A9A680`。
 - [x] T16.18 修复 Windows Local Edition 升级安装期间 `runtime\bin\jimage.dll` 被旧服务进程树占用：预检在复制文件前保存既有服务状态，临时阻断 WinSW `onfailure` 重启，退出旧托盘并按目标安装目录等待/清理服务包装器、服务器及 runtime 子进程；仅允许对已验证的 `{app}` 进程做有界 fallback 终止，失败时非零中止并尽力恢复升级前状态；Inno 传入 `{app}`，并补充不操作真实服务的安装器契约护栏。`mvnw.cmd test` 393 项、Windows installer contract 和完整 Windows 安装器构建均通过；安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119616592 bytes，SHA-256 为 `B1CFFFBF7DCB3BE1DF7E8F1A20053986A16F78FFFB09A0974F66FB9334946193`。
 
+### T16.19 [新增] Windows Local Edition 双模式卸载
+
+- [x] T16.19 为 Windows Local Edition 增加默认保留数据卸载与显式完全卸载双模式：普通/静默卸载删除服务、托盘/程序和防火墙规则但保留业务数据；交互式完全卸载要求模式选择和第二次不可逆确认，命令行仅接受 `/PURGEDATA=CONFIRM`；新增受控路径、LiteralPath、reparse 防护的 `purge-local-data.ps1`，由卸载器在停服后调用并传播失败，扩展临时目录契约自测；`mvnw.cmd test` 393 项、Windows installer contract、payload/启动探针和完整 installer build 已通过。
+
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 
 **对应需求：REQ-12、REQ-13**

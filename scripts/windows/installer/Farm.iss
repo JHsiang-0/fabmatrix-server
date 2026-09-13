@@ -59,7 +59,7 @@ Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"; Check: ShouldLaunchTray
 
 [UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\uninstall-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 28081"; RunOnceId: "FabMatrixServer"; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\uninstall-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 28081 -FailureMarker ""{tmp}\FabMatrix-uninstall-failure.txt"" {code:GetUninstallModeParameters}"; RunOnceId: "FabMatrixServer"; Flags: runhidden waituntilterminated
 
 [Icons]
 Name: "{group}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; WorkingDir: "{app}"
@@ -68,6 +68,7 @@ Name: "{userstartup}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; 
 [Code]
 var
   ServiceInstallSucceeded: Boolean;
+  PurgeDataRequested: Boolean;
 
 function GetDataRoot(Param: String): String;
 begin
@@ -80,6 +81,98 @@ end;
 function ShouldLaunchTray(): Boolean;
 begin
   Result := ServiceInstallSucceeded;
+end;
+
+function HasPurgeDataConfirmSwitch(): Boolean;
+var
+  Tail: String;
+  Token: String;
+  StartAt: Integer;
+  EndAt: Integer;
+  ValidStart: Boolean;
+  ValidEnd: Boolean;
+begin
+  Tail := Uppercase(GetCmdTail());
+  Token := '/PURGEDATA=CONFIRM';
+  StartAt := Pos(Token, Tail);
+  while StartAt > 0 do
+  begin
+    EndAt := StartAt + Length(Token);
+    if StartAt = 1 then
+      ValidStart := True
+    else
+      ValidStart := Tail[StartAt - 1] in [' ', #9];
+    if EndAt > Length(Tail) then
+      ValidEnd := True
+    else
+      ValidEnd := Tail[EndAt] in [' ', #9];
+    if ValidStart and ValidEnd then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Delete(Tail, 1, EndAt - 1);
+    StartAt := Pos(Token, Tail);
+  end;
+  Result := False;
+end;
+
+function GetUninstallModeParameters(Param: String): String;
+begin
+  if PurgeDataRequested then
+    Result := '-PurgeData'
+  else
+    Result := '';
+end;
+
+function ConfirmCompleteUninstall(): Boolean;
+begin
+  Result := MsgBox(
+    '完全卸载将永久删除 FabMatrix 的账号、数据库、任务、文件、配置和备份，且无法恢复。请先确认已完成备份。' + #13#10 + #13#10 +
+    '确定要永久删除整个受控业务数据根吗？选择“否”将退出卸载。',
+    mbCriticalError, MB_YESNO) = IDYES;
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  ModeChoice: Integer;
+begin
+  PurgeDataRequested := HasPurgeDataConfirmSwitch();
+  if PurgeDataRequested then
+  begin
+    if WizardSilent then
+      Result := True
+    else
+      Result := ConfirmCompleteUninstall();
+    Exit;
+  end;
+
+  if WizardSilent then
+  begin
+    { /SILENT never implies data removal. }
+    Result := True;
+    Exit;
+  end;
+
+  ModeChoice := MsgBox(
+    '请选择 FabMatrix 卸载模式：' + #13#10 + #13#10 +
+    '“是”=普通卸载：删除服务、托盘、程序和防火墙规则，保留全部业务数据。' + #13#10 +
+    '“否”=完全卸载：进入下一步不可逆确认，确认后永久删除账号、数据库、任务、文件、配置和备份。' + #13#10 +
+    '“取消”=退出卸载。' + #13#10 + #13#10 +
+    '建议先备份业务数据。',
+    mbConfirmation, MB_YESNOCANCEL);
+  if ModeChoice = IDCANCEL then
+  begin
+    Result := False;
+    Exit;
+  end;
+  if ModeChoice = IDNO then
+  begin
+    PurgeDataRequested := ConfirmCompleteUninstall();
+    Result := PurgeDataRequested;
+    Exit;
+  end;
+  Result := True;
 end;
 
 function CaptureStateAndStopPreviousProcesses(): Boolean;

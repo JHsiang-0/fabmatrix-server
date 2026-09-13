@@ -361,7 +361,7 @@ icon=$trayIconPropertyPath
     New-Item -ItemType Directory -Force -Path (Join-Path $payloadPath 'service') | Out-Null
     foreach ($name in @('Farm-Configure.ps1', 'capture-upgrade-state.ps1', 'data-acl.ps1', 'install-service.ps1',
             'migrate-legacy-data.ps1', 'portable-config.ps1', 'recover-upgrade-state.ps1',
-            'service-control.ps1', 'service-xml.ps1', 'uninstall-service.ps1')) {
+            'purge-local-data.ps1', 'service-control.ps1', 'service-xml.ps1', 'uninstall-service.ps1')) {
         Copy-Item -LiteralPath (Join-Path $scriptRoot "service\$name") -Destination (Join-Path $payloadPath "service\$name") -Force
     }
     Copy-Item -LiteralPath $winswPath -Destination (Join-Path $payloadPath 'service\FabMatrixServerService.exe') -Force

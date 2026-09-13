@@ -13,7 +13,9 @@
 - 覆盖安装会在读取旧配置前修复历史版本可能遗留的异常 ACL，仅处理 `config`、`database`、`backups`、`files`、`logs` 五个固定目录：接管所有权并重置历史显式拒绝后恢复 Administrators/SYSTEM 访问，不改写文件内容；任何子项修复失败都会中止，安装后仍按正式策略重新收紧权限。
 - 固定 Windows 服务名：`FabMatrixServer`
 
-安装器在复制新文件前会记录已有 `Farm`/`FabMatrixServer` 服务的 StartType 和是否正在运行，再正常停止服务和旧/新托盘进程。升级完成后恢复原启动类型和运行状态；全新安装才使用安装选项决定 Automatic/Manual 和是否立即启动。旧 `Farm` 服务注册可被清理，但任何业务数据目录都不会删除。升级、卸载均保留数据根。卸载前只关闭 `FabMatrixTray`/`FarmTray`，随后移除程序文件、服务注册和本安装器创建的私有 TCP 防火墙规则，不递归删除 `config`、`database`、`files`、`logs` 或 `backups`。
+安装器在复制新文件前会记录已有 `Farm`/`FabMatrixServer` 服务的 StartType 和是否正在运行，再正常停止服务和旧/新托盘进程。升级完成后恢复原启动类型和运行状态；全新安装才使用安装选项决定 Automatic/Manual 和是否立即启动。旧 `Farm` 服务注册可被清理，但任何业务数据目录都不会删除。卸载前只关闭 `FabMatrixTray`/`FarmTray`，随后移除程序文件、服务注册和本安装器创建的私有 TCP 防火墙规则；普通卸载保留完整业务数据根，不递归删除 `config`、`database`、`files`、`logs` 或 `backups`。
+
+卸载有两种模式。交互式卸载先选择普通卸载或完全卸载：普通卸载保留数据；选择完全卸载后还必须完成第二次不可逆确认，确认前可取消并退出。完全卸载会在服务和托盘停止后，通过 `purge-local-data.ps1` 删除整个受控 DataRoot，包括账号、数据库、任务、文件、配置和备份；删除前请先备份。静默卸载默认绝不清理数据；命令行完全卸载必须显式使用 `/PURGEDATA=CONFIRM`，不能仅使用 `/SILENT`。系统盘安装的 DataRoot 是 `%ProgramData%\FabMatrix`，非系统盘安装的是 `{app}\data`。清理脚本拒绝空路径、相对路径、驱动器根、安装目录、越界路径及根/后代 reparse point；校验或删除失败会报告未完成及数据位置。
 
 从旧版升级时，在旧服务已正常停止且新数据根尚未初始化的前提下，安装脚本检测 `C:\ProgramData\Farm`：先在旧根的 `backups\pre-fabmatrix-migration-*` 完整保留迁移源，再将 `data\farm.db` 映射到 `database\farm.db`、`uploads` 映射到 `files`、`config` 映射到 `config`。上一版 `Farm-Configure.ps1` 生成的配置没有 `spring.datasource.url`，迁移器会主动补入 `${FARM_DATA_DIR}/database/farm.db`，并把 files/logs 改为同一占位，同时保留原端口、CORS 和密钥。新根已有数据库、配置或文件时绝不覆盖；迁移或服务注册失败会中止安装、保留旧数据和迁移备份，并尽力恢复仍存在的原服务启动类型/运行状态。
 

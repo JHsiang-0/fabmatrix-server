@@ -452,6 +452,7 @@ $installer = Join-Path $scriptRoot 'installer\Farm.iss'
 $configure = Join-Path $scriptRoot 'service\Farm-Configure.ps1'
 $install = Join-Path $scriptRoot 'service\install-service.ps1'
 $uninstall = Join-Path $scriptRoot 'service\uninstall-service.ps1'
+$purge = Join-Path $scriptRoot 'service\purge-local-data.ps1'
 $capture = Join-Path $scriptRoot 'service\capture-upgrade-state.ps1'
 $migrate = Join-Path $scriptRoot 'service\migrate-legacy-data.ps1'
 $portableConfig = Join-Path $scriptRoot 'service\portable-config.ps1'
@@ -488,6 +489,12 @@ Assert-Contains $installer 'commonappdata.*FabMatrix|GetDataRoot' 'system drive 
 Assert-Contains $installer '\{app\}.*data|Result := AddBackslash.*data' 'non-system drive data root'
 Assert-Contains $installer 'uninsneveruninstall' 'data retention declaration'
 Assert-NotContains $installer 'UninstallDelete[\s\S]*(commonappdata|\\data|\\database|\\files|\\backups)' 'recursive data deletion'
+Assert-Contains $installer 'InitializeUninstall|GetUninstallModeParameters' 'uninstall mode hook'
+Assert-Contains $installer 'MB_YESNOCANCEL|IDCANCEL' 'interactive uninstall cancellation'
+Assert-Contains $installer 'ConfirmCompleteUninstall|PurgeDataRequested' 'complete uninstall second confirmation'
+Assert-Contains $installer '/PURGEDATA=CONFIRM' 'explicit purge command-line confirmation'
+Assert-Contains $installer 'WizardSilent[\s\S]*PurgeDataRequested.*False|/SILENT never implies data removal' 'silent uninstall retains data'
+Assert-Contains $installer 'FailureMarker|卸载失败' 'uninstall failure propagation'
 Assert-Contains $installer 'capture-upgrade-state\.ps1|PreserveExistingState|StateFile' 'upgrade service state handoff'
 Assert-Contains $installer 'capture-upgrade-state\.ps1[\s\S]*InstallDir[\s\S]*\{app\}' 'upgrade preflight receives the target install directory'
 Assert-Contains $installer 'PrepareToInstall[\s\S]*Result := ' 'upgrade preflight aborts before file copy'
@@ -583,6 +590,20 @@ Assert-Contains $tray 'createUacResultPath|readUacResult|deleteUacResultPath' 's
 Assert-Contains $tray 'sanitizePowerShellError|CLIXML output was suppressed' 'UAC CLIXML sanitization'
 Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot browse private backups'
 Assert-Contains $uninstall "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'uninstall closes only tray executables'
+Assert-Contains $uninstall '\[switch\]\$PurgeData|if \(\$PurgeData\)' 'purge is opt-in'
+Assert-Contains $uninstall 'purge-local-data\.ps1|Business data retained at' 'purge payload and default retention output'
+Assert-Contains $uninstall 'Write-UninstallFailureMarker|exit 1' 'uninstall failure is propagated'
+Assert-Contains $purge 'Assert-FabMatrixPurgePaths|Assert-FabMatrixNoReparsePointsInTree|Remove-FabMatrixLocalData' 'standalone purge safety functions'
+Assert-Contains $purge 'Get-FabMatrixExpectedDataRoot|CommonApplicationData|ProgramData' 'controlled Local data root policy'
+Assert-Contains $purge 'InstallDir.*must not equal|DataRoot.*outside|drive root' 'purge path boundary guards'
+Assert-Contains $purge 'Remove-Item -LiteralPath .* -Recurse -Force' 'literal-path-only purge deletion'
+Assert-NotContains $purge 'Remove-Item -Path|Remove-Item [^\r\n]*\*' 'purge does not use wildcard deletion'
+Assert-Contains $purge 'ReparsePoint|Get-ChildItem -LiteralPath.*-Recurse' 'purge reparse-point protection'
+Assert-Contains $purge 'SelfTest|dedicated temporary test root' 'purge disposable self-test'
+$purgeSelfTestOutput = (& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $purge -SelfTest | Out-String)
+if ($LASTEXITCODE -ne 0 -or $purgeSelfTestOutput -notmatch 'purge self-test passed') {
+    throw "Purge script disposable self-test did not complete: $purgeSelfTestOutput"
+}
 Assert-NotContains $build "'\-Xrs'" 'service launcher must receive console control events'
 Assert-Contains $build "'--win-console'" 'console main launcher'
 Assert-Contains $build 'Remove-SafeGeneratedPath \$inputPath|inputFiles.Count -ne 2' 'safe clean and exclusive jpackage input'
@@ -906,7 +927,7 @@ try {
 
 if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     $payload = [IO.Path]::GetFullPath($PayloadPath)
-    foreach ($relative in @('FabMatrixServer.exe', 'FabMatrixTray.exe', 'maintenance\local-backup.ps1',
+    foreach ($relative in @('FabMatrixServer.exe', 'FabMatrixTray.exe', 'service\purge-local-data.ps1', 'maintenance\local-backup.ps1',
             'maintenance\local-restore.ps1', 'maintenance\data-acl.ps1', 'maintenance\portable-config.ps1',
             'service\capture-upgrade-state.ps1', 'service\data-acl.ps1', 'service\migrate-legacy-data.ps1',
             'service\portable-config.ps1', 'service\recover-upgrade-state.ps1', 'service\service-xml.ps1')) {

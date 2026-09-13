@@ -196,6 +196,7 @@
 - [x] T16.12（P1.7.12）修正旧数据 ACL 恢复的误判：接管所有权后先递归重置五个固定数据子树的继承 ACL，清除优先于 allow 的历史显式 deny，再授予 Administrators/SYSTEM；恢复阶段不再使用 `icacls /C` 忽略子项错误，任一 ACL 修复失败即中止并保留日志。
 - [x] T16.13（P1.7.13）解除 Windows 防火墙自动化对核心安装的阻断：服务注册成功后，私有网络防火墙规则创建失败改为持久警告而非卸载服务并回滚；安装诊断日志迁移到与业务 ACL 隔离的 `%ProgramData%\FabMatrix\installer`，确保权限或后置步骤失败时仍可读取准确阶段。
 - [x] T16.14（P1.7.14）修复 Windows Local Edition 既有服务日志 ACL：对 `config/database/backups/files/logs` 五个固定数据目录树中的所有既有目录和文件写入明确的 SYSTEM/Administrators 直接权限，并为 `files/logs` 写入 Users 只读权限；目录继续保留未来文件继承策略，覆盖 `logs/service` 下已有 WinSW stdout/stderr 日志，补充非提升可清理的 ACL fixture 契约回归。
+- [x] T16.15（P1.7.15）修复 Windows Local Edition 服务注册后 Java 子进程因完整 `logging.file.name` 被重复拼接而退出的问题：日志配置直接使用完整文件路径并保留默认/Server Edition 兼容回退，移除 WinSW `LOG_PATH` 注入；在固定数据 ACL 递归变更前拒绝根及后代 reparse point，`takeown` 使用 `/SKIPSL`，并补充日志启动探针、路径合同、junction 外部 sentinel 和继承语义回归。`mvnw test` 392 项、Windows installer contract、打包 Local health/log 探针和 Inno Setup Full 构建均通过；安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119594378 bytes，SHA-256 为 `EF7C3A67FCD858A4F8BD3E3B0B51C81A1E1D449812E3270D49B0E2597FADFD1E`。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

@@ -66,6 +66,85 @@ function Remove-TempContractFixture([string]$Path) {
     if (Test-Path -LiteralPath $resolvedPath) { Remove-Item -LiteralPath $resolvedPath -Recurse -Force }
 }
 
+function Invoke-PackagedLocalStartupProbe([string]$Payload, [string]$ConfigureScript) {
+    $probeRoot = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixLocalStartupContract-' + [guid]::NewGuid().ToString('N'))
+    $configDir = Join-Path $probeRoot 'config'
+    $serverLauncher = Join-Path $Payload 'FabMatrixServer.exe'
+    $stdoutPath = Join-Path $probeRoot 'launcher.stdout.log'
+    $stderrPath = Join-Path $probeRoot 'launcher.stderr.log'
+    $process = $null
+    $listener = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+    try {
+        New-Item -ItemType Directory -Force -Path $probeRoot, $configDir | Out-Null
+        $listener.Start()
+        $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+        $listener.Stop()
+        $configureArguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $ConfigureScript,
+            '-Edition', 'Local', '-ConfigDir', $configDir, '-DataRoot', $probeRoot, '-Port', $port, '-Force')
+        & powershell.exe @configureArguments | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Unable to generate disposable Local configuration: $LASTEXITCODE" }
+
+        $configLocation = 'file:' + (($configDir -replace '\\', '/').TrimEnd('/') + '/')
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $serverLauncher
+        $startInfo.WorkingDirectory = $Payload
+        $startInfo.Arguments = '--spring.config.additional-location="' + $configLocation + '"'
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.EnvironmentVariables['FARM_DATA_DIR'] = $probeRoot
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) { throw "Unable to start packaged server launcher: $serverLauncher" }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+
+        $health = $null
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            Start-Sleep -Milliseconds 500
+            if ($process.HasExited) { break }
+            try {
+                $health = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/actuator/health" -TimeoutSec 2
+                if ($health.StatusCode -eq 200) { break }
+            } catch { }
+        }
+        if ($null -eq $health -or $health.StatusCode -ne 200) {
+            $exitCode = if ($process.HasExited) { $process.ExitCode } else { 'running' }
+            $stderr = if ($process.HasExited) { $stderrTask.GetAwaiter().GetResult() } else { '' }
+            throw "Packaged Local server did not become healthy (exit=$exitCode). $stderr"
+        }
+
+        $logPath = Join-Path $probeRoot 'logs\farm.log'
+        for ($attempt = 0; $attempt -lt 20 -and -not (Test-Path -LiteralPath $logPath -PathType Leaf); $attempt++) {
+            Start-Sleep -Milliseconds 250
+        }
+        if (-not (Test-Path -LiteralPath $logPath -PathType Leaf)) {
+            throw "Packaged Local server was healthy but did not write the expected log: $logPath"
+        }
+        if (Test-Path -LiteralPath (Join-Path $probeRoot 'logs\logs')) {
+            throw 'Packaged Local server created a duplicated logs directory.'
+        }
+        if (@(Get-ChildItem -LiteralPath $probeRoot -Recurse -File -Filter '*.log.log' -ErrorAction Stop).Count -gt 0) {
+            throw 'Packaged Local server created a duplicated .log.log file.'
+        }
+        Write-Host "Packaged Local server startup and health probe passed; log: $logPath"
+    } finally {
+        if ($null -ne $listener) { $listener.Stop() }
+        if ($null -ne $process) {
+            if (-not $process.HasExited) {
+                $process.Kill()
+                $process.WaitForExit()
+            }
+            $process.Dispose()
+        }
+        if (Test-Path -LiteralPath $probeRoot) { Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($path in @($stdoutPath, $stderrPath)) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
 function Get-IcoDimensions([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)
     if ($bytes.Length -lt 6 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
@@ -386,6 +465,8 @@ $restore = Join-Path $projectRoot 'scripts\local-restore.ps1'
 $baseConfig = Join-Path $projectRoot 'src\main\resources\application.yaml'
 $devConfig = Join-Path $projectRoot 'src\main\resources\application-dev.yaml'
 $localConfig = Join-Path $projectRoot 'src\main\resources\application-local.yaml'
+$prodConfig = Join-Path $projectRoot 'src\main\resources\application-prod.yaml'
+$logback = Join-Path $projectRoot 'src\main\resources\logback-spring.xml'
 $dockerfile = Join-Path $projectRoot 'Dockerfile'
 $compose = Join-Path $projectRoot 'docker-compose.server.yml'
 $serverEnv = Join-Path $projectRoot '.env.server.example'
@@ -424,6 +505,11 @@ Assert-Contains $installer "commonappdata.*FabMatrix.*installer.*service-install
 foreach ($config in @($baseConfig, $devConfig, $localConfig)) {
     Assert-Contains $config '\$\{SERVER_PORT:28081\}' "default SERVER_PORT for $config"
 }
+Assert-Contains $prodConfig 'name: \$\{LOG_FILE_PATH:\.\/logs\/farm\.log\}' 'prod complete LOG_FILE_PATH logging name'
+Assert-Contains $logback 'property name="FARM_LOG_FILE" value="\$\{LOG_FILE:-\$\{LOG_PATH:-\.\/logs\}\/farm\.log\}"' 'complete logging.file.name compatible log path'
+Assert-Contains $logback '<file>\$\{FARM_LOG_FILE\}</file>' 'main log uses complete resolved file path'
+Assert-Contains $logback '<file>\$\{FARM_LOG_FILE\}\.error</file>|<file>\$\{FARM_LOG_FILE\}\.access</file>' 'derived error/access log paths'
+Assert-NotContains $logback '\$\{LOG_PATH\}\/\$\{LOG_FILE\}|\$\{LOG_FILE\}\.log' 'log path must not duplicate directory or extension'
 Assert-Contains $dockerfile 'EXPOSE 28081' 'Dockerfile default port'
 Assert-Contains $compose 'SERVER_PORT: \$\{SERVER_PORT:-28081\}' 'Compose container port override'
 Assert-Contains $compose 'FARM_HTTP_PORT:-28081.*SERVER_PORT:-28081' 'Compose host/container port mapping'
@@ -460,6 +546,8 @@ Assert-Contains $dataAcl '/remove:g|/remove:d' 'explicit broad ACL removal opera
 Assert-Contains $dataAcl 'service-state|UsersReadOnly' 'runtime metadata Users read-only ACL intent'
 Assert-Contains $dataAcl 'Repair-FabMatrixInstallerDataAccess|takeown\.exe' 'legacy data ownership repair'
 Assert-Contains $dataAcl "@\('config', 'database', 'backups', 'files', 'logs'\)" 'legacy ACL repair fixed directory scope'
+Assert-Contains $dataAcl 'Assert-FabMatrixAclTreeSafe|ReparsePoint' 'ACL recursion reparse-point guard'
+Assert-Contains $dataAcl "'/SKIPSL'" 'takeown skips symbolic links'
 Assert-Contains $dataAcl "'/reset', '/T', '/Q'" 'legacy explicit deny ACL reset'
 Assert-NotContains $dataAcl "Repair-FabMatrixInstallerDataAccess[\s\S]*?'/C'" 'legacy ACL repair must not continue past denied children'
 Assert-Contains $capture 'StartMode|WasRunning|Stop-ServiceReliably' 'upgrade state capture'
@@ -469,6 +557,7 @@ Assert-Contains $portableConfig 'datasource|FARM_DATA_DIR|storage-path|logs/farm
 Assert-Contains $recovery 'StartMode|WasRunning|sc\.exe config' 'best-effort original service recovery'
 Assert-Contains $serviceXml '&quot;|ConvertTo-XmlText|stoptimeout>30sec' 'quoted escaped WinSW arguments and stop timeout'
 Assert-Contains $serviceXml '<env name="SERVER_PORT" value="\$portXml" />' 'WinSW service-level effective port environment'
+Assert-NotContains $serviceXml '<env name="LOG_PATH"' 'WinSW must not override Spring Boot logging path'
 Assert-Contains $control 'ValidateSet' 'tray service actions'
 Assert-Contains $tray 'SystemTray|FabMatrixTray' 'pure JDK tray controller'
 Assert-Contains $tray 'service-state.*effective-port\.txt|PORT_METADATA_DIRECTORY.*PORT_METADATA_FILE' 'tray installed effective port metadata path'
@@ -626,6 +715,8 @@ admin:
 $aclTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixAclContract-' + [guid]::NewGuid().ToString('N'))
 $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $aclFixtureFiles = @{}
+$aclJunctionPath = Join-Path $aclTemp 'config\external-link'
+$aclExternalTarget = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixAclExternal-' + [guid]::NewGuid().ToString('N'))
 try {
     foreach ($relative in @('config', 'database', 'backups', 'files', 'logs')) {
         $path = Join-Path $aclTemp $relative
@@ -700,11 +791,40 @@ try {
         }
     }
 
+    function Assert-ContractDirectoryInheritance([string]$Path, [bool]$UsersReadOnly) {
+        $rules = @((Get-Acl -LiteralPath $Path -ErrorAction Stop).Access)
+        foreach ($requiredSid in @('S-1-5-18', 'S-1-5-32-544')) {
+            $inheritableRule = $rules | Where-Object {
+                (Get-ContractAclSid $_) -eq $requiredSid -and
+                $_.AccessControlType -eq 'Allow' -and -not $_.IsInherited -and
+                (($_.InheritanceFlags -band [System.Security.AccessControl.InheritanceFlags]::ContainerInherit) -ne 0) -and
+                (($_.InheritanceFlags -band [System.Security.AccessControl.InheritanceFlags]::ObjectInherit) -ne 0)
+            } | Select-Object -First 1
+            if ($null -eq $inheritableRule) {
+                throw "ACL is missing future-child inheritance for $requiredSid on $Path"
+            }
+        }
+        if ($UsersReadOnly) {
+            $usersRule = $rules | Where-Object {
+                (Get-ContractAclSid $_) -eq 'S-1-5-32-545' -and
+                $_.AccessControlType -eq 'Allow' -and -not $_.IsInherited -and
+                (($_.InheritanceFlags -band [System.Security.AccessControl.InheritanceFlags]::ContainerInherit) -ne 0) -and
+                (($_.InheritanceFlags -band [System.Security.AccessControl.InheritanceFlags]::ObjectInherit) -ne 0)
+            } | Select-Object -First 1
+            if ($null -eq $usersRule) {
+                throw "Shared ACL is missing future-child Users inheritance on $Path"
+            }
+        }
+    }
+
     foreach ($relative in @('config', 'database', 'backups', 'files', 'logs')) {
         $rootPath = Join-Path $aclTemp $relative
         $objects = @((Get-Item -LiteralPath $rootPath -Force)) + @(Get-ChildItem -LiteralPath $rootPath -Force -Recurse)
         foreach ($object in $objects) {
             Assert-ContractObjectAcl $object.FullName ($relative -in @('files', 'logs'))
+            if ($object -is [IO.DirectoryInfo]) {
+                Assert-ContractDirectoryInheritance $object.FullName ($relative -in @('files', 'logs'))
+            }
         }
     }
     foreach ($logPath in @($aclFixtureFiles['logs-service-out'], $aclFixtureFiles['logs-service-err'])) {
@@ -721,7 +841,39 @@ try {
     if (([IO.File]::ReadAllText($runtimeMetadataPath)).Trim() -ne '8080') {
         throw 'Runtime metadata ACL application changed the preserved legacy effective port.'
     }
+
+    # A junction below a fixed data root must fail closed before any recursive ACL
+    # command can reach its external target. Permission-restricted environments may
+    # skip only the real junction exercise, while static guards remain mandatory.
+    New-Item -ItemType Directory -Force -Path $aclExternalTarget | Out-Null
+    $externalSentinel = Join-Path $aclExternalTarget 'sentinel.txt'
+    [IO.File]::WriteAllText($externalSentinel, 'external-acl-sentinel')
+    $externalContentHash = (Get-FileHash -LiteralPath $externalSentinel -Algorithm SHA256).Hash
+    $externalAclSddl = (Get-Acl -LiteralPath $externalSentinel -ErrorAction Stop).Sddl
+    $junctionCreated = $false
+    try {
+        New-Item -ItemType Junction -Path $aclJunctionPath -Target $aclExternalTarget -ErrorAction Stop | Out-Null
+        $junctionCreated = $true
+    } catch {
+        if ($_.Exception.Message -match 'access|denied|privilege|not permitted|symbolic link') {
+            Write-Host "ACL junction external sentinel test skipped due to permission limits: $($_.Exception.Message)"
+        } else {
+            throw "Unable to create ACL junction fixture: $($_.Exception.Message)"
+        }
+    }
+    if ($junctionCreated) {
+        try {
+            Assert-ThrowsMatching { Set-FabMatrixDataAcl -DataRoot $aclTemp } 'reparse point' 'ACL junction external target'
+        } finally {
+            if (Test-Path -LiteralPath $aclJunctionPath) { [IO.Directory]::Delete($aclJunctionPath) }
+        }
+        if ((Get-FileHash -LiteralPath $externalSentinel -Algorithm SHA256).Hash -ne $externalContentHash -or
+            (Get-Acl -LiteralPath $externalSentinel -ErrorAction Stop).Sddl -ne $externalAclSddl) {
+            throw 'ACL junction rejection changed the external sentinel content or ACL.'
+        }
+    }
 } finally {
+    if (Test-Path -LiteralPath $aclJunctionPath) { [IO.Directory]::Delete($aclJunctionPath) }
     if (Test-Path -LiteralPath $aclTemp) {
         # The policy deliberately removes the test user's inherited access.
         # Restore a direct cleanup grant on every existing object first so this
@@ -731,6 +883,7 @@ try {
         Remove-Item -LiteralPath $aclTemp -Recurse -Force -ErrorAction Stop
         if (Test-Path -LiteralPath $aclTemp) { throw "Disposable ACL fixture was not removed: $aclTemp" }
     }
+    if (Test-Path -LiteralPath $aclExternalTarget) { Remove-Item -LiteralPath $aclExternalTarget -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
@@ -741,6 +894,7 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
             'service\portable-config.ps1', 'service\recover-upgrade-state.ps1', 'service\service-xml.ps1')) {
         Assert-Exists (Join-Path $payload $relative) "payload $relative"
     }
+    Invoke-PackagedLocalStartupProbe $payload $configure
     $trayJarPath = Join-Path $payload 'app\FabMatrixTray.jar'
     Assert-Exists $trayJarPath 'payload tray JAR'
     $runtimeModulesPath = Join-Path $payload 'runtime\lib\modules'

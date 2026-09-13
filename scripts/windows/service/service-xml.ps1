@@ -50,7 +50,6 @@ function New-FabMatrixServiceXml {
     $argumentsXml = ConvertTo-XmlText $arguments
     $dataXml = ConvertTo-XmlText $dataPath
     $portXml = ConvertTo-XmlText ([string]$Port)
-    $logsXml = ConvertTo-XmlText (Join-Path $dataPath 'logs')
     $serviceLogsXml = ConvertTo-XmlText (Join-Path $dataPath 'logs\service')
 
     return @"
@@ -63,7 +62,6 @@ function New-FabMatrixServiceXml {
   <arguments>$argumentsXml</arguments>
   <env name="FARM_DATA_DIR" value="$dataXml" />
   <env name="SERVER_PORT" value="$portXml" />
-  <env name="LOG_PATH" value="$logsXml" />
   <logpath>$serviceLogsXml</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>10485760</sizeThreshold>

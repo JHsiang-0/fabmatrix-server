@@ -4,9 +4,38 @@ function Invoke-FabMatrixIcacls {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
+    if ($Arguments -contains '/T') {
+        Assert-FabMatrixAclTreeSafe -Path $Path
+    }
     & icacls.exe $Path @Arguments | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "ACL update failed ($LASTEXITCODE): $Path $($Arguments -join ' ')"
+    }
+}
+
+function Assert-FabMatrixAclTreeSafe {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $rootItem = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $root = [IO.Path]::GetFullPath($rootItem.FullName).TrimEnd('\')
+    $pending = New-Object 'System.Collections.Generic.Stack[System.IO.FileSystemInfo]'
+    $pending.Push($rootItem)
+
+    while ($pending.Count -gt 0) {
+        $item = $pending.Pop()
+        $itemPath = [IO.Path]::GetFullPath($item.FullName).TrimEnd('\')
+        if (-not [string]::Equals($itemPath, $root, [StringComparison]::OrdinalIgnoreCase) -and
+            -not $itemPath.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing ACL update outside fixed data root: $($item.FullName)"
+        }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Refusing recursive ACL update through reparse point: $($item.FullName)"
+        }
+        if ($item -is [IO.DirectoryInfo]) {
+            foreach ($child in $item.EnumerateFileSystemInfos('*', [IO.SearchOption]::TopDirectoryOnly)) {
+                $pending.Push($child)
+            }
+        }
     }
 }
 
@@ -16,7 +45,12 @@ function Set-FabMatrixDirectoryAcl {
         [switch]$UsersReadOnly
     )
 
-    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+    if (Test-Path -LiteralPath $Path) {
+        Assert-FabMatrixAclTreeSafe -Path $Path
+    } else {
+        New-Item -ItemType Directory -Force -Path $Path | Out-Null
+    }
+    Assert-FabMatrixAclTreeSafe -Path $Path
     $system = '*S-1-5-18:(OI)(CI)F'
     $administrators = '*S-1-5-32-544:(OI)(CI)F'
 
@@ -65,14 +99,19 @@ function Repair-FabMatrixInstallerDataAccess {
     }
 
     $root = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
+    if (Test-Path -LiteralPath $root -PathType Container) {
+        Assert-FabMatrixAclTreeSafe -Path $root
+    }
     foreach ($relative in @('config', 'database', 'backups', 'files', 'logs')) {
         $path = Join-Path $root $relative
         if (-not (Test-Path -LiteralPath $path -PathType Container)) { continue }
 
+        Assert-FabMatrixAclTreeSafe -Path $path
+
         # Older installers could leave child files with a DACL that even blocked the
         # elevated upgrade process. Ownership/access is repaired only for the five
         # known data directories; Set-FabMatrixDataAcl applies the final policy later.
-        & takeown.exe '/F' $path '/A' '/R' '/D' 'Y' | Out-Null
+        & takeown.exe '/F' $path '/A' '/R' '/D' 'Y' '/SKIPSL' | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Legacy data ownership repair failed ($LASTEXITCODE): $path"
         }
@@ -94,6 +133,10 @@ function Set-FabMatrixDataAcl {
     }
 
     $root = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+        throw "FabMatrix data root does not exist before ACL protection: $root"
+    }
+    Assert-FabMatrixAclTreeSafe -Path $root
     foreach ($relative in @('config', 'database', 'backups')) {
         Set-FabMatrixDirectoryAcl -Path (Join-Path $root $relative)
     }
@@ -109,7 +152,12 @@ function Set-FabMatrixRuntimeMetadataAcl {
         throw 'icacls.exe is required to publish FabMatrix runtime metadata safely.'
     }
 
-    $runtimeMetadataDir = Join-Path ([IO.Path]::GetFullPath($InstallDir)) 'service-state'
+    $installRoot = [IO.Path]::GetFullPath($InstallDir)
+    if (-not (Test-Path -LiteralPath $installRoot -PathType Container)) {
+        throw "FabMatrix install root does not exist before ACL publication: $installRoot"
+    }
+    Assert-FabMatrixAclTreeSafe -Path $installRoot
+    $runtimeMetadataDir = Join-Path $installRoot 'service-state'
     Set-FabMatrixDirectoryAcl -Path $runtimeMetadataDir -UsersReadOnly
 
     $metadataPath = Join-Path $runtimeMetadataDir 'effective-port.txt'

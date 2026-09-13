@@ -30,12 +30,30 @@ function Set-FabMatrixDirectoryAcl {
         Invoke-FabMatrixIcacls -Path $Path -Arguments @('/remove:d', $sid, '/T', '/Q')
     }
 
-    $grants = @(
-        $system,
-        $administrators
+    # Existing objects need direct ACEs. An inheritable ACE on a directory is
+    # not a reliable write grant for an already-created ordinary file (the
+    # WinSW service log failure is one example), so grant every current object
+    # explicitly before restoring inheritance for future children.
+    $directGrants = @(
+        '*S-1-5-18:F',
+        '*S-1-5-32-544:F'
     )
-    if ($UsersReadOnly) { $grants += '*S-1-5-32-545:(OI)(CI)RX' }
-    Invoke-FabMatrixIcacls -Path $Path -Arguments (@('/grant:r') + $grants + @('/T', '/Q'))
+    if ($UsersReadOnly) { $directGrants += '*S-1-5-32-545:RX' }
+    Invoke-FabMatrixIcacls -Path $Path -Arguments (@('/grant:r') + $directGrants + @('/T', '/Q'))
+
+    # Re-add inheritance only to existing directories. This keeps the direct
+    # file ACEs above while preserving the policy for files created later.
+    $directories = @((Get-Item -LiteralPath $Path -Force -ErrorAction Stop)) + @(
+        Get-ChildItem -LiteralPath $Path -Force -Directory -Recurse -ErrorAction Stop
+    )
+    $inheritedGrants = @(
+        '*S-1-5-18:(OI)(CI)F',
+        '*S-1-5-32-544:(OI)(CI)F'
+    )
+    if ($UsersReadOnly) { $inheritedGrants += '*S-1-5-32-545:(OI)(CI)RX' }
+    foreach ($directory in $directories) {
+        Invoke-FabMatrixIcacls -Path $directory.FullName -Arguments (@('/grant') + $inheritedGrants + @('/Q'))
+    }
 }
 
 function Repair-FabMatrixInstallerDataAccess {

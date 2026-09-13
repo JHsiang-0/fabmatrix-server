@@ -625,14 +625,30 @@ admin:
 # Exercise the real Windows ACL policy only against disposable temp directories.
 $aclTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixAclContract-' + [guid]::NewGuid().ToString('N'))
 $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$aclFixtureFiles = @{}
 try {
     foreach ($relative in @('config', 'database', 'backups', 'files', 'logs')) {
         $path = Join-Path $aclTemp $relative
         New-Item -ItemType Directory -Force -Path $path | Out-Null
+        $childDirectory = Join-Path $path 'existing-child'
+        New-Item -ItemType Directory -Force -Path $childDirectory | Out-Null
+        $childFile = Join-Path $childDirectory 'existing-file.txt'
+        [IO.File]::WriteAllText($childFile, "fixture:$relative")
+        $aclFixtureFiles[$relative] = $childFile
         # Keep the non-elevated test owner able to inspect/clean the fixture; production calls run elevated.
         & icacls.exe $path '/grant' "*$currentSid`:(OI)(CI)F" '*S-1-5-32-545:(OI)(CI)F' '*S-1-5-11:(OI)(CI)F' '/T' '/C' '/Q' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Unable to seed disposable ACL fixture: $path" }
     }
+    $serviceLogDirectory = Join-Path $aclTemp 'logs\service'
+    $stdoutLog = Join-Path $serviceLogDirectory 'FabMatrixServerService.out.log'
+    $stderrLog = Join-Path $serviceLogDirectory 'FabMatrixServerService.err.log'
+    New-Item -ItemType Directory -Force -Path $serviceLogDirectory | Out-Null
+    [IO.File]::WriteAllText($stdoutLog, 'existing stdout log')
+    [IO.File]::WriteAllText($stderrLog, 'existing stderr log')
+    $aclFixtureFiles['logs-service-out'] = $stdoutLog
+    $aclFixtureFiles['logs-service-err'] = $stderrLog
+    & icacls.exe (Join-Path $aclTemp 'logs') '/grant' "*$currentSid`:(OI)(CI)F" '*S-1-5-32-545:(OI)(CI)F' '*S-1-5-11:(OI)(CI)F' '/T' '/C' '/Q' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to seed disposable service log ACL fixture.' }
     . $dataAcl
     Set-FabMatrixDataAcl -DataRoot $aclTemp
 
@@ -645,31 +661,57 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Unable to seed runtime metadata ACL fixture: $runtimeMetadataDir" }
     Set-FabMatrixRuntimeMetadataAcl -InstallDir $aclInstallDir
 
-    foreach ($relative in @('config', 'database', 'backups')) {
-        $rules = (Get-Acl -LiteralPath (Join-Path $aclTemp $relative)).Access
-        $sids = @($rules | ForEach-Object {
-                try { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }
-                catch { $_.IdentityReference.Value }
-            })
-        foreach ($forbiddenSid in @('S-1-5-32-545', 'S-1-5-11', 'S-1-1-0')) {
-            if ($sids -contains $forbiddenSid) { throw "Private ACL retained broad principal $forbiddenSid on $relative" }
-        }
+    function Get-ContractAclSid($Rule) {
+        try { return $Rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }
+        catch { return $Rule.IdentityReference.Value }
+    }
+
+    function Assert-ContractObjectAcl([string]$Path, [bool]$UsersReadOnly) {
+        $rules = @((Get-Acl -LiteralPath $Path -ErrorAction Stop).Access)
         foreach ($requiredSid in @('S-1-5-18', 'S-1-5-32-544')) {
-            if ($sids -notcontains $requiredSid) { throw "Private ACL is missing $requiredSid on $relative" }
+            $privilegedRule = $rules | Where-Object {
+                (Get-ContractAclSid $_) -eq $requiredSid -and
+                $_.AccessControlType -eq 'Allow' -and -not $_.IsInherited
+            } | Select-Object -First 1
+            if ($null -eq $privilegedRule -or
+                ($privilegedRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) {
+                throw "ACL is missing direct FullControl for $requiredSid on $Path"
+            }
+        }
+
+        foreach ($forbiddenSid in @('S-1-5-11', 'S-1-1-0')) {
+            if (@($rules | Where-Object { (Get-ContractAclSid $_) -eq $forbiddenSid }).Count -gt 0) {
+                throw "ACL retained broad principal $forbiddenSid on $Path"
+            }
+        }
+
+        $usersRule = $rules | Where-Object {
+            (Get-ContractAclSid $_) -eq 'S-1-5-32-545' -and
+            $_.AccessControlType -eq 'Allow' -and -not $_.IsInherited
+        } | Select-Object -First 1
+        if ($UsersReadOnly) {
+            if ($null -eq $usersRule -or
+                ($usersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq 0 -or
+                ($usersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0) {
+                throw "Shared ACL must grant Users direct read/execute without write on $Path"
+            }
+        } elseif ($null -ne $usersRule) {
+            throw "Private ACL retained Users on $Path"
         }
     }
-    foreach ($relative in @('files', 'logs')) {
-        $usersRule = (Get-Acl -LiteralPath (Join-Path $aclTemp $relative)).Access | Where-Object {
-            try { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-545' }
-            catch { $false }
-        } | Select-Object -First 1
-        if ($null -eq $usersRule -or ($usersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0) {
-            throw "Shared ACL must grant Users read-only access on $relative"
+
+    foreach ($relative in @('config', 'database', 'backups', 'files', 'logs')) {
+        $rootPath = Join-Path $aclTemp $relative
+        $objects = @((Get-Item -LiteralPath $rootPath -Force)) + @(Get-ChildItem -LiteralPath $rootPath -Force -Recurse)
+        foreach ($object in $objects) {
+            Assert-ContractObjectAcl $object.FullName ($relative -in @('files', 'logs'))
         }
+    }
+    foreach ($logPath in @($aclFixtureFiles['logs-service-out'], $aclFixtureFiles['logs-service-err'])) {
+        Assert-ContractObjectAcl $logPath $true
     }
     $runtimeUsersRule = (Get-Acl -LiteralPath $runtimeMetadataPath).Access | Where-Object {
-        try { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-545' }
-        catch { $false }
+        (Get-ContractAclSid $_) -eq 'S-1-5-32-545'
     } | Select-Object -First 1
     if ($null -eq $runtimeUsersRule -or
         ($runtimeUsersRule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq 0 -or
@@ -681,8 +723,13 @@ try {
     }
 } finally {
     if (Test-Path -LiteralPath $aclTemp) {
-        & icacls.exe $aclTemp '/grant' "*$currentSid`:(OI)(CI)F" '/T' '/C' '/Q' | Out-Null
-        Remove-Item -LiteralPath $aclTemp -Recurse -Force -ErrorAction SilentlyContinue
+        # The policy deliberately removes the test user's inherited access.
+        # Restore a direct cleanup grant on every existing object first so this
+        # contract remains runnable without elevation.
+        & icacls.exe $aclTemp '/grant:r' "*$currentSid`:F" '/T' '/C' '/Q' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Unable to restore disposable ACL fixture cleanup access: $aclTemp" }
+        Remove-Item -LiteralPath $aclTemp -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $aclTemp) { throw "Disposable ACL fixture was not removed: $aclTemp" }
     }
 }
 

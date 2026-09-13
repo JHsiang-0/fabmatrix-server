@@ -135,7 +135,9 @@ begin
   PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   InstallScript := ExpandConstant('{app}\service\install-service.ps1');
   StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
-  ServiceLog := AddBackslash(GetDataRoot('')) + 'logs\installer\service-install.log';
+  { Keep diagnostics outside the hardened business-data subdirectories so an ACL
+    failure can never hide its own error from the interactive installer user. }
+  ServiceLog := ExpandConstant('{commonappdata}\FabMatrix\installer\service-install.log');
   Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + InstallScript +
     '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + GetDataRoot('') +
     '" -Port 28081 -PreserveExistingState -StateFile "' + StateFile +

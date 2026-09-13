@@ -9,7 +9,7 @@
 - 安装盘符不是系统盘时，数据根：`{app}\data`
 - 两种布局都包含：`config\application.yml`、`database\farm.db`、`files`、`logs`、`backups`
 - 新安装默认监听：`0.0.0.0:28081`；Profile：`local`；后台 scheduler：关闭；Swagger/OpenAPI：关闭。升级时保留已有配置端口。
-- 服务安装阶段日志保存在数据根的 `logs\installer\service-install.log`；覆盖安装失败时，提示框会直接显示该路径，且不会继续启动托盘。
+- 服务安装阶段日志保存在 `%ProgramData%\FabMatrix\installer\service-install.log`，与业务数据 ACL 隔离；覆盖安装失败时，提示框会直接显示该路径，且不会继续启动托盘。
 - 覆盖安装会在读取旧配置前修复历史版本可能遗留的异常 ACL，仅处理 `config`、`database`、`backups`、`files`、`logs` 五个固定目录：接管所有权并重置历史显式拒绝后恢复 Administrators/SYSTEM 访问，不改写文件内容；任何子项修复失败都会中止，安装后仍按正式策略重新收紧权限。
 - 固定 Windows 服务名：`FabMatrixServer`
 
@@ -17,7 +17,7 @@
 
 从旧版升级时，在旧服务已正常停止且新数据根尚未初始化的前提下，安装脚本检测 `C:\ProgramData\Farm`：先在旧根的 `backups\pre-fabmatrix-migration-*` 完整保留迁移源，再将 `data\farm.db` 映射到 `database\farm.db`、`uploads` 映射到 `files`、`config` 映射到 `config`。上一版 `Farm-Configure.ps1` 生成的配置没有 `spring.datasource.url`，迁移器会主动补入 `${FARM_DATA_DIR}/database/farm.db`，并把 files/logs 改为同一占位，同时保留原端口、CORS 和密钥。新根已有数据库、配置或文件时绝不覆盖；迁移或服务注册失败会中止安装、保留旧数据和迁移备份，并尽力恢复仍存在的原服务启动类型/运行状态。
 
-安装器只解析一次实际端口，并将同一值写入 WinSW 服务级 `SERVER_PORT`、Windows Firewall `Private` TCP 入站规则及 `{app}\service-state\effective-port.txt`。该元数据只包含端口，显式授予 Users 读取/执行但不授予写入；不开放 `Public` profile，也不放宽业务数据 ACL。ACL 会先清除 Users、Authenticated Users、Everyone 等旧显式 ACE，再将 `config`、`database` 和 `backups` 限制为 SYSTEM/Administrators 完全控制；`files`、`logs` 可供 Users 只读，但不可写。已有纯数字 `8080` 等端口在升级时保留并冻结到服务环境；修改端口后必须重新运行安装器/服务注册流程，单独编辑配置并重启不会覆盖服务级 `SERVER_PORT`。
+安装器只解析一次实际端口，并将同一值写入 WinSW 服务级 `SERVER_PORT`、Windows Firewall `Private` TCP 入站规则及 `{app}\service-state\effective-port.txt`。该元数据只包含端口，显式授予 Users 读取/执行但不授予写入；不开放 `Public` profile，也不放宽业务数据 ACL。若组策略或终端防护阻止自动创建防火墙规则，服务安装仍会完成并在安装日志记录 `WARNING`，管理员需手动开放实际端口后局域网客户端才能访问。ACL 会先清除 Users、Authenticated Users、Everyone 等旧显式 ACE，再将 `config`、`database` 和 `backups` 限制为 SYSTEM/Administrators 完全控制；`files`、`logs` 可供 Users 只读，但不可写。已有纯数字 `8080` 等端口在升级时保留并冻结到服务环境；修改端口后必须重新运行安装器/服务注册流程，单独编辑配置并重启不会覆盖服务级 `SERVER_PORT`。
 
 ## 托盘控制器
 

@@ -420,6 +420,7 @@ Assert-Contains $installer 'RaiseException' 'service install failure abort'
 Assert-Contains $installer 'Name: "tray_autostart"[^\r\n]*Flags: checkedonce' 'default tray autostart choice'
 Assert-Contains $installer 'Check: ShouldLaunchTray|ServiceInstallSucceeded' 'tray launch guarded by successful service installation'
 Assert-Contains $installer 'service-install\.log|LogPath' 'persistent service installation diagnostics'
+Assert-Contains $installer "commonappdata.*FabMatrix.*installer.*service-install\.log" 'ACL-independent service installation diagnostics'
 foreach ($config in @($baseConfig, $devConfig, $localConfig)) {
     Assert-Contains $config '\$\{SERVER_PORT:28081\}' "default SERVER_PORT for $config"
 }
@@ -447,6 +448,8 @@ Assert-Contains $install 'SelfTestPortConfig|Test-FabMatrixPortConfig' 'installe
 Assert-Contains $install 'Wait-ServiceAbsent|pending deletion' 'service deletion completion wait'
 Assert-Contains $install 'Install-WinSwServiceWithRetry|registration failed after' 'bounded WinSW registration retry'
 Assert-Contains $install 'FAILED stage=\$installStage|Detailed log' 'stage-specific service installation failure log'
+Assert-Contains $install 'WARNING stage=\$installStage|private firewall rule was not created' 'non-fatal firewall automation warning'
+Assert-NotContains $install "configure private firewall rule'[\s\S]*?Wait-ServiceAbsent" 'firewall automation failure must not remove the service'
 Assert-Contains $install 'repair legacy data permissions|Repair-FabMatrixInstallerDataAccess' 'legacy ACL repair before configuration read'
 Assert-Contains $uninstall '\[int\]\$Port = 28081' 'new uninstall default port'
 Assert-NotContains $install 'Profile\s+Private[^\r\n]*Public|Profile.*Public' 'public firewall profile'

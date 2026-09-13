@@ -323,13 +323,16 @@ try {
         & sc.exe config $serviceName 'start=' 'disabled' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer Disabled start mode restoration failed: $LASTEXITCODE" }
     }
+    $firewallWarning = $null
+    $installStage = 'configure private firewall rule'
     try {
-        $installStage = 'configure private firewall rule'
         Set-PrivateFirewallRule -EffectivePort $effectivePort
     } catch {
-        & $winSw uninstall 2>$null | Out-Null
-        Wait-ServiceAbsent $serviceName
-        throw
+        # The server remains usable on localhost when Windows policy or endpoint
+        # protection blocks firewall automation. Keep the registered service and
+        # expose a precise warning instead of rolling the entire installation back.
+        $firewallWarning = $_.Exception.Message
+        Write-InstallLog $installLogPath "WARNING stage=$installStage error=$($firewallWarning -replace '[\r\n]+', ' | ')"
     }
 
     if ($servicePlan.ShouldStart) {
@@ -340,6 +343,9 @@ try {
 
     $stateDescription = if ($servicePlan.IsUpgrade) { "preserved $($preservedState.StartMode), wasRunning=$($preservedState.WasRunning)" } else { $servicePlan.StartMode }
     $successMessage = "FabMatrixServer service registered: $stateDescription; effective port $effectivePort; tray metadata $portMetadataPath; data retained at $DataRoot"
+    if (-not [string]::IsNullOrWhiteSpace($firewallWarning)) {
+        $successMessage += "; WARNING: private firewall rule was not created ($firewallWarning)"
+    }
     Write-InstallLog $installLogPath "SUCCESS $successMessage"
     Write-Output $successMessage
 } catch {

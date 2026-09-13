@@ -194,6 +194,7 @@
 - [x] T16.10（P1.7.10）修复 Windows Local Edition 覆盖安装失败：释放 `ServiceController` 句柄并等待旧服务从 SCM 完全消失，WinSW 注册使用 30 秒有界重试；服务安装按阶段写入数据目录下的持久日志，失败提示直接给出日志位置；服务注册失败时不再执行安装后托盘启动项。安装契约和完整后端测试通过后重新构建发布候选。
 - [x] T16.11（P1.7.11）兼容旧安装留下的异常数据 ACL：在读取/迁移现有配置前，仅对 `config/database/backups/files/logs` 五个已知数据目录恢复 Administrators/SYSTEM 所有权与完全控制，随后继续使用正式 ACL 策略重新收紧；避免管理员安装进程因无法读取 `application.yml` 而在配置阶段退出。
 - [x] T16.12（P1.7.12）修正旧数据 ACL 恢复的误判：接管所有权后先递归重置五个固定数据子树的继承 ACL，清除优先于 allow 的历史显式 deny，再授予 Administrators/SYSTEM；恢复阶段不再使用 `icacls /C` 忽略子项错误，任一 ACL 修复失败即中止并保留日志。
+- [x] T16.13（P1.7.13）解除 Windows 防火墙自动化对核心安装的阻断：服务注册成功后，私有网络防火墙规则创建失败改为持久警告而非卸载服务并回滚；安装诊断日志迁移到与业务 ACL 隔离的 `%ProgramData%\FabMatrix\installer`，确保权限或后置步骤失败时仍可读取准确阶段。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

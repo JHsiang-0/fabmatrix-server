@@ -192,6 +192,7 @@
 - [x] T16.8（P1.7.8）修复 Windows Local Edition 托盘菜单中文显示为方块：使用 Swing `JPopupMenu`/`JMenuItem` 自绘菜单规避 Windows AWT native peer 忽略 Java 字体，按 `canDisplayUpTo` 选择中文字体并保留完整英文回退；右键菜单通过可释放的 `JWindow` anchor 显示并约束在当前显示器可用边界内，外部点击或焦点离开时关闭且不受 popup 自身焦点切换影响；jpackage 使用 `ALL-MODULE-PATH` 保留完整 JDK runtime，并覆盖源码、打包 launcher、Swing 菜单模型及 runtime 模块自检。已完成 Full 安装包构建、契约检查及 392 项 Maven 测试。
 - [x] T16.9（P1.7.9）将新部署的默认 HTTP/WebSocket 端口统一为 `28081`：覆盖 dev/local/prod、Server Edition Docker、Windows Local Edition 安装器/防火墙/托盘及前端首次连接默认值；显式环境变量和客户端已保存地址继续优先；升级安装保留已有 `application.yml` 端口，并让 Windows 服务、防火墙及普通权限托盘共用安装时解析的实际端口，通过非敏感只读元数据避免托盘读取受保护配置；已补充默认值、覆盖、ACL 与安装器契约回归。`mvnw.cmd test` 392 项、Windows 安装器契约、前端 342 项测试、lint、普通/Desktop 构建及干净环境 Electron dist 回归均通过。
 - [x] T16.10（P1.7.10）修复 Windows Local Edition 覆盖安装失败：释放 `ServiceController` 句柄并等待旧服务从 SCM 完全消失，WinSW 注册使用 30 秒有界重试；服务安装按阶段写入数据目录下的持久日志，失败提示直接给出日志位置；服务注册失败时不再执行安装后托盘启动项。安装契约和完整后端测试通过后重新构建发布候选。
+- [x] T16.11（P1.7.11）兼容旧安装留下的异常数据 ACL：在读取/迁移现有配置前，仅对 `config/database/backups/files/logs` 五个已知数据目录恢复 Administrators/SYSTEM 所有权与完全控制，随后继续使用正式 ACL 策略重新收紧；避免管理员安装进程因无法读取 `application.yml` 而在配置阶段退出。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

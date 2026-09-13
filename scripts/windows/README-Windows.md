@@ -10,6 +10,7 @@
 - 两种布局都包含：`config\application.yml`、`database\farm.db`、`files`、`logs`、`backups`
 - 新安装默认监听：`0.0.0.0:28081`；Profile：`local`；后台 scheduler：关闭；Swagger/OpenAPI：关闭。升级时保留已有配置端口。
 - 服务安装阶段日志保存在数据根的 `logs\installer\service-install.log`；覆盖安装失败时，提示框会直接显示该路径，且不会继续启动托盘。
+- 覆盖安装会在读取旧配置前修复历史版本可能遗留的异常 ACL，仅处理 `config`、`database`、`backups`、`files`、`logs` 五个固定目录，不改写文件内容；安装后仍按正式策略重新收紧权限。
 - 固定 Windows 服务名：`FabMatrixServer`
 
 安装器在复制新文件前会记录已有 `Farm`/`FabMatrixServer` 服务的 StartType 和是否正在运行，再正常停止服务和旧/新托盘进程。升级完成后恢复原启动类型和运行状态；全新安装才使用安装选项决定 Automatic/Manual 和是否立即启动。旧 `Farm` 服务注册可被清理，但任何业务数据目录都不会删除。升级、卸载均保留数据根。卸载前只关闭 `FabMatrixTray`/`FarmTray`，随后移除程序文件、服务注册和本安装器创建的私有 TCP 防火墙规则，不递归删除 `config`、`database`、`files`、`logs` 或 `backups`。

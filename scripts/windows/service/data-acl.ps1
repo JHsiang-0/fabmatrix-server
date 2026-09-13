@@ -38,6 +38,31 @@ function Set-FabMatrixDirectoryAcl {
     Invoke-FabMatrixIcacls -Path $Path -Arguments (@('/grant:r') + $grants + @('/T', '/Q'))
 }
 
+function Repair-FabMatrixInstallerDataAccess {
+    param([Parameter(Mandatory = $true)][string]$DataRoot)
+
+    if (-not (Get-Command takeown.exe -ErrorAction SilentlyContinue) -or
+        -not (Get-Command icacls.exe -ErrorAction SilentlyContinue)) {
+        throw 'takeown.exe and icacls.exe are required to repair legacy FabMatrix data permissions.'
+    }
+
+    $root = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
+    foreach ($relative in @('config', 'database', 'backups', 'files', 'logs')) {
+        $path = Join-Path $root $relative
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) { continue }
+
+        # Older installers could leave child files with a DACL that even blocked the
+        # elevated upgrade process. Ownership/access is repaired only for the five
+        # known data directories; Set-FabMatrixDataAcl applies the final policy later.
+        & takeown.exe '/F' $path '/A' '/R' '/D' 'Y' | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Legacy data ownership repair failed ($LASTEXITCODE): $path"
+        }
+        Invoke-FabMatrixIcacls -Path $path -Arguments @('/grant',
+            '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '/T', '/C', '/Q')
+    }
+}
+
 function Set-FabMatrixDataAcl {
     param([Parameter(Mandatory = $true)][string]$DataRoot)
 

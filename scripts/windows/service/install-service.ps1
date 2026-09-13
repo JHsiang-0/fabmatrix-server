@@ -273,6 +273,11 @@ try {
     Stop-ServiceIfPresent 'FabMatrixServer'
     Stop-ServiceIfPresent 'Farm'
 
+    # Restore elevated installer access before reading/migrating legacy configuration.
+    # The final restrictive ACL policy is applied after migration and configuration.
+    $installStage = 'repair legacy data permissions'
+    Repair-FabMatrixInstallerDataAccess -DataRoot $DataRoot
+
     # Migration is only attempted after both legacy/new services are confirmed stopped.
     $installStage = 'migrate legacy data'
     & (Join-Path $serviceDir 'migrate-legacy-data.ps1') -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot

@@ -203,7 +203,7 @@
 
 ### T16.19 [新增] Windows Local Edition 双模式卸载
 
-- [x] T16.19 为 Windows Local Edition 增加默认保留数据卸载与显式完全卸载双模式：普通/静默卸载删除服务、托盘/程序和防火墙规则但保留业务数据；交互式完全卸载要求模式选择和第二次不可逆确认，命令行仅接受 `/PURGEDATA=CONFIRM`；新增受控路径、LiteralPath、reparse 防护的 `purge-local-data.ps1`，由卸载器在停服后调用并传播失败，扩展临时目录契约自测；`mvnw.cmd test` 393 项、Windows installer contract、payload/启动探针和完整 installer build 已通过。
+- [x] T16.19 为 Windows Local Edition 增加默认保留数据卸载与显式完全卸载双模式：普通/静默卸载删除服务、托盘/程序和防火墙规则但保留业务数据；交互式完全卸载要求模式选择和默认聚焦“否”的第二次不可逆确认，命令行仅接受 `/PURGEDATA=CONFIRM`。主审修复后，卸载清理由 `CurUninstallStepChanged(usUninstall)` 单次同步执行并强校验退出码，静默状态使用卸载器专用 `UninstallSilent` API；独立 `purge-local-data.ps1` 检查完整驱动器根、目标和每个已存在祖先的 reparse point，并以逐节点复检、LiteralPath、非递归后序删除受控 DataRoot。契约包含隔离 ISCC 编译以及不同 cwd、DataRoot 根 junction、InstallDir 根/祖先 junction、后代 junction 自测；`mvnw.cmd test` 393 项、Windows installer contract、payload/启动探针和完整 installer build 已通过。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

@@ -58,9 +58,6 @@ Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 [Run]
 Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"; Check: ShouldLaunchTray
 
-[UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\uninstall-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 28081 -FailureMarker ""{tmp}\FabMatrix-uninstall-failure.txt"" {code:GetUninstallModeParameters}"; RunOnceId: "FabMatrixServer"; Flags: runhidden waituntilterminated
-
 [Icons]
 Name: "{group}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; WorkingDir: "{app}"
 Name: "{userstartup}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; WorkingDir: "{app}"; Tasks: tray_autostart; Flags: runminimized
@@ -69,6 +66,7 @@ Name: "{userstartup}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; 
 var
   ServiceInstallSucceeded: Boolean;
   PurgeDataRequested: Boolean;
+  UninstallCleanupExecuted: Boolean;
 
 function GetDataRoot(Param: String): String;
 begin
@@ -117,37 +115,30 @@ begin
   Result := False;
 end;
 
-function GetUninstallModeParameters(Param: String): String;
-begin
-  if PurgeDataRequested then
-    Result := '-PurgeData'
-  else
-    Result := '';
-end;
-
 function ConfirmCompleteUninstall(): Boolean;
 begin
   Result := MsgBox(
     '完全卸载将永久删除 FabMatrix 的账号、数据库、任务、文件、配置和备份，且无法恢复。请先确认已完成备份。' + #13#10 + #13#10 +
     '确定要永久删除整个受控业务数据根吗？选择“否”将退出卸载。',
-    mbCriticalError, MB_YESNO) = IDYES;
+    mbCriticalError, MB_YESNO or MB_DEFBUTTON2) = IDYES;
 end;
 
 function InitializeUninstall(): Boolean;
 var
   ModeChoice: Integer;
 begin
+  UninstallCleanupExecuted := False;
   PurgeDataRequested := HasPurgeDataConfirmSwitch();
   if PurgeDataRequested then
   begin
-    if WizardSilent then
+    if UninstallSilent then
       Result := True
     else
       Result := ConfirmCompleteUninstall();
     Exit;
   end;
 
-  if WizardSilent then
+  if UninstallSilent then
   begin
     { /SILENT never implies data removal. }
     Result := True;
@@ -173,6 +164,57 @@ begin
     Exit;
   end;
   Result := True;
+end;
+
+procedure RunUninstallCleanupChecked();
+var
+  ResultCode: Integer;
+  PowerShell: String;
+  UninstallScript: String;
+  DataRoot: String;
+  Parameters: String;
+  FailureMessage: String;
+begin
+  if UninstallCleanupExecuted then
+  begin
+    Log('FabMatrix uninstall cleanup was already executed; duplicate callback ignored.');
+    Exit;
+  end;
+  UninstallCleanupExecuted := True;
+
+  ResultCode := -1;
+  PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  UninstallScript := ExpandConstant('{app}\service\uninstall-service.ps1');
+  DataRoot := GetDataRoot('');
+  Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + UninstallScript +
+    '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + DataRoot + '" -Port 28081';
+  if PurgeDataRequested then
+    Parameters := Parameters + ' -PurgeData';
+  if UninstallSilent then
+    Parameters := Parameters + ' -Silent';
+
+  Log('Starting checked FabMatrix uninstall cleanup before file removal.');
+  if (not Exec(PowerShell, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or
+     (ResultCode <> 0) then
+  begin
+    FailureMessage := 'FabMatrix 卸载清理失败（退出码 ' + IntToStr(ResultCode) +
+      '），卸载已中止。业务数据未确认完全删除，可能仍位于：' + DataRoot;
+    Log(FailureMessage);
+    if not UninstallSilent then
+      MsgBox(FailureMessage, mbCriticalError, MB_OK);
+    RaiseException('FabMatrix uninstall cleanup failed with exit code ' + IntToStr(ResultCode));
+  end;
+
+  if PurgeDataRequested then
+    Log('FabMatrix service, tray, firewall rule and controlled business data root were removed.')
+  else
+    Log('FabMatrix service, tray and firewall rule were removed. Business data retained at: ' + DataRoot);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    RunUninstallCleanupChecked();
 end;
 
 function CaptureStateAndStopPreviousProcesses(): Boolean;

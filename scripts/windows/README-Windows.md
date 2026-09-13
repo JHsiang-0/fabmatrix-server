@@ -15,7 +15,7 @@
 
 安装器在复制新文件前会记录已有 `Farm`/`FabMatrixServer` 服务的 StartType 和是否正在运行，再正常停止服务和旧/新托盘进程。升级完成后恢复原启动类型和运行状态；全新安装才使用安装选项决定 Automatic/Manual 和是否立即启动。旧 `Farm` 服务注册可被清理，但任何业务数据目录都不会删除。卸载前只关闭 `FabMatrixTray`/`FarmTray`，随后移除程序文件、服务注册和本安装器创建的私有 TCP 防火墙规则；普通卸载保留完整业务数据根，不递归删除 `config`、`database`、`files`、`logs` 或 `backups`。
 
-卸载有两种模式。交互式卸载先选择普通卸载或完全卸载：普通卸载保留数据；选择完全卸载后还必须完成第二次不可逆确认，确认前可取消并退出。完全卸载会在服务和托盘停止后，通过 `purge-local-data.ps1` 删除整个受控 DataRoot，包括账号、数据库、任务、文件、配置和备份；删除前请先备份。静默卸载默认绝不清理数据；命令行完全卸载必须显式使用 `/PURGEDATA=CONFIRM`，不能仅使用 `/SILENT`。系统盘安装的 DataRoot 是 `%ProgramData%\FabMatrix`，非系统盘安装的是 `{app}\data`。清理脚本拒绝空路径、相对路径、驱动器根、安装目录、越界路径及根/后代 reparse point；校验或删除失败会报告未完成及数据位置。
+卸载有两种模式。交互式卸载先选择普通卸载或完全卸载：普通卸载保留数据；选择完全卸载后还必须完成默认聚焦“否”的第二次不可逆确认，确认前可取消并退出。完全卸载会在服务和托盘停止后，通过 `purge-local-data.ps1` 删除整个受控 DataRoot，包括账号、数据库、任务、文件、配置和备份；删除前请先备份。静默卸载默认绝不清理数据；命令行完全卸载必须显式使用 `/PURGEDATA=CONFIRM`，不能仅使用 `/SILENT`。系统盘安装的 DataRoot 是 `%ProgramData%\FabMatrix`，非系统盘安装的是 `{app}\data`。Inno 在 `usUninstall` 阶段只同步执行一次清理脚本并检查退出码，失败会中止卸载、记录并在交互模式提示残留位置，静默模式只记录错误并返回失败。清理脚本拒绝空路径、相对路径、驱动器根、安装目录、越界路径以及驱动器根、InstallDir/DataRoot 自身、祖先或后代的 reparse point；数据树以逐节点复检、LiteralPath、非递归后序方式删除，不跟随 symlink/junction。
 
 从旧版升级时，在旧服务已正常停止且新数据根尚未初始化的前提下，安装脚本检测 `C:\ProgramData\Farm`：先在旧根的 `backups\pre-fabmatrix-migration-*` 完整保留迁移源，再将 `data\farm.db` 映射到 `database\farm.db`、`uploads` 映射到 `files`、`config` 映射到 `config`。上一版 `Farm-Configure.ps1` 生成的配置没有 `spring.datasource.url`，迁移器会主动补入 `${FARM_DATA_DIR}/database/farm.db`，并把 files/logs 改为同一占位，同时保留原端口、CORS 和密钥。新根已有数据库、配置或文件时绝不覆盖；迁移或服务注册失败会中止安装、保留旧数据和迁移备份，并尽力恢复仍存在的原服务启动类型/运行状态。
 

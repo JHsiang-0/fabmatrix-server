@@ -46,6 +46,30 @@ function Assert-ThrowsMatching([scriptblock]$Action, [string]$Pattern, [string]$
     throw "Contract check expected failure: $Description"
 }
 
+function Find-ContractInnoCompiler {
+    $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($null -ne $command) { return $command.Source }
+    foreach ($candidate in @(
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe',
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'))) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    throw 'Inno Setup 6 ISCC.exe is required for the uninstall-stage contract compile.'
+}
+
+function Remove-InnoCompileContractFixture([string]$Path) {
+    $resolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $resolvedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if (-not [string]::Equals([IO.Path]::GetDirectoryName($resolvedPath), $resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolvedPath) -notmatch '^FabMatrixInnoCompileContract-[0-9a-f]+$') {
+        throw "Refusing to remove an unexpected Inno compile fixture: $resolvedPath"
+    }
+    if (Test-Path -LiteralPath $resolvedPath) {
+        Remove-Item -LiteralPath $resolvedPath -Recurse -Force -ErrorAction Stop
+    }
+}
+
 function Remove-DistContractFixture([string]$Path) {
     $resolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
     $resolvedDist = [IO.Path]::GetFullPath($contractDistRoot).TrimEnd('\')
@@ -489,12 +513,19 @@ Assert-Contains $installer 'commonappdata.*FabMatrix|GetDataRoot' 'system drive 
 Assert-Contains $installer '\{app\}.*data|Result := AddBackslash.*data' 'non-system drive data root'
 Assert-Contains $installer 'uninsneveruninstall' 'data retention declaration'
 Assert-NotContains $installer 'UninstallDelete[\s\S]*(commonappdata|\\data|\\database|\\files|\\backups)' 'recursive data deletion'
-Assert-Contains $installer 'InitializeUninstall|GetUninstallModeParameters' 'uninstall mode hook'
+Assert-Contains $installer 'InitializeUninstall' 'uninstall mode hook'
 Assert-Contains $installer 'MB_YESNOCANCEL|IDCANCEL' 'interactive uninstall cancellation'
 Assert-Contains $installer 'ConfirmCompleteUninstall|PurgeDataRequested' 'complete uninstall second confirmation'
+Assert-Contains $installer 'MB_YESNO or MB_DEFBUTTON2' 'irreversible confirmation defaults to No'
 Assert-Contains $installer '/PURGEDATA=CONFIRM' 'explicit purge command-line confirmation'
-Assert-Contains $installer 'WizardSilent[\s\S]*PurgeDataRequested.*False|/SILENT never implies data removal' 'silent uninstall retains data'
-Assert-Contains $installer 'FailureMarker|卸载失败' 'uninstall failure propagation'
+Assert-Contains $installer 'UninstallSilent[\s\S]*PurgeDataRequested|/SILENT never implies data removal' 'silent uninstall retains data'
+Assert-NotContains $installer 'WizardSilent' 'installer-only silent API in uninstall code'
+Assert-NotContains $installer '(?m)^\[UninstallRun\]' 'unchecked UninstallRun cleanup hook'
+Assert-Contains $installer 'CurUninstallStepChanged[\s\S]*usUninstall[\s\S]*RunUninstallCleanupChecked' 'checked uninstall-stage callback'
+Assert-Contains $installer 'UninstallCleanupExecuted[\s\S]*duplicate callback ignored' 'single-execution uninstall guard'
+Assert-Contains $installer 'Exec\(PowerShell, Parameters.*ewWaitUntilTerminated, ResultCode\)[\s\S]*ResultCode <> 0' 'synchronous uninstall exit-code check'
+Assert-Contains $installer 'if not UninstallSilent then[\s\S]*MsgBox\(FailureMessage[\s\S]*RaiseException' 'interactive-only failure message and abort'
+Assert-Contains $installer "Parameters := Parameters \+ ' -Silent'" 'silent state passed to uninstall script'
 Assert-Contains $installer 'capture-upgrade-state\.ps1|PreserveExistingState|StateFile' 'upgrade service state handoff'
 Assert-Contains $installer 'capture-upgrade-state\.ps1[\s\S]*InstallDir[\s\S]*\{app\}' 'upgrade preflight receives the target install directory'
 Assert-Contains $installer 'PrepareToInstall[\s\S]*Result := ' 'upgrade preflight aborts before file copy'
@@ -503,6 +534,23 @@ $installerText = Get-Content -LiteralPath $installer -Raw
 $runSection = [regex]::Match($installerText, '(?ms)^\[Run\]\s*(.*?)(?=^\[)')
 if (-not $runSection.Success -or $runSection.Groups[1].Value -match 'install-service\.ps1') {
     throw 'Service installation must not run from the unchecked Inno [Run] section.'
+}
+$innoCompileRoot = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixInnoCompileContract-' + [guid]::NewGuid().ToString('N'))
+try {
+    $innoPayload = Join-Path $innoCompileRoot 'payload'
+    $innoService = Join-Path $innoPayload 'service'
+    $innoOutput = Join-Path $innoCompileRoot 'output'
+    [IO.Directory]::CreateDirectory($innoService) | Out-Null
+    [IO.Directory]::CreateDirectory($innoOutput) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $innoPayload 'contract-placeholder.txt'), 'isolated Inno compile fixture')
+    [IO.File]::WriteAllText((Join-Path $innoService 'capture-upgrade-state.ps1'), '# isolated compile fixture')
+    $innoCompiler = Find-ContractInnoCompiler
+    & $innoCompiler '/Qp' '/DAppVersion=2.0.0' "/DPayloadDir=$innoPayload" "/DOutputDir=$innoOutput" "/DAssetsDir=$assets" $installer
+    if ($LASTEXITCODE -ne 0) { throw "Inno uninstall-stage contract compile failed: $LASTEXITCODE" }
+    Assert-Exists (Join-Path $innoOutput 'FabMatrixServer-Setup.exe') 'compiled isolated Inno installer'
+    Write-Host 'FabMatrix isolated Inno uninstall-stage compile passed.'
+} finally {
+    Remove-InnoCompileContractFixture $innoCompileRoot
 }
 Assert-Contains $installer 'CurStepChanged|InstallServiceChecked' 'checked post-copy service install hook'
 Assert-Contains $installer 'Exec\(PowerShell, Parameters.*ResultCode|ResultCode <> 0' 'service install exit-code check'
@@ -592,16 +640,59 @@ Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot 
 Assert-Contains $uninstall "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'uninstall closes only tray executables'
 Assert-Contains $uninstall '\[switch\]\$PurgeData|if \(\$PurgeData\)' 'purge is opt-in'
 Assert-Contains $uninstall 'purge-local-data\.ps1|Business data retained at' 'purge payload and default retention output'
-Assert-Contains $uninstall 'Write-UninstallFailureMarker|exit 1' 'uninstall failure is propagated'
-Assert-Contains $purge 'Assert-FabMatrixPurgePaths|Assert-FabMatrixNoReparsePointsInTree|Remove-FabMatrixLocalData' 'standalone purge safety functions'
+Assert-Contains $uninstall '\[switch\]\$Silent|\[Console\]::Error\.WriteLine' 'silent uninstall logs failure without UI'
+Assert-Contains $uninstall 'Write-Error[\s\S]*exit 1|\[Console\]::Error\.WriteLine[\s\S]*exit 1' 'uninstall failure is propagated'
+Assert-NotContains $uninstall 'System\.Windows\.Forms|MessageBox|FailureMarker' 'PowerShell uninstall UI and orphan failure marker'
+Assert-NotContains $uninstall '& \$purgeScript[\s\S]{0,200}\$LASTEXITCODE' 'invalid in-process purge LASTEXITCODE check'
+Assert-Contains $purge 'Assert-FabMatrixPurgePaths|Assert-FabMatrixNoReparsePointsInPath|Remove-FabMatrixLocalData' 'standalone purge safety functions'
 Assert-Contains $purge 'Get-FabMatrixExpectedDataRoot|CommonApplicationData|ProgramData' 'controlled Local data root policy'
 Assert-Contains $purge 'InstallDir.*must not equal|DataRoot.*outside|drive root' 'purge path boundary guards'
-Assert-Contains $purge 'Remove-Item -LiteralPath .* -Recurse -Force' 'literal-path-only purge deletion'
+Assert-Contains $purge 'Remove-FabMatrixTreeNodeSafely|Get-ChildItem -LiteralPath' 'post-order no-follow purge deletion'
+Assert-NotContains $purge 'Remove-Item[^\r\n]*-Recurse' 'actual DataRoot never uses recursive Remove-Item'
 Assert-NotContains $purge 'Remove-Item -Path|Remove-Item [^\r\n]*\*' 'purge does not use wildcard deletion'
-Assert-Contains $purge 'ReparsePoint|Get-ChildItem -LiteralPath.*-Recurse' 'purge reparse-point protection'
+Assert-Contains $purge 'ReparsePoint|Get-Item -LiteralPath \$root|Get-Item -LiteralPath \$current' 'root and ancestor reparse-point protection'
 Assert-Contains $purge 'SelfTest|dedicated temporary test root' 'purge disposable self-test'
+$purgeSource = Get-Content -LiteralPath $purge -Raw -Encoding UTF8
+$purgeTokens = $null
+$purgeParseErrors = $null
+$purgeAst = [System.Management.Automation.Language.Parser]::ParseInput($purgeSource, $purge, [ref]$purgeTokens, [ref]$purgeParseErrors)
+if ($purgeParseErrors.Count -ne 0) { throw "Purge AST parse failed: $($purgeParseErrors[0].Message)" }
+$purgeFunctionAsts = @{}
+foreach ($functionName in @('Assert-FabMatrixNoReparsePointsInPath', 'Remove-FabMatrixTreeNodeSafely', 'Remove-FabMatrixLocalData')) {
+    $functionAst = $purgeAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
+    if ($null -eq $functionAst) { throw "Purge script does not expose required function: $functionName" }
+    $purgeFunctionAsts[$functionName] = $functionAst
+}
+$purgeRemoveCommands = @($purgeAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Remove-Item'
+        }, $true))
+if ($purgeRemoveCommands.Count -eq 0) { throw 'Purge script has no explicit node deletion commands.' }
+foreach ($removeCommand in $purgeRemoveCommands) {
+    if ($removeCommand.Extent.Text -notmatch '-LiteralPath' -or $removeCommand.Extent.Text -match '-Recurse') {
+        throw "Purge deletion must be non-recursive and LiteralPath-only: $($removeCommand.Extent.Text)"
+    }
+}
+$treeDeleteAst = $purgeFunctionAsts['Remove-FabMatrixTreeNodeSafely']
+$treeDeleteText = $treeDeleteAst.Extent.Text
+if ($treeDeleteText -notmatch 'Remove-FabMatrixTreeNodeSafely\s+\$child\.FullName' -or
+    $treeDeleteText -notmatch 'Get-Item -LiteralPath \$resolved[\s\S]*Get-Item -LiteralPath \$resolved' -or
+    $treeDeleteText -match 'Get-ChildItem[^\r\n]*-Recurse') {
+    throw 'Purge tree deletion is not a revalidated, non-recursive post-order traversal.'
+}
+$ancestorGuardText = $purgeFunctionAsts['Assert-FabMatrixNoReparsePointsInPath'].Extent.Text
+if ($ancestorGuardText -notmatch 'Get-Item -LiteralPath \$root' -or
+    $ancestorGuardText -notmatch '\$current = \$root' -or
+    $ancestorGuardText -match '\$root\.TrimEnd') {
+    throw 'Purge ancestor guard must preserve and inspect the complete drive root.'
+}
 $purgeSelfTestOutput = (& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $purge -SelfTest | Out-String)
-if ($LASTEXITCODE -ne 0 -or $purgeSelfTestOutput -notmatch 'purge self-test passed') {
+if ($LASTEXITCODE -ne 0 -or $purgeSelfTestOutput -notmatch 'purge self-test passed' -or
+    $purgeSelfTestOutput -notmatch 'Different working directory' -or
+    $purgeSelfTestOutput -notmatch 'Descendant junction' -or
+    $purgeSelfTestOutput -notmatch 'DataRoot root junction' -or
+    $purgeSelfTestOutput -notmatch 'InstallDir root junction' -or
+    $purgeSelfTestOutput -notmatch 'InstallDir ancestor junction') {
     throw "Purge script disposable self-test did not complete: $purgeSelfTestOutput"
 }
 Assert-NotContains $build "'\-Xrs'" 'service launcher must receive console control events'

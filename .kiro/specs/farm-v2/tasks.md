@@ -193,6 +193,7 @@
 - [x] T16.9（P1.7.9）将新部署的默认 HTTP/WebSocket 端口统一为 `28081`：覆盖 dev/local/prod、Server Edition Docker、Windows Local Edition 安装器/防火墙/托盘及前端首次连接默认值；显式环境变量和客户端已保存地址继续优先；升级安装保留已有 `application.yml` 端口，并让 Windows 服务、防火墙及普通权限托盘共用安装时解析的实际端口，通过非敏感只读元数据避免托盘读取受保护配置；已补充默认值、覆盖、ACL 与安装器契约回归。`mvnw.cmd test` 392 项、Windows 安装器契约、前端 342 项测试、lint、普通/Desktop 构建及干净环境 Electron dist 回归均通过。
 - [x] T16.10（P1.7.10）修复 Windows Local Edition 覆盖安装失败：释放 `ServiceController` 句柄并等待旧服务从 SCM 完全消失，WinSW 注册使用 30 秒有界重试；服务安装按阶段写入数据目录下的持久日志，失败提示直接给出日志位置；服务注册失败时不再执行安装后托盘启动项。安装契约和完整后端测试通过后重新构建发布候选。
 - [x] T16.11（P1.7.11）兼容旧安装留下的异常数据 ACL：在读取/迁移现有配置前，仅对 `config/database/backups/files/logs` 五个已知数据目录恢复 Administrators/SYSTEM 所有权与完全控制，随后继续使用正式 ACL 策略重新收紧；避免管理员安装进程因无法读取 `application.yml` 而在配置阶段退出。
+- [x] T16.12（P1.7.12）修正旧数据 ACL 恢复的误判：接管所有权后先递归重置五个固定数据子树的继承 ACL，清除优先于 allow 的历史显式 deny，再授予 Administrators/SYSTEM；恢复阶段不再使用 `icacls /C` 忽略子项错误，任一 ACL 修复失败即中止并保留日志。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

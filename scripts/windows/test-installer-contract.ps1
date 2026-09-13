@@ -457,6 +457,8 @@ Assert-Contains $dataAcl '/remove:g|/remove:d' 'explicit broad ACL removal opera
 Assert-Contains $dataAcl 'service-state|UsersReadOnly' 'runtime metadata Users read-only ACL intent'
 Assert-Contains $dataAcl 'Repair-FabMatrixInstallerDataAccess|takeown\.exe' 'legacy data ownership repair'
 Assert-Contains $dataAcl "@\('config', 'database', 'backups', 'files', 'logs'\)" 'legacy ACL repair fixed directory scope'
+Assert-Contains $dataAcl "'/reset', '/T', '/Q'" 'legacy explicit deny ACL reset'
+Assert-NotContains $dataAcl "Repair-FabMatrixInstallerDataAccess[\s\S]*?'/C'" 'legacy ACL repair must not continue past denied children'
 Assert-Contains $capture 'StartMode|WasRunning|Stop-ServiceReliably' 'upgrade state capture'
 Assert-Contains $migrate 'data\\farm\.db|uploads|pre-fabmatrix-migration|New data root is already initialized' 'legacy migration mapping and guard'
 Assert-Contains $migrate 'Set-FabMatrixPortableConfig' 'legacy config normalization'

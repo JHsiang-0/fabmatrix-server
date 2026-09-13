@@ -58,8 +58,13 @@ function Repair-FabMatrixInstallerDataAccess {
         if ($LASTEXITCODE -ne 0) {
             throw "Legacy data ownership repair failed ($LASTEXITCODE): $path"
         }
-        Invoke-FabMatrixIcacls -Path $path -Arguments @('/grant',
-            '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '/T', '/C', '/Q')
+
+        # An explicit deny ACE wins over an added allow ACE. Reset every known data
+        # subtree to its parent inheritance first, then grant the two privileged
+        # principals. Do not use /C here: a skipped child must abort the upgrade.
+        Invoke-FabMatrixIcacls -Path $path -Arguments @('/reset', '/T', '/Q')
+        Invoke-FabMatrixIcacls -Path $path -Arguments @('/grant:r',
+            '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '/T', '/Q')
     }
 }
 

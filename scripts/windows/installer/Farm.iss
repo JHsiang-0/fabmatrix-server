@@ -94,7 +94,7 @@ begin
   CaptureScript := ExpandConstant('{tmp}\capture-upgrade-state.ps1');
   StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
   Result := Exec(PowerShell, '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + CaptureScript +
-    '" -StateFile "' + StateFile + '"',
+    '" -StateFile "' + StateFile + '" -InstallDir "' + ExpandConstant('{app}') + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
@@ -102,7 +102,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   if not CaptureStateAndStopPreviousProcesses() then
-    Result := '无法可靠停止旧 Farm/FabMatrixServer 服务或托盘进程，安装已中止。请检查服务状态后重试。';
+    Result := '升级安装预检未能在文件复制前释放旧 Farm/FabMatrixServer 服务、托盘或 runtime 子进程，安装已中止。请检查服务状态后重试。';
 end;
 
 procedure RestoreExistingServiceState();

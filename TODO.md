@@ -81,7 +81,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [x] P1.7.12 修复旧数据 ACL 恢复误报成功：递归重置历史显式拒绝后再授权，并禁止 ACL 恢复阶段跳过失败子项。
 - [x] P1.7.13 防火墙规则自动创建失败不再回滚已注册服务，并将安装诊断日志移出受保护业务数据目录。
 - [x] P1.7.14 修复 Windows Local Edition 既有服务日志 ACL：五个固定数据目录树的既有文件/目录获得直接 SYSTEM/Administrators 完全控制，`files/logs` 保留 Users 只读及未来继承策略，覆盖 WinSW stdout/stderr 日志并补充 installer contract 回归。
-- [x] P1.7.15 修复 Windows Local Edition 服务注册后 Java 子进程因完整 `logging.file.name` 被重复拼接而退出的问题：日志配置直接使用完整文件路径并保留默认/Server Edition 兼容回退，移除 WinSW `LOG_PATH` 注入；在固定数据 ACL 递归变更前拒绝根及后代 reparse point，`takeown` 使用 `/SKIPSL`，并补充日志启动探针、路径合同、junction 外部 sentinel 和继承语义回归。`mvnw test` 392 项、Windows installer contract、打包 Local health/log 探针和 Inno Setup Full 构建均通过；安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119594378 bytes，SHA-256 为 `EF7C3A67FCD858A4F8BD3E3B0B51C81A1E1D449812E3270D49B0E2597FADFD1E`。
+- [x] P1.7.15 修复 Windows Local Edition 服务注册后 Java 子进程因完整 `logging.file.name` 被重复拼接而退出的问题：日志配置直接使用完整文件路径并保留默认/Server Edition 兼容回退，移除 WinSW `LOG_PATH` 注入；在固定数据 ACL 递归变更前拒绝根及后代 reparse point，`takeown` 使用 `/SKIPSL`，并补充日志启动探针、路径合同、junction 外部 sentinel 和继承语义回归。`mvnw test` 392 项、Windows installer contract、打包 Local health/log 探针和 Inno Setup Full 构建均通过；安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119597612 bytes，SHA-256 为 `CEFA62849F475B4447C97FF496226C72C760F2BA71169ED282CAAF39324AD43A`。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

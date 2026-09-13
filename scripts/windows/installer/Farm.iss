@@ -119,7 +119,11 @@ function ConfirmCompleteUninstall(): Boolean;
 begin
   Result := MsgBox(
     '完全卸载将永久删除 FabMatrix 的账号、数据库、任务、文件、配置和备份，且无法恢复。请先确认已完成备份。' + #13#10 + #13#10 +
-    '确定要永久删除整个受控业务数据根吗？选择“否”将退出卸载。',
+    '将清理以下项目专属位置：' + #13#10 +
+    '当前业务数据：' + GetDataRoot('') + #13#10 +
+    '旧版 Farm 数据：' + ExpandConstant('{commonappdata}\Farm') + '（data/config/uploads/logs/backups）' + #13#10 +
+    'FabMatrix 安装诊断及残留：' + ExpandConstant('{commonappdata}\FabMatrix') + #13#10 + #13#10 +
+    '删除后重装不会再迁回旧账号或旧端口。确定继续吗？选择“否”将退出卸载。',
     mbCriticalError, MB_YESNO or MB_DEFBUTTON2) = IDYES;
 end;
 
@@ -148,7 +152,7 @@ begin
   ModeChoice := MsgBox(
     '请选择 FabMatrix 卸载模式：' + #13#10 + #13#10 +
     '“是”=普通卸载：删除服务、托盘、程序和防火墙规则，保留全部业务数据。' + #13#10 +
-    '“否”=完全卸载：进入下一步不可逆确认，确认后永久删除账号、数据库、任务、文件、配置和备份。' + #13#10 +
+    '“否”=完全卸载：进入下一步不可逆确认，确认后永久删除当前数据、旧版 Farm 数据及项目诊断残留。' + #13#10 +
     '“取消”=退出卸载。' + #13#10 + #13#10 +
     '建议先备份业务数据。',
     mbConfirmation, MB_YESNOCANCEL);
@@ -172,6 +176,8 @@ var
   PowerShell: String;
   UninstallScript: String;
   DataRoot: String;
+  LegacyDataRoot: String;
+  DiagnosticsRoot: String;
   Parameters: String;
   FailureMessage: String;
 begin
@@ -186,8 +192,11 @@ begin
   PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   UninstallScript := ExpandConstant('{app}\service\uninstall-service.ps1');
   DataRoot := GetDataRoot('');
+  LegacyDataRoot := ExpandConstant('{commonappdata}\Farm');
+  DiagnosticsRoot := ExpandConstant('{commonappdata}\FabMatrix');
   Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + UninstallScript +
-    '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + DataRoot + '" -Port 28081';
+    '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + DataRoot +
+    '" -LegacyDataRoot "' + LegacyDataRoot + '" -DiagnosticsRoot "' + DiagnosticsRoot + '" -Port 28081';
   if PurgeDataRequested then
     Parameters := Parameters + ' -PurgeData';
   if UninstallSilent then
@@ -198,7 +207,8 @@ begin
      (ResultCode <> 0) then
   begin
     FailureMessage := 'FabMatrix 卸载清理失败（退出码 ' + IntToStr(ResultCode) +
-      '），卸载已中止。业务数据未确认完全删除，可能仍位于：' + DataRoot;
+      '），卸载已中止。数据未确认完全删除。当前数据：' + DataRoot +
+      '；旧版数据：' + LegacyDataRoot + '；诊断残留：' + DiagnosticsRoot;
     Log(FailureMessage);
     if not UninstallSilent then
       MsgBox(FailureMessage, mbCriticalError, MB_OK);
@@ -206,9 +216,10 @@ begin
   end;
 
   if PurgeDataRequested then
-    Log('FabMatrix service, tray, firewall rule and controlled business data root were removed.')
+    Log('FabMatrix service, tray, firewall rule, current data, legacy Farm data and diagnostics were removed.')
   else
-    Log('FabMatrix service, tray and firewall rule were removed. Business data retained at: ' + DataRoot);
+    Log('FabMatrix service, tray and firewall rule were removed. Current data retained at: ' + DataRoot +
+      '; legacy data retained at: ' + LegacyDataRoot + '; diagnostics retained at: ' + DiagnosticsRoot);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -275,6 +286,7 @@ begin
   ServiceLog := ExpandConstant('{commonappdata}\FabMatrix\installer\service-install.log');
   Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + InstallScript +
     '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + GetDataRoot('') +
+    '" -LegacyDataRoot "' + ExpandConstant('{commonappdata}\Farm') +
     '" -Port 28081 -PreserveExistingState -StateFile "' + StateFile +
     '" -LogPath "' + ServiceLog + '"';
   if WizardIsTaskSelected('service_autostart') then

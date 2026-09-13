@@ -213,6 +213,18 @@ function Set-FabMatrixLegacyDefaultPortForUpgrade {
     return $true
 }
 
+function Set-FabMatrixLegacyDefaultPortForInstallContext {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$RequestedPort,
+        [Parameter(Mandatory = $true)][bool]$IsServiceUpgrade,
+        [Parameter(Mandatory = $true)][bool]$LegacyDataMigrated
+    )
+
+    if (-not $IsServiceUpgrade -and -not $LegacyDataMigrated) { return $false }
+    return Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $ConfigPath -RequestedPort $RequestedPort
+}
+
 function Get-FabMatrixEffectivePortMetadataPath([string]$TargetInstallDir) {
     return Join-Path ([IO.Path]::GetFullPath($TargetInstallDir)) 'service-state\effective-port.txt'
 }
@@ -250,16 +262,24 @@ function Test-FabMatrixPortConfig {
     try {
         [Environment]::SetEnvironmentVariable('SERVER_PORT', $null)
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 8080`r`n")
-        if (-not (Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+        if (-not (Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
+                -IsServiceUpgrade $false -LegacyDataMigrated $true) -or
             (Get-FabMatrixEffectivePort $tempPath) -ne 28081 -or
             ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*28081\s*$')) {
-            throw 'Legacy 8080 server.port was not migrated atomically to 28081.'
+            throw 'Fresh legacy migration did not atomically migrate server.port 8080 to 28081.'
+        }
+        [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 8080`r`n")
+        if ((Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
+                -IsServiceUpgrade $false -LegacyDataMigrated $false) -or
+            (Get-FabMatrixEffectivePort $tempPath) -ne 8080) {
+            throw 'Fresh non-migration configuration was incorrectly treated as a legacy default.'
         }
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 29090`r`n")
-        if ((Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+        if ((Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
+                -IsServiceUpgrade $false -LegacyDataMigrated $true) -or
             (Get-FabMatrixEffectivePort $tempPath) -ne 29090 -or
             ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*29090\s*$')) {
-            throw 'Custom server.port was not preserved during upgrade.'
+            throw 'Custom server.port was not preserved during fresh legacy migration.'
         }
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 28081`r`n")
         if ((Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
@@ -268,7 +288,8 @@ function Test-FabMatrixPortConfig {
         }
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 8080`r`n")
         [Environment]::SetEnvironmentVariable('SERVER_PORT', '29090')
-        if ((Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+        if ((Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
+                -IsServiceUpgrade $false -LegacyDataMigrated $true) -or
             (Get-FabMatrixEffectivePort $tempPath) -ne 29090 -or
             ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*8080\s*$')) {
             throw 'Explicit SERVER_PORT priority was not preserved during migration.'
@@ -291,7 +312,7 @@ function Test-FabMatrixPortConfig {
         }
         Remove-Item -LiteralPath $tempPath -Force
         if ((Get-FabMatrixEffectivePort $tempPath) -ne 28081) { throw 'Missing config did not use the new default port.' }
-        Write-Output 'FabMatrix effective port parser and metadata self-test passed.'
+        Write-Output 'FabMatrix effective port parser, fresh legacy migration and metadata self-test passed.'
     } finally {
         [Environment]::SetEnvironmentVariable('SERVER_PORT', $previousEnvironmentPort)
         if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
@@ -362,6 +383,7 @@ function Write-InstallLog([string]$Path, [string]$Message) {
 }
 
 $installLogPath = Initialize-InstallLog -RequestedPath $LogPath -TargetDataRoot $DataRoot
+$migrationResultPath = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixLegacyMigrationResult-' + [guid]::NewGuid().ToString('N') + '.json')
 $installStage = 'initialize'
 Write-InstallLog $installLogPath "BEGIN installDir=$InstallDir dataRoot=$DataRoot requestedPort=$Port"
 try {
@@ -381,7 +403,16 @@ try {
 
     # Migration is only attempted after both legacy/new services are confirmed stopped.
     $installStage = 'migrate legacy data'
-    & (Join-Path $serviceDir 'migrate-legacy-data.ps1') -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot
+    & (Join-Path $serviceDir 'migrate-legacy-data.ps1') -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot `
+        -ResultPath $migrationResultPath | Out-Null
+    if (-not (Test-Path -LiteralPath $migrationResultPath -PathType Leaf)) {
+        throw 'Legacy migration did not publish its required structured result.'
+    }
+    $migrationResult = Get-Content -LiteralPath $migrationResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([int]$migrationResult.SchemaVersion -ne 1 -or $null -eq $migrationResult.Migrated) {
+        throw 'Legacy migration published an invalid structured result.'
+    }
+    Write-InstallLog $installLogPath "Legacy migration result: migrated=$([bool]$migrationResult.Migrated) reason=$($migrationResult.Reason)"
 
     $installStage = 'prepare data directories'
     foreach ($directory in @($DataRoot, $configDir, $databaseDir, $filesDir, $logsDir, $backupsDir, (Join-Path $logsDir 'service'))) {
@@ -393,9 +424,10 @@ try {
         & (Join-Path $serviceDir 'Farm-Configure.ps1') -Edition Local -ConfigDir $configDir -DataRoot $DataRoot -Port $Port
     }
     $installStage = 'migrate legacy default port'
-    if ($servicePlan.IsUpgrade -and
-        (Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $configPath -RequestedPort $Port)) {
-        Write-InstallLog $installLogPath 'Migrated legacy Local configuration server.port from 8080 to 28081 during upgrade because the installer requested the default 28081.'
+    if (Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $configPath -RequestedPort $Port `
+            -IsServiceUpgrade ([bool]$servicePlan.IsUpgrade) -LegacyDataMigrated ([bool]$migrationResult.Migrated)) {
+        $portMigrationContext = if ([bool]$migrationResult.Migrated) { 'after confirmed legacy Farm data migration' } else { 'during service upgrade' }
+        Write-InstallLog $installLogPath "Migrated legacy Local configuration server.port from 8080 to requested default 28081 $portMigrationContext."
     }
     $effectivePort = Get-FabMatrixEffectivePort -ConfigPath $configPath -FallbackPort $Port
     Write-InstallLog $installLogPath "Resolved effective port: $effectivePort"
@@ -458,4 +490,6 @@ try {
     $failure = $_.Exception.ToString() -replace '[\r\n]+', ' | '
     try { Write-InstallLog $installLogPath "FAILED stage=$installStage error=$failure" } catch { }
     throw "FabMatrixServer service installation failed at stage '$installStage'. $($_.Exception.Message) Detailed log: $installLogPath"
+} finally {
+    if (Test-Path -LiteralPath $migrationResultPath) { Remove-Item -LiteralPath $migrationResultPath -Force -ErrorAction SilentlyContinue }
 }

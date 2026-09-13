@@ -518,6 +518,10 @@ Assert-Contains $installer 'MB_YESNOCANCEL|IDCANCEL' 'interactive uninstall canc
 Assert-Contains $installer 'ConfirmCompleteUninstall|PurgeDataRequested' 'complete uninstall second confirmation'
 Assert-Contains $installer 'MB_YESNO or MB_DEFBUTTON2' 'irreversible confirmation defaults to No'
 Assert-Contains $installer '/PURGEDATA=CONFIRM' 'explicit purge command-line confirmation'
+Assert-Contains $installer 'LegacyDataRoot := ExpandConstant|DiagnosticsRoot := ExpandConstant' 'complete uninstall legacy and diagnostics warning paths'
+Assert-Contains $installer 'LegacyDataRoot := ExpandConstant\(''\{commonappdata\}\\Farm''\)' 'controlled legacy root argument'
+Assert-Contains $installer 'DiagnosticsRoot := ExpandConstant\(''\{commonappdata\}\\FabMatrix''\)' 'controlled diagnostics root argument'
+Assert-Contains $installer '-LegacyDataRoot.*-DiagnosticsRoot' 'uninstall receives legacy and diagnostics arguments'
 Assert-Contains $installer 'UninstallSilent[\s\S]*PurgeDataRequested|/SILENT never implies data removal' 'silent uninstall retains data'
 Assert-NotContains $installer 'WizardSilent' 'installer-only silent API in uninstall code'
 Assert-NotContains $installer '(?m)^\[UninstallRun\]' 'unchecked UninstallRun cleanup hook'
@@ -586,6 +590,9 @@ Assert-Contains $install '<id>FabMatrixServer</id>|New-FabMatrixServiceXml' 'fix
 Assert-Contains $install 'Private|New-NetFirewallRule' 'private firewall rule'
 Assert-Contains $install 'Get-FabMatrixEffectivePort|ConvertTo-FabMatrixPort|SERVER_PORT' 'effective port resolution'
 Assert-Contains $install 'Set-FabMatrixLegacyDefaultPortForUpgrade|Write-FabMatrixAtomicUtf8File' 'legacy default port migration'
+Assert-Contains $install 'Set-FabMatrixLegacyDefaultPortForInstallContext[\s\S]*LegacyDataMigrated' 'fresh legacy migration port gate'
+Assert-Contains $install 'migrationResultPath[\s\S]*ResultPath[\s\S]*migrationResult\.Migrated' 'structured legacy migration result consumption'
+Assert-Contains $install 'after confirmed legacy Farm data migration|during service upgrade' 'legacy port migration context log'
 Assert-Contains $install 'server\.port from 8080 to 28081|legacy.*8080.*28081' 'legacy default port migration log'
 Assert-Contains $install 'Write-FabMatrixEffectivePortMetadata[^\r\n]*EffectivePort \$effectivePort' 'tray metadata uses resolved effective port'
 Assert-Contains $install 'New-FabMatrixServiceXml[^\r\n]*Port \$effectivePort' 'WinSW service uses resolved effective port'
@@ -622,6 +629,7 @@ Assert-NotContains $capture "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'upg
 Assert-NotContains $capture 'Get-Process -Name[^\r\n]*java|Stop-Process -Name[^\r\n]*java' 'upgrade preflight must not kill java.exe by name'
 Assert-Contains $migrate 'data\\farm\.db|uploads|pre-fabmatrix-migration|New data root is already initialized' 'legacy migration mapping and guard'
 Assert-Contains $migrate 'Set-FabMatrixPortableConfig' 'legacy config normalization'
+Assert-Contains $migrate 'ResultPath|SchemaVersion|LegacyDataMigrated|NoLegacyDataDetected|NewDataRootInitialized' 'structured legacy migration result publication'
 Assert-Contains $portableConfig 'datasource|FARM_DATA_DIR|storage-path|logs/farm\.log' 'portable path insertion and normalization'
 Assert-Contains $recovery 'StartMode|WasRunning|sc\.exe config' 'best-effort original service recovery'
 Assert-Contains $serviceXml '&quot;|ConvertTo-XmlText|stoptimeout>30sec' 'quoted escaped WinSW arguments and stop timeout'
@@ -640,12 +648,16 @@ Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot 
 Assert-Contains $uninstall "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'uninstall closes only tray executables'
 Assert-Contains $uninstall '\[switch\]\$PurgeData|if \(\$PurgeData\)' 'purge is opt-in'
 Assert-Contains $uninstall 'purge-local-data\.ps1|Business data retained at' 'purge payload and default retention output'
+Assert-Contains $uninstall '-LegacyDataRoot \$LegacyDataRoot[\s\S]*-DiagnosticsRoot \$DiagnosticsRoot' 'uninstall forwards all controlled purge roots'
 Assert-Contains $uninstall '\[switch\]\$Silent|\[Console\]::Error\.WriteLine' 'silent uninstall logs failure without UI'
 Assert-Contains $uninstall 'Write-Error[\s\S]*exit 1|\[Console\]::Error\.WriteLine[\s\S]*exit 1' 'uninstall failure is propagated'
 Assert-NotContains $uninstall 'System\.Windows\.Forms|MessageBox|FailureMarker' 'PowerShell uninstall UI and orphan failure marker'
 Assert-NotContains $uninstall '& \$purgeScript[\s\S]{0,200}\$LASTEXITCODE' 'invalid in-process purge LASTEXITCODE check'
 Assert-Contains $purge 'Assert-FabMatrixPurgePaths|Assert-FabMatrixNoReparsePointsInPath|Remove-FabMatrixLocalData' 'standalone purge safety functions'
 Assert-Contains $purge 'Get-FabMatrixExpectedDataRoot|CommonApplicationData|ProgramData' 'controlled Local data root policy'
+Assert-Contains $purge 'Expected legacy root[\s\S]*Farm|Expected diagnostics root[\s\S]*FabMatrix' 'strict legacy and diagnostics root policy'
+Assert-Contains $purge 'Test-FabMatrixLegacyFarmLayout[\s\S]*data\\farm\.db[\s\S]*uploads[\s\S]*config' 'legacy Farm structure recognition'
+Assert-Contains $purge 'Targets = @\(\$targets\)|StringComparison\]::OrdinalIgnoreCase' 'duplicate purge target suppression'
 Assert-Contains $purge 'InstallDir.*must not equal|DataRoot.*outside|drive root' 'purge path boundary guards'
 Assert-Contains $purge 'Remove-FabMatrixTreeNodeSafely|Get-ChildItem -LiteralPath' 'post-order no-follow purge deletion'
 Assert-NotContains $purge 'Remove-Item[^\r\n]*-Recurse' 'actual DataRoot never uses recursive Remove-Item'
@@ -688,11 +700,19 @@ if ($ancestorGuardText -notmatch 'Get-Item -LiteralPath \$root' -or
 }
 $purgeSelfTestOutput = (& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $purge -SelfTest | Out-String)
 if ($LASTEXITCODE -ne 0 -or $purgeSelfTestOutput -notmatch 'purge self-test passed' -or
-    $purgeSelfTestOutput -notmatch 'Different working directory' -or
+    $purgeSelfTestOutput -notmatch 'multi-target purge' -or
+    $purgeSelfTestOutput -notmatch 'idempotency' -or
     $purgeSelfTestOutput -notmatch 'Descendant junction' -or
     $purgeSelfTestOutput -notmatch 'DataRoot root junction' -or
     $purgeSelfTestOutput -notmatch 'InstallDir root junction' -or
-    $purgeSelfTestOutput -notmatch 'InstallDir ancestor junction') {
+    $purgeSelfTestOutput -notmatch 'InstallDir ancestor junction' -or
+    $purgeSelfTestOutput -notmatch 'Duplicate current and diagnostics' -or
+    $purgeSelfTestOutput -notmatch 'Legacy Farm layout rejection and acceptance' -or
+    $purgeSelfTestOutput -notmatch 'Legacy root junction' -or
+    $purgeSelfTestOutput -notmatch 'Legacy descendant junction' -or
+    $purgeSelfTestOutput -notmatch 'Diagnostics root junction' -or
+    $purgeSelfTestOutput -notmatch 'Diagnostics descendant junction' -or
+    $purgeSelfTestOutput -notmatch 'Legacy and diagnostics ancestor junction') {
     throw "Purge script disposable self-test did not complete: $purgeSelfTestOutput"
 }
 Assert-NotContains $build "'\-Xrs'" 'service launcher must receive console control events'
@@ -732,7 +752,7 @@ Assert-Contains $restore "Import-MaintenanceHelper 'data-acl\.ps1'" 'packaged re
 
 # Generate and parse WinSW XML for paths with spaces; this does not install a service.
 $portSelfTestOutput = (& $install -SelfTestPortConfig | Out-String)
-if ($portSelfTestOutput -notmatch 'parser and metadata self-test passed') {
+if ($portSelfTestOutput -notmatch 'parser, fresh legacy migration and metadata self-test passed') {
     throw 'Installer effective port parser/metadata self-test did not complete.'
 }
 . $serviceXml
@@ -791,6 +811,7 @@ $migrationTemp = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixMigrationContra
 try {
     $legacy = Join-Path $migrationTemp 'legacy'
     $newData = Join-Path $migrationTemp 'new-data'
+    $migrationResultPath = Join-Path $migrationTemp 'migration-result.json'
     New-Item -ItemType Directory -Force -Path (Join-Path $legacy 'data'), (Join-Path $legacy 'uploads'), (Join-Path $legacy 'config'),
         (Join-Path $newData 'database'), (Join-Path $newData 'files'), (Join-Path $newData 'config') | Out-Null
     [IO.File]::WriteAllText((Join-Path $legacy 'data\farm.db'), 'fixture')
@@ -818,7 +839,12 @@ admin:
   secret-key: 'legacy-admin-secret'
 "@
     [IO.File]::WriteAllText((Join-Path $legacy 'config\application.yml'), $legacyConfigText)
-    & $migrate -DataRoot $newData -LegacyDataRoot $legacy | Out-Null
+    & $migrate -DataRoot $newData -LegacyDataRoot $legacy -ResultPath $migrationResultPath | Out-Null
+    $migrationResult = Get-Content -LiteralPath $migrationResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([int]$migrationResult.SchemaVersion -ne 1 -or -not [bool]$migrationResult.Migrated -or
+        $migrationResult.Reason -ne 'LegacyDataMigrated') {
+        throw 'Legacy migration did not publish a positive structured result.'
+    }
     Assert-Exists (Join-Path $newData 'database\farm.db') 'migrated database'
     Assert-Exists (Join-Path $newData 'files\sample.gcode') 'migrated uploads'
     $migratedConfig = Join-Path $newData 'config\application.yml'
@@ -833,7 +859,11 @@ admin:
     if ($null -eq $migrationBackup) { throw 'Legacy migration backup was not created.' }
 
     [IO.File]::WriteAllText((Join-Path $newData 'database\farm.db'), 'new-data-wins')
-    & $migrate -DataRoot $newData -LegacyDataRoot $legacy | Out-Null
+    & $migrate -DataRoot $newData -LegacyDataRoot $legacy -ResultPath $migrationResultPath | Out-Null
+    $secondMigrationResult = Get-Content -LiteralPath $migrationResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([bool]$secondMigrationResult.Migrated -or $secondMigrationResult.Reason -ne 'NewDataRootInitialized') {
+        throw 'Initialized target did not publish a negative structured migration result.'
+    }
     if ([IO.File]::ReadAllText((Join-Path $newData 'database\farm.db')) -ne 'new-data-wins') {
         throw 'Initialized new data root was overwritten by legacy migration.'
     }

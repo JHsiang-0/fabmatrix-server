@@ -205,6 +205,10 @@
 
 - [x] T16.19 为 Windows Local Edition 增加默认保留数据卸载与显式完全卸载双模式：普通/静默卸载删除服务、托盘/程序和防火墙规则但保留业务数据；交互式完全卸载要求模式选择和默认聚焦“否”的第二次不可逆确认，命令行仅接受 `/PURGEDATA=CONFIRM`。主审修复后，卸载清理由 `CurUninstallStepChanged(usUninstall)` 单次同步执行并强校验退出码，静默状态使用卸载器专用 `UninstallSilent` API；独立 `purge-local-data.ps1` 检查完整驱动器根、目标和每个已存在祖先的 reparse point，并以逐节点复检、LiteralPath、非递归后序删除受控 DataRoot。契约包含隔离 ISCC 编译以及不同 cwd、DataRoot 根 junction、InstallDir 根/祖先 junction、后代 junction 自测；`mvnw.cmd test` 393 项、Windows installer contract、payload/启动探针和完整 installer build 已通过。
 
+### T16.20 [修复] 完全卸载旧版残留与重装端口回灌
+
+- [x] T16.20 修复完全卸载仅清理当前 DataRoot、遗留 `%ProgramData%\Farm` 导致重装重新迁回账号和 8080 配置的问题：普通/静默卸载仍保留当前数据、旧版数据和安装诊断；显式完全卸载在原二次确认后，按严格策略清理当前 DataRoot、经 `data\farm.db`/非空 `config`/非空 `uploads` 识别的旧版 Farm 根，以及与当前根去重的 `%ProgramData%\FabMatrix` 项目诊断残留。所有目标继续执行完整祖先/reparse 校验与 LiteralPath 非递归后序删除。旧版迁移脚本通过原子结构化结果明确本次是否真实迁移，安装脚本仅在服务升级或真实 legacy migration 时把旧纯数字默认 8080 原子迁为 requested default 28081，自定义端口和显式 `SERVER_PORT` 保持优先；临时夹具、PowerShell AST、隔离 ISCC、393 项测试和完整安装器构建覆盖同步更新。
+
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 
 **对应需求：REQ-12、REQ-13**

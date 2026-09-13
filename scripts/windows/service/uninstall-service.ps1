@@ -1,6 +1,8 @@
 param(
     [string]$InstallDir = 'C:\Program Files\FabMatrix',
     [string]$DataRoot = 'C:\ProgramData\FabMatrix',
+    [string]$LegacyDataRoot = 'C:\ProgramData\Farm',
+    [string]$DiagnosticsRoot = 'C:\ProgramData\FabMatrix',
     [ValidateRange(1, 65535)]
     [int]$Port = 28081,
     [switch]$PurgeData,
@@ -56,13 +58,14 @@ try {
         if (-not (Test-Path -LiteralPath $purgeScript -PathType Leaf)) {
             throw "Complete uninstall script is missing: $purgeScript"
         }
-        & $purgeScript -InstallDir $InstallDir -DataRoot $DataRoot
-        Write-Output 'FabMatrixServer service, tray, firewall rule and business data removed.'
+        & $purgeScript -InstallDir $InstallDir -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot `
+            -DiagnosticsRoot $DiagnosticsRoot
+        Write-Output 'FabMatrixServer service, tray, firewall rule, current data, legacy Farm data and diagnostics removed.'
     } else {
-        Write-Output "FabMatrixServer service and private firewall rule removed. Business data retained at: $DataRoot"
+        Write-Output "FabMatrixServer service and private firewall rule removed. Current data retained at: $DataRoot; legacy data retained at: $LegacyDataRoot; diagnostics retained at: $DiagnosticsRoot"
     }
 } catch {
-    $failure = "FabMatrix 卸载未完成。业务数据未确认完全删除，位置：$DataRoot`r`n$($_.Exception.Message)"
+    $failure = "FabMatrix 卸载未完成。数据未确认完全删除。当前数据：$DataRoot；旧版数据：$LegacyDataRoot；诊断残留：$DiagnosticsRoot`r`n$($_.Exception.Message)"
     if ($Silent) {
         [Console]::Error.WriteLine($failure)
     } else {

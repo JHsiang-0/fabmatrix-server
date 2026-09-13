@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$DataRoot,
-    [string]$LegacyDataRoot = 'C:\ProgramData\Farm'
+    [string]$LegacyDataRoot = 'C:\ProgramData\Farm',
+    [string]$ResultPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,6 +10,46 @@ $legacyRoot = [IO.Path]::GetFullPath($LegacyDataRoot).TrimEnd('\')
 . (Join-Path $PSScriptRoot 'portable-config.ps1')
 if ($newRoot.Equals($legacyRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Legacy and new data roots must be different.'
+}
+
+function Write-FabMatrixLegacyMigrationResult {
+    param(
+        [Parameter(Mandatory = $true)][bool]$Migrated,
+        [Parameter(Mandatory = $true)][string]$Reason,
+        [string]$BackupPath = ''
+    )
+
+    $result = [ordered]@{
+        SchemaVersion = 1
+        Migrated = $Migrated
+        Reason = $Reason
+        DataRoot = $newRoot
+        LegacyDataRoot = $legacyRoot
+        BackupPath = $BackupPath
+    }
+    $json = $result | ConvertTo-Json -Compress
+    if ([string]::IsNullOrWhiteSpace($ResultPath)) {
+        Write-Output $json
+        return
+    }
+
+    $resolvedResultPath = [IO.Path]::GetFullPath($ResultPath)
+    $resultDirectory = Split-Path -Parent $resolvedResultPath
+    [IO.Directory]::CreateDirectory($resultDirectory) | Out-Null
+    $tempPath = Join-Path $resultDirectory ('.fabmatrix-legacy-migration-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    $backupPath = Join-Path $resultDirectory ('.fabmatrix-legacy-migration-' + [guid]::NewGuid().ToString('N') + '.bak')
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    try {
+        [IO.File]::WriteAllText($tempPath, $json + [Environment]::NewLine, $utf8)
+        if (Test-Path -LiteralPath $resolvedResultPath -PathType Leaf) {
+            [IO.File]::Replace($tempPath, $resolvedResultPath, $backupPath, $true)
+        } else {
+            [IO.File]::Move($tempPath, $resolvedResultPath)
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
+        if (Test-Path -LiteralPath $backupPath) { Remove-Item -LiteralPath $backupPath -Force }
+    }
 }
 
 function Test-DirectoryHasContent([string]$Path) {
@@ -22,7 +63,7 @@ $newFiles = Join-Path $newRoot 'files'
 if ((Test-Path -LiteralPath $newDb -PathType Leaf) -or
     (Test-Path -LiteralPath $newConfig -PathType Leaf) -or
     (Test-DirectoryHasContent $newFiles)) {
-    Write-Output "New data root is already initialized; legacy data was not copied: $newRoot"
+    Write-FabMatrixLegacyMigrationResult -Migrated $false -Reason 'NewDataRootInitialized'
     return
 }
 
@@ -32,7 +73,7 @@ $legacyConfig = Join-Path $legacyRoot 'config'
 if (-not (Test-Path -LiteralPath $legacyDb -PathType Leaf) -and
     -not (Test-DirectoryHasContent $legacyUploads) -and
     -not (Test-DirectoryHasContent $legacyConfig)) {
-    Write-Output "No legacy Farm data detected: $legacyRoot"
+    Write-FabMatrixLegacyMigrationResult -Migrated $false -Reason 'NoLegacyDataDetected'
     return
 }
 
@@ -99,5 +140,4 @@ try {
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Output "Legacy Farm data copied to: $newRoot"
-Write-Output "Migration backup retained at: $migrationBackup"
+Write-FabMatrixLegacyMigrationResult -Migrated $true -Reason 'LegacyDataMigrated' -BackupPath $migrationBackup

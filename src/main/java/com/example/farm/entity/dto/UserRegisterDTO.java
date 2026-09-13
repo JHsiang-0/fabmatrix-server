@@ -21,10 +21,8 @@ public class UserRegisterDTO {
     private String username;
 
     @NotBlank(message = "密码不能为空")
-    @Size(min = 6, max = 20, message = "密码长度必须在 6-20 个字符之间")
-    @Pattern(regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).+$", 
-            message = "密码必须包含大小写字母和数字")
-    @Schema(description = "密码（6-20位，必须包含大小写字母和数字）", requiredMode = Schema.RequiredMode.REQUIRED, example = "Admin123")
+    @Size(min = 7, max = 20, message = "密码长度必须在 7-20 个字符之间")
+    @Schema(description = "密码（7-20位，仅限制长度）", requiredMode = Schema.RequiredMode.REQUIRED, example = "Admin123")
     private String password;
 
     @NotBlank(message = "确认密码不能为空")

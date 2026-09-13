@@ -85,4 +85,37 @@ class InputValidationTest {
         assertThat(validator.validate(confirm)).extracting(v -> v.getPropertyPath().toString())
                 .contains("planId", "version", "itemIds[0].<list element>", "confirmationToken");
     }
+
+    @Test
+    void validatesPasswordLengthOnlyAcrossAuthenticationDtos() {
+        for (String password : new String[]{
+                "123456", "1234567", "12345678901234567890", "123456789012345678901",
+                "abcdefg", "ABCDEFG"
+        }) {
+            UserLoginDTO login = new UserLoginDTO();
+            login.setUsername("operator");
+            login.setPassword(password);
+
+            UserRegisterDTO register = new UserRegisterDTO();
+            register.setUsername("operator");
+            register.setPassword(password);
+            register.setConfirmPassword(password);
+
+            ChangePasswordDTO change = new ChangePasswordDTO();
+            change.setOldPassword("old-password");
+            change.setNewPassword(password);
+            change.setConfirmPassword(password);
+
+            boolean valid = password.length() >= 7 && password.length() <= 20;
+            if (valid) {
+                assertThat(validator.validate(login)).as("login password: %s", password).isEmpty();
+                assertThat(validator.validate(register)).as("register password: %s", password).isEmpty();
+                assertThat(validator.validate(change)).as("change password: %s", password).isEmpty();
+            } else {
+                assertThat(validator.validate(login)).as("login password: %s", password).isNotEmpty();
+                assertThat(validator.validate(register)).as("register password: %s", password).isNotEmpty();
+                assertThat(validator.validate(change)).as("change password: %s", password).isNotEmpty();
+            }
+        }
+    }
 }

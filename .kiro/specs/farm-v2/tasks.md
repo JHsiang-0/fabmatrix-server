@@ -209,6 +209,12 @@
 
 - [x] T16.20 修复完全卸载仅清理当前 DataRoot、遗留 `%ProgramData%\Farm` 导致重装重新迁回账号和 8080 配置的问题：普通/静默卸载仍保留当前数据、旧版数据和安装诊断；显式完全卸载在原二次确认后，按严格策略清理当前 DataRoot、经 `data\farm.db`/非空 `config`/非空 `uploads` 识别的旧版 Farm 根，以及与当前根去重的 `%ProgramData%\FabMatrix` 项目诊断残留。所有目标继续执行完整祖先/reparse 校验与 LiteralPath 非递归后序删除。旧版迁移脚本通过原子结构化结果明确本次是否真实迁移，安装脚本仅在服务升级或真实 legacy migration 时把旧纯数字默认 8080 原子迁为 requested default 28081，自定义端口和显式 `SERVER_PORT` 保持优先；临时夹具、PowerShell AST、隔离 ISCC、393 项测试和完整安装器构建覆盖同步更新。
 
+### T16.21 [修复] 统一认证入口密码长度规则
+
+- [x] 将首次管理员初始化、普通登录、管理员创建用户、个人修改密码和遗留注册 API 统一为 7-20 个字符，仅限制长度，不再要求大小写字母或数字；保留确认密码一致、旧密码校验、BCrypt、登录保护、最大长度和权限逻辑。
+- [x] 同步 UserLoginDTO、UserRegisterDTO、ChangePasswordDTO 的 Bean Validation、OpenAPI 描述、API_HANDOFF/协作文案及前端 Mock 契约。
+- [x] 增加 6/7/20/21 位、纯数字/纯字母和确认密码不一致边界测试，并完成 `mvnw.cmd test` 回归。
+
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 
 **对应需求：REQ-12、REQ-13**

@@ -120,6 +120,18 @@ class UserAuthenticationTest {
     }
 
     @Test
+    void changingPasswordRejectsMismatchedPasswordsBeforeReadingUser() {
+        ChangePasswordDTO request = new ChangePasswordDTO();
+        request.setOldPassword("OldPass1");
+        request.setNewPassword("NewPass1");
+        request.setConfirmPassword("Different1");
+
+        assertThatThrownBy(() -> userService.changePassword(1L, request))
+                .hasMessage("两次输入的新密码不一致");
+        verify(userMapper, never()).selectById(1L);
+    }
+
+    @Test
     void updatingUserInfoFailsWhenDatabaseUpdateAffectsNoRows() {
         User user = user(1L, "operator", "stored-hash");
         when(userMapper.selectById(1L)).thenReturn(user);
@@ -145,6 +157,18 @@ class UserAuthenticationTest {
 
         assertThatThrownBy(() -> userService.register(request))
                 .hasMessage("用户创建失败");
+    }
+
+    @Test
+    void creatingUserRejectsMismatchedPasswords() {
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("operator");
+        request.setPassword("1234567");
+        request.setConfirmPassword("7654321");
+
+        assertThatThrownBy(() -> userService.register(request))
+                .hasMessage("两次输入的密码不一致");
+        verify(userMapper, never()).insert(any(User.class));
     }
 
     @Test
@@ -226,6 +250,21 @@ class UserAuthenticationTest {
                 .hasMessage("系统已完成初始化，请登录后由管理员创建账号")
                 .extracting("code")
                 .isEqualTo(409L);
+        verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    void firstAdminSetupRejectsMismatchedPasswordsBeforeCreatingUser() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
+        when(userMapper.selectCount(any())).thenReturn(0L);
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("admin");
+        request.setPassword("1234567");
+        request.setConfirmPassword("7654321");
+
+        assertThatThrownBy(() -> userService.setupFirstAdmin(request))
+                .hasMessage("两次输入的密码不一致");
         verify(userMapper, never()).insert(any(User.class));
     }
 

@@ -17,7 +17,7 @@
 
 从旧版升级时，在旧服务已正常停止且新数据根尚未初始化的前提下，安装脚本检测 `C:\ProgramData\Farm`：先在旧根的 `backups\pre-fabmatrix-migration-*` 完整保留迁移源，再将 `data\farm.db` 映射到 `database\farm.db`、`uploads` 映射到 `files`、`config` 映射到 `config`。上一版 `Farm-Configure.ps1` 生成的配置没有 `spring.datasource.url`，迁移器会主动补入 `${FARM_DATA_DIR}/database/farm.db`，并把 files/logs 改为同一占位，同时保留原端口、CORS 和密钥。新根已有数据库、配置或文件时绝不覆盖；迁移或服务注册失败会中止安装、保留旧数据和迁移备份，并尽力恢复仍存在的原服务启动类型/运行状态。
 
-安装器只解析一次实际端口，并将同一值写入 WinSW 服务级 `SERVER_PORT`、Windows Firewall `Private` TCP 入站规则及 `{app}\service-state\effective-port.txt`。该元数据只包含端口，显式授予 Users 读取/执行但不授予写入；不开放 `Public` profile，也不放宽业务数据 ACL。若组策略或终端防护阻止自动创建防火墙规则，服务安装仍会完成并在安装日志记录 `WARNING`，管理员需手动开放实际端口后局域网客户端才能访问。ACL 会先清除 Users、Authenticated Users、Everyone 等旧显式 ACE，再将 `config`、`database` 和 `backups` 限制为 SYSTEM/Administrators 完全控制；`files`、`logs` 可供 Users 只读，但不可写。已有纯数字 `8080` 等端口在升级时保留并冻结到服务环境；修改端口后必须重新运行安装器/服务注册流程，单独编辑配置并重启不会覆盖服务级 `SERVER_PORT`。
+安装器只解析一次实际端口，并将同一值写入 WinSW 服务级 `SERVER_PORT`、Windows Firewall `Private` TCP 入站规则及 `{app}\service-state\effective-port.txt`。该元数据只包含端口，显式授予 Users 读取/执行但不授予写入；不开放 `Public` profile，也不放宽业务数据 ACL。若组策略或终端防护阻止自动创建防火墙规则，服务安装仍会完成并在安装日志记录 `WARNING`，管理员需手动开放实际端口后局域网客户端才能访问。ACL 会先清除 Users、Authenticated Users、Everyone 等旧显式 ACE，再将 `config`、`database` 和 `backups` 限制为 SYSTEM/Administrators 完全控制；`files`、`logs` 可供 Users 只读，但不可写。升级安装请求默认端口 `28081` 时，若 Local 配置中的纯数字 `server.port` 仍为旧版默认 `8080`，安装器会先以原子方式迁移配置为 `28081`，再由同一 effective-port 流程同步服务、防火墙和托盘元数据；合法自定义端口（例如 `29090`）保持不变，显式 `SERVER_PORT` 始终优先。修改端口后必须重新运行安装器/服务注册流程，单独编辑配置并重启不会覆盖服务级 `SERVER_PORT`。
 
 ## 托盘控制器
 

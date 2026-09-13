@@ -197,6 +197,7 @@
 - [x] T16.13（P1.7.13）解除 Windows 防火墙自动化对核心安装的阻断：服务注册成功后，私有网络防火墙规则创建失败改为持久警告而非卸载服务并回滚；安装诊断日志迁移到与业务 ACL 隔离的 `%ProgramData%\FabMatrix\installer`，确保权限或后置步骤失败时仍可读取准确阶段。
 - [x] T16.14（P1.7.14）修复 Windows Local Edition 既有服务日志 ACL：对 `config/database/backups/files/logs` 五个固定数据目录树中的所有既有目录和文件写入明确的 SYSTEM/Administrators 直接权限，并为 `files/logs` 写入 Users 只读权限；目录继续保留未来文件继承策略，覆盖 `logs/service` 下已有 WinSW stdout/stderr 日志，补充非提升可清理的 ACL fixture 契约回归。
 - [x] T16.15（P1.7.15）修复 Windows Local Edition 服务注册后 Java 子进程因完整 `logging.file.name` 被重复拼接而退出的问题：日志配置直接使用完整文件路径并保留默认/Server Edition 兼容回退，移除 WinSW `LOG_PATH` 注入；在固定数据 ACL 递归变更前拒绝根及后代 reparse point，`takeown` 使用 `/SKIPSL`，并补充日志启动探针、路径合同、junction 外部 sentinel 和继承语义回归。`mvnw test` 392 项、Windows installer contract、打包 Local health/log 探针和 Inno Setup Full 构建均通过；安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119597612 bytes，SHA-256 为 `CEFA62849F475B4447C97FF496226C72C760F2BA71169ED282CAAF39324AD43A`。
+- [x] T16.16（P1.7.16）修复 Windows Local Edition 托盘服务控制的位置参数绑定和 UAC 错误回传：服务控制脚本改为安全的位置参数调用，提升进程使用当前用户临时目录中的随机结果文件回传成功/真实错误，抑制 ProgressRecord/CLIXML 并在 `finally` 清理；升级安装将纯数字旧默认端口 `8080` 原子迁移为请求的默认 `28081`，保留合法自定义端口和显式 `SERVER_PORT` 优先级，并统一同步 WinSW、防火墙和托盘元数据。已补充参数绑定、CLIXML 清洗/临时文件清理、端口迁移和打包托盘自测合同；`mvnw.cmd test` 392 项、Windows installer contract 和 Full installer build 均通过。安装包 `dist/windows-installer/FabMatrixServer-Setup.exe` 为 119602125 bytes，SHA-256 为 `B6CA73258266F993107D2C307C57173A9CBF02985E71E69BA4F525D6E0FB01BD`。
 
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 

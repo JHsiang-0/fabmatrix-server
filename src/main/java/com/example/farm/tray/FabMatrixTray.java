@@ -385,7 +385,7 @@ public final class FabMatrixTray {
             }
             executor.execute(() -> {
                 try {
-                    runElevatedPowerShell("service-control.ps1", "-Action", action);
+                    runElevatedPowerShell("service-control.ps1", action);
                     refreshStatus();
                 } catch (Exception error) {
                     showError(text.serviceOperationFailed(error.getMessage()));
@@ -395,7 +395,8 @@ public final class FabMatrixTray {
 
         private void editConfig() {
             try {
-                runElevatedPowerShellCommand(buildElevatedEditorCommand(dataRoot.resolve("config/application.yml")));
+                runElevatedPowerShellCommand("& 'notepad.exe' " +
+                        quotePowerShell(dataRoot.resolve("config/application.yml").toString()));
             } catch (Exception error) {
                 showError(text.editConfigFailed(error.getMessage()));
             }
@@ -406,19 +407,32 @@ public final class FabMatrixTray {
             if (!Files.isRegularFile(script)) {
                 throw new IOException(text.missingControlScript(script));
             }
-            runElevatedPowerShellCommand(buildElevatedScriptCommand(script, arguments));
+            runElevatedPowerShellCommand(buildScriptInvocation(script, arguments));
         }
 
-        private void runElevatedPowerShellCommand(String command) throws Exception {
+        private void runElevatedPowerShellCommand(String innerCommand) throws Exception {
+            Path resultPath = createUacResultPath();
+            try {
+                executeElevatedPowerShell(buildElevationCommand(innerCommand, resultPath), resultPath);
+            } finally {
+                deleteUacResultPath(resultPath);
+            }
+        }
+
+        private void executeElevatedPowerShell(String command, Path resultPath) throws Exception {
             Process process = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
                     encodePowerShell(command))
                     .redirectErrorStream(true).start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            process.getInputStream().readAllBytes();
             if (!process.waitFor(60, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 throw new IOException(text.uacHelperTimedOut());
             }
-            if (process.exitValue() != 0) throw new IOException(output.trim());
+            int exitCode = process.exitValue();
+            UacResult result = readUacResult(resultPath);
+            if (exitCode != 0 || !result.success) {
+                throw new IOException(result.message.isBlank() ? text.uacHelperFailed(exitCode) : result.message);
+            }
         }
 
         private void openDirectory(Path directory) {
@@ -789,6 +803,9 @@ public final class FabMatrixTray {
         }
         private String trayAddFailed(String reason) { return (chinese ? "无法添加 FabMatrix 托盘图标: " : "Unable to add the FabMatrix tray icon: ") + reason; }
         private String uacHelperTimedOut() { return chinese ? "UAC helper 超时" : "The UAC helper timed out"; }
+        private String uacHelperFailed(int exitCode) {
+            return chinese ? "UAC helper 失败（退出码 " + exitCode + "）" : "The UAC helper failed (exit code " + exitCode + ")";
+        }
         private String missingControlScript(Path script) { return (chinese ? "缺少控制脚本: " : "Control script is missing: ") + script; }
         private String serviceOperationFailed(String reason) { return (chinese ? "服务操作失败: " : "Service operation failed: ") + reason; }
         private String editConfigFailed(String reason) { return (chinese ? "打开配置失败: " : "Could not open configuration: ") + reason; }
@@ -899,8 +916,8 @@ public final class FabMatrixTray {
         return Base64.getEncoder().encodeToString(command.getBytes(StandardCharsets.UTF_16LE));
     }
 
-    private static String buildElevatedScriptCommand(Path script, String... arguments) {
-        return buildElevationCommand(buildScriptInvocation(script, arguments));
+    private static String buildElevatedScriptCommand(Path script, Path resultPath, String... arguments) {
+        return buildElevationCommand(buildScriptInvocation(script, arguments), resultPath);
     }
 
     private static String buildScriptInvocation(Path script, String... arguments) {
@@ -909,27 +926,124 @@ public final class FabMatrixTray {
         return invocation.toString();
     }
 
-    private static String buildElevatedEditorCommand(Path configPath) {
-        return buildElevationCommand("& 'notepad.exe' " + quotePowerShell(configPath.toString()));
+    private static String buildElevatedEditorCommand(Path configPath, Path resultPath) {
+        return buildElevationCommand("& 'notepad.exe' " + quotePowerShell(configPath.toString()), resultPath);
     }
 
-    private static String buildElevationCommand(String innerCommand) {
-        String innerEncoded = encodePowerShell(innerCommand);
-        return "$p=Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru " +
-                "-ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','" + innerEncoded + "'); exit $p.ExitCode";
+    private static String buildElevationCommand(String innerCommand, Path resultPath) {
+        String resultLiteral = quotePowerShell(resultPath.toString());
+        String innerWithResult = "$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';try{" +
+                innerCommand + ";" + writeUacResult(resultLiteral, "'OK'") +
+                ";exit 0}catch{try{" + writeUacResult(resultLiteral,
+                "'ERROR' + [Environment]::NewLine + $_.Exception.Message") + "}catch{};exit 1}";
+        String innerEncoded = encodePowerShell(innerWithResult);
+        String missingResult = writeUacResult(resultLiteral,
+                "'ERROR' + [Environment]::NewLine + 'Elevated helper returned no result (exit code ' + $p.ExitCode + ').'");
+        String outerError = writeUacResult(resultLiteral,
+                "'ERROR' + [Environment]::NewLine + 'Elevation was canceled or could not be started: ' + $_.Exception.Message");
+        return "$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';try{" +
+                "$p=Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ErrorAction Stop " +
+                "-ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','" + innerEncoded + "');" +
+                "if (-not (Test-Path -LiteralPath " + resultLiteral + ")) {" + missingResult + "};" +
+                "exit $p.ExitCode}catch{try{" + outerError + "}catch{};exit 1}";
     }
 
-    private static void runUacCommandSelfTest() {
+    private static String writeUacResult(String resultLiteral, String contentsExpression) {
+        return "[IO.File]::WriteAllText(" + resultLiteral + "," + contentsExpression +
+                ",(New-Object System.Text.UTF8Encoding($false)))";
+    }
+
+    private static Path createUacResultPath() throws IOException {
+        Path tempDirectory = Files.createTempDirectory(Paths.get(System.getProperty("java.io.tmpdir")),
+                "FabMatrix-uac-");
+        return tempDirectory.resolve("result.txt");
+    }
+
+    private static void deleteUacResultPath(Path resultPath) throws IOException {
+        Files.deleteIfExists(resultPath);
+        Path resultDirectory = resultPath.getParent();
+        if (resultDirectory != null) Files.deleteIfExists(resultDirectory);
+    }
+
+    private static UacResult readUacResult(Path resultPath) throws IOException {
+        if (!Files.isRegularFile(resultPath)) return new UacResult(false, "");
+        String result = Files.readString(resultPath, StandardCharsets.UTF_8);
+        int newline = result.indexOf('\n');
+        String status = (newline < 0 ? result : result.substring(0, newline)).trim();
+        String message = newline < 0 ? "" : result.substring(newline + 1).trim();
+        if ("OK".equals(status)) return new UacResult(true, "");
+        if (!"ERROR".equals(status)) return new UacResult(false, "");
+        return new UacResult(false, sanitizePowerShellError(message));
+    }
+
+    private static String sanitizePowerShellError(String value) {
+        String message = value == null ? "" : value.trim();
+        if (message.contains("#<CLIXML") || message.contains("ProgressRecord")) {
+            return "PowerShell returned an unreadable error; CLIXML output was suppressed.";
+        }
+        return message;
+    }
+
+    private static final class UacResult {
+        private final boolean success;
+        private final String message;
+
+        private UacResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+    }
+
+    private static void runUacCommandSelfTest() throws Exception {
         Path script = Paths.get("D:\\Program Files\\Fab'Matrix\\service\\service-control.ps1");
         Path config = Paths.get("D:\\Program Files\\Fab'Matrix\\data\\config\\application.yml");
-        String innerScriptCommand = buildScriptInvocation(script, "-Action", "restart");
-        String scriptCommand = buildElevatedScriptCommand(script, "-Action", "restart");
-        String editorCommand = buildElevatedEditorCommand(config);
+        Path resultPath = Paths.get("D:\\Users\\Fab'Matrix\\AppData\\Local\\Temp\\FabMatrix-uac-result.txt");
+        String innerScriptCommand = buildScriptInvocation(script, "restart");
+        String scriptCommand = buildElevatedScriptCommand(script, resultPath, "restart");
+        String editorCommand = buildElevatedEditorCommand(config, resultPath);
         if (!innerScriptCommand.contains("'D:\\Program Files\\Fab''Matrix\\service\\service-control.ps1'") ||
+                !innerScriptCommand.endsWith(" 'restart'") || innerScriptCommand.contains("'-Action'") ||
                 scriptCommand.contains(script.toString()) || editorCommand.contains(config.toString()) ||
+                !scriptCommand.contains("$ProgressPreference='SilentlyContinue'") ||
+                !scriptCommand.contains("$ErrorActionPreference='Stop'") ||
+                !scriptCommand.contains("Test-Path -LiteralPath") ||
                 !new String(Base64.getDecoder().decode(encodePowerShell(scriptCommand)), StandardCharsets.UTF_16LE).equals(scriptCommand) ||
                 !new String(Base64.getDecoder().decode(encodePowerShell(editorCommand)), StandardCharsets.UTF_16LE).equals(editorCommand)) {
             throw new IllegalStateException("Encoded UAC command construction failed");
+        }
+
+        Path bindingDirectory = Files.createTempDirectory("fabmatrix-tray-binding-");
+        Path bindingScript = bindingDirectory.resolve("parameter-binding.ps1");
+        try {
+            Files.writeString(bindingScript, "param([Parameter(Mandatory=$true)][ValidateSet('start','stop','restart')][string]$Action)\n" +
+                    "if ($Action -ne 'start') { throw 'Action binding mismatch' }\n", StandardCharsets.UTF_8);
+            Process process = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    encodePowerShell(buildScriptInvocation(bindingScript, "start")))
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IllegalStateException("PowerShell parameter binding self-test timed out");
+            }
+            if (process.exitValue() != 0) {
+                throw new IllegalStateException("PowerShell parameter binding self-test failed: " +
+                        sanitizePowerShellError(output));
+            }
+        } finally {
+            Files.deleteIfExists(bindingScript);
+            Files.deleteIfExists(bindingDirectory);
+        }
+
+        Path resultDirectory = Files.createTempDirectory("fabmatrix-tray-uac-result-");
+        Path resultFile = resultDirectory.resolve("result.txt");
+        try {
+            Files.writeString(resultFile, "ERROR\n#<CLIXML><Objs><Obj S=\"ProgressRecord\" /></Objs>", StandardCharsets.UTF_8);
+            String readable = readUacResult(resultFile).message;
+            if (readable.contains("#<CLIXML") || readable.contains("ProgressRecord")) {
+                throw new IllegalStateException("UAC CLIXML sanitization self-test failed");
+            }
+        } finally {
+            deleteUacResultPath(resultFile);
         }
         System.out.println("FabMatrix tray encoded UAC command self-test passed.");
     }

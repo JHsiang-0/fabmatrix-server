@@ -104,10 +104,7 @@ function ConvertTo-FabMatrixPort([string]$Value) {
     return $parsed
 }
 
-function Get-FabMatrixEffectivePort([string]$ConfigPath, [int]$FallbackPort = 28081) {
-    $environmentPort = ConvertTo-FabMatrixPort ([Environment]::GetEnvironmentVariable('SERVER_PORT'))
-    if ($null -ne $environmentPort) { return $environmentPort }
-
+function Get-FabMatrixConfiguredPort([string]$ConfigPath) {
     if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
         $inServer = $false
         $serverIndent = -1
@@ -130,9 +127,90 @@ function Get-FabMatrixEffectivePort([string]$ConfigPath, [int]$FallbackPort = 28
             }
         }
     }
+    return $null
+}
+
+function Get-FabMatrixEffectivePort([string]$ConfigPath, [int]$FallbackPort = 28081) {
+    $environmentPort = ConvertTo-FabMatrixPort ([Environment]::GetEnvironmentVariable('SERVER_PORT'))
+    if ($null -ne $environmentPort) { return $environmentPort }
+
+    $configuredPort = Get-FabMatrixConfiguredPort $ConfigPath
+    if ($null -ne $configuredPort) { return $configuredPort }
 
     $fallback = ConvertTo-FabMatrixPort $FallbackPort
     return $(if ($null -ne $fallback) { $fallback } else { 28081 })
+}
+
+function Write-FabMatrixAtomicUtf8File {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $directory = Split-Path -Parent $resolvedPath
+    $tempPath = Join-Path $directory ('.fabmatrix-config-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    $backupPath = Join-Path $directory ('.fabmatrix-config-' + [guid]::NewGuid().ToString('N') + '.bak')
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    try {
+        [IO.File]::WriteAllText($tempPath, $Content, $utf8)
+        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
+            [IO.File]::Replace($tempPath, $resolvedPath, $backupPath, $true)
+        } else {
+            [IO.File]::Move($tempPath, $resolvedPath)
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
+        if (Test-Path -LiteralPath $backupPath) { Remove-Item -LiteralPath $backupPath -Force }
+    }
+}
+
+function Set-FabMatrixLegacyDefaultPortForUpgrade {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$RequestedPort
+    )
+
+    if ($RequestedPort -ne 28081 -or
+        $null -ne (ConvertTo-FabMatrixPort ([Environment]::GetEnvironmentVariable('SERVER_PORT'))) -or
+        -not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+        return $false
+    }
+
+    $lines = [IO.File]::ReadAllLines($ConfigPath, [Text.Encoding]::UTF8)
+    $inServer = $false
+    $serverIndent = -1
+    $portLineIndex = -1
+    $replacement = $null
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        $line = $lines[$index]
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith('#')) { continue }
+        $indent = $line.Length - $line.TrimStart().Length
+        if (-not $inServer) {
+            if ($trimmed -match '^server:\s*(?:#.*)?$') {
+                $inServer = $true
+                $serverIndent = $indent
+            }
+            continue
+        }
+        if ($indent -le $serverIndent) { break }
+        if ($trimmed -match '^(?<prefix>port\s*:\s*)8080(?<suffix>\s*(?:#.*)?)$') {
+            $portLineIndex = $index
+            $leadingWhitespace = $line.Length - $line.TrimStart().Length
+            $replacement = $Matches['prefix'] + '28081' + $Matches['suffix']
+            break
+        }
+    }
+    if ($portLineIndex -lt 0) { return $false }
+
+    $lines[$portLineIndex] = (' ' * $leadingWhitespace) + $replacement
+    $original = [IO.File]::ReadAllText($ConfigPath, [Text.Encoding]::UTF8)
+    $newline = if ($original.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $updated = $lines -join $newline
+    if ($original.EndsWith("`r`n") -or $original.EndsWith("`n")) { $updated += $newline }
+    Write-FabMatrixAtomicUtf8File -Path $ConfigPath -Content $updated
+    return $true
 }
 
 function Get-FabMatrixEffectivePortMetadataPath([string]$TargetInstallDir) {
@@ -172,17 +250,40 @@ function Test-FabMatrixPortConfig {
     try {
         [Environment]::SetEnvironmentVariable('SERVER_PORT', $null)
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 8080`r`n")
-        if ((Get-FabMatrixEffectivePort $tempPath) -ne 8080) { throw 'Pure numeric server.port was not preserved.' }
+        if (-not (Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+            (Get-FabMatrixEffectivePort $tempPath) -ne 28081 -or
+            ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*28081\s*$')) {
+            throw 'Legacy 8080 server.port was not migrated atomically to 28081.'
+        }
+        [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 29090`r`n")
+        if ((Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+            (Get-FabMatrixEffectivePort $tempPath) -ne 29090 -or
+            ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*29090\s*$')) {
+            throw 'Custom server.port was not preserved during upgrade.'
+        }
+        [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 28081`r`n")
+        if ((Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+            (Get-FabMatrixEffectivePort $tempPath) -ne 28081) {
+            throw 'New default server.port was not preserved.'
+        }
+        [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 8080`r`n")
+        [Environment]::SetEnvironmentVariable('SERVER_PORT', '29090')
+        if ((Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $tempPath -RequestedPort 28081) -or
+            (Get-FabMatrixEffectivePort $tempPath) -ne 29090 -or
+            ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*8080\s*$')) {
+            throw 'Explicit SERVER_PORT priority was not preserved during migration.'
+        }
+        [Environment]::SetEnvironmentVariable('SERVER_PORT', $null)
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: `${SERVER_PORT:8181}`r`n")
         if ((Get-FabMatrixEffectivePort $tempPath) -ne 8181) { throw 'SERVER_PORT placeholder fallback was not parsed.' }
         [Environment]::SetEnvironmentVariable('SERVER_PORT', '8282')
         if ((Get-FabMatrixEffectivePort $tempPath) -ne 8282) { throw 'Explicit SERVER_PORT did not take priority.' }
         [Environment]::SetEnvironmentVariable('SERVER_PORT', 'invalid')
         if ((Get-FabMatrixEffectivePort $tempPath) -ne 8181) { throw 'Invalid SERVER_PORT did not fall back to config.' }
-        $metadataPath = Write-FabMatrixEffectivePortMetadata -TargetInstallDir $tempInstallDir -EffectivePort 8080
+        $metadataPath = Write-FabMatrixEffectivePortMetadata -TargetInstallDir $tempInstallDir -EffectivePort 28081
         $expectedMetadataPath = Join-Path ([IO.Path]::GetFullPath($tempInstallDir)) 'service-state\effective-port.txt'
-        if ($metadataPath -ne $expectedMetadataPath -or ([IO.File]::ReadAllText($metadataPath)).Trim() -ne '8080') {
-            throw 'Effective port metadata did not preserve the legacy port at the installed runtime path.'
+        if ($metadataPath -ne $expectedMetadataPath -or ([IO.File]::ReadAllText($metadataPath)).Trim() -ne '28081') {
+            throw 'Effective port metadata did not publish the migrated port at the installed runtime path.'
         }
         [void](Write-FabMatrixEffectivePortMetadata -TargetInstallDir $tempInstallDir -EffectivePort 8181)
         if (([IO.File]::ReadAllText($metadataPath)).Trim() -ne '8181') {
@@ -290,6 +391,11 @@ try {
     $installStage = 'prepare local configuration'
     if (-not (Test-Path -LiteralPath $configPath)) {
         & (Join-Path $serviceDir 'Farm-Configure.ps1') -Edition Local -ConfigDir $configDir -DataRoot $DataRoot -Port $Port
+    }
+    $installStage = 'migrate legacy default port'
+    if ($servicePlan.IsUpgrade -and
+        (Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $configPath -RequestedPort $Port)) {
+        Write-InstallLog $installLogPath 'Migrated legacy Local configuration server.port from 8080 to 28081 during upgrade because the installer requested the default 28081.'
     }
     $effectivePort = Get-FabMatrixEffectivePort -ConfigPath $configPath -FallbackPort $Port
     Write-InstallLog $installLogPath "Resolved effective port: $effectivePort"

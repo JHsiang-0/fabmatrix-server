@@ -527,6 +527,8 @@ Assert-Contains $configure 'portableDataRoot/files|portableFiles' 'portable file
 Assert-Contains $install '<id>FabMatrixServer</id>|New-FabMatrixServiceXml' 'fixed service name'
 Assert-Contains $install 'Private|New-NetFirewallRule' 'private firewall rule'
 Assert-Contains $install 'Get-FabMatrixEffectivePort|ConvertTo-FabMatrixPort|SERVER_PORT' 'effective port resolution'
+Assert-Contains $install 'Set-FabMatrixLegacyDefaultPortForUpgrade|Write-FabMatrixAtomicUtf8File' 'legacy default port migration'
+Assert-Contains $install 'server\.port from 8080 to 28081|legacy.*8080.*28081' 'legacy default port migration log'
 Assert-Contains $install 'Write-FabMatrixEffectivePortMetadata[^\r\n]*EffectivePort \$effectivePort' 'tray metadata uses resolved effective port'
 Assert-Contains $install 'New-FabMatrixServiceXml[^\r\n]*Port \$effectivePort' 'WinSW service uses resolved effective port'
 Assert-Contains $install 'Set-PrivateFirewallRule -EffectivePort \$effectivePort' 'firewall uses resolved effective port'
@@ -563,6 +565,10 @@ Assert-Contains $tray 'SystemTray|FabMatrixTray' 'pure JDK tray controller'
 Assert-Contains $tray 'service-state.*effective-port\.txt|PORT_METADATA_DIRECTORY.*PORT_METADATA_FILE' 'tray installed effective port metadata path'
 Assert-Contains $tray 'tray\.lock|tryLock' 'single instance'
 Assert-Contains $tray 'EncodedCommand|self-test-uac-command' 'encoded UAC command construction'
+Assert-Contains $tray 'runElevatedPowerShell\("service-control\.ps1", action\)' 'tray service action uses positional binding'
+Assert-Contains $tray 'ProgressPreference.*SilentlyContinue|ErrorActionPreference.*Stop' 'UAC helper suppresses progress and stops on errors'
+Assert-Contains $tray 'createUacResultPath|readUacResult|deleteUacResultPath' 'structured UAC result lifecycle'
+Assert-Contains $tray 'sanitizePowerShellError|CLIXML output was suppressed' 'UAC CLIXML sanitization'
 Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot browse private backups'
 Assert-Contains $uninstall "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'uninstall closes only tray executables'
 Assert-NotContains $build "'\-Xrs'" 'service launcher must receive console control events'
@@ -939,6 +945,11 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
         throw "Packaged tray launcher menu font self-test failed: $($trayMenuFontProcess.ExitCode)"
     }
     Write-Host 'FabMatrix packaged tray launcher menu font self-test passed.'
+    $trayUacProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-uac-command' -Wait -PassThru
+    if ($trayUacProcess.ExitCode -ne 0) {
+        throw "Packaged tray launcher UAC command self-test failed: $($trayUacProcess.ExitCode)"
+    }
+    Write-Host 'FabMatrix packaged tray launcher UAC command self-test passed.'
     $payloadJava = Get-Command java.exe -ErrorAction SilentlyContinue
     if ($null -eq $payloadJava) { throw 'Java is required to execute the packaged tray brand icon self-test.' }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-brand-icon'
@@ -947,6 +958,8 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray port config self-test failed: $LASTEXITCODE" }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray menu font self-test failed: $LASTEXITCODE" }
+    & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-uac-command'
+    if ($LASTEXITCODE -ne 0) { throw "Packaged tray UAC command self-test failed: $LASTEXITCODE" }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ReleaseInfoPath)) {

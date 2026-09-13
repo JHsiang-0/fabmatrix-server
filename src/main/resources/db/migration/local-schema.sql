@@ -78,10 +78,10 @@ CREATE TABLE IF NOT EXISTS farm_print_job (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_user_idempotency
     ON farm_print_job(user_id, idempotency_key);
-CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_retry_of_job
-    ON farm_print_job(retry_of_job_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uk_print_job_root_attempt
-    ON farm_print_job(root_job_id, attempt_number);
+
+-- TC-007 indexes are created by LocalSchemaMigration after it adds the
+-- evolution columns to an existing farm_print_job table. Keeping them out of
+-- fresh bootstrap prevents an old database from failing before migration.
 
 CREATE INDEX IF NOT EXISTS idx_print_job_history_status_completed_id
     ON farm_print_job(status, completed_at, id);

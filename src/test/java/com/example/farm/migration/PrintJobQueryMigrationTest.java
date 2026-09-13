@@ -78,6 +78,7 @@ class PrintJobQueryMigrationTest {
                 .doesNotContain("+8 hours");
         assertThat(jobTable).contains("created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', '+8 hours'))",
                 "updated_at TIMESTAMP NOT NULL DEFAULT (datetime('now', '+8 hours'))");
+        assertThat(jobTable).doesNotContain("uk_print_job_retry_of_job", "uk_print_job_root_attempt");
         assertThat(read("db/migration/18-v2-print-job-query-semantics-mysql.sql"))
                 .contains("PREPARE farm_index_stmt", "DEALLOCATE PREPARE farm_index_stmt");
         assertThat(read("db/migration/18-v2-print-job-query-semantics-sqlite.sql"))
@@ -163,37 +164,60 @@ class PrintJobQueryMigrationTest {
     }
 
     @Test
-    void existingLocalSchemaMigrationBackfillsLegacyStatesAndIndexesOnce() throws Exception {
+    void localBootstrapThenMigrationUpgradesPreTc007PrintJobWithoutLosingData() throws Exception {
         try (Connection connection = DriverManager.getConnection(
                 "jdbc:sqlite:file:print-job-query-local-schema?mode=memory&cache=shared")) {
             JdbcTemplate jdbc = jdbc(connection);
             runResource(jdbc, "db/migration/local-schema.sql");
-            makeLegacyPrinterTable(jdbc);
+            replaceWithPreTc007PrintJobTable(jdbc);
             jdbc.update("INSERT INTO farm_user(id, username, password_hash) "
                     + "VALUES (91, 'local-operator', 'hash')");
-            jdbc.update("INSERT INTO farm_print_job(id, user_id, status, created_at, updated_at) "
-                    + "VALUES (7001, 1, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
-                    + "(7002, 1, 'MANUAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
-                    + "(7003, 1, 'CANCELED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
-            jdbc.update("INSERT INTO farm_print_job(id, user_id, operator_id, status, started_at, "
-                    + "created_at, updated_at) VALUES "
-                    + "(7004, 91, 91, 'READY', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
-                    + "(7005, 91, 91, 'FAILED', '2026-09-12 10:00:00', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            jdbc.update("INSERT INTO farm_print_file(id, user_id, original_name, safe_name) "
+                    + "VALUES (7102, 91, 'legacy-part.gcode', 'legacy-part.gcode')");
+            jdbc.update("INSERT INTO farm_printer(id, name, machine_number, status, current_job_id) "
+                    + "VALUES (7103, 'Legacy Printer', 'LEGACY-01', 'PRINTING', 7101)");
+            jdbc.update("INSERT INTO farm_print_job(id, file_id, printer_id, user_id, operator_id, "
+                    + "idempotency_key, status, progress, started_at, created_at, updated_at) "
+                    + "VALUES (7101, 7102, 7103, 91, 91, 'legacy-idempotency-key', 'PENDING', "
+                    + "37.5, '2026-09-12 10:00:00', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+
+            // This is the Spring sql.init bootstrap step against an existing database.
+            // Before T16.17 the TC-007 indexes fail here because the legacy table has no
+            // retry_of_job_id/root_job_id columns.
+            runResource(jdbc, "db/migration/local-schema.sql");
 
             LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
             migration.run();
             migration.run();
 
-            assertThat(jdbc.queryForList("SELECT status FROM farm_print_job WHERE id >= 7001 ORDER BY id",
-                    String.class)).containsExactly("QUEUED", "QUEUED", "CANCELLED", "READY", "FAILED");
-            assertThat(jdbc.queryForObject(
-                    "SELECT operator_username_snapshot FROM farm_print_job WHERE id = 7004", String.class))
-                    .isNull();
-            assertThat(jdbc.queryForObject(
-                    "SELECT operator_username_snapshot FROM farm_print_job WHERE id = 7005", String.class))
-                    .isEqualTo("local-operator");
-            assertThat(indexNames(jdbc)).contains("idx_print_job_history_status_completed_id",
-                    "idx_print_job_active_status_created_id");
+            Map<String, Object> row = jdbc.queryForMap("SELECT file_id, printer_id, user_id, operator_id, "
+                    + "idempotency_key, status, progress, root_job_id, attempt_number, "
+                    + "file_name_snapshot, printer_name_snapshot, machine_number_snapshot, "
+                    + "creator_username_snapshot, operator_username_snapshot "
+                    + "FROM farm_print_job WHERE id = 7101");
+            assertThat(row).containsEntry("file_id", 7102)
+                    .containsEntry("printer_id", 7103)
+                    .containsEntry("user_id", 91)
+                    .containsEntry("operator_id", 91)
+                    .containsEntry("idempotency_key", "legacy-idempotency-key")
+                    .containsEntry("status", "QUEUED")
+                    .containsEntry("progress", 37.5)
+                    .containsEntry("root_job_id", 7101)
+                    .containsEntry("attempt_number", 1)
+                    .containsEntry("file_name_snapshot", "legacy-part.gcode")
+                    .containsEntry("printer_name_snapshot", "Legacy Printer")
+                    .containsEntry("machine_number_snapshot", "LEGACY-01")
+                    .containsEntry("creator_username_snapshot", "local-operator")
+                    .containsEntry("operator_username_snapshot", "local-operator");
+            assertThat(jdbc.queryForObject("SELECT current_job_id FROM farm_printer WHERE id = 7103",
+                    Integer.class)).isEqualTo(7101);
+            assertThat(indexNames(jdbc)).contains("uk_print_job_retry_of_job", "uk_print_job_root_attempt",
+                    "idx_print_job_history_status_completed_id", "idx_print_job_active_status_created_id");
+            assertThat(jdbc.queryForList("PRAGMA table_info(farm_print_job)").stream()
+                    .map(column -> String.valueOf(column.get("name"))))
+                    .contains("file_name_snapshot", "printer_name_snapshot", "machine_number_snapshot",
+                            "creator_username_snapshot", "operator_username_snapshot", "retry_of_job_id",
+                            "root_job_id", "attempt_number");
         }
     }
 
@@ -240,10 +264,19 @@ class PrintJobQueryMigrationTest {
         }
     }
 
-    private void makeLegacyPrinterTable(JdbcTemplate jdbc) {
-        jdbc.execute("CREATE TABLE farm_printer_legacy AS SELECT * FROM farm_printer WHERE 0");
-        jdbc.execute("DROP TABLE farm_printer");
-        jdbc.execute("ALTER TABLE farm_printer_legacy RENAME TO farm_printer");
+    private void replaceWithPreTc007PrintJobTable(JdbcTemplate jdbc) {
+        jdbc.execute("DROP TABLE farm_print_job");
+        jdbc.execute("""
+                CREATE TABLE farm_print_job (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_id INTEGER, printer_id INTEGER, user_id INTEGER NOT NULL,
+                    operator_id INTEGER, idempotency_key VARCHAR(100), priority INTEGER DEFAULT 0,
+                    status VARCHAR(20) NOT NULL DEFAULT 'QUEUED', progress NUMERIC(5,2) DEFAULT 0,
+                    started_at TIMESTAMP, completed_at TIMESTAMP, error_reason VARCHAR(255),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
     }
 
     private String read(String resource) {

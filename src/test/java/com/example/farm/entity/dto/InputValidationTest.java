@@ -89,8 +89,8 @@ class InputValidationTest {
     @Test
     void validatesPasswordLengthOnlyAcrossAuthenticationDtos() {
         for (String password : new String[]{
-                "123456", "1234567", "12345678901234567890", "123456789012345678901",
-                "abcdefg", "ABCDEFG"
+                "12345", "123456", "12345678901234567890", "123456789012345678901",
+                "abcdef", "ABCDEF", "      "
         }) {
             UserLoginDTO login = new UserLoginDTO();
             login.setUsername("operator");
@@ -106,7 +106,7 @@ class InputValidationTest {
             change.setNewPassword(password);
             change.setConfirmPassword(password);
 
-            boolean valid = password.length() >= 7 && password.length() <= 20;
+            boolean valid = password.length() >= 6 && password.length() <= 20 && !password.isBlank();
             if (valid) {
                 assertThat(validator.validate(login)).as("login password: %s", password).isEmpty();
                 assertThat(validator.validate(register)).as("register password: %s", password).isEmpty();
@@ -117,5 +117,17 @@ class InputValidationTest {
                 assertThat(validator.validate(change)).as("change password: %s", password).isNotEmpty();
             }
         }
+
+        UserRegisterDTO mismatchedRegister = new UserRegisterDTO();
+        mismatchedRegister.setUsername("operator");
+        mismatchedRegister.setPassword("123456");
+        mismatchedRegister.setConfirmPassword("654321");
+        assertThat(mismatchedRegister.isPasswordMatch()).isFalse();
+
+        ChangePasswordDTO mismatchedChange = new ChangePasswordDTO();
+        mismatchedChange.setOldPassword("old-password");
+        mismatchedChange.setNewPassword("123456");
+        mismatchedChange.setConfirmPassword("654321");
+        assertThat(mismatchedChange.isNewPasswordMatch()).isFalse();
     }
 }

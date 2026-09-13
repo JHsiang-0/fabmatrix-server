@@ -89,7 +89,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [x] P1.7.19 / T16.19 为 Windows Local Edition 增加默认保留数据卸载与显式完全卸载双模式：普通/静默卸载删除服务、托盘/程序和防火墙规则但保留业务数据；交互式完全卸载要求清晰模式选择和默认“否”的第二次不可逆确认，命令行仅接受 `/PURGEDATA=CONFIRM`。主审修复后改由 Inno `usUninstall` 回调单次同步调用脚本、校验进程退出码并中止失败卸载；清理脚本完整检查驱动器根、InstallDir/DataRoot 及已存在祖先的 reparse point，以逐节点复检、LiteralPath、非递归后序方式删除受控 DataRoot。隔离自测覆盖不同 cwd 及 DataRoot 根、InstallDir 根/祖先和后代 junction，contract 还执行 ISCC 卸载阶段编译；`mvnw.cmd test` 393 项、Windows installer contract 和完整 installer build 已通过。
 - [x] P1.7.20 / T16.20 修复完全卸载遗漏 `%ProgramData%\Farm` 后重装回灌旧账号/8080：普通和默认静默卸载继续保留当前 DataRoot、legacy Farm 根及诊断数据；显式完全卸载严格识别并清理当前根、旧版 Farm 布局和去重后的 `%ProgramData%\FabMatrix` 项目残留，保留 T16.19 的双确认、`UninstallSilent`、同步退出码、默认“否”、reparse 防护及非递归 LiteralPath 删除。迁移脚本原子返回真实 migrated 结果，据此在卸载后 fresh reinstall 场景把旧默认 8080 迁至 requested default 28081，同时保留自定义端口和显式 `SERVER_PORT`；多目标临时夹具、端口自测、installer contract、393 项测试和完整安装器构建已覆盖。
 
- - [x] P1.7.21 / T16.21 统一所有认证入口密码规则为 7-20 个字符，仅限制长度；首次管理员初始化、登录、管理员创建用户、个人修改密码和遗留注册 API/DTO/Mock 均已同步，保留确认密码一致、旧密码校验、BCrypt、登录保护、最大长度和权限逻辑。Bean Validation、关键服务路径和 OpenAPI 文案已覆盖。
+ - [x] P1.7.21 / T16.21 统一所有认证入口密码规则为 6-20 个字符，仅限制长度；首次管理员初始化、登录、管理员创建用户、个人修改密码和遗留注册 API/DTO/Mock 均已同步，保留确认密码一致、旧密码校验、BCrypt、登录保护、最大长度和权限逻辑。Bean Validation、关键服务路径和 OpenAPI 文案已覆盖。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

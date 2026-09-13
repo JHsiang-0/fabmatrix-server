@@ -163,8 +163,8 @@ class UserAuthenticationTest {
     void creatingUserRejectsMismatchedPasswords() {
         UserRegisterDTO request = new UserRegisterDTO();
         request.setUsername("operator");
-        request.setPassword("1234567");
-        request.setConfirmPassword("7654321");
+        request.setPassword("123456");
+        request.setConfirmPassword("654321");
 
         assertThatThrownBy(() -> userService.register(request))
                 .hasMessage("两次输入的密码不一致");
@@ -260,8 +260,8 @@ class UserAuthenticationTest {
 
         UserRegisterDTO request = new UserRegisterDTO();
         request.setUsername("admin");
-        request.setPassword("1234567");
-        request.setConfirmPassword("7654321");
+        request.setPassword("123456");
+        request.setConfirmPassword("654321");
 
         assertThatThrownBy(() -> userService.setupFirstAdmin(request))
                 .hasMessage("两次输入的密码不一致");

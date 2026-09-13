@@ -6,6 +6,7 @@ param(
     [switch]$AutoStart,
     [switch]$PreserveExistingState,
     [string]$StateFile = '',
+    [string]$LogPath = '',
     [string]$LegacyDataRoot = 'C:\ProgramData\Farm'
 )
 
@@ -25,23 +26,46 @@ function Get-ServiceIfPresent([string]$Name) {
     return Get-Service -Name $Name -ErrorAction SilentlyContinue
 }
 
+function Test-ServicePresent([string]$Name) {
+    $service = Get-ServiceIfPresent $Name
+    if ($null -eq $service) { return $false }
+    $service.Dispose()
+    return $true
+}
+
 function Stop-ServiceIfPresent([string]$Name) {
     $service = Get-ServiceIfPresent $Name
-    if ($null -eq $service -or $service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
-    Stop-Service -InputObject $service -ErrorAction Stop
-    $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
-    $service.Refresh()
-    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
-        throw "Service did not stop: $Name"
+    if ($null -eq $service) { return }
+    try {
+        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
+        Stop-Service -InputObject $service -ErrorAction Stop
+        $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+        $service.Refresh()
+        if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+            throw "Service did not stop: $Name"
+        }
+    } finally {
+        $service.Dispose()
     }
+}
+
+function Wait-ServiceAbsent([string]$Name, [int]$TimeoutSeconds = 30) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if (-not (Test-ServicePresent $Name)) { return }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Windows service is still pending deletion after $TimeoutSeconds seconds: $Name"
 }
 
 function Remove-ServiceIfPresent([string]$Name) {
     $service = Get-ServiceIfPresent $Name
     if ($null -eq $service) { return }
+    $service.Dispose()
     Stop-ServiceIfPresent $Name
     & sc.exe delete $Name | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Windows service deletion failed ($LASTEXITCODE): $Name" }
+    Wait-ServiceAbsent $Name
 }
 
 function Get-ExistingServiceState {
@@ -195,57 +219,126 @@ function Set-PrivateFirewallRule([ValidateRange(1, 65535)][int]$EffectivePort) {
         -Enabled True -ErrorAction Stop | Out-Null
 }
 
-$preservedState = Read-PreservedServiceState
-$servicePlan = Resolve-FabMatrixServicePlan -PreservedState $preservedState -AutoStartRequested ([bool]$AutoStart)
+function Install-WinSwServiceWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$WrapperPath,
+        [string]$Name = 'FabMatrixServer',
+        [int]$TimeoutSeconds = 30
+    )
 
-# The capture step normally stopped these before files were replaced; repeat the checked stop for direct invocation.
-Stop-ServiceIfPresent 'FabMatrixServer'
-Stop-ServiceIfPresent 'Farm'
+    Wait-ServiceAbsent $Name
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $attempt = 0
+    $lastOutput = ''
+    do {
+        $attempt++
+        $lastOutput = (& $WrapperPath install 2>&1 | Out-String).Trim()
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) { return $attempt }
+        if (Test-ServicePresent $Name) {
+            throw "WinSW returned $exitCode but service $Name is present; refusing to retry an ambiguous registration."
+        }
+        if ([DateTime]::UtcNow -ge $deadline) { break }
+        Start-Sleep -Milliseconds 500
+    } while ($true)
 
-# Migration is only attempted after both legacy/new services are confirmed stopped.
-& (Join-Path $serviceDir 'migrate-legacy-data.ps1') -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot
-
-foreach ($directory in @($DataRoot, $configDir, $databaseDir, $filesDir, $logsDir, $backupsDir, (Join-Path $logsDir 'service'))) {
-    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    throw "FabMatrixServer registration failed after $attempt attempts; last exit code: $exitCode; output: $lastOutput"
 }
 
-if (-not (Test-Path -LiteralPath $configPath)) {
-    & (Join-Path $serviceDir 'Farm-Configure.ps1') -Edition Local -ConfigDir $configDir -DataRoot $DataRoot -Port $Port
+function Initialize-InstallLog([string]$RequestedPath, [string]$TargetDataRoot) {
+    $resolvedPath = if ([string]::IsNullOrWhiteSpace($RequestedPath)) {
+        Join-Path $TargetDataRoot 'logs\installer\service-install.log'
+    } else {
+        [IO.Path]::GetFullPath($RequestedPath)
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $resolvedPath) | Out-Null
+    return $resolvedPath
 }
-$effectivePort = Get-FabMatrixEffectivePort -ConfigPath $configPath -FallbackPort $Port
-if (-not (Test-Path -LiteralPath $winSw)) { throw "WinSW service wrapper not found: $winSw" }
 
-if ($null -ne (Get-ServiceIfPresent 'FabMatrixServer')) {
-    & $winSw uninstall
-    if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer uninstall failed: $LASTEXITCODE" }
+function Write-InstallLog([string]$Path, [string]$Message) {
+    $line = '{0} {1}{2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $Message, [Environment]::NewLine
+    [IO.File]::AppendAllText($Path, $line, (New-Object System.Text.UTF8Encoding($false)))
 }
-Remove-ServiceIfPresent 'Farm'
 
-Set-FabMatrixDataAcl -DataRoot $DataRoot
-$portMetadataPath = Write-FabMatrixEffectivePortMetadata -TargetInstallDir $InstallDir -EffectivePort $effectivePort
-Set-FabMatrixRuntimeMetadataAcl -InstallDir $InstallDir
-
-$xml = New-FabMatrixServiceXml -InstallDir $InstallDir -DataRoot $DataRoot -Port $effectivePort -StartMode $servicePlan.StartMode
-$utf8 = New-Object System.Text.UTF8Encoding($false)
-[IO.File]::WriteAllText($xmlPath, $xml.Trim() + [Environment]::NewLine, $utf8)
-
-& $winSw install
-if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer registration failed: $LASTEXITCODE" }
-if ($servicePlan.DisableAfterInstall) {
-    & sc.exe config $serviceName 'start=' 'disabled' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer Disabled start mode restoration failed: $LASTEXITCODE" }
-}
+$installLogPath = Initialize-InstallLog -RequestedPath $LogPath -TargetDataRoot $DataRoot
+$installStage = 'initialize'
+Write-InstallLog $installLogPath "BEGIN installDir=$InstallDir dataRoot=$DataRoot requestedPort=$Port"
 try {
-    Set-PrivateFirewallRule -EffectivePort $effectivePort
+    $installStage = 'resolve preserved service state'
+    $preservedState = Read-PreservedServiceState
+    $servicePlan = Resolve-FabMatrixServicePlan -PreservedState $preservedState -AutoStartRequested ([bool]$AutoStart)
+
+    # The capture step normally stopped these before files were replaced; repeat the checked stop for direct invocation.
+    $installStage = 'stop existing services'
+    Stop-ServiceIfPresent 'FabMatrixServer'
+    Stop-ServiceIfPresent 'Farm'
+
+    # Migration is only attempted after both legacy/new services are confirmed stopped.
+    $installStage = 'migrate legacy data'
+    & (Join-Path $serviceDir 'migrate-legacy-data.ps1') -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot
+
+    $installStage = 'prepare data directories'
+    foreach ($directory in @($DataRoot, $configDir, $databaseDir, $filesDir, $logsDir, $backupsDir, (Join-Path $logsDir 'service'))) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    }
+
+    $installStage = 'prepare local configuration'
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        & (Join-Path $serviceDir 'Farm-Configure.ps1') -Edition Local -ConfigDir $configDir -DataRoot $DataRoot -Port $Port
+    }
+    $effectivePort = Get-FabMatrixEffectivePort -ConfigPath $configPath -FallbackPort $Port
+    Write-InstallLog $installLogPath "Resolved effective port: $effectivePort"
+    if (-not (Test-Path -LiteralPath $winSw)) { throw "WinSW service wrapper not found: $winSw" }
+
+    $installStage = 'remove previous FabMatrixServer service'
+    if (Test-ServicePresent 'FabMatrixServer') {
+        & $winSw uninstall
+        if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer uninstall failed: $LASTEXITCODE" }
+        Wait-ServiceAbsent 'FabMatrixServer'
+    }
+    $installStage = 'remove legacy Farm service'
+    Remove-ServiceIfPresent 'Farm'
+
+    $installStage = 'protect data directories'
+    Set-FabMatrixDataAcl -DataRoot $DataRoot
+    $installStage = 'publish effective port metadata'
+    $portMetadataPath = Write-FabMatrixEffectivePortMetadata -TargetInstallDir $InstallDir -EffectivePort $effectivePort
+    Set-FabMatrixRuntimeMetadataAcl -InstallDir $InstallDir
+
+    $installStage = 'write WinSW configuration'
+    $xml = New-FabMatrixServiceXml -InstallDir $InstallDir -DataRoot $DataRoot -Port $effectivePort -StartMode $servicePlan.StartMode
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($xmlPath, $xml.Trim() + [Environment]::NewLine, $utf8)
+
+    $installStage = 'register FabMatrixServer service'
+    $installAttempts = Install-WinSwServiceWithRetry -WrapperPath $winSw -Name $serviceName
+    Write-InstallLog $installLogPath "Service registration succeeded on attempt $installAttempts"
+    if ($servicePlan.DisableAfterInstall) {
+        $installStage = 'restore disabled start mode'
+        & sc.exe config $serviceName 'start=' 'disabled' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer Disabled start mode restoration failed: $LASTEXITCODE" }
+    }
+    try {
+        $installStage = 'configure private firewall rule'
+        Set-PrivateFirewallRule -EffectivePort $effectivePort
+    } catch {
+        & $winSw uninstall 2>$null | Out-Null
+        Wait-ServiceAbsent $serviceName
+        throw
+    }
+
+    if ($servicePlan.ShouldStart) {
+        $installStage = 'start FabMatrixServer service'
+        & $winSw start
+        if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer start failed: $LASTEXITCODE" }
+    }
+
+    $stateDescription = if ($servicePlan.IsUpgrade) { "preserved $($preservedState.StartMode), wasRunning=$($preservedState.WasRunning)" } else { $servicePlan.StartMode }
+    $successMessage = "FabMatrixServer service registered: $stateDescription; effective port $effectivePort; tray metadata $portMetadataPath; data retained at $DataRoot"
+    Write-InstallLog $installLogPath "SUCCESS $successMessage"
+    Write-Output $successMessage
 } catch {
-    & $winSw uninstall 2>$null | Out-Null
-    throw
+    $failure = $_.Exception.ToString() -replace '[\r\n]+', ' | '
+    try { Write-InstallLog $installLogPath "FAILED stage=$installStage error=$failure" } catch { }
+    throw "FabMatrixServer service installation failed at stage '$installStage'. $($_.Exception.Message) Detailed log: $installLogPath"
 }
-
-if ($servicePlan.ShouldStart) {
-    & $winSw start
-    if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer start failed: $LASTEXITCODE" }
-}
-
-$stateDescription = if ($servicePlan.IsUpgrade) { "preserved $($preservedState.StartMode), wasRunning=$($preservedState.WasRunning)" } else { $servicePlan.StartMode }
-Write-Output "FabMatrixServer service registered: $stateDescription; effective port $effectivePort; tray metadata $portMetadataPath; data retained at $DataRoot"

@@ -418,6 +418,8 @@ Assert-Contains $installer 'Exec\(PowerShell, Parameters.*ResultCode|ResultCode 
 Assert-Contains $installer 'RestoreExistingServiceState|recover-upgrade-state\.ps1' 'upgrade failure state recovery'
 Assert-Contains $installer 'RaiseException' 'service install failure abort'
 Assert-Contains $installer 'Name: "tray_autostart"[^\r\n]*Flags: checkedonce' 'default tray autostart choice'
+Assert-Contains $installer 'Check: ShouldLaunchTray|ServiceInstallSucceeded' 'tray launch guarded by successful service installation'
+Assert-Contains $installer 'service-install\.log|LogPath' 'persistent service installation diagnostics'
 foreach ($config in @($baseConfig, $devConfig, $localConfig)) {
     Assert-Contains $config '\$\{SERVER_PORT:28081\}' "default SERVER_PORT for $config"
 }
@@ -442,6 +444,9 @@ Assert-Contains $install 'Write-FabMatrixEffectivePortMetadata[^\r\n]*EffectiveP
 Assert-Contains $install 'New-FabMatrixServiceXml[^\r\n]*Port \$effectivePort' 'WinSW service uses resolved effective port'
 Assert-Contains $install 'Set-PrivateFirewallRule -EffectivePort \$effectivePort' 'firewall uses resolved effective port'
 Assert-Contains $install 'SelfTestPortConfig|Test-FabMatrixPortConfig' 'installer port parser self-test'
+Assert-Contains $install 'Wait-ServiceAbsent|pending deletion' 'service deletion completion wait'
+Assert-Contains $install 'Install-WinSwServiceWithRetry|registration failed after' 'bounded WinSW registration retry'
+Assert-Contains $install 'FAILED stage=\$installStage|Detailed log' 'stage-specific service installation failure log'
 Assert-Contains $uninstall '\[int\]\$Port = 28081' 'new uninstall default port'
 Assert-NotContains $install 'Profile\s+Private[^\r\n]*Public|Profile.*Public' 'public firewall profile'
 Assert-Contains $install 'Set-FabMatrixDataAcl' 'shared data ACL policy'

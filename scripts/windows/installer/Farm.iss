@@ -56,7 +56,7 @@ Name: "{code:GetDataRoot}\logs"; Flags: uninsneveruninstall
 Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 
 [Run]
-Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"
+Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"; Check: ShouldLaunchTray
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\uninstall-service.ps1"" -InstallDir ""{app}"" -DataRoot ""{code:GetDataRoot}"" -Port 28081"; RunOnceId: "FabMatrixServer"; Flags: runhidden waituntilterminated
@@ -66,12 +66,20 @@ Name: "{group}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; Workin
 Name: "{userstartup}\FabMatrixServerTray"; Filename: "{app}\FabMatrixTray.exe"; WorkingDir: "{app}"; Tasks: tray_autostart; Flags: runminimized
 
 [Code]
+var
+  ServiceInstallSucceeded: Boolean;
+
 function GetDataRoot(Param: String): String;
 begin
   if CompareText(ExtractFileDrive(ExpandConstant('{app}')), ExtractFileDrive(ExpandConstant('{sd}'))) = 0 then
     Result := ExpandConstant('{commonappdata}\FabMatrix')
   else
     Result := AddBackslash(ExpandConstant('{app}')) + 'data';
+end;
+
+function ShouldLaunchTray(): Boolean;
+begin
+  Result := ServiceInstallSucceeded;
 end;
 
 function CaptureStateAndStopPreviousProcesses(): Boolean;
@@ -119,15 +127,19 @@ var
   PowerShell: String;
   InstallScript: String;
   StateFile: String;
+  ServiceLog: String;
   Parameters: String;
 begin
+  ServiceInstallSucceeded := False;
   ResultCode := -1;
   PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   InstallScript := ExpandConstant('{app}\service\install-service.ps1');
   StateFile := ExpandConstant('{tmp}\FabMatrixServer-upgrade-state.json');
+  ServiceLog := AddBackslash(GetDataRoot('')) + 'logs\installer\service-install.log';
   Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + InstallScript +
     '" -InstallDir "' + ExpandConstant('{app}') + '" -DataRoot "' + GetDataRoot('') +
-    '" -Port 28081 -PreserveExistingState -StateFile "' + StateFile + '"';
+    '" -Port 28081 -PreserveExistingState -StateFile "' + StateFile +
+    '" -LogPath "' + ServiceLog + '"';
   if WizardIsTaskSelected('service_autostart') then
     Parameters := Parameters + ' -AutoStart';
 
@@ -137,9 +149,11 @@ begin
   begin
     RestoreExistingServiceState();
     SuppressibleMsgBox('FabMatrixServer 服务安装失败（退出码 ' + IntToStr(ResultCode) +
-      '）。安装将中止；已尽力恢复升级前仍存在的服务状态。请检查安装日志。', mbCriticalError, MB_OK, IDOK);
+      '）。安装将中止；已尽力恢复升级前仍存在的服务状态。详细日志：' + ServiceLog,
+      mbCriticalError, MB_OK, IDOK);
     RaiseException('FabMatrixServer service installation failed with exit code ' + IntToStr(ResultCode));
   end;
+  ServiceInstallSucceeded := True;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

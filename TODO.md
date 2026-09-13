@@ -76,6 +76,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [x] P1.7.7 Windows Local Edition 安装器、主程序、托盘启动器和运行时托盘图标支持固定资源目录替换；已使用 `server_logo.png` 生成并替换全套 Windows 图标，安全清理旧产物后在本机使用 Inno Setup 6 完成 Full 构建，392 tests passed，发布候选的体积和 SHA-256 以输出目录中的 `release-info.txt`、`checksums.txt` 为准。
 - [x] P1.7.8 修复 Windows Local Edition 托盘中文方块：使用 Swing `JPopupMenu`/`JMenuItem` 自绘菜单规避 Windows AWT native peer 忽略 Java 字体，保留中文字体完整性检查和英文回退；右键菜单由可释放的 `JWindow` anchor 承载并按当前显示器可用边界定位，外部点击或焦点离开时关闭且不受 popup 自身焦点切换影响；jpackage 保留完整 JDK runtime，源码、打包 launcher、Swing 菜单模型和 runtime 模块均有契约自检。已完成 Full 安装包构建、契约检查及 392 项 Maven 测试。
 - [x] P1.7.9 将新部署默认 HTTP/WebSocket 端口统一为 `28081`，覆盖后端 profile、Docker、Windows 安装器/防火墙/托盘和前端首次连接；升级安装保留已有端口，Windows 服务、防火墙和普通权限托盘共用安装时解析的实际端口，显式环境变量及客户端已保存地址继续优先；默认值、覆盖、只读端口元数据、ACL 和安装器契约回归均已通过。
+- [x] P1.7.10 修复 Windows Local Edition 覆盖安装的服务注册竞态：释放服务控制句柄、等待旧服务从 SCM 完全删除并有界重试 WinSW 注册；新增持久化分阶段安装日志，失败时不再启动托盘。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

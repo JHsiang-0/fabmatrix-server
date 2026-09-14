@@ -307,7 +307,7 @@ $trayIconAssignment = $buildAst.Find({ param($node) $node -is [System.Management
 if ($null -eq $trayIconAssignment -or $trayIconAssignment.Right.Extent.Text -notmatch '^\$trayIconPath\s+-replace') {
     throw 'Tray launcher property icon path is not derived from $trayIconPath.'
 }
-if ($buildSource -notmatch '(?m)^icon=\$trayIconPropertyPath$' -or $buildSource -notmatch 'Copy-Item -LiteralPath \$trayPngPath') {
+if ($buildSource -notmatch '(?m)^icon=\$trayIconPropertyPath\r?$' -or $buildSource -notmatch 'Copy-Item -LiteralPath \$trayPngPath') {
     throw 'Tray launcher icon/resource wiring is missing from the build script.'
 }
 

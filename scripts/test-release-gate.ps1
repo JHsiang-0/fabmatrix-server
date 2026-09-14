@@ -32,4 +32,8 @@ $pathMavenPosition = $source.IndexOf('Get-Command mvn.cmd')
 if ($wrapperPosition -lt 0 -or $pathMavenPosition -lt 0 -or $wrapperPosition -gt $pathMavenPosition) {
     throw 'Release gate no longer prefers repository mvnw.cmd over PATH mvn.cmd.'
 }
+$installerContract = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'windows\test-installer-contract.ps1')
+if (-not $installerContract.Contains('(?m)^icon=\$trayIconPropertyPath\r?$')) {
+    throw 'Installer contract icon wiring check is not CRLF/LF robust.'
+}
 Write-Host 'Release gate explicit MavenPath contract passed.'

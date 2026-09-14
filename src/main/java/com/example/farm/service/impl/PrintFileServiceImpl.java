@@ -41,6 +41,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -345,6 +346,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Transactional(rollbackFor = Exception.class)
     public PrintFile uploadAndParseFile(MultipartFile file, Long parentId) {
         validateUpload(file);
+        rustFsClient.ensureCapacity(file.getSize());
         Long userId = SecurityContextUtil.getCurrentUserId();
         Long resolvedParentId = resolveUploadParent(parentId, userId).getId();
         requireUploadParent(resolvedParentId);
@@ -533,13 +535,13 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     private void cleanupUploadedObjects(String safeName, String thumbnailUrl) {
         if (thumbnailUrl != null && !thumbnailUrl.isBlank()) {
             try {
-                rustFsClient.deleteFileByObjectUrl(thumbnailUrl);
+                deleteStoredFileByObjectUrl(thumbnailUrl);
             } catch (RuntimeException cleanupException) {
                 log.warn("数据库保存失败后清理缩略图对象失败", cleanupException);
             }
         }
         try {
-            rustFsClient.deleteFile(safeName);
+            deleteStoredFile(safeName);
         } catch (RuntimeException cleanupException) {
             log.warn("数据库保存失败后清理文件对象失败", cleanupException);
         }
@@ -557,7 +559,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
         deleteThumbnailIfPresent(target);
         String objectKey = target.getSafeName();
-        rustFsClient.deleteFile(objectKey);
+        deleteStoredFile(objectKey);
         if (!this.removeById(target.getId())) {
             throw new BusinessException("文件记录删除失败");
         }
@@ -674,7 +676,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
                 PrintFile target = getAccessibleFile(id);
                 ensureDeletable(target);
                 deleteThumbnailIfPresent(target);
-                rustFsClient.deleteFile(target.getSafeName());
+                deleteStoredFile(target.getSafeName());
                 if (!this.removeById(target.getId())) {
                     throw new BusinessException("数据库记录删除失败");
                 }
@@ -1032,7 +1034,27 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (file.getThumbnailUrl() == null || file.getThumbnailUrl().isBlank()) {
             return;
         }
-        rustFsClient.deleteFileByObjectUrl(file.getThumbnailUrl());
+        deleteStoredFileByObjectUrl(file.getThumbnailUrl());
+    }
+
+    private void deleteStoredFile(String key) {
+        try {
+            rustFsClient.deleteFile(key);
+        } catch (StorageException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new StorageException("文件存储删除失败", exception);
+        }
+    }
+
+    private void deleteStoredFileByObjectUrl(String objectUrl) {
+        try {
+            rustFsClient.deleteFileByObjectUrl(objectUrl);
+        } catch (StorageException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new StorageException("文件存储删除失败", exception);
+        }
     }
 
     private PrintFile requireAccessibleFolder(Long folderId) {
@@ -1320,24 +1342,47 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
      */
     private String uploadThumbnailToRustFS(String base64Data, String safeName) {
         try {
-            // 提取图片格式
-            String contentType = "image/jpeg"; // 默认 JPEG
-            if (base64Data.contains("/9j/")) {
-                contentType = "image/jpeg";
-            } else if (base64Data.startsWith("iVBOR")) {
-                contentType = "image/png";
-            }
-
-            // Base64 解码
             byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Data);
-
-            // 生成缩略图 key
-            String thumbnailKey = "thumbnails/" + safeName.replace(".gcode", "." + contentType.split("/")[1]);
-
-            return rustFsClient.uploadBytes(thumbnailKey, imageBytes, contentType);
+            ThumbnailFormat format = detectThumbnailFormat(imageBytes);
+            String thumbnailKey = "thumbnails/" + UUID.randomUUID() + "." + format.extension();
+            return rustFsClient.uploadBytes(thumbnailKey, imageBytes, format.contentType());
         } catch (Exception e) {
             log.warn("缩略图上传失败: safeName={}, error={}", safeName, e.getMessage());
             return null;
         }
+    }
+
+    private ThumbnailFormat detectThumbnailFormat(byte[] imageBytes) {
+        if (startsWith(imageBytes, new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF})) {
+            return new ThumbnailFormat("jpg", "image/jpeg");
+        }
+        if (startsWith(imageBytes, new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})) {
+            return new ThumbnailFormat("png", "image/png");
+        }
+        if (startsWith(imageBytes, new byte[]{'G', 'I', 'F', '8'})) {
+            return new ThumbnailFormat("gif", "image/gif");
+        }
+        if (startsWith(imageBytes, new byte[]{'R', 'I', 'F', 'F'})
+                && imageBytes.length >= 12
+                && imageBytes[8] == 'W' && imageBytes[9] == 'E'
+                && imageBytes[10] == 'B' && imageBytes[11] == 'P') {
+            return new ThumbnailFormat("webp", "image/webp");
+        }
+        throw new IllegalArgumentException("缩略图图片格式不受支持");
+    }
+
+    private boolean startsWith(byte[] value, byte[] prefix) {
+        if (value == null || value.length < prefix.length) {
+            return false;
+        }
+        for (int index = 0; index < prefix.length; index++) {
+            if (value[index] != prefix[index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private record ThumbnailFormat(String extension, String contentType) {
     }
 }

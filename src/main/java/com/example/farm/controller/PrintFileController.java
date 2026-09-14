@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -169,8 +170,10 @@ public class PrintFileController {
     @GetMapping("/storage")
     public ResponseEntity<InputStreamResource> downloadLocalFile(@RequestParam("key") String key) {
         InputStreamResource resource = farmPrintFileService.downloadBySafeName(key);
+        MediaType contentType = MediaTypeFactory.getMediaType(resource.getFilename())
+                .orElse(MediaType.TEXT_PLAIN);
         return ResponseEntity.ok()
-                .contentType(MediaType.TEXT_PLAIN)
+                .contentType(contentType)
                 .body(resource);
     }
 

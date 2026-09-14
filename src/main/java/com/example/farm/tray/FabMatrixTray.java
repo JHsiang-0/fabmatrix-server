@@ -605,7 +605,11 @@ public final class FabMatrixTray {
         if (explicitPort != null) return explicitPort;
         try {
             Integer configuredPort = readPortFromConfig(configPath);
-            if (configuredPort != null) return configuredPort;
+            // A stale numeric 8080 is the old product default, not a valid
+            // fallback after metadata was lost during repair/reinstall. An
+            // explicit SERVER_PORT=8080 was already handled above and remains
+            // supported for deployments that intentionally choose it.
+            if (configuredPort != null && configuredPort != 8080) return configuredPort;
         } catch (IOException ignored) {
             // A missing or unreadable config must not prevent the tray from starting.
         }
@@ -667,8 +671,8 @@ public final class FabMatrixTray {
         try {
             Files.createDirectories(configPath.getParent());
             Files.writeString(configPath, "server:\n  port: 8080\n", StandardCharsets.UTF_8);
-            if (resolveEffectivePort(metadataPath, "", configPath) != 8080) {
-                throw new IllegalStateException("Pure numeric server.port was not preserved");
+            if (resolveEffectivePort(metadataPath, "", configPath) != DEFAULT_PORT) {
+                throw new IllegalStateException("Legacy numeric server.port 8080 was not replaced by the product default");
             }
             Files.writeString(configPath, "server:\n  port: ${SERVER_PORT:8181}\n", StandardCharsets.UTF_8);
             if (resolveEffectivePort(metadataPath, "", configPath) != 8181) {

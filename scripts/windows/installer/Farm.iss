@@ -56,6 +56,12 @@ Name: "{code:GetDataRoot}\files"; Flags: uninsneveruninstall
 Name: "{code:GetDataRoot}\logs"; Flags: uninsneveruninstall
 Name: "{code:GetDataRoot}\backups"; Flags: uninsneveruninstall
 
+[UninstallDelete]
+; effective-port.txt is runtime metadata, not an installed payload file. Remove
+; only this exact directory under the controlled installation root on both
+; ordinary uninstall and complete uninstall.
+Type: filesandordirs; Name: "{app}\service-state"
+
 [Run]
 Filename: "{app}\FabMatrixTray.exe"; Tasks: launch_tray; Flags: nowait postinstall skipifsilent; Description: "启动 FabMatrix 托盘控制器"; Check: ShouldLaunchTray
 

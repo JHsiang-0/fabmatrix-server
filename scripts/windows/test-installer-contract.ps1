@@ -13,7 +13,9 @@ $build = Join-Path $scriptRoot 'build-installer.ps1'
 $contractDistRoot = Join-Path $projectRoot 'dist'
 $releaseVersionCheck = Join-Path $scriptRoot 'test-release-version.ps1'
 
-& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $releaseVersionCheck -ServerRoot $projectRoot -ClientRoot $ClientRoot
+$releaseVersionArguments = @('-ServerRoot', $projectRoot)
+if (-not [string]::IsNullOrWhiteSpace($ClientRoot)) { $releaseVersionArguments += @('-ClientRoot', $ClientRoot) }
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $releaseVersionCheck @releaseVersionArguments
 if ($LASTEXITCODE -ne 0) { throw "Release version contract failed: $LASTEXITCODE" }
 
 function Assert-Contains([string]$Path, [string]$Pattern, [string]$Description) {
@@ -517,7 +519,10 @@ Assert-NotContains $installer '\{sysdrive\}' 'invalid Inno system drive constant
 Assert-Contains $installer 'commonappdata.*FabMatrix|GetDataRoot' 'system drive data root'
 Assert-Contains $installer '\{app\}.*data|Result := AddBackslash.*data' 'non-system drive data root'
 Assert-Contains $installer 'uninsneveruninstall' 'data retention declaration'
-Assert-NotContains $installer 'UninstallDelete[\s\S]*(commonappdata|\\data|\\database|\\files|\\backups)' 'recursive data deletion'
+$uninstallDeleteSection = [regex]::Match((Get-Content -Raw -LiteralPath $installer), '(?ms)^\[UninstallDelete\]\s*(.*?)(?=^\[|\z)')
+if ($uninstallDeleteSection.Success -and $uninstallDeleteSection.Groups[1].Value -match 'commonappdata|\\data|\\database|\\files|\\backups') {
+    throw "Contract check must not match: recursive data deletion ($installer)"
+}
 Assert-Contains $installer 'InitializeUninstall' 'uninstall mode hook'
 Assert-Contains $installer 'MB_YESNOCANCEL|IDCANCEL' 'interactive uninstall cancellation'
 Assert-Contains $installer 'ConfirmCompleteUninstall|PurgeDataRequested' 'complete uninstall second confirmation'
@@ -605,6 +610,8 @@ Assert-Contains $install 'Set-PrivateFirewallRule -EffectivePort \$effectivePort
 Assert-Contains $install 'SelfTestPortConfig|Test-FabMatrixPortConfig' 'installer port parser self-test'
 Assert-Contains $install 'Wait-ServiceAbsent|pending deletion' 'service deletion completion wait'
 Assert-Contains $install 'Install-WinSwServiceWithRetry|registration failed after' 'bounded WinSW registration retry'
+Assert-Contains $install 'Test-ServicePresent \$Name|service .* is not registered' 'successful WinSW registration is verified in SCM'
+Assert-Contains $install 'Wait-FabMatrixHealth|actuator/health' 'started service health check'
 Assert-Contains $install 'FAILED stage=\$installStage|Detailed log' 'stage-specific service installation failure log'
 Assert-Contains $install 'WARNING stage=\$installStage|private firewall rule was not created' 'non-fatal firewall automation warning'
 Assert-NotContains $install "configure private firewall rule'[\s\S]*?Wait-ServiceAbsent" 'firewall automation failure must not remove the service'
@@ -641,6 +648,8 @@ Assert-Contains $serviceXml '&quot;|ConvertTo-XmlText|stoptimeout>30sec' 'quoted
 Assert-Contains $serviceXml '<env name="SERVER_PORT" value="\$portXml" />' 'WinSW service-level effective port environment'
 Assert-NotContains $serviceXml '<env name="LOG_PATH"' 'WinSW must not override Spring Boot logging path'
 Assert-Contains $control 'ValidateSet' 'tray service actions'
+Assert-Contains $control 'Get-FabMatrixEffectivePort|effective-port\.txt' 'tray service control uses installed effective port'
+Assert-Contains $control 'Wait-FabMatrixHealth|actuator/health' 'tray service start health check'
 Assert-Contains $tray 'SystemTray|FabMatrixTray' 'pure JDK tray controller'
 Assert-Contains $tray 'service-state.*effective-port\.txt|PORT_METADATA_DIRECTORY.*PORT_METADATA_FILE' 'tray installed effective port metadata path'
 Assert-Contains $tray 'tray\.lock|tryLock' 'single instance'
@@ -651,6 +660,8 @@ Assert-Contains $tray 'createUacResultPath|readUacResult|deleteUacResultPath' 's
 Assert-Contains $tray 'sanitizePowerShellError|CLIXML output was suppressed' 'UAC CLIXML sanitization'
 Assert-NotContains $tray 'dataRoot\.resolve\("backups"\)' 'ordinary tray cannot browse private backups'
 Assert-Contains $uninstall "Get-Process -Name 'FabMatrixTray', 'FarmTray'" 'uninstall closes only tray executables'
+Assert-Contains $uninstall 'Test-FabMatrixPathWithinDirectory|MainModule\.FileName' 'uninstall bounds tray cleanup to this installation'
+Assert-Contains $uninstall 'Wait-ServiceAbsent|pending deletion' 'uninstall waits for SCM deletion'
 Assert-Contains $uninstall '\[switch\]\$PurgeData|if \(\$PurgeData\)' 'purge is opt-in'
 Assert-Contains $uninstall 'purge-local-data\.ps1|Business data retained at' 'purge payload and default retention output'
 Assert-Contains $uninstall '-LegacyDataRoot \$LegacyDataRoot[\s\S]*-DiagnosticsRoot \$DiagnosticsRoot' 'uninstall forwards all controlled purge roots'
@@ -775,7 +786,7 @@ if ($autoStopped.StartMode -ne 'Automatic' -or $autoStopped.ShouldStart -or
     -not $disabled.DisableAfterInstall -or $disabled.ShouldStart) {
     throw 'Upgrade service StartType/running-state plan was not preserved.'
 }
-$contractEffectivePort = 8080
+$contractEffectivePort = 29090
 $xmlText = New-FabMatrixServiceXml -InstallDir 'D:\Program Files\FabMatrix' -DataRoot 'D:\Program Files\FabMatrix\data' -Port $contractEffectivePort -StartMode Automatic
 $xmlDocument = [xml]$xmlText
 $expectedArguments = '--spring.config.additional-location="file:D:/Program Files/FabMatrix/data/config/"'
@@ -784,7 +795,7 @@ if ([string]$xmlDocument.service.arguments -ne $expectedArguments -or $xmlText -
 }
 $servicePortEnvironment = @($xmlDocument.service.env | Where-Object { $_.name -eq 'SERVER_PORT' })
 if ($servicePortEnvironment.Count -ne 1 -or [int]$servicePortEnvironment[0].value -ne $contractEffectivePort) {
-    throw 'WinSW XML did not freeze the resolved legacy effective port.'
+    throw 'WinSW XML did not freeze the resolved custom effective port.'
 }
 if ([int](([string]$xmlDocument.service.stoptimeout) -replace '\D', '') -lt 20) {
     throw 'WinSW stop timeout is shorter than graceful shutdown timeout.'

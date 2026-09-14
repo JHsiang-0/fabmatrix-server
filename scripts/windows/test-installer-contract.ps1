@@ -660,8 +660,10 @@ Assert-NotContains $serviceXml '<env name="LOG_PATH"' 'WinSW must not override S
 Assert-Contains $control 'ValidateSet' 'tray service actions'
 Assert-Contains $control 'Get-FabMatrixEffectivePort|effective-port\.txt' 'tray service control uses installed effective port'
 Assert-Contains $control 'Wait-FabMatrixHealth|actuator/health' 'tray service start health check'
-Assert-Contains $install 'health-check\.ps1|Test-FabMatrixHealthResponse' 'installer uses shared health response helper'
-Assert-Contains $control 'health-check\.ps1|Test-FabMatrixHealthResponse' 'service control uses shared health response helper'
+Assert-Contains $install '\.\s*\(Join-Path\s+\$serviceDir\s+''health-check\.ps1''\)' 'installer dot-sources shared health response helper'
+Assert-Contains $install 'return\s+Test-FabMatrixHealthResponse\s+-Response\s+\$response' 'installer calls shared health response helper'
+Assert-Contains $control '\.\s*\(Join-Path\s+\$installDir\s+''service\\health-check\.ps1''\)' 'service control dot-sources shared health response helper'
+Assert-Contains $control 'return\s+Test-FabMatrixHealthResponse\s+-Response\s+\$response' 'service control calls shared health response helper'
 Assert-Contains $build 'health-check\.ps1' 'shared health helper payload copy'
 Assert-Exists $healthCheck 'shared health response helper'
 $healthCheckSource = Get-Content -LiteralPath $healthCheck -Raw -Encoding UTF8

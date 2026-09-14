@@ -72,6 +72,9 @@ server:
 
 # 测试环境应用配置
 farm:
+  features:
+    batch-dispatch:
+      enabled: false
   tasks:
     enabled: true
   monitor:

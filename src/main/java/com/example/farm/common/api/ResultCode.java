@@ -9,6 +9,7 @@ public enum ResultCode {
     VALIDATE_FAILED(400, "参数检验失败"),
     UNAUTHORIZED(401, "暂未登录或token已经过期"),
     FORBIDDEN(403, "没有相关权限"),
+    FEATURE_DISABLED(10004, "功能暂未开放"),
 
     // 你可以在这里继续追加农场相关的业务状态码
     PRINTER_OFFLINE(10001, "打印机离线"),

@@ -2,6 +2,7 @@ package com.example.farm.controller;
 
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.vo.PrintJobSummaryVO;
+import com.example.farm.service.DispatchPlanService;
 import com.example.farm.service.PrintJobService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -34,6 +36,9 @@ class PrintJobControllerContractTest {
 
     @MockitoBean
     private PrintJobService printJobService;
+
+    @MockitoBean
+    private DispatchPlanService dispatchPlanService;
 
     @Test
     void queueGetOnlyInvokesReadPath() throws Exception {
@@ -159,5 +164,33 @@ class PrintJobControllerContractTest {
                 .andExpect(jsonPath("$.code").value(410));
 
         verifyNoMoreInteractions(printJobService);
+    }
+
+    @Test
+    void batchDispatchEndpointsReturnStableFeatureDisabledEnvelopeByDefault() throws Exception {
+        String preview = "{\"fileIds\":[20],\"printerIds\":[404],\"strategy\":\"ONE_TO_ONE\",\"action\":\"QUEUE\"}";
+        String confirm = "{\"planId\":\"plan-1\",\"version\":1,\"itemIds\":[\"item-1\"],\"confirmationToken\":\"token-1\"}";
+        String retry = "{\"sourcePlanId\":\"plan-1\",\"sourceItemIds\":[\"item-1\"],\"retryKey\":\"retry-1\"}";
+
+        for (var request : List.of(
+                buildPost("/api/v1/print-jobs/batch/preview", preview),
+                buildPost("/api/v1/print-jobs/batch/confirm", confirm),
+                buildPost("/api/v1/print-jobs/batch/retry-preview", retry))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(10004))
+                    .andExpect(jsonPath("$.message").value("功能暂未开放"))
+                    .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()));
+        }
+
+        verifyNoInteractions(dispatchPlanService);
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder buildPost(
+            String path, String body) {
+        return org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                .with(user("operator").roles("OPERATOR"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
     }
 }

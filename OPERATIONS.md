@@ -22,7 +22,7 @@ docker compose --env-file .env.server -f docker-compose.server.yml up -d --build
 docker compose --env-file .env.server -f docker-compose.server.yml ps
 ```
 
-正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED` 和 `FARM_SCHEDULER_ENABLED` 默认都是 `false`；确认真实打印机协议后，只按需启用监控，具体设备通过管理员 API 设置 `monitorEnabled`，后台调度不要在 v2 误开启。
+正式 Compose 默认只暴露 Farm 的 HTTP 端口，MySQL、Redis、RustFS 只在 Compose 内部网络提供服务。`FARM_MONITOR_ENABLED`、`FARM_SCHEDULER_ENABLED` 和 `FARM_BATCH_DISPATCH_ENABLED` 默认都是 `false`；确认真实打印机协议后，只按需启用监控，具体设备通过管理员 API 设置 `monitorEnabled`，后台调度和 V1 批量派发不要在准正式版误开启。批量派发三个入口关闭时返回 HTTP 404、业务码 `10004`（`FEATURE_DISABLED`）和统一 `{code,message,data,timestamp}` 响应；V3 完成验收后才可显式设置 `FARM_BATCH_DISPATCH_ENABLED=true`。
 
 已使用 `mvn -q package -DskipTests` 生成 jar，并成功构建本地镜像 `farm-server:local-20260903`；`docker compose config --quiet` 和 Server Edition Compose 配置校验均通过。正式发布前仍必须固定并验证 RustFS 镜像版本、填写真实 `.env.server` 并在发布环境执行启动/重启/备份恢复检查；`.env.server` 不得提交到 Git。首次初始化只适用于全新数据卷，已有数据卷升级必须先按下方备份步骤操作。增量脚本按 `02` 至 `18` 的依赖顺序执行，其中 `11-printer-monitor-reliability.sql` 必须早于同编号的 `11-v2-user-status-and-batch-recovery.sql`，16 号动态布局迁移必须在只读预检无结果后执行，18 号任务查询迁移负责旧状态回填和分页索引。TC-007 从 19 号迁移开始；TC-004–TC-006、TC-008 不在本次迁移范围。
 
@@ -62,7 +62,7 @@ jpackage 后端主 launcher 使用 console 模式且不带 `-Xrs`，WinSW 停止
 - `JWT_SECRET_KEY` 和 `ADMIN_SECRET_KEY` 已更换且妥善保存；
 - `MYSQL_PASSWORD`、`REDIS_PASSWORD`、`RUSTFS_ACCESS_KEY`、`RUSTFS_SECRET_KEY` 已配置；
 - `farm.security.cors-allowed-origins` 只包含实际客户端来源；
-  - `farm.monitor.enabled` 仅在设备网络和协议适配器已验证后开启；`farm.scheduler.enabled` 在 v2 保持关闭；
+- `farm.monitor.enabled` 仅在设备网络和协议适配器已验证后开启；`farm.scheduler.enabled` 和 `farm.features.batch-dispatch.enabled` 在准正式版保持关闭；
 - 上传目录/对象存储桶可写，磁盘和 RustFS 容量有监控。
 
 ### 密钥轮换策略

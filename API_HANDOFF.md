@@ -336,6 +336,12 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 
 ### 4.3 打印任务
 
+准正式版默认关闭批量派发。三个 `/print-jobs/batch/*` 入口在
+`farm.features.batch-dispatch.enabled=false`（默认值，或环境变量
+`FARM_BATCH_DISPATCH_ENABLED=false`）时统一返回 HTTP 404、业务码 `10004`
+（`FEATURE_DISABLED`）及 `{code,message,data,timestamp}` 响应；V3 验收完成后可显式
+设置该开关为 `true`，既有服务和 DTO 契约保持不变。
+
 | 方法 | 地址 | 权限 | 参数 | 返回 |
 |---|---|---|---|---|
 | GET | `/print-jobs/queue` | ADMIN/OPERATOR | 无 | `PrintJobSummaryVO[]`；TC-002 已实施，精确 QUEUED、权限下推、priority/createdAt/id 稳定排序 |

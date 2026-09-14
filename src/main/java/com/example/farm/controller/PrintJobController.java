@@ -2,8 +2,10 @@ package com.example.farm.controller;
 
 import com.example.farm.common.api.PageResult;
 import com.example.farm.common.api.Result;
+import com.example.farm.common.api.ResultCode;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
+import com.example.farm.config.BatchDispatchProperties;
 import com.example.farm.entity.dto.PrintJobCreateDTO;
 import com.example.farm.entity.dto.request.AssignJobRequest;
 import com.example.farm.entity.dto.request.ConfirmSafeRequest;
@@ -49,6 +51,7 @@ public class PrintJobController {
     private final PrintJobService printJobService;
     private final PrinterService printerService;
     private final DispatchPlanService dispatchPlanService;
+    private final BatchDispatchProperties batchDispatchProperties;
 
     /**
      * 查询排队中的任务。
@@ -278,6 +281,7 @@ public class PrintJobController {
     @Operation(summary = "批量分配预览", description = "用户主动生成批量方案；不创建任务、不占用打印机、不调用设备写接口")
     @PostMapping("/batch/preview")
     public Result<DispatchPlanPreviewVO> previewBatch(@Valid @RequestBody BatchDispatchPreviewRequest request) {
+        requireBatchDispatchEnabled();
         request = requireBody(request);
         return Result.success(dispatchPlanService.preview(request), "批量分配预览生成成功");
     }
@@ -285,6 +289,7 @@ public class PrintJobController {
     @Operation(summary = "确认并执行批量分配", description = "重新校验计划后逐项创建任务；默认不绕过安全确认直接启动")
     @PostMapping("/batch/confirm")
     public Result<BatchDispatchConfirmVO> confirmBatch(@Valid @RequestBody BatchDispatchConfirmRequest request) {
+        requireBatchDispatchEnabled();
         request = requireBody(request);
         BatchDispatchConfirmVO result = dispatchPlanService.confirm(request);
         return Result.success(result, "批量分配执行完成");
@@ -294,8 +299,15 @@ public class PrintJobController {
     @PostMapping("/batch/retry-preview")
     public Result<DispatchPlanPreviewVO> retryPreviewBatch(
             @Valid @RequestBody BatchDispatchRetryPreviewRequest request) {
+        requireBatchDispatchEnabled();
         request = requireBody(request);
         return Result.success(dispatchPlanService.retryPreview(request), "批量失败项恢复预览生成成功");
+    }
+
+    private void requireBatchDispatchEnabled() {
+        if (!batchDispatchProperties.isEnabled()) {
+            throw new BusinessException(ResultCode.FEATURE_DISABLED);
+        }
     }
 
     private <T> T requireBody(T body) {

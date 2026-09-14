@@ -94,6 +94,10 @@ server:
 
 # 应用自定义配置
 farm:
+  features:
+    batch-dispatch:
+      # V1 准正式版默认关闭；V3 验收完成后通过环境变量显式开启。
+      enabled: ${FARM_BATCH_DISPATCH_ENABLED:false}
   # 本阶段固定 Asia/Shanghai：所有任务 LocalDateTime 写入与查询均使用该 wall-clock，不做 UTC 转换。
   monitor:
     enabled: false

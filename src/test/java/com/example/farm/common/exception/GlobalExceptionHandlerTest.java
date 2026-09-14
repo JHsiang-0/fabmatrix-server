@@ -37,6 +37,16 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void mapsDisabledFeatureToNotFoundAndPreservesStableCode() {
+        var response = handler.handleBusinessException(new BusinessException(ResultCode.FEATURE_DISABLED));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(ResultCode.FEATURE_DISABLED.getCode());
+        assertThat(response.getBody().getMessage()).isEqualTo("功能暂未开放");
+    }
+
+    @Test
     void mapsUnsupportedMethodTo405() {
         var exception = new HttpRequestMethodNotSupportedException("GET", java.util.List.of("POST"));
         var response = handler.handleMethodNotSupported(exception, request);

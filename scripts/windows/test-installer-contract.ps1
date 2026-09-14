@@ -1,5 +1,6 @@
 param(
     [switch]$SkipTrayCompile,
+    [switch]$SkipExternalTools,
     [string]$PayloadPath = '',
     [string]$ReleaseInfoPath = '',
     [string]$ClientRoot = ''
@@ -558,11 +559,19 @@ try {
     [IO.Directory]::CreateDirectory($innoOutput) | Out-Null
     [IO.File]::WriteAllText((Join-Path $innoPayload 'contract-placeholder.txt'), 'isolated Inno compile fixture')
     [IO.File]::WriteAllText((Join-Path $innoService 'capture-upgrade-state.ps1'), '# isolated compile fixture')
+$innoCompiler = $null
+try {
     $innoCompiler = Find-ContractInnoCompiler
+} catch {
+    if (-not $SkipExternalTools) { throw }
+    Write-Host "NOT RUN: Inno Setup uninstall-stage compile ($($_.Exception.Message))"
+}
+if ($null -ne $innoCompiler) {
     & $innoCompiler '/Qp' '/DAppVersion=1.0.0' "/DPayloadDir=$innoPayload" "/DOutputDir=$innoOutput" "/DAssetsDir=$assets" $installer
     if ($LASTEXITCODE -ne 0) { throw "Inno uninstall-stage contract compile failed: $LASTEXITCODE" }
     Assert-Exists (Join-Path $innoOutput 'FabMatrix-Server-Setup-1.0.0.exe') 'compiled isolated Inno installer'
     Write-Host 'FabMatrix isolated Inno uninstall-stage compile passed.'
+}
 } finally {
     Remove-InnoCompileContractFixture $innoCompileRoot
 }

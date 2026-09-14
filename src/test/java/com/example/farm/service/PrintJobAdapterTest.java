@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobAdapterTest {
@@ -146,6 +147,34 @@ class PrintJobAdapterTest {
     }
 
     @Test
+    void deviceUploadFailurePersistsReconcilingStateAndKeepsPrinterBinding() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printFileMapper.selectById(20L)).thenReturn(file());
+        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.updateStatusIfCurrent(org.mockito.ArgumentMatchers.eq(1001L),
+                org.mockito.ArgumentMatchers.eq("UPLOADING"),
+                org.mockito.ArgumentMatchers.eq("RECONCILING"),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+        doThrow(new RuntimeException("connection reset")).when(adapter)
+                .uploadFile(any(), any(), any(), org.mockito.ArgumentMatchers.eq(true));
+
+        assertThatThrownBy(() -> printJobService.startPrint(1001L, 2L, "START_PRINT"))
+                .extracting("code").isEqualTo(503L);
+
+        assertThat(job.getStatus()).isEqualTo("RECONCILING");
+        assertThat(job.getErrorReason()).contains("启动设备动作结果未知");
+        assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
+        verify(eventPublisher).publishJobStatus(job);
+    }
+
+    @Test
     void cancelFailsBeforeJobSaveWhenPrinterCannotBeUnbound() {
         mockUser(2L, "OPERATOR");
         PrintJob job = job("ASSIGNED");
@@ -160,6 +189,31 @@ class PrintJobAdapterTest {
 
         verify(printJobMapper, org.mockito.Mockito.never()).updateById(any(PrintJob.class));
         verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(any());
+    }
+
+    @Test
+    void deviceCancelFailurePersistsReconcilingStateAndKeepsPrinterBinding() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateStatusIfCurrent(org.mockito.ArgumentMatchers.eq(1001L),
+                org.mockito.ArgumentMatchers.eq("ASSIGNED"),
+                org.mockito.ArgumentMatchers.eq("RECONCILING"),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
+        doThrow(new RuntimeException("connection reset")).when(adapter)
+                .cancel(any());
+
+        assertThatThrownBy(() -> printJobService.cancelJob(1001L))
+                .extracting("code").isEqualTo(503L);
+
+        assertThat(job.getStatus()).isEqualTo("RECONCILING");
+        assertThat(job.getErrorReason()).contains("取消设备动作结果未知");
+        assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
+        verify(printerService, org.mockito.Mockito.never()).clearJobBinding(403L, 1001L);
+        verify(eventPublisher).publishJobStatus(job);
     }
 
     @Test

@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
-import com.example.farm.common.constant.RedisKeyConstant;
 import com.example.farm.common.utils.LogUtil;
 import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.common.storage.FileStorage;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.common.utils.PrintFileAccess;
@@ -46,8 +46,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -455,6 +453,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (!Objects.equals(currentUserId, operatorId)) {
             throw new BusinessException(403, "操作员身份必须来自当前登录用户");
         }
+        withPrinterLock(printerId, () -> {
+            doConfirmPrinterSafe(printerId, operatorId);
+            return null;
+        });
+    }
+
+    private void doConfirmPrinterSafe(Long printerId, Long operatorId) {
         Printer printer = printerService.getById(printerId);
 
         if (printer == null) {
@@ -483,6 +488,17 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException(403, "操作员身份必须来自当前登录用户");
         }
 
+        PrintJob initial = getAccessibleJob(jobId);
+        if (initial == null || initial.getPrinterId() == null) {
+            throw new BusinessException(409, "任务当前未绑定打印机，无法启动");
+        }
+        withPrinterLock(initial.getPrinterId(), () -> {
+            doStartPrint(jobId, operatorId, action);
+            return null;
+        });
+    }
+
+    private void doStartPrint(Long jobId, Long operatorId, String action) {
         // 解析 action，默认 START_PRINT
         boolean startPrint = !"UPLOAD_ONLY".equalsIgnoreCase(action);
 
@@ -534,25 +550,46 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 : filename;
 
             // 通过协议适配器上传文件
+            boolean deviceActionStarted = false;
             try {
+                PrinterLock.ensureValid(printerId);
                 org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
                 if (fileStream == null) {
                     throw new BusinessException("无法从对象存储中读取切片文件");
                 }
 
-                adapterFactory.getAdapter(printer.getFirmwareType())
-                        .uploadFile(endpointOf(printer, startPrint
-                                ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE),
+                var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
+                PrinterEndpoint deviceEndpoint = endpointOf(printer, startPrint
+                        ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE);
+                deviceActionStarted = true;
+                deviceAdapter
+                        .uploadFile(deviceEndpoint,
                                 fileStream, filename, startPrint);
+                PrinterLock.ensureValid(printerId);
             } catch (BusinessException exception) {
+                if (deviceActionStarted) {
+                    markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
+                    markPrinterActionUnknown(printer, "启动设备动作结果未知");
+                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+                }
                 throw exception;
             } catch (com.example.farm.protocol.PrinterProtocolException exception) {
+                if (deviceActionStarted) {
+                    markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
+                    markPrinterActionUnknown(printer, "启动设备动作结果未知");
+                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+                }
                 throw exception;
-        } catch (Exception e) {
-            log.error("文件上传失败：设备调用异常，jobId={}, printerId={}, ip={}",
-                    jobId, printerId, printer.getIpAddress(), e);
-            throw new BusinessException("机器连接失败，请检查网络：" + e.getMessage());
-        }
+            } catch (Exception exception) {
+                log.error("文件上传失败：设备调用异常，jobId={}, printerId={}, ip={}",
+                        jobId, printerId, printer.getIpAddress(), exception);
+                if (deviceActionStarted) {
+                    markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
+                    markPrinterActionUnknown(printer, "启动设备动作结果未知");
+                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+                }
+                throw new BusinessException("机器连接失败，请检查网络：" + exception.getMessage());
+            }
 
         // 根据 action 决定状态
         if (startPrint) {
@@ -616,6 +653,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         Long printerId = job.getPrinterId();
         if (printerId != null) {
+            if (!PrinterLock.isHeld(printerId)) {
+                withPrinterLock(printerId, () -> {
+                    doCancelJob(jobId);
+                    return null;
+                });
+                return;
+            }
             Printer printer = printerService.getById(printerId);
             if (printer == null) {
                 throw new BusinessException(404, "关联打印机不存在");
@@ -623,8 +667,21 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             if (printer.getIpAddress() == null || printer.getIpAddress().isBlank()) {
                 throw new BusinessException(10001, "打印机没有可用的网络地址");
             }
-            adapterFactory.getAdapter(printer.getFirmwareType())
-                    .cancel(endpointOf(printer, PrinterOperation.CANCEL));
+            PrinterEndpoint endpoint = endpointOf(printer, PrinterOperation.CANCEL);
+            PrinterLock.ensureValid(printerId);
+            boolean deviceActionStarted = false;
+            try {
+                var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
+                deviceActionStarted = true;
+                deviceAdapter.cancel(endpoint);
+                PrinterLock.ensureValid(printerId);
+            } catch (RuntimeException exception) {
+                if (!deviceActionStarted) {
+                    throw exception;
+                }
+                markReconciliation(jobId, "取消设备动作结果未知: " + summarizeDeviceException(exception));
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
             if (!printerService.clearJobBinding(printerId, jobId)) {
                 throw new BusinessException("取消打印任务失败：打印机状态保存失败");
             }
@@ -634,7 +691,15 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
 
         job.setStatus(PrintJobStatus.CANCELLED.name());
-        updateJobAndPublish(job);
+        if (printerId == null && farmPrintJobMapper.updateStatusIfCurrent(
+                jobId, job.getStatus(), PrintJobStatus.CANCELLED.name(), "用户取消") != 1) {
+            throw new BusinessException(409, "任务已被其他请求处理或状态已变化");
+        }
+        if (printerId != null) {
+            updateJobAndPublish(job);
+        } else {
+            eventPublisher.publishJobStatus(job);
+        }
         recordSuccess("JOB_CANCEL", "JOB", jobId, "打印任务 #" + jobId);
         log.info("取消打印任务成功: jobId={}, 原状态={}", jobId, status);
     }
@@ -1032,25 +1097,68 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     private <T> T withPrinterLock(Long printerId, Supplier<T> action) {
-        if (redisUtil == null) {
-            return action.get();
-        }
-        if (printerId == null || printerId <= 0) {
-            throw new BusinessException(400, "打印机 ID 必须为正数");
-        }
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
-        String lockValue = UUID.randomUUID().toString();
-        boolean locked = redisUtil.tryLock(lockKey, lockValue, 30, TimeUnit.SECONDS);
-        if (!locked) {
-            throw new BusinessException(409, "打印机正在被其他请求操作");
-        }
-        try {
-            return action.get();
-        } finally {
-            if (lockValue.equals(redisUtil.getLockValue(lockKey))) {
-                redisUtil.unlock(lockKey);
+        return PrinterLock.execute(printerId, redisUtil, action);
+    }
+
+    @Override
+    public void markReconciliation(Long jobId, String reason) {
+        if (jobId == null) return;
+        Runnable action = () -> {
+            PrintJob current = this.getById(jobId);
+            if (current == null) return;
+            String currentStatus = PrintJobStatus.normalize(current.getStatus());
+            if (!java.util.Set.of("ASSIGNED", "UPLOADING", "READY", "PRINTING", "PAUSED")
+                    .contains(currentStatus)) {
+                return;
             }
+            String normalizedReason = reason == null || reason.isBlank()
+                    ? "设备动作结果未知，请人工核对" : reason;
+            String safeReason = normalizedReason.length() > 255
+                    ? normalizedReason.substring(0, 255) : normalizedReason;
+            if (farmPrintJobMapper.updateStatusIfCurrent(
+                    jobId, currentStatus, PrintJobStatus.RECONCILING.name(), safeReason) == 1) {
+                current.setStatus(PrintJobStatus.RECONCILING.name());
+                current.setErrorReason(safeReason);
+                eventPublisher.publishJobStatus(current);
+                if (auditLogService != null) {
+                    auditLogService.recordFailure("JOB_RECONCILE_REQUIRED", "JOB", jobId,
+                            "打印任务 #" + jobId, "DEVICE_ACTION_UNKNOWN");
+                }
+            }
+        };
+        if (transactionManager == null) {
+            action.run();
+        } else {
+            TransactionTemplate template = new TransactionTemplate(transactionManager);
+            template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.executeWithoutResult(status -> action.run());
         }
+    }
+
+    private String summarizeDeviceException(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
+        return message.length() > 220 ? message.substring(0, 220) : message;
+    }
+
+    private void markPrinterActionUnknown(Printer printer, String reason) {
+        if (printer == null || printer.getId() == null) return;
+        Runnable action = () -> {
+            Printer update = new Printer();
+            update.setId(printer.getId());
+            update.setStatus("ERROR");
+            update.setIsSafeToPrint(false);
+            printerService.updateById(update);
+        };
+        if (transactionManager == null) {
+            action.run();
+        } else {
+            TransactionTemplate template = new TransactionTemplate(transactionManager);
+            template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.executeWithoutResult(status -> action.run());
+        }
+        log.warn("设备动作结果未知，打印机进入 ERROR 并保留绑定: printerId={}, reason={}",
+                printer.getId(), reason);
     }
 
     private PrinterEndpoint endpointOf(Printer printer, PrinterOperation operation) {

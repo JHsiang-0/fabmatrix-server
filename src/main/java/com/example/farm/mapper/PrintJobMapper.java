@@ -36,6 +36,12 @@ public interface PrintJobMapper extends BaseMapper<PrintJob> {
     /** 根任务插入后回写自身 ID；只允许从 NULL 初始化，保证事务内不可漂移。 */
     int initializeRootJobId(@Param("jobId") Long jobId);
 
+    /** 仅当任务仍处于 expectedStatus 时推进状态，避免无锁队列取消覆盖并发写入。 */
+    int updateStatusIfCurrent(@Param("jobId") Long jobId,
+                              @Param("expectedStatus") String expectedStatus,
+                              @Param("targetStatus") String targetStatus,
+                              @Param("errorReason") String errorReason);
+
     /** 锁定重试来源行；MySQL 使用当前读串行化跨实例的同源重试。 */
     Long lockRetrySource(@Param("jobId") Long jobId);
 

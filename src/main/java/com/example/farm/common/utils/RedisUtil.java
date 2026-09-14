@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.context.annotation.Profile;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.Collections;
 
 /**
  * Redis 工具类
@@ -131,6 +133,26 @@ public class RedisUtil {
 
     public String getLockValue(String key) {
         return getString(key);
+    }
+
+    /** 仅当锁值仍属于当前持有者时续租，避免续租已被接管的锁。 */
+    public boolean renewLockIfOwned(String key, String value, long timeout, TimeUnit unit) {
+        Long result = redisTemplate.execute(new DefaultRedisScript<>(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                                + "return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
+                        Long.class),
+                Collections.singletonList(key), value, String.valueOf(unit.toMillis(timeout)));
+        return Long.valueOf(1L).equals(result);
+    }
+
+    /** 仅当锁值仍属于当前持有者时释放，避免删除后继请求持有的锁。 */
+    public boolean releaseLockIfOwned(String key, String value) {
+        Long result = redisTemplate.execute(new DefaultRedisScript<>(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                                + "return redis.call('del', KEYS[1]) else return 0 end",
+                        Long.class),
+                Collections.singletonList(key), value);
+        return Long.valueOf(1L).equals(result);
     }
 
     // ==================== List 操作 ====================

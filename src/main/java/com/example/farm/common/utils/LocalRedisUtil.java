@@ -117,6 +117,24 @@ public class LocalRedisUtil extends RedisUtil {
     public void unlock(String key) { delete(key); }
 
     @Override
+    public boolean renewLockIfOwned(String key, String value, long timeout, TimeUnit unit) {
+        synchronized (values) {
+            if (!value.equals(getString(key))) return false;
+            expirations.put(key, System.currentTimeMillis() + unit.toMillis(timeout));
+            return true;
+        }
+    }
+
+    @Override
+    public boolean releaseLockIfOwned(String key, String value) {
+        synchronized (values) {
+            if (!value.equals(getString(key))) return false;
+            delete(key);
+            return true;
+        }
+    }
+
+    @Override
     public void listLeftPush(String key, Object value) {
         lists.computeIfAbsent(key, ignored -> new ArrayList<>()).add(0, value);
     }

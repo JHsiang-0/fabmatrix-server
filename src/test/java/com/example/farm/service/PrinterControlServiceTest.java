@@ -4,8 +4,12 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.protocol.PrinterEndpoint;
+import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterProtocolAdapter;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
+import com.example.farm.protocol.PrinterProtocolException;
+import com.example.farm.protocol.PrinterOperation;
+import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.impl.PrinterControlServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(MockitoExtension.class)
@@ -157,6 +162,29 @@ class PrinterControlServiceTest {
                 printerService, adapterFactory, printJobService, eventPublisher).resume(403L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("打印机当前没有绑定任务");
+    }
+
+    @Test
+    void devicePauseFailureMarksBoundJobForReconciliation() {
+        Printer printer = printer();
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PRINTING");
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
+        doThrow(new PrinterProtocolException(PrinterOperation.PAUSE, PrinterProtocolType.KLIPPER,
+                FailureCategory.TIMEOUT, "设备响应超时")).when(adapter)
+                .pause(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
+        when(printerService.updateById(org.mockito.ArgumentMatchers.any(Printer.class))).thenReturn(true);
+
+        assertThatThrownBy(() -> new PrinterControlServiceImpl(
+                printerService, adapterFactory, printJobService, eventPublisher).pause(403L))
+                .extracting("code").isEqualTo(503L);
+
+        verify(printJobService).markReconciliation(1001L, "暂停设备动作结果未知: 设备响应超时");
+        assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
     }
 
     @Test

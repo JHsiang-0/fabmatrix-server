@@ -141,6 +141,9 @@ public interface PrintJobService extends IService<PrintJob> {
      */
     void cancelJob(Long jobId);
 
+    /** 外部设备动作结果不确定时持久化人工核对状态。 */
+    void markReconciliation(Long jobId, String reason);
+
     /**
      * 为 FAILED 任务创建不可变来源的新 QUEUED 重试任务，并按直接来源幂等回放。
      *

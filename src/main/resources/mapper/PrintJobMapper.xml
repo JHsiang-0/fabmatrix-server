@@ -232,6 +232,24 @@
           AND root_job_id IS NULL
     </update>
 
+    <update id="updateStatusIfCurrent">
+        UPDATE farm_print_job
+        SET status = #{targetStatus},
+            error_reason = #{errorReason},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{jobId}
+          AND status = #{expectedStatus}
+    </update>
+
+    <update id="updateStatusIfCurrent" databaseId="sqlite">
+        UPDATE farm_print_job
+        SET status = #{targetStatus},
+            error_reason = #{errorReason},
+            updated_at = datetime('now', '+8 hours')
+        WHERE id = #{jobId}
+          AND status = #{expectedStatus}
+    </update>
+
     <select id="lockRetrySource" resultType="java.lang.Long">
         SELECT id
         FROM farm_print_job

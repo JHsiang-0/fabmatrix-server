@@ -1,8 +1,8 @@
 package com.example.farm.service.impl;
 
 import com.example.farm.common.exception.BusinessException;
-import com.example.farm.common.constant.RedisKeyConstant;
 import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.enums.PrintJobStatus;
@@ -20,11 +20,10 @@ import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -46,6 +45,9 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     @Autowired(required = false)
     private RedisUtil redisUtil;
 
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void emergencyStop(Long printerId) {
@@ -58,7 +60,26 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     private void doEmergencyStop(Long printerId) {
         Printer printer = endpointPrinter(printerId, PrinterOperation.EMERGENCY_STOP);
         PrinterEndpoint endpoint = endpointOf(printerId, PrinterOperation.EMERGENCY_STOP);
-        adapter(endpoint, PrinterOperation.EMERGENCY_STOP).emergencyStop(endpoint);
+        PrinterLock.ensureValid(printerId);
+        boolean deviceActionStarted = false;
+        try {
+            PrinterProtocolAdapter deviceAdapter = adapter(endpoint, PrinterOperation.EMERGENCY_STOP);
+            deviceActionStarted = true;
+            deviceAdapter.emergencyStop(endpoint);
+            PrinterLock.ensureValid(printerId);
+        } catch (BusinessException exception) {
+            if (deviceActionStarted) {
+                markDeviceActionUnknown(printer, "急停设备动作结果未知: " + summarizeException(exception));
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (!deviceActionStarted) {
+                throw exception;
+            }
+            markDeviceActionUnknown(printer, "急停设备动作结果未知: " + summarizeException(exception));
+            throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+        }
         Long jobId = printer.getCurrentJobId();
         if (jobId != null) {
             PrintJob job = boundJob(printer, jobId);
@@ -91,8 +112,27 @@ public class PrinterControlServiceImpl implements PrinterControlService {
 
     private void doPause(Long printerId) {
         PrinterEndpoint endpoint = endpointOf(printerId, PrinterOperation.PAUSE);
-        adapter(endpoint, PrinterOperation.PAUSE).pause(endpoint);
         Printer printer = printerService.getById(printerId);
+        PrinterLock.ensureValid(printerId);
+        boolean deviceActionStarted = false;
+        try {
+            PrinterProtocolAdapter deviceAdapter = adapter(endpoint, PrinterOperation.PAUSE);
+            deviceActionStarted = true;
+            deviceAdapter.pause(endpoint);
+            PrinterLock.ensureValid(printerId);
+        } catch (BusinessException exception) {
+            if (deviceActionStarted) {
+                markDeviceActionUnknown(printer, "暂停设备动作结果未知: " + summarizeException(exception));
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (!deviceActionStarted) {
+                throw exception;
+            }
+            markDeviceActionUnknown(printer, "暂停设备动作结果未知: " + summarizeException(exception));
+            throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+        }
         Long jobId = printer.getCurrentJobId();
         if (jobId != null) {
             PrintJob job = boundJob(printer, jobId);
@@ -138,7 +178,26 @@ public class PrinterControlServiceImpl implements PrinterControlService {
         }
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
 
-        adapter(endpoint, PrinterOperation.RESUME).resume(endpoint);
+        PrinterLock.ensureValid(printerId);
+        boolean deviceActionStarted = false;
+        try {
+            PrinterProtocolAdapter deviceAdapter = adapter(endpoint, PrinterOperation.RESUME);
+            deviceActionStarted = true;
+            deviceAdapter.resume(endpoint);
+            PrinterLock.ensureValid(printerId);
+        } catch (BusinessException exception) {
+            if (deviceActionStarted) {
+                markDeviceActionUnknown(printer, "恢复设备动作结果未知: " + summarizeException(exception));
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (!deviceActionStarted) {
+                throw exception;
+            }
+            markDeviceActionUnknown(printer, "恢复设备动作结果未知: " + summarizeException(exception));
+            throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+        }
         job.setStatus(PrintJobStatus.PRINTING.name());
         if (!printJobService.updateById(job)) {
             throw new BusinessException("恢复打印后更新任务状态失败");
@@ -154,20 +213,19 @@ public class PrinterControlServiceImpl implements PrinterControlService {
 
     @Override
     public void cancelCurrentJob(Long printerId) {
-        Printer printer = endpointPrinter(printerId, PrinterOperation.CANCEL);
-        Long jobId = printer.getCurrentJobId();
-        if (jobId == null) {
-            throw new BusinessException(422, "打印机当前没有绑定任务");
-        }
-        PrintJob job = printJobService.getById(jobId);
-        if (job == null) {
-            throw new BusinessException(404, "打印机绑定的任务不存在");
-        }
-        if (!java.util.Objects.equals(job.getPrinterId(), printerId)) {
-            throw new BusinessException(409, "打印机与当前任务绑定关系异常");
-        }
-        printJobService.cancelJob(jobId);
-        log.info("取消打印机当前任务成功: printerId={}, jobId={}", printerId, jobId);
+        withPrinterLock(printerId, () -> {
+            Printer printer = endpointPrinter(printerId, PrinterOperation.CANCEL);
+            Long jobId = printer.getCurrentJobId();
+            if (jobId == null) throw new BusinessException(422, "打印机当前没有绑定任务");
+            PrintJob job = printJobService.getById(jobId);
+            if (job == null) throw new BusinessException(404, "打印机绑定的任务不存在");
+            if (!java.util.Objects.equals(job.getPrinterId(), printerId)) {
+                throw new BusinessException(409, "打印机与当前任务绑定关系异常");
+            }
+            printJobService.cancelJob(jobId);
+            log.info("取消打印机当前任务成功: printerId={}, jobId={}", printerId, jobId);
+            return null;
+        });
     }
 
     private PrinterEndpoint endpointOf(Long printerId, PrinterOperation operation) {
@@ -214,23 +272,41 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     }
 
     private <T> T withPrinterLock(Long printerId, Supplier<T> action) {
-        if (redisUtil == null) {
-            return action.get();
-        }
-        if (printerId == null || printerId <= 0) {
-            throw new BusinessException(400, "打印机 ID 必须为正数");
-        }
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
-        String value = UUID.randomUUID().toString();
-        if (!redisUtil.tryLock(key, value, 30, TimeUnit.SECONDS)) {
-            throw new BusinessException(409, "打印机正在被其他请求操作");
-        }
-        try {
-            return action.get();
-        } finally {
-            if (value.equals(redisUtil.getLockValue(key))) {
-                redisUtil.unlock(key);
+        return PrinterLock.execute(printerId, redisUtil, action);
+    }
+
+    private void markDeviceActionUnknown(Printer printer, String reason) {
+        Runnable action = () -> {
+            if (printer.getCurrentJobId() != null) {
+                printJobService.markReconciliation(printer.getCurrentJobId(), reason);
             }
+            Printer update = new Printer();
+            update.setId(printer.getId());
+            update.setStatus("ERROR");
+            update.setIsSafeToPrint(false);
+            printerService.updateById(update);
+            recordFailure("CONTROL_DEVICE_ACTION_UNKNOWN", printer.getId(), reason);
+        };
+        if (transactionManager == null) {
+            action.run();
+        } else {
+            org.springframework.transaction.support.TransactionTemplate template =
+                    new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+            template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            template.executeWithoutResult(status -> action.run());
+        }
+    }
+
+    private String summarizeException(RuntimeException exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
+        return message.length() > 220 ? message.substring(0, 220) : message;
+    }
+
+    private void recordFailure(String action, Long printerId, String reason) {
+        if (auditLogService != null) {
+            auditLogService.recordFailure(action, "PRINTER", printerId, "打印机 #" + printerId,
+                    reason == null ? "DEVICE_ACTION_UNKNOWN" : reason);
         }
     }
 

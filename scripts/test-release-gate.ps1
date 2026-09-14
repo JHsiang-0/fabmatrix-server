@@ -36,4 +36,9 @@ $installerContract = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'windo
 if (-not $installerContract.Contains('(?m)^icon=\$trayIconPropertyPath\r?$')) {
     throw 'Installer contract icon wiring check is not CRLF/LF robust.'
 }
+$buildInstaller = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'windows\build-installer.ps1')
+if (-not $buildInstaller.Contains('function Assert-NoShortNamePath') -or
+    -not $buildInstaller.Contains('Assert-NoShortNamePath $candidatePath')) {
+    throw 'Installer build path validation does not reject short-name components before normalization.'
+}
 Write-Host 'Release gate explicit MavenPath contract passed.'

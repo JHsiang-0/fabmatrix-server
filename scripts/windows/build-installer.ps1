@@ -21,6 +21,24 @@ $trayIconPropertyPath = $trayIconPath -replace '\\', '/'
 $serverAppId = 'com.jiadong3d.fabmatrix.server'
 $windowsFileVersion = '1.0.0.0'
 
+function Assert-NoShortNamePath([string]$Path) {
+    $normalizedInput = $Path.Replace('/', '\')
+    $pathRoot = [IO.Path]::GetPathRoot($normalizedInput)
+    if ([string]::IsNullOrWhiteSpace($pathRoot) -or $normalizedInput.Length -le $pathRoot.Length) { return }
+    $currentPath = $pathRoot
+    $components = @($normalizedInput.Substring($pathRoot.Length) -split '[\\/]' | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_) -and $_ -notin @('.', '..')
+        })
+    foreach ($component in $components) {
+        $currentPath = [IO.Path]::Combine($currentPath, $component)
+        if (-not (Test-Path -LiteralPath $currentPath)) { break }
+        $canonicalItem = Get-Item -LiteralPath $currentPath -Force
+        if (-not [string]::Equals($component, $canonicalItem.Name, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing a non-canonical or short-name path component: $currentPath"
+        }
+    }
+}
+
 function Resolve-AbsolutePath([string]$Path, [string]$BasePath = '') {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A non-empty path is required.' }
     $normalizedInput = $Path.Replace('/', '\')
@@ -35,6 +53,7 @@ function Resolve-AbsolutePath([string]$Path, [string]$BasePath = '') {
     } else {
         $Path
     }
+    Assert-NoShortNamePath $candidatePath
     try {
         $resolvedPath = [IO.Path]::GetFullPath($candidatePath)
     } catch {

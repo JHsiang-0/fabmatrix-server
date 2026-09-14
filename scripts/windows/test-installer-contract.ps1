@@ -227,7 +227,7 @@ if ($buildParseErrors.Count -ne 0) { throw "Build script AST parse failed: $($bu
 $parameterNames = @($buildAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
 if ('CleanOutput' -notin $parameterNames) { throw 'Build script does not expose -CleanOutput.' }
 $buildFunctionAsts = @{}
-foreach ($functionName in @('Resolve-AbsolutePath', 'Assert-NoReparsePointsInPath', 'Assert-PathContainedBy',
+foreach ($functionName in @('Assert-NoShortNamePath', 'Resolve-AbsolutePath', 'Assert-NoReparsePointsInPath', 'Assert-PathContainedBy',
         'Assert-SafeOutputPath', 'Remove-SafeGeneratedPath', 'Clear-KnownOutput')) {
     $functionAst = $buildAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
     if ($null -eq $functionAst) { throw "Build script does not expose required function: $functionName" }

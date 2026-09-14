@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidatePattern('^v1\.0\.0-rc\.\d+$')]
     [string]$CandidateVersion = 'v1.0.0-rc.1',
     [ValidateSet('PASS', 'NOT RUN', 'FAIL')]

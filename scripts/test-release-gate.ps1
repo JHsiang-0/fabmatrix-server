@@ -36,6 +36,16 @@ $installerContract = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'windo
 if (-not $installerContract.Contains('(?m)^icon=\$trayIconPropertyPath\r?$')) {
     throw 'Installer contract icon wiring check is not CRLF/LF robust.'
 }
+$candidateScriptPath = Join-Path $scriptRoot 'new-release-candidate.ps1'
+$candidateBytes = [IO.File]::ReadAllBytes($candidateScriptPath)
+if ($candidateBytes.Length -lt 3 -or $candidateBytes[0] -ne 0xEF -or
+    $candidateBytes[1] -ne 0xBB -or $candidateBytes[2] -ne 0xBF) {
+    throw 'Release candidate script must be UTF-8 with BOM for Windows PowerShell 5.1.'
+}
+$candidateOutput = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $candidateScriptPath 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw 'Release candidate script could not be parsed or executed by powershell.exe -File.'
+}
 $buildInstaller = Get-Content -Raw -LiteralPath (Join-Path $scriptRoot 'windows\build-installer.ps1')
 if (-not $buildInstaller.Contains('function Assert-NoShortNamePath') -or
     -not $buildInstaller.Contains('Assert-NoShortNamePath $candidatePath')) {

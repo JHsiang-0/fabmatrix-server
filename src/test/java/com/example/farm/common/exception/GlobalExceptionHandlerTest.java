@@ -11,6 +11,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 
+import java.sql.SQLException;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GlobalExceptionHandlerTest {
@@ -113,5 +115,39 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(5001);
+    }
+
+    @Test
+    void sanitizesUnknownAndSqlExceptionResponsesAndIncludesTraceId() {
+        request.addHeader("X-Trace-Id", "trace-handler-001");
+
+        var unknown = handler.handleException(
+                new IllegalStateException("internal path C:\\secrets\\app.properties"), request);
+        var sql = handler.handleSQLException(new SQLException("### SQL syntax error jdbc:mysql://db"), request);
+
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(unknown.getBody()).isNotNull();
+        assertThat(unknown.getBody().getMessage()).isEqualTo("服务器内部错误，请稍后重试");
+        assertThat(unknown.getBody().getMessage()).doesNotContain("app.properties");
+        assertThat(unknown.getBody().getTraceId()).isEqualTo("trace-handler-001");
+        assertThat(sql.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(sql.getBody()).isNotNull();
+        assertThat(sql.getBody().getCode()).isEqualTo(ResultCode.MYSQL_ERROR.getCode());
+        assertThat(sql.getBody().getMessage()).doesNotContain("SQL");
+        assertThat(sql.getBody().getTraceId()).isEqualTo("trace-handler-001");
+    }
+
+    @Test
+    void sanitizesUnsafeBusinessMessageWithoutChangingBusinessCode() {
+        request.addHeader("X-Trace-Id", "trace-handler-002");
+
+        var response = handler.handleBusinessException(
+                new BusinessException(500, "系统内部异常: ### org.mybatis.SQL exception"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(500);
+        assertThat(response.getBody().getMessage()).isEqualTo("服务器内部错误，请稍后重试");
+        assertThat(response.getBody().getTraceId()).isEqualTo("trace-handler-002");
     }
 }

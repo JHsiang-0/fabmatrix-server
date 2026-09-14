@@ -4,11 +4,12 @@ import com.example.farm.common.api.Result;
 import com.example.farm.common.api.ResultCode;
 import com.example.farm.entity.vo.DashboardLayoutProblemVO;
 import com.example.farm.mapper.DashboardLayoutMapper;
+import com.example.farm.config.RequestTraceLogFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -27,14 +28,13 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-import javax.sql.DataSource;
 import java.net.ConnectException;
 import java.sql.SQLException;
 import java.sql.SQLNonTransientConnectionException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * 全局异常处理。
@@ -46,50 +46,29 @@ public class GlobalExceptionHandler {
     @Autowired(required = false)
     private DashboardLayoutMapper dashboardLayoutMapper;
 
-    /**
-     * 生产环境通用提示
-     */
-    private static final String PROD_ERROR_MESSAGE = "服务器正在维护，请稍后再试";
-
-    /**
-     * 是否为开发环境
-     */
-    @Value("${spring.profiles.active:dev}")
-    private String activeProfile;
-
-    /**
-     * 判断是否为开发环境
-     */
-    private boolean isDev() {
-        return "dev".equalsIgnoreCase(activeProfile);
-    }
-
-    /**
-     * 根据环境返回错误消息
-     * @param devMessage 开发环境消息
-     * @return 格式化后的消息
-     */
-    private String getEnvironmentMessage(String devMessage) {
-        if (isDev()) {
-            return devMessage;
-        }
-        return PROD_ERROR_MESSAGE;
-    }
+    private static final String INTERNAL_ERROR_MESSAGE = "服务器内部错误，请稍后重试";
+    private static final String SERVICE_UNAVAILABLE_MESSAGE = "依赖服务暂时不可用，请稍后重试";
 
     /**
      * 处理业务异常
      */
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<Result<Object>> handleBusinessException(BusinessException e) {
+    public ResponseEntity<Result<Object>> handleBusinessException(BusinessException e, HttpServletRequest request) {
         log.warn("业务异常提示: {}", e.getMessage());
-        return failed(resolveHttpStatus(e.getCode()), e.getCode(), e.getMessage());
+        return failed(request, resolveHttpStatus(e.getCode()), e.getCode(), safeBusinessMessage(e));
+    }
+
+    public ResponseEntity<Result<Object>> handleBusinessException(BusinessException e) {
+        return handleBusinessException(e, null);
     }
 
     @ExceptionHandler(DashboardLayoutProblemException.class)
-    public ResponseEntity<Result<Object>> handleDashboardLayoutProblem(DashboardLayoutProblemException e) {
+    public ResponseEntity<Result<Object>> handleDashboardLayoutProblem(DashboardLayoutProblemException e,
+                                                                         HttpServletRequest request) {
         log.warn("动态布局保存被拒绝: reason={}, code={}", e.getProblem().getReason(), e.getCode());
         return ResponseEntity.status(resolveHttpStatus(e.getCode()))
-                .body(Result.failed(e.getCode(), e.getMessage(), e.getProblem()));
+                .body(Result.<Object>failed(e.getCode(), safeBusinessMessage(e), e.getProblem())
+                        .withTraceId(traceId(request)));
     }
 
     /**
@@ -107,7 +86,7 @@ public class GlobalExceptionHandler {
         };
         log.warn("打印机协议调用失败: uri={}, operation={}, protocol={}, category={}",
                 request.getRequestURI(), e.getOperation(), e.getProtocolType(), e.getCategory());
-        return failed(resolveHttpStatus(code), code, getEnvironmentMessage(e.getMessage()));
+        return failed(request, resolveHttpStatus(code), code, protocolMessage(e.getCategory()));
     }
 
     /**
@@ -121,13 +100,8 @@ public class GlobalExceptionHandler {
         for (FieldError fieldError : e.getBindingResult().getFieldErrors()) {
             fieldErrors.putIfAbsent(fieldError.getField(), fieldError.getDefaultMessage());
         }
-        String message = fieldErrors.entrySet()
-                .stream()
-                .map(entry -> entry.getKey() + ":" + entry.getValue())
-                .collect(Collectors.joining("; "));
-
         log.warn("参数校验失败: method={}, uri={}, errors={}", request.getMethod(), request.getRequestURI(), fieldErrors);
-        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败: " + message,
+        return failed(request, HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败",
                 dashboardProblem(request, "INVALID_REQUEST"));
     }
 
@@ -137,7 +111,7 @@ public class GlobalExceptionHandler {
             HandlerMethodValidationException e, HttpServletRequest request) {
         log.warn("方法参数校验失败: method={}, uri={}, detail={}",
                 request.getMethod(), request.getRequestURI(), e.getMessage());
-        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败",
+        return failed(request, HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "参数校验失败",
                 dashboardProblem(request, "INVALID_REQUEST"));
     }
 
@@ -152,8 +126,15 @@ public class GlobalExceptionHandler {
         String supported = supportedMethods == null ? "N/A" : String.join(",", supportedMethods);
         log.warn("请求方法不支持: method={}, uri={}, supported={}, detail={}",
                 e.getMethod(), request.getRequestURI(), supported, e.getMessage());
-        return failed(HttpStatus.METHOD_NOT_ALLOWED, HttpStatus.METHOD_NOT_ALLOWED.value(),
-                "请求方法不支持，当前方法=" + e.getMethod() + "，支持方法=" + supported);
+        return failed(request, HttpStatus.METHOD_NOT_ALLOWED, HttpStatus.METHOD_NOT_ALLOWED.value(),
+                "请求方法不支持");
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Result<Object>> handleNoResourceFound(NoResourceFoundException e,
+                                                                  HttpServletRequest request) {
+        log.warn("请求资源不存在: method={}, uri={}", request.getMethod(), request.getRequestURI());
+        return failed(request, HttpStatus.NOT_FOUND, 404, "请求的资源不存在");
     }
 
     /**
@@ -170,8 +151,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleBadRequest(Exception e, HttpServletRequest request) {
         log.warn("请求参数无效: method={}, uri={}, detail={}",
                 request.getMethod(), request.getRequestURI(), e.getMessage());
-        String message = getEnvironmentMessage("请求参数无效: " + e.getMessage());
-        return failed(HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), message,
+        return failed(request, HttpStatus.BAD_REQUEST, ResultCode.VALIDATE_FAILED.getCode(), "请求参数无效",
                 dashboardProblem(request, "INVALID_REQUEST"));
     }
 
@@ -184,7 +164,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         log.warn("数据约束冲突: method={}, uri={}, detail={}",
                 request.getMethod(), request.getRequestURI(), e.getMessage());
-        String message = getEnvironmentMessage("目标槽位发生并发冲突，请重新载入布局");
+        String message = "目标资源发生并发冲突，请刷新后重试";
         if (isDashboardLayoutRequest(request)) {
             Long serverVersion = null;
             if (dashboardLayoutMapper != null) {
@@ -195,10 +175,10 @@ public class GlobalExceptionHandler {
                     log.warn("读取布局冲突版本失败");
                 }
             }
-            return failed(HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message,
+            return failed(request, HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message,
                     new DashboardLayoutProblemVO("SLOT_CONFLICT", serverVersion, null, null));
         }
-        return failed(HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message);
+        return failed(request, HttpStatus.CONFLICT, HttpStatus.CONFLICT.value(), message);
     }
 
     /**
@@ -224,12 +204,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleDataAccessResourceFailure(
             org.springframework.dao.DataAccessResourceFailureException e,
             HttpServletRequest request) {
-        String devMessage = "MySQL连接异常: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("MySQL连接异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -240,12 +217,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleSQLNonTransientConnectionException(
             SQLNonTransientConnectionException e,
             HttpServletRequest request) {
-        String devMessage = "MySQL连接被拒绝: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("MySQL连接被拒绝: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -253,12 +227,9 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(QueryTimeoutException.class)
     public ResponseEntity<Result<Object>> handleQueryTimeoutException(QueryTimeoutException e, HttpServletRequest request) {
-        String devMessage = "数据库查询超时: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("数据库查询超时: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -266,12 +237,16 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(SQLException.class)
     public ResponseEntity<Result<Object>> handleSQLException(SQLException e, HttpServletRequest request) {
-        String devMessage = "数据库异常: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("数据库异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(HttpStatus.INTERNAL_SERVER_ERROR, ResultCode.MYSQL_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
+    }
+
+    /** 未被更具体 handler 捕获的 MyBatis/MySQL 访问异常统一归为依赖不可用。 */
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<Result<Object>> handleDataAccessException(DataAccessException e, HttpServletRequest request) {
+        log.error("数据库访问异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -281,12 +256,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleRedisConnectionFailureException(
             RedisConnectionFailureException e,
             HttpServletRequest request) {
-        String devMessage = "Redis连接失败: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("Redis连接失败: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.REDIS_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.REDIS_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -294,12 +266,9 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(ConnectException.class)
     public ResponseEntity<Result<Object>> handleConnectException(ConnectException e, HttpServletRequest request) {
-        String devMessage = "网络连接失败: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("网络连接失败: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -308,18 +277,15 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(ResourceAccessException.class)
     public ResponseEntity<Result<Object>> handleResourceAccessException(ResourceAccessException e, HttpServletRequest request) {
-        String devMessage = "外部服务访问异常: " + e.getMessage();
-        String message = getEnvironmentMessage(devMessage);
-
         log.error("外部服务访问异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
         // 判断是否为存储服务超时（基于异常消息判断）
         String errorMsg = e.getMessage();
         if (errorMsg != null && (errorMsg.contains("timeout") || errorMsg.contains("Timeout"))) {
-            return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(), message);
+            return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
         }
 
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), message);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -329,8 +295,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleStorageException(StorageException e,
                                                                    HttpServletRequest request) {
         log.error("对象存储服务异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
-        return failed(HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(),
-                getEnvironmentMessage("对象存储服务异常，请稍后重试"));
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -341,8 +306,7 @@ public class GlobalExceptionHandler {
         // 统一处理未被明确捕获的异常，确保生产环境不泄露敏感信息
         log.error("系统内部异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        String message = getEnvironmentMessage("系统内部异常: " + e.getMessage());
-        return failed(HttpStatus.INTERNAL_SERVER_ERROR, ResultCode.FAILED.getCode(), message);
+        return failed(request, HttpStatus.INTERNAL_SERVER_ERROR, ResultCode.FAILED.getCode(), INTERNAL_ERROR_MESSAGE);
     }
 
     /**
@@ -359,18 +323,55 @@ public class GlobalExceptionHandler {
             case 409, 10002 -> HttpStatus.CONFLICT;
             case 10004 -> HttpStatus.NOT_FOUND;
             case 422 -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case 10001, 5001, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;
+            case 10001, 5001, 5002, 5003, 5004 -> HttpStatus.SERVICE_UNAVAILABLE;
             case 10003 -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }
 
-    private ResponseEntity<Result<Object>> failed(HttpStatus status, long code, String message) {
-        return ResponseEntity.status(status).body(Result.failed(code, message));
+    private ResponseEntity<Result<Object>> failed(HttpServletRequest request, HttpStatus status, long code, String message) {
+        return ResponseEntity.status(status).body(Result.failed(code, message).withTraceId(traceId(request)));
     }
 
-    private ResponseEntity<Result<Object>> failed(HttpStatus status, long code, String message, Object data) {
-        return ResponseEntity.status(status).body(Result.failed(code, message, data));
+    private ResponseEntity<Result<Object>> failed(HttpServletRequest request, HttpStatus status, long code, String message, Object data) {
+        return ResponseEntity.status(status).body(Result.failed(code, message, data).withTraceId(traceId(request)));
+    }
+
+    private String traceId(HttpServletRequest request) {
+        if (request == null) return null;
+        Object attribute = request.getAttribute(RequestTraceLogFilter.TRACE_ID_ATTRIBUTE);
+        if (attribute instanceof String value && !value.isBlank()) return value;
+        String header = request.getHeader(RequestTraceLogFilter.TRACE_ID_HEADER);
+        return header == null || header.isBlank() ? null : header;
+    }
+
+    private String safeBusinessMessage(BusinessException exception) {
+        String message = exception.getMessage();
+        if (isUnsafeMessage(message)) return safeCodeMessage(exception.getCode());
+        return message == null || message.isBlank() ? safeCodeMessage(exception.getCode()) : message;
+    }
+
+    private boolean isUnsafeMessage(String message) {
+        if (message == null || message.length() > 256) return true;
+        return message.contains("###")
+                || message.matches("(?is).*\\b(sql|mybatis|jdbc|stack trace|connection refused)\\b.*")
+                || message.matches("(?s).*([A-Za-z]:\\\\|/var/|/tmp/|/home/|org\\.|java\\.).*");
+    }
+
+    private String safeCodeMessage(long code) {
+        for (ResultCode resultCode : ResultCode.values()) {
+            if (resultCode.getCode() == code) return resultCode.getMessage();
+        }
+        return code >= 500 ? INTERNAL_ERROR_MESSAGE : "请求无法完成，请检查后重试";
+    }
+
+    private String protocolMessage(com.example.farm.protocol.FailureCategory category) {
+        return switch (category) {
+            case OFFLINE -> "打印机当前离线或不可用";
+            case UNSUPPORTED -> "打印机协议不支持当前操作";
+            case REJECTED -> "打印机拒绝了当前操作";
+            case TIMEOUT, PROTOCOL_ERROR, UNKNOWN -> "打印机暂时无法响应，请稍后重试";
+        };
     }
 
     private DashboardLayoutProblemVO dashboardProblem(HttpServletRequest request, String reason) {

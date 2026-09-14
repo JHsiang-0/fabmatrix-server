@@ -46,10 +46,10 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) ->
-                                renderSecurityError(response, HttpServletResponse.SC_UNAUTHORIZED,
+                                renderSecurityError(request, response, HttpServletResponse.SC_UNAUTHORIZED,
                                         401, "未登录或登录已过期"))
                         .accessDeniedHandler((request, response, exception) ->
-                                renderSecurityError(response, HttpServletResponse.SC_FORBIDDEN,
+                                renderSecurityError(request, response, HttpServletResponse.SC_FORBIDDEN,
                                         403, "没有相关权限")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/login").permitAll()
@@ -110,13 +110,16 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private void renderSecurityError(HttpServletResponse response, int statusCode,
+    private void renderSecurityError(jakarta.servlet.http.HttpServletRequest request,
+                                     HttpServletResponse response, int statusCode,
                                      long code, String message) throws java.io.IOException {
         response.setStatus(statusCode);
         response.setCharacterEncoding("UTF-8");
         response.setContentType("application/json");
         response.setHeader("Cache-Control", "no-store");
-        response.getWriter().write(objectMapper.writeValueAsString(Result.failed(code, message)));
+        Result<Object> result = Result.failed(code, message)
+                .withTraceId((String) request.getAttribute(RequestTraceLogFilter.TRACE_ID_ATTRIBUTE));
+        response.getWriter().write(objectMapper.writeValueAsString(result));
     }
 
     @Bean
@@ -130,6 +133,7 @@ public class SecurityConfig {
         }
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setExposedHeaders(List.of(RequestTraceLogFilter.TRACE_ID_HEADER));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

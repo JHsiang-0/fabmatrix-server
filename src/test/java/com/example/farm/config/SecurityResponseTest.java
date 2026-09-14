@@ -32,6 +32,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(classes = FarmApplication.class)
@@ -53,9 +54,11 @@ class SecurityResponseTest {
 
     @Test
     void unauthenticatedRequestUsesUnified401Response() throws Exception {
-        mockMvc.perform(get("/api/v1/printers/page"))
+        mockMvc.perform(get("/api/v1/printers/page").header("X-Trace-Id", "trace-security-001"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value(401));
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.traceId").value("trace-security-001"))
+                .andExpect(header().string("X-Trace-Id", "trace-security-001"));
     }
 
     @Test

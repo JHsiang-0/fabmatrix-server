@@ -17,7 +17,8 @@ import java.util.Set;
 @Component
 public class RequestTraceLogFilter extends OncePerRequestFilter {
 
-    private static final String TRACE_ID_HEADER = "X-Trace-Id";
+    public static final String TRACE_ID_HEADER = "X-Trace-Id";
+    public static final String TRACE_ID_ATTRIBUTE = "farm.traceId";
     private static final Set<String> IGNORE_PREFIX = Set.of("/swagger-ui", "/v3/api-docs");
 
     @Override
@@ -28,6 +29,7 @@ public class RequestTraceLogFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
 
         LogUtil.setTraceId(traceId);
+        request.setAttribute(TRACE_ID_ATTRIBUTE, traceId);
         response.setHeader(TRACE_ID_HEADER, traceId);
         try {
             filterChain.doFilter(request, response);

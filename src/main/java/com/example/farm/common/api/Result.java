@@ -1,5 +1,6 @@
 package com.example.farm.common.api;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -17,6 +18,9 @@ public class Result<T> {
     private T data;
     @Schema(description = "Unix epoch 毫秒时间戳")
     private long timestamp; // 时间戳，IoT 系统必备
+    @Schema(description = "请求追踪 ID；错误响应提供，用于客户端关联日志", nullable = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String traceId;
 
     protected Result() {
     }
@@ -73,5 +77,11 @@ public class Result<T> {
     /** 失败返回结果（带安全的结构化错误数据）。 */
     public static <T> Result<T> failed(long code, String message, T data) {
         return new Result<>(code, message, data);
+    }
+
+    /** 为错误响应附加请求追踪 ID，不改变成功响应的既有 envelope。 */
+    public Result<T> withTraceId(String traceId) {
+        this.traceId = traceId;
+        return this;
     }
 }

@@ -54,6 +54,8 @@ if (-not [string]::IsNullOrWhiteSpace($MavenPath)) {
     if ($null -eq $maven) { throw 'Maven or mvnw.cmd was not found.' }
     $resolvedMavenPath = $maven.Source
 }
+$localEditionTestData = Join-Path $serverRoot 'target\local-edition-test-data'
+New-Item -ItemType Directory -Force -Path $localEditionTestData | Out-Null
 Push-Location $serverRoot
 try {
     Invoke-ReleaseStep 'Maven full test' { & $resolvedMavenPath 'test' }

@@ -16,6 +16,16 @@ if (-not $source.Contains('& $resolvedMavenPath ''test''') -or
     -not $source.Contains('& $resolvedMavenPath ''package'' ''-DskipTests''')) {
     throw 'Release gate does not execute both Maven phases through the resolved path.'
 }
+$testDataAssignment = '$localEditionTestData = Join-Path $serverRoot ''target\local-edition-test-data'''
+if (-not $source.Contains($testDataAssignment) -or
+    -not $source.Contains('New-Item -ItemType Directory -Force -Path $localEditionTestData')) {
+    throw 'Release gate does not create the Local Edition test data directory.'
+}
+$testDataPosition = $source.IndexOf($testDataAssignment)
+$mavenTestPosition = $source.IndexOf("Invoke-ReleaseStep 'Maven full test'")
+if ($testDataPosition -lt 0 -or $mavenTestPosition -lt 0 -or $testDataPosition -gt $mavenTestPosition) {
+    throw 'Local Edition test data directory must be created before Maven full test.'
+}
 
 $wrapperPosition = $source.IndexOf("Test-Path -LiteralPath (Join-Path `$serverRoot 'mvnw.cmd')")
 $pathMavenPosition = $source.IndexOf('Get-Command mvn.cmd')

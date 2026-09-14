@@ -638,17 +638,21 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (safeName == null || safeName.isBlank()) {
             throw new BusinessException(400, "文件 key 不能为空");
         }
+        boolean thumbnailKey = false;
         PrintFile file = this.getOne(new LambdaQueryWrapper<PrintFile>()
-                .eq(PrintFile::getSafeName, safeName)
-                .or()
-                .eq(PrintFile::getThumbnailUrl, "local://" + safeName));
+                .eq(PrintFile::getSafeName, safeName));
+        if (file == null) {
+            file = this.getOne(new LambdaQueryWrapper<PrintFile>()
+                    .eq(PrintFile::getThumbnailUrl, "local://" + safeName));
+            thumbnailKey = file != null;
+        }
         if (file == null || Boolean.TRUE.equals(file.getIsFolder())) {
             throw new BusinessException(404, "文件不存在");
         }
         if (!canRead(file)) {
             throw new BusinessException(404, "文件不存在");
         }
-        return rustFsClient.getFileStream(file.getSafeName());
+        return rustFsClient.getFileStream(thumbnailKey ? safeName : file.getSafeName());
     }
 
     @Override

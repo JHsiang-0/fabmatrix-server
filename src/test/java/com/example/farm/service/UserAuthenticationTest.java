@@ -11,6 +11,7 @@ import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.dto.UserLoginDTO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.mapper.PrintFileMapper;
+import com.example.farm.service.BootstrapTokenService;
 import com.example.farm.service.impl.UserServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +43,8 @@ class UserAuthenticationTest {
     private LoginProtectUtil loginProtectUtil;
     @Mock
     private PrintFileMapper printFileMapper;
+    @Mock
+    private BootstrapTokenService bootstrapTokenService;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -50,6 +53,7 @@ class UserAuthenticationTest {
     void injectMyBatisMapper() {
         ReflectionTestUtils.setField(userService, "baseMapper", userMapper);
         ReflectionTestUtils.setField(userService, "printFileMapper", printFileMapper);
+        ReflectionTestUtils.setField(userService, "bootstrapTokenService", bootstrapTokenService);
     }
 
     @Test
@@ -215,6 +219,8 @@ class UserAuthenticationTest {
         request.setUsername("admin");
         request.setPassword("Admin123");
         request.setConfirmPassword("Admin123");
+        request.setBootstrapToken("valid-bootstrap-token");
+        when(bootstrapTokenService.matches("valid-bootstrap-token")).thenReturn(true);
 
         var result = userService.setupFirstAdmin(request);
 
@@ -233,6 +239,26 @@ class UserAuthenticationTest {
         assertThat(insertedFolder.getValue().getIsFolder()).isTrue();
         assertThat(insertedFolder.getValue().getParentId()).isNull();
         assertThat(insertedFolder.getValue().getUserId()).isEqualTo(1L);
+        verify(bootstrapTokenService).invalidate();
+    }
+
+    @Test
+    void firstAdminSetupRejectsMissingOrInvalidBootstrapToken() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
+        when(bootstrapTokenService.matches("invalid-token")).thenReturn(false);
+
+        UserRegisterDTO request = new UserRegisterDTO();
+        request.setUsername("admin");
+        request.setPassword("Admin123");
+        request.setConfirmPassword("Admin123");
+        request.setBootstrapToken("invalid-token");
+
+        assertThatThrownBy(() -> userService.setupFirstAdmin(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("只能使用服务器本机提供的有效初始化凭据")
+                .extracting("code")
+                .isEqualTo(403L);
+        verify(userMapper, never()).insert(any(User.class));
     }
 
     @Test

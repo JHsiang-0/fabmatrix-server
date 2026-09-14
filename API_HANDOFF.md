@@ -221,13 +221,14 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | 方法 | 地址 | 权限 | 请求 | 返回 |
 |---|---|---|---|---|
 | GET | `/auth/setup/status` | 免认证 | 无 | `Result<FirstAdminSetupStatusDTO>` |
-| POST | `/auth/setup/admin` | 免认证（仅首次） | 用户注册 DTO | `Result<LoginResultDTO>` |
+| GET | `/auth/setup/bootstrap-token` | 免认证（仅服务器本机） | 无 | `Result<BootstrapTokenDTO>` |
+| POST | `/auth/setup/admin` | 免认证（仅首次且需 bootstrapToken） | 用户注册 DTO + `bootstrapToken` | `Result<LoginResultDTO>` |
 
-`FirstAdminSetupStatusDTO` 字段：`initialized` 表示数据库是否已有用户，`setupAvailable` 表示当前是否允许创建首个管理员。Local Edition 开启该能力，其他 Profile 默认关闭。
+`FirstAdminSetupStatusDTO` 字段：`initialized` 表示数据库是否已有用户或已永久关闭 setup，`setupAvailable` 表示当前是否允许创建首个管理员。Local Edition 开启该能力，其他 Profile 默认关闭。`GET /auth/setup/bootstrap-token` 只接受服务器 loopback 请求；当 setup 仍开启、`farm_setup_state.initialized=0` 且用户数为 0 时，返回凭据文件中的有效 30 分钟凭据，文件缺失或过期时由服务端在受 ACL 保护的 Local 配置目录中原子轮换生成新凭据。LAN 客户端返回 403，凭据不写日志、不缓存。
 
-创建请求复用 `UserRegisterDTO`：用户名 3-20 位，只能使用字母、数字、下划线；密码 6-20 位，仅限制长度；`confirmPassword` 必须一致。服务端固定将首个用户创建为 `ADMIN`，密码只保存 BCrypt 哈希，不提供固定默认密码。
+创建请求复用 `UserRegisterDTO`：用户名 3-20 位，只能使用字母、数字、下划线；密码 6-20 位，仅限制长度；`confirmPassword` 必须一致；`bootstrapToken` 必须为本机读取到的有效一次性凭据。服务端固定将首个用户创建为 `ADMIN`，密码只保存 BCrypt 哈希，不提供固定默认密码。
 
-创建成功后直接返回登录结果（包含 `data.token`、`userId`、`username`、`role=ADMIN`），前端可以直接保存 Token。创建成功后再次调用初始化接口返回 HTTP 409、业务码 `409`；如果初始化能力未开启返回 HTTP 404、业务码 `404`。服务层会在数据库写入前再次检查用户数量，并在单进程内串行化初始化请求。
+创建成功后直接返回登录结果（包含 `data.token`、`userId`、`username`、`role=ADMIN`），前端可以直接保存 Token。首次管理员和 `farm_setup_state` 在同一事务写入，事务提交后删除 bootstrap 文件；创建成功后再次调用初始化接口返回 HTTP 409、业务码 `409`，旧 token 不能重放；如果初始化能力未开启返回 HTTP 404、业务码 `404`。服务层会在数据库写入前再次检查 setup 状态/用户数量，并在单进程内串行化初始化请求。
 
 ### 3.2 用户管理
 

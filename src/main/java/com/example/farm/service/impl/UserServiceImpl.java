@@ -13,6 +13,7 @@ import com.example.farm.common.utils.PasswordMigrationUtil;
 import com.example.farm.entity.User;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.ChangePasswordDTO;
+import com.example.farm.entity.dto.BootstrapTokenDTO;
 import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.entity.dto.PasswordMigrateResultDTO;
 import com.example.farm.entity.dto.PasswordStatusResultDTO;
@@ -25,14 +26,18 @@ import com.example.farm.entity.vo.UserVO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.AuditLogService;
+import com.example.farm.service.BootstrapTokenService;
 import com.example.farm.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 用户服务实现。
@@ -47,6 +52,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final PasswordEncoder passwordEncoder;
     private final LoginProtectUtil loginProtectUtil;
+
+    @Autowired(required = false)
+    private BootstrapTokenService bootstrapTokenService;
+
+    @Autowired(required = false)
+    private JdbcTemplate jdbcTemplate;
 
     /**
      * 正式 Spring 运行时由 MyBatis 注入；旧的用户认证单元测试未提供该替身时，
@@ -136,8 +147,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public FirstAdminSetupStatusDTO getFirstAdminSetupStatus() {
-        boolean initialized = count() > 0;
+        boolean initialized = isSetupStateInitialized() || count() > 0;
+        if (initialized && bootstrapTokenService != null) {
+            bootstrapTokenService.invalidate();
+        }
         return new FirstAdminSetupStatusDTO(initialized, firstAdminSetupEnabled && !initialized);
+    }
+
+    @Override
+    public BootstrapTokenDTO getBootstrapToken() {
+        synchronized (firstAdminSetupLock) {
+            if (!firstAdminSetupEnabled || isSetupStateInitialized() || count() > 0) {
+                return null;
+            }
+            return bootstrapTokenService == null ? null : bootstrapTokenService.getOrRotateCredential();
+        }
     }
 
     @Override
@@ -151,8 +175,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (count() > 0) {
                 throw new BusinessException(409, "系统已完成初始化，请登录后由管理员创建账号");
             }
+            if (isSetupStateInitialized()) {
+                throw new BusinessException(409, "系统已完成初始化，请登录后由管理员创建账号");
+            }
             if (!setupDTO.isPasswordMatch()) {
                 throw new BusinessException("两次输入的密码不一致");
+            }
+            if (bootstrapTokenService == null
+                    || !bootstrapTokenService.matches(setupDTO.getBootstrapToken())) {
+                throw new BusinessException(403, "只能使用服务器本机提供的有效初始化凭据");
             }
             if (isUsernameExists(setupDTO.getUsername())) {
                 throw new BusinessException("用户名已被使用");
@@ -170,6 +201,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 throw new BusinessException("管理员创建失败");
             }
             createDefaultFolder(admin.getId(), admin.getUsername());
+            markSetupInitialized(admin.getId());
+            invalidateBootstrapTokenAfterCommit();
 
             LoginResultDTO result = new LoginResultDTO(
                     JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole()),
@@ -458,6 +491,45 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private void updateUserOrThrow(User user, String operation) {
         if (!updateById(user)) {
             throw new BusinessException(operation);
+        }
+    }
+
+    private boolean isSetupStateInitialized() {
+        if (jdbcTemplate == null) {
+            return false;
+        }
+        Integer initialized = jdbcTemplate.queryForObject(
+                "SELECT initialized FROM farm_setup_state WHERE id = 1", Integer.class);
+        return Integer.valueOf(1).equals(initialized);
+    }
+
+    private void markSetupInitialized(Long userId) {
+        if (jdbcTemplate == null) {
+            return;
+        }
+        int updated = jdbcTemplate.update(
+                "UPDATE farm_setup_state SET initialized = 1, initialized_by = ?, initialized_at = CURRENT_TIMESTAMP "
+                        + "WHERE id = 1 AND initialized = 0",
+                userId);
+        if (updated != 1) {
+            throw new BusinessException(409, "系统已完成初始化，请登录后由管理员创建账号");
+        }
+    }
+
+    private void invalidateBootstrapTokenAfterCommit() {
+        if (bootstrapTokenService == null) {
+            return;
+        }
+        Runnable invalidator = bootstrapTokenService::invalidate;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    invalidator.run();
+                }
+            });
+        } else {
+            invalidator.run();
         }
     }
 

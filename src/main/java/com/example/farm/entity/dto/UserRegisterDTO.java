@@ -38,6 +38,14 @@ public class UserRegisterDTO {
     private String phone;
 
     /**
+     * Local Edition 首次初始化凭据。普通管理员创建操作员时不使用该字段，
+     * 也不会在任何用户 VO 中返回。
+     */
+    @Schema(description = "Local Edition 首次初始化一次性凭据，仅 setup/admin 使用",
+            accessMode = Schema.AccessMode.WRITE_ONLY, example = "bootstrap-token")
+    private String bootstrapToken;
+
+    /**
      * 校验密码和确认密码是否一致
      */
     public boolean isPasswordMatch() {

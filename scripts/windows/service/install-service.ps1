@@ -165,6 +165,22 @@ function Write-FabMatrixAtomicUtf8File {
     }
 }
 
+function Ensure-FabMatrixBootstrapCredential([string]$DataRoot) {
+    $configDir = Join-Path $DataRoot 'config'
+    $tokenPath = Join-Path $configDir 'bootstrap.token'
+    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) { return $false }
+
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $token = ([Convert]::ToBase64String($bytes).Replace('+', '-').Replace('/', '_')).TrimEnd('=')
+    $expiresAt = [DateTimeOffset]::UtcNow.AddMinutes(30).ToUnixTimeMilliseconds()
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $content = "expiresAt=$expiresAt$([Environment]::NewLine)token=$token$([Environment]::NewLine)"
+    [IO.File]::WriteAllText($tokenPath, $content, $utf8)
+    return $true
+}
+
 function Set-FabMatrixLegacyDefaultPortForUpgrade {
     param(
         [Parameter(Mandatory = $true)][string]$ConfigPath,
@@ -422,6 +438,9 @@ try {
     $installStage = 'prepare local configuration'
     if (-not (Test-Path -LiteralPath $configPath)) {
         & (Join-Path $serviceDir 'Farm-Configure.ps1') -Edition Local -ConfigDir $configDir -DataRoot $DataRoot -Port $Port
+    }
+    if (Ensure-FabMatrixBootstrapCredential $DataRoot) {
+        Write-InstallLog $installLogPath 'Generated Local Edition bootstrap credential in protected config directory.'
     }
     $installStage = 'migrate legacy default port'
     if (Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $configPath -RequestedPort $Port `

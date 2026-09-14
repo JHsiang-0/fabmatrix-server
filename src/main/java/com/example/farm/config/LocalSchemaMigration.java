@@ -32,6 +32,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        migrateFirstAdminSetupState();
         validateDashboardLayoutPreconditions();
         ensurePrinterCoordinateGuards();
         migrateDashboardLayout();
@@ -56,6 +57,21 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();
         validatePrintFileStructure();
+    }
+
+    /** 首次引入持久化 setup 状态时，已有用户数据必须视为已初始化。 */
+    private void migrateFirstAdminSetupState() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_setup_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    initialized INTEGER NOT NULL DEFAULT 0 CHECK (initialized IN (0, 1)),
+                    initialized_at TIMESTAMP,
+                    initialized_by INTEGER
+                )
+                """);
+        jdbcTemplate.update("INSERT OR IGNORE INTO farm_setup_state (id, initialized) VALUES (1, 0)");
+        jdbcTemplate.update("UPDATE farm_setup_state SET initialized = 1, initialized_at = COALESCE(initialized_at, CURRENT_TIMESTAMP) "
+                + "WHERE id = 1 AND initialized = 0 AND EXISTS (SELECT 1 FROM farm_user)");
     }
 
     /** TC-003 旧任务状态回填及查询索引；只做幂等迁移，不在 GET 查询中写库。 */

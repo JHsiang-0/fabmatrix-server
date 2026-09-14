@@ -804,6 +804,15 @@ try {
     Assert-Contains $generatedConfig '\$\{FARM_DATA_DIR\}/database/farm\.db' 'generated portable SQLite path'
     Assert-Contains $generatedConfig '\$\{FARM_DATA_DIR\}/files' 'generated portable files path'
     Assert-Contains $generatedConfig 'port: 28081' 'generated default server port'
+    Assert-Contains $generatedConfig 'bootstrap-token-file: .+bootstrap\.token' 'generated bootstrap token path'
+    Assert-Exists (Join-Path $configDir 'bootstrap.token') 'generated bootstrap credential'
+    Assert-Contains (Join-Path $configDir 'bootstrap.token') '^expiresAt=\d+\r?\ntoken=[A-Za-z0-9_-]+\r?\n$' 'bootstrap credential format'
+    $bootstrapPath = Join-Path $configDir 'bootstrap.token'
+    $bootstrapBeforeForce = Get-Content -LiteralPath $bootstrapPath -Raw -Encoding UTF8
+    & $configure -Edition Local -ConfigDir $configDir -DataRoot $configData -Force | Out-Null
+    if ((Get-Content -LiteralPath $bootstrapPath -Raw -Encoding UTF8) -ne $bootstrapBeforeForce) {
+        throw 'Forced Local configuration rewrote the existing bootstrap credential.'
+    }
     if ((Get-Content -LiteralPath $generatedConfig -Raw).Contains(($configData -replace '\\', '/'))) {
         throw 'Generated Local config retained its source-machine absolute path.'
     }

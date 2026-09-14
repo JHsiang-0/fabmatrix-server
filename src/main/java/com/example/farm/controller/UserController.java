@@ -6,6 +6,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.entity.User;
 import com.example.farm.entity.dto.ChangePasswordDTO;
+import com.example.farm.entity.dto.BootstrapTokenDTO;
 import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
 import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.entity.dto.PasswordMigrateResultDTO;
@@ -35,6 +36,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.net.InetAddress;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -70,10 +75,30 @@ public class UserController {
         return Result.success(userService.getFirstAdminSetupStatus(), "获取初始化状态成功");
     }
 
+    @Operation(summary = "读取本机首次初始化凭据", description = "仅允许服务器本机读取，不返回给局域网客户端")
+    @SecurityRequirements
+    @GetMapping("/setup/bootstrap-token")
+    public Result<BootstrapTokenDTO> getBootstrapToken(HttpServletRequest request,
+                                                       HttpServletResponse response) {
+        if (!isLoopback(request)) {
+            throw new BusinessException(403, "首次管理员初始化必须在服务器本机完成");
+        }
+        BootstrapTokenDTO token = userService.getBootstrapToken();
+        if (token == null) {
+            throw new BusinessException(404, "首次管理员初始化凭据不可用");
+        }
+        response.setHeader("Cache-Control", "no-store");
+        return Result.success(token, "获取本机初始化凭据成功");
+    }
+
     @Operation(summary = "创建首次管理员", description = "仅当系统没有任何用户且 Local Edition 开启首次初始化时可用；成功后直接返回管理员 Token")
     @SecurityRequirements
     @PostMapping("/setup/admin")
-    public Result<LoginResultDTO> setupFirstAdmin(@Valid @RequestBody UserRegisterDTO setupDTO) {
+    public Result<LoginResultDTO> setupFirstAdmin(@Valid @RequestBody UserRegisterDTO setupDTO,
+                                                  HttpServletRequest request) {
+        if (!isLoopback(request)) {
+            throw new BusinessException(403, "首次管理员初始化必须在服务器本机完成");
+        }
         setupDTO = requireBody(setupDTO);
         return Result.success(userService.setupFirstAdmin(setupDTO), "管理员初始化成功");
     }
@@ -216,5 +241,13 @@ public class UserController {
             throw new BusinessException(400, "请求体不能为空");
         }
         return body;
+    }
+
+    private boolean isLoopback(HttpServletRequest request) {
+        try {
+            return InetAddress.getByName(request.getRemoteAddr()).isLoopbackAddress();
+        } catch (Exception exception) {
+            return false;
+        }
     }
 }

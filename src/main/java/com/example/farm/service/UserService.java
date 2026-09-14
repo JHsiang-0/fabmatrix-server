@@ -29,6 +29,13 @@ public interface UserService extends IService<User> {
     FirstAdminSetupStatusDTO getFirstAdminSetupStatus();
 
     /**
+     * 读取仅允许服务器本机获取的短期初始化凭据。
+     *
+     * @return 当前有效凭据，过期或不存在时返回 {@code null}
+     */
+    BootstrapTokenDTO getBootstrapToken();
+
+    /**
      * 在没有任何用户时创建首个管理员，并返回登录 Token。
      *
      * @param setupDTO 首个管理员账号和密码

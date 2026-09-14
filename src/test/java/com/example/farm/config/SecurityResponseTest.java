@@ -2,6 +2,7 @@ package com.example.farm.config;
 
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.dto.UserUpdateDTO;
+import com.example.farm.entity.dto.BootstrapTokenDTO;
 import com.example.farm.entity.dto.FirstAdminSetupStatusDTO;
 import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.common.exception.BusinessException;
@@ -23,6 +24,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -203,15 +205,56 @@ class SecurityResponseTest {
                 new LoginResultDTO("setup-token", 604800L, 1L, "admin", "ADMIN"));
 
         mockMvc.perform(post("/api/v1/auth/setup/admin")
-                        .contentType("application/json")
-                        .content("{\"username\":\"admin\",\"password\":\"Admin123\","
-                                + "\"confirmPassword\":\"Admin123\"}"))
+                .contentType("application/json")
+                .content("{\"username\":\"admin\",\"password\":\"Admin123\","
+                                + "\"confirmPassword\":\"Admin123\",\"bootstrapToken\":\"local-token\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.token").value("setup-token"))
                 .andExpect(jsonPath("$.data.role").value("ADMIN"));
 
         verify(userService).setupFirstAdmin(any());
+    }
+
+    @Test
+    void bootstrapTokenIsOnlyAvailableFromServerLoopback() throws Exception {
+        when(userService.getBootstrapToken()).thenReturn(new BootstrapTokenDTO("local-token", 1893456000000L));
+
+        mockMvc.perform(get("/api/v1/auth/setup/bootstrap-token")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.token").value("local-token"))
+                .andExpect(jsonPath("$.data.expiresAt").value(1893456000000L));
+    }
+
+    @Test
+    void bootstrapTokenCannotBeReadFromLanClient() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/setup/bootstrap-token")
+                        .with(request -> {
+                            request.setRemoteAddr("192.168.1.20");
+                            return request;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void firstAdminSetupCannotBeSubmittedFromLanClient() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/setup/admin")
+                        .with(request -> {
+                            request.setRemoteAddr("192.168.1.20");
+                            return request;
+                        })
+                        .contentType("application/json")
+                        .content("{\"username\":\"admin\",\"password\":\"Admin123\","
+                                + "\"confirmPassword\":\"Admin123\",\"bootstrapToken\":\"local-token\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+
+        verify(userService, never()).setupFirstAdmin(any());
     }
 
     @Test

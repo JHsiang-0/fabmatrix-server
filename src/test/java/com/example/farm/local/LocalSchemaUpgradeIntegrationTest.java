@@ -89,6 +89,8 @@ class LocalSchemaUpgradeIntegrationTest {
 
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM farm_print_job", Integer.class))
                 .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT initialized FROM farm_setup_state WHERE id = 1",
+                Integer.class)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForMap("SELECT file_id, printer_id, user_id, operator_id, status, "
                 + "root_job_id, attempt_number, file_name_snapshot, printer_name_snapshot, "
                 + "machine_number_snapshot, creator_username_snapshot, operator_username_snapshot "

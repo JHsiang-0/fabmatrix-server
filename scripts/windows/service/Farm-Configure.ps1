@@ -26,7 +26,15 @@ function New-RandomSecret {
     $bytes = New-Object byte[] 32
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
-    return [Convert]::ToBase64String($bytes).TrimEnd('=')
+    return ([Convert]::ToBase64String($bytes).Replace('+', '-').Replace('/', '_')).TrimEnd('=')
+}
+
+function New-BootstrapCredentialFile([string]$Path) {
+    $token = New-RandomSecret
+    $expiresAt = [DateTimeOffset]::UtcNow.AddMinutes(30).ToUnixTimeMilliseconds()
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($Path,
+        "expiresAt=$expiresAt$([Environment]::NewLine)token=$token$([Environment]::NewLine)", $utf8)
 }
 
 function ConvertTo-YamlSingleQuoted([string]$Value) {
@@ -41,6 +49,7 @@ $databaseDir = Join-Path $dataRoot 'database'
 $fileDir = Join-Path $dataRoot 'files'
 $logsDir = Join-Path $dataRoot 'logs'
 $backupsDir = Join-Path $dataRoot 'backups'
+$bootstrapTokenPath = Join-Path $configDir 'bootstrap.token'
 
 foreach ($directory in @($dataRoot, $configDir, $databaseDir, $fileDir, $logsDir, $backupsDir)) {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
@@ -62,6 +71,9 @@ $logsDirYaml = ConvertTo-YamlSingleQuoted ($logsDir -replace '\\', '/')
 $corsYaml = ConvertTo-YamlSingleQuoted $CorsOrigins
 
 if ($Edition -eq 'Local') {
+    if (-not (Test-Path -LiteralPath $bootstrapTokenPath -PathType Leaf)) {
+        New-BootstrapCredentialFile $bootstrapTokenPath
+    }
     $portableDataRoot = '${FARM_DATA_DIR}'
     $portableDatabase = ConvertTo-YamlSingleQuoted "jdbc:sqlite:$portableDataRoot/database/farm.db"
     $portableFiles = ConvertTo-YamlSingleQuoted "$portableDataRoot/files"
@@ -95,6 +107,7 @@ farm:
   security:
     cors-allowed-origins: $corsYaml
     first-admin-setup-enabled: true
+    bootstrap-token-file: '${FARM_DATA_DIR}/config/bootstrap.token'
 jwt:
   secret-key: $(ConvertTo-YamlSingleQuoted $JwtSecret)
 admin:

@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS farm_printer (
     )
 );
 
+-- Durable Local Edition setup latch. It survives ordinary uninstall and user-row
+-- cleanup; only the complete data purge removes it and permits a new install.
+CREATE TABLE IF NOT EXISTS farm_setup_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    initialized INTEGER NOT NULL DEFAULT 0 CHECK (initialized IN (0, 1)),
+    initialized_at TIMESTAMP,
+    initialized_by INTEGER
+);
+
+INSERT OR IGNORE INTO farm_setup_state (id, initialized) VALUES (1, 0);
+
 -- This table-level CHECK is part of the new-database schema. The partial
 -- unique index and INSERT/UPDATE guards are owned by LocalSchemaMigration and
 -- are created (or the project-owned triggers are rebuilt) only after its

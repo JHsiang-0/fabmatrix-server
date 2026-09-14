@@ -1,6 +1,6 @@
 # FabMatrix Server Windows Local Edition
 
-正式构建入口是 `scripts/windows/build-installer.ps1`。它使用 Java 25 `jpackage` 生成后端和纯 JDK 托盘控制器的共享 runtime，再使用 Inno Setup 生成 `FabMatrixServer-Setup.exe`；WinSW `v2.12.0` 仅负责承载 Windows 服务。
+正式构建入口是 `scripts/windows/build-installer.ps1`。它使用 Java 25 `jpackage` 生成后端和纯 JDK 托盘控制器的共享 runtime，再使用 Inno Setup 生成 `FabMatrix-Server-Setup-1.0.0.exe`；WinSW `v2.12.0` 仅负责承载 Windows 服务。
 
 ## 安装、升级和数据布局
 

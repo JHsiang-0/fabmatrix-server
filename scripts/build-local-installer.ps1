@@ -1,7 +1,8 @@
 param(
   [string]$OutputDir = 'dist\windows-installer',
-  [ValidatePattern('^\d+\.\d+\.\d+$')]
-  [string]$Version = '2.0.0',
+  [ValidateSet('1.0.0')]
+  [string]$Version = '1.0.0',
+  [string]$ClientRoot = '',
   [ValidateSet('Full', 'AppImage', 'Payload')]
   [string]$Mode = 'Full',
   [switch]$SkipTests,
@@ -15,5 +16,5 @@ if (-not (Test-Path -LiteralPath $formalEntryPoint -PathType Leaf)) {
 }
 
 Write-Host 'scripts/build-local-installer.ps1 is a compatibility wrapper.'
-& $formalEntryPoint -OutputDir $OutputDir -Version $Version -Mode $Mode -SkipTests:$SkipTests -NoClean:$NoClean
+& $formalEntryPoint -OutputDir $OutputDir -Version $Version -ClientRoot $ClientRoot -Mode $Mode -SkipTests:$SkipTests -NoClean:$NoClean
 if ($LASTEXITCODE -ne 0) { throw "正式构建入口失败: $LASTEXITCODE" }

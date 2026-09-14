@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "2.0.0"
+#define AppVersion "1.0.0"
 #endif
 #ifndef PayloadDir
 #define PayloadDir "..\..\dist\windows-installer\work\payload"
@@ -21,7 +21,7 @@ AppPublisherURL=https://github.com/JHsiang-0/3d-printer-farm
 DefaultDirName={autopf}\FabMatrix
 DefaultGroupName=FabMatrix Server
 OutputDir={#OutputDir}
-OutputBaseFilename=FabMatrixServer-Setup
+OutputBaseFilename=FabMatrix-Server-Setup-{#AppVersion}
 UninstallDisplayName=FabMatrix Server
 UninstallDisplayIcon={app}\FabMatrixServer.exe
 ArchitecturesAllowed=x64compatible
@@ -34,7 +34,8 @@ WizardStyle=modern
 SetupLogging=yes
 VersionInfoDescription=FabMatrix Server Windows Local Edition installer
 VersionInfoProductName=FabMatrix Server
-VersionInfoProductVersion={#AppVersion}
+VersionInfoVersion=1.0.0.0
+VersionInfoProductVersion=1.0.0.0
 ChangesEnvironment=no
 SetupIconFile={#AssetsDir}\installer.ico
 

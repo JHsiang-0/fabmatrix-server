@@ -65,6 +65,8 @@ import java.util.concurrent.TimeUnit;
 
 /** Pure JDK tray controller. It never controls printers and exiting it leaves the service running. */
 public final class FabMatrixTray {
+    private static final String APPLICATION_ID = "com.jiadong3d.fabmatrix.server";
+    private static final String APPLICATION_VERSION = "1.0.0";
     private static final String SERVICE_NAME = "FabMatrixServer";
     private static final int DEFAULT_PORT = 28081;
     private static final String PORT_METADATA_DIRECTORY = "service-state";
@@ -793,8 +795,8 @@ public final class FabMatrixTray {
                     (chinese ? "（端口 " : " (port ") + port + (chinese ? "）" : ")");
         }
         private String trayTooltip(ServiceState state, boolean healthy, int port) {
-            return chinese ? "FabMatrix Server | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用") + " | 端口 " + port
-                    : "FabMatrix Server | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable") + " | Port " + port;
+            return chinese ? "FabMatrix Server v" + APPLICATION_VERSION + " | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用") + " | 端口 " + port
+                    : "FabMatrix Server v" + APPLICATION_VERSION + " | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable") + " | Port " + port;
         }
         private String dialogTitle() { return "FabMatrix Server"; }
         private String confirmStop() {

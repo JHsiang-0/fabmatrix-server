@@ -20,7 +20,7 @@ public class SpringDocConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("FabMatrix Server API")
-                        .version("v2.0")
+                        .version("1.0.0")
                         .description("FabMatrix 3D 打印生产管理服务 API。REST 业务接口统一返回 code、message、data、timestamp；生产环境必须关闭 OpenAPI 和 Swagger UI。")
                         .contact(new Contact().name("FabMatrix")))
                 .components(new Components()

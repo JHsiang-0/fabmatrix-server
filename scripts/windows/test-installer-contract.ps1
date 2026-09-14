@@ -1,7 +1,8 @@
 param(
     [switch]$SkipTrayCompile,
     [string]$PayloadPath = '',
-    [string]$ReleaseInfoPath = ''
+    [string]$ReleaseInfoPath = '',
+    [string]$ClientRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,6 +11,10 @@ $projectRoot = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path
 $assets = Join-Path $scriptRoot 'assets'
 $build = Join-Path $scriptRoot 'build-installer.ps1'
 $contractDistRoot = Join-Path $projectRoot 'dist'
+$releaseVersionCheck = Join-Path $scriptRoot 'test-release-version.ps1'
+
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $releaseVersionCheck -ServerRoot $projectRoot -ClientRoot $ClientRoot
+if ($LASTEXITCODE -ne 0) { throw "Release version contract failed: $LASTEXITCODE" }
 
 function Assert-Contains([string]$Path, [string]$Pattern, [string]$Description) {
     $content = Get-Content -Raw -LiteralPath $Path
@@ -308,12 +313,12 @@ $cleanTemp = Join-Path $contractDistRoot ('installer-contract-clean-' + [guid]::
 try {
     $fixtureOutput = $cleanTemp
     New-Item -ItemType Directory -Force -Path (Join-Path $fixtureOutput 'work'), (Join-Path $fixtureOutput 'precommit-check') | Out-Null
-    foreach ($knownFile in @('FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
+    foreach ($knownFile in @('FabMatrix-Server-Setup-1.0.0.exe', 'FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
         New-Item -ItemType File -Force -Path (Join-Path $fixtureOutput $knownFile) | Out-Null
     }
     New-Item -ItemType File -Force -Path (Join-Path $fixtureOutput 'keep-me.txt') | Out-Null
     Clear-KnownOutput $fixtureOutput $projectRoot
-    foreach ($knownPath in @('work', 'precommit-check', 'FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
+    foreach ($knownPath in @('work', 'precommit-check', 'FabMatrix-Server-Setup-1.0.0.exe', 'FabMatrixServer-Setup.exe', 'Farm-Setup.exe', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'acceptance-install.log')) {
         if (Test-Path -LiteralPath (Join-Path $fixtureOutput $knownPath)) { throw "CleanOutput retained known generated item: $knownPath" }
     }
     Assert-Exists (Join-Path $fixtureOutput 'keep-me.txt') 'unknown output fixture'
@@ -549,9 +554,9 @@ try {
     [IO.File]::WriteAllText((Join-Path $innoPayload 'contract-placeholder.txt'), 'isolated Inno compile fixture')
     [IO.File]::WriteAllText((Join-Path $innoService 'capture-upgrade-state.ps1'), '# isolated compile fixture')
     $innoCompiler = Find-ContractInnoCompiler
-    & $innoCompiler '/Qp' '/DAppVersion=2.0.0' "/DPayloadDir=$innoPayload" "/DOutputDir=$innoOutput" "/DAssetsDir=$assets" $installer
+    & $innoCompiler '/Qp' '/DAppVersion=1.0.0' "/DPayloadDir=$innoPayload" "/DOutputDir=$innoOutput" "/DAssetsDir=$assets" $installer
     if ($LASTEXITCODE -ne 0) { throw "Inno uninstall-stage contract compile failed: $LASTEXITCODE" }
-    Assert-Exists (Join-Path $innoOutput 'FabMatrixServer-Setup.exe') 'compiled isolated Inno installer'
+    Assert-Exists (Join-Path $innoOutput 'FabMatrix-Server-Setup-1.0.0.exe') 'compiled isolated Inno installer'
     Write-Host 'FabMatrix isolated Inno uninstall-stage compile passed.'
 } finally {
     Remove-InnoCompileContractFixture $innoCompileRoot

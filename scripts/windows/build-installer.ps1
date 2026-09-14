@@ -1,7 +1,8 @@
 param(
     [string]$OutputDir = 'dist\windows-installer',
-    [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '2.0.0',
+    [ValidateSet('1.0.0')]
+    [string]$Version = '1.0.0',
+    [string]$ClientRoot = '',
     [ValidateSet('Full', 'AppImage', 'Payload')]
     [string]$Mode = 'Full',
     [switch]$SkipTests,
@@ -17,6 +18,8 @@ $serverIconPath = Join-Path $assetsPath 'server.ico'
 $trayIconPath = Join-Path $assetsPath 'tray.ico'
 $trayPngPath = Join-Path $assetsPath 'tray.png'
 $trayIconPropertyPath = $trayIconPath -replace '\\', '/'
+$serverAppId = 'com.jiadong3d.fabmatrix.server'
+$windowsFileVersion = '1.0.0.0'
 
 function Resolve-AbsolutePath([string]$Path, [string]$BasePath = '') {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A non-empty path is required.' }
@@ -121,7 +124,7 @@ function Remove-SafeGeneratedPath([string]$Path, [string]$OutputPath, [string]$P
 function Clear-KnownOutput([string]$OutputPath, [string]$ProjectRoot) {
     $safeOutput = Assert-SafeOutputPath $OutputPath $ProjectRoot
     if (-not (Test-Path -LiteralPath $safeOutput)) { return }
-    $knownInstallerPattern = '^(FabMatrixServer-Setup|Farm-Setup)(-[^\\/]+)?\.exe$'
+    $knownInstallerPattern = '^(FabMatrix-Server-Setup|FabMatrixServer-Setup|Farm-Setup)(-[^\\/]+)?\.exe$'
     $knownNames = @('work', 'checksums.txt', 'release-info.txt', 'README-Windows.md', 'precommit-check')
     Get-ChildItem -LiteralPath $safeOutput -Force | ForEach-Object {
         $isKnown = $_.Name -in $knownNames -or $_.Name -match $knownInstallerPattern -or
@@ -329,6 +332,8 @@ try {
 main-jar=FabMatrixTray.jar
 main-class=com.example.farm.tray.FabMatrixTray
 java-options=-Dfile.encoding=UTF-8
+java-options=-Dfabmatrix.app-id=$serverAppId
+java-options=-Dfabmatrix.app-version=$Version
 win-console=false
 icon=$trayIconPropertyPath
 "@
@@ -344,6 +349,8 @@ icon=$trayIconPropertyPath
         '--add-modules', 'ALL-MODULE-PATH',
         '--java-options', '-Dfile.encoding=UTF-8',
         '--java-options', '-Dspring.profiles.active=local',
+        '--java-options', "-Dfabmatrix.app-id=$serverAppId",
+        '--java-options', "-Dfabmatrix.app-version=$Version",
         '--icon', $serverIconPath,
         '--win-console',
         '--add-launcher', "FabMatrixTray=$launcherProperties"
@@ -374,7 +381,8 @@ icon=$trayIconPropertyPath
     Copy-Item -LiteralPath (Join-Path $scriptRoot 'service\data-acl.ps1') -Destination (Join-Path $maintenancePath 'data-acl.ps1') -Force
     Copy-Item -LiteralPath (Join-Path $scriptRoot 'service\portable-config.ps1') -Destination (Join-Path $maintenancePath 'portable-config.ps1') -Force
     Invoke-Checked 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-        (Join-Path $scriptRoot 'test-installer-contract.ps1'), '-SkipTrayCompile', '-PayloadPath', $payloadPath)
+        (Join-Path $scriptRoot 'test-installer-contract.ps1'), '-SkipTrayCompile', '-PayloadPath', $payloadPath,
+        '-ClientRoot', $ClientRoot)
     Write-Host "Payload: $payloadPath"
     if ($Mode -eq 'Payload') { return }
 
@@ -383,16 +391,19 @@ icon=$trayIconPropertyPath
     $issArgs = @('/Qp', "/DAppVersion=$Version", "/DPayloadDir=$payloadPath", "/DOutputDir=$outputPath", "/DAssetsDir=$assetsPath", $iss)
     Invoke-Checked $iscc $issArgs
 
-    $installer = Join-Path $outputPath 'FabMatrixServer-Setup.exe'
+    $installerFileName = "FabMatrix-Server-Setup-$Version.exe"
+    $installer = Join-Path $outputPath $installerFileName
     if (-not (Test-Path -LiteralPath $installer)) { throw "Inno Setup did not create installer: $installer" }
     $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToUpperInvariant()
     $installerSize = (Get-Item -LiteralPath $installer).Length
     Write-Utf8NoBom (Join-Path $outputPath 'README-Windows.md') (Get-Content -Raw (Join-Path $scriptRoot 'README-Windows.md'))
-    Write-Utf8NoBom (Join-Path $outputPath 'checksums.txt') "$installerHash *FabMatrixServer-Setup.exe`r`n"
+    Write-Utf8NoBom (Join-Path $outputPath 'checksums.txt') "$installerHash *$installerFileName`r`n"
     $commit = (git -C $projectRoot rev-parse HEAD).Trim()
     $releaseInfo = @"
 FabMatrix Server Windows Local Edition release
 Version: $Version
+Windows file version: $windowsFileVersion
+Application ID: $serverAppId
 Git commit: $commit
 Build time: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))
 Java: $javaVersion
@@ -400,7 +411,7 @@ Packaging: jpackage app-image + Inno Setup EXE
 Runtime: bundled Java 25 runtime, shared by server and tray launchers
 Service wrapper: WinSW v2.12.0 x64 (MIT), service name FabMatrixServer
 WinSW SHA-256: $actualWinSwHash
-Installer: FabMatrixServer-Setup.exe
+Installer: $installerFileName
 Installer bytes: $installerSize
 Installer SHA-256: $installerHash
 Default profile: local

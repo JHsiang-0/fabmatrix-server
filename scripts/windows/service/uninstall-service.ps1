@@ -15,30 +15,82 @@ function Get-ServiceIfPresent([string]$Name) {
     return Get-Service -Name $Name -ErrorAction SilentlyContinue
 }
 
+function Wait-ServiceAbsent([string]$Name, [int]$TimeoutSeconds = 30) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $service = Get-ServiceIfPresent $Name
+        if ($null -eq $service) { return }
+        $service.Dispose()
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Windows service is still pending deletion after $TimeoutSeconds seconds: $Name"
+}
+
 function Stop-ServiceIfPresent([string]$Name) {
     $service = Get-ServiceIfPresent $Name
-    if ($null -eq $service -or $service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
-    Stop-Service -InputObject $service -ErrorAction Stop
-    $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
-    $service.Refresh()
-    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
-        throw "Service did not stop; uninstall aborted: $Name"
+    if ($null -eq $service) { return }
+    try {
+        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
+        Stop-Service -InputObject $service -ErrorAction Stop
+        $service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+        $service.Refresh()
+        if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+            throw "Service did not stop; uninstall aborted: $Name"
+        }
+    } finally {
+        $service.Dispose()
     }
 }
 
 function Remove-ServiceIfPresent([string]$Name) {
     $service = Get-ServiceIfPresent $Name
     if ($null -eq $service) { return }
+    $service.Dispose()
     Stop-ServiceIfPresent $Name
     & sc.exe delete $Name | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Windows service deletion failed ($LASTEXITCODE): $Name" }
+    Wait-ServiceAbsent $Name
+}
+
+function Test-FabMatrixPathWithinDirectory([string]$Path, [string]$Root) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    $resolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $resolvedRoot = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    return [string]::Equals($resolvedPath, $resolvedRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        $resolvedPath.StartsWith($resolvedRoot + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Stop-FabMatrixTrayProcesses([string]$InstallDir) {
+    $processes = @(Get-Process -Name 'FabMatrixTray', 'FarmTray' -ErrorAction SilentlyContinue)
+    foreach ($process in $processes) {
+        try {
+            $processPath = $null
+            try { $processPath = $process.MainModule.FileName } catch {
+                throw "Unable to verify tray executable path for PID $($process.Id): $($_.Exception.Message)"
+            }
+            if (-not (Test-FabMatrixPathWithinDirectory $processPath $InstallDir)) { continue }
+
+            if (-not $process.HasExited -and $process.MainWindowHandle -ne 0) {
+                [void]$process.CloseMainWindow()
+                [void]$process.WaitForExit(10000)
+            }
+            if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction Stop
+                [void]$process.WaitForExit(10000)
+            }
+            if (-not $process.HasExited) {
+                throw "Tray process did not stop; uninstall aborted: PID $($process.Id)"
+            }
+        } finally {
+            $process.Dispose()
+        }
+    }
 }
 
 try {
     # Release only the known tray launchers before Inno removes EXE/runtime files.
     # This never targets backend or printer processes.
-    Get-Process -Name 'FabMatrixTray', 'FarmTray' -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction Stop
+    Stop-FabMatrixTrayProcesses $InstallDir
 
     Remove-ServiceIfPresent 'FabMatrixServer'
     # Remove the legacy registration only; legacy Farm data is retained.

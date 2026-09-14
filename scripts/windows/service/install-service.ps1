@@ -237,7 +237,12 @@ function Set-FabMatrixLegacyDefaultPortForInstallContext {
         [Parameter(Mandatory = $true)][bool]$LegacyDataMigrated
     )
 
-    if (-not $IsServiceUpgrade -and -not $LegacyDataMigrated) { return $false }
+    # The installer always requests 28081 as the product default. A pre-existing
+    # numeric 8080 is the legacy default even when the service registration was
+    # lost or the data root was initialized by an earlier setup attempt, so it
+    # must not become the effective port merely because this is not an upgrade.
+    # Custom configured ports remain untouched and an explicit SERVER_PORT still
+    # wins inside Set-FabMatrixLegacyDefaultPortForUpgrade.
     return Set-FabMatrixLegacyDefaultPortForUpgrade -ConfigPath $ConfigPath -RequestedPort $RequestedPort
 }
 
@@ -285,10 +290,11 @@ function Test-FabMatrixPortConfig {
             throw 'Fresh legacy migration did not atomically migrate server.port 8080 to 28081.'
         }
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 8080`r`n")
-        if ((Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
+        if (-not (Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
                 -IsServiceUpgrade $false -LegacyDataMigrated $false) -or
-            (Get-FabMatrixEffectivePort $tempPath) -ne 8080) {
-            throw 'Fresh non-migration configuration was incorrectly treated as a legacy default.'
+            (Get-FabMatrixEffectivePort $tempPath) -ne 28081 -or
+            ([IO.File]::ReadAllText($tempPath) -notmatch '(?m)^\s*port:\s*28081\s*$')) {
+            throw 'Existing unregistered configuration did not migrate legacy default 8080 to 28081.'
         }
         [IO.File]::WriteAllText($tempPath, "server:`r`n  port: 29090`r`n")
         if ((Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $tempPath -RequestedPort 28081 `
@@ -372,7 +378,12 @@ function Install-WinSwServiceWithRetry {
         $attempt++
         $lastOutput = (& $WrapperPath install 2>&1 | Out-String).Trim()
         $exitCode = $LASTEXITCODE
-        if ($exitCode -eq 0) { return $attempt }
+        if ($exitCode -eq 0) {
+            if (-not (Test-ServicePresent $Name)) {
+                throw "WinSW returned success but service $Name is not registered."
+            }
+            return $attempt
+        }
         if (Test-ServicePresent $Name) {
             throw "WinSW returned $exitCode but service $Name is present; refusing to retry an ambiguous registration."
         }
@@ -381,6 +392,30 @@ function Install-WinSwServiceWithRetry {
     } while ($true)
 
     throw "FabMatrixServer registration failed after $attempt attempts; last exit code: $exitCode; output: $lastOutput"
+}
+
+function Test-FabMatrixHealth([ValidateRange(1, 65535)][int]$EffectivePort) {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$EffectivePort/actuator/health" -TimeoutSec 2 -ErrorAction Stop
+        return $response.StatusCode -eq 200 -and $response.Content -match '"status"\s*:\s*"UP"'
+    } catch {
+        return $false
+    }
+}
+
+function Wait-FabMatrixHealth {
+    param(
+        [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$EffectivePort,
+        [int]$TimeoutSeconds = 60
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-FabMatrixHealth -EffectivePort $EffectivePort) { return }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "FabMatrixServer health check failed after $TimeoutSeconds seconds: http://127.0.0.1:$EffectivePort/actuator/health"
 }
 
 function Initialize-InstallLog([string]$RequestedPath, [string]$TargetDataRoot) {
@@ -496,6 +531,11 @@ try {
         $installStage = 'start FabMatrixServer service'
         & $winSw start
         if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer start failed: $LASTEXITCODE" }
+        $installStage = 'wait for FabMatrixServer health'
+        Wait-FabMatrixHealth -EffectivePort $effectivePort
+        Write-InstallLog $installLogPath "Health check succeeded on port $effectivePort"
+    } else {
+        Write-InstallLog $installLogPath 'Service start was not requested; health check deferred because the preserved/new service state is stopped.'
     }
 
     $stateDescription = if ($servicePlan.IsUpgrade) { "preserved $($preservedState.StartMode), wasRunning=$($preservedState.WasRunning)" } else { $servicePlan.StartMode }

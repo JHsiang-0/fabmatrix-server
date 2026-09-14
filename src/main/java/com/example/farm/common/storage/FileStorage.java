@@ -22,6 +22,11 @@ public interface FileStorage {
 
     void deleteFileByObjectUrl(String objectUrl);
 
+    /** Local Edition 在落盘前执行；对象存储实现无需本地磁盘预检。 */
+    default void ensureCapacity(long incomingBytes) {
+        // no-op for remote object storage
+    }
+
     String getPresignedUrl(String key, Duration expiration);
 
     String getPresignedUrlForObjectUrl(String objectUrl, Duration expiration);

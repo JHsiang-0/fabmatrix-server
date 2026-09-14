@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -14,7 +15,10 @@ import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 
 /** 单进程 Local Edition 文件存储，文件不会暴露为本地绝对路径。 */
@@ -28,6 +32,8 @@ public class LocalFileStorage implements FileStorage {
     private String storagePath;
 
     private Path root;
+    @Value("${farm.local.storage-safety-margin:256MB}")
+    private DataSize safetyMargin;
 
     @PostConstruct
     public void init() {
@@ -42,25 +48,62 @@ public class LocalFileStorage implements FileStorage {
 
     @Override
     public String uploadFile(String key, MultipartFile file) {
+        Path temporary = null;
         try {
+            ensureCapacity(file.getSize());
             Path target = resolve(key);
             Files.createDirectories(target.getParent());
-            file.transferTo(target);
+            temporary = Files.createTempFile(target.getParent(), "." + target.getFileName() + ".", ".upload");
+            file.transferTo(temporary);
+            verifyUploadedSize(temporary, file.getSize());
+            moveAtomicallyWithoutReplacement(temporary, target);
             return objectUrl(key);
         } catch (IOException | RuntimeException exception) {
             throw new StorageException("本地文件上传失败", exception);
+        } finally {
+            deleteTemporaryFile(temporary);
         }
     }
 
     @Override
     public String uploadBytes(String key, byte[] data, String contentType) {
+        Path temporary = null;
         try {
+            if (data == null) {
+                throw new StorageException("本地文件写入内容不能为空");
+            }
+            ensureCapacity(data.length);
             Path target = resolve(key);
             Files.createDirectories(target.getParent());
-            Files.write(target, data);
+            temporary = Files.createTempFile(target.getParent(), "." + target.getFileName() + ".", ".upload");
+            Files.write(temporary, data);
+            verifyUploadedSize(temporary, data.length);
+            moveAtomicallyWithoutReplacement(temporary, target);
             return objectUrl(key);
         } catch (IOException | RuntimeException exception) {
             throw new StorageException("本地文件写入失败", exception);
+        } finally {
+            deleteTemporaryFile(temporary);
+        }
+    }
+
+    @Override
+    public void ensureCapacity(long incomingBytes) {
+        if (incomingBytes <= 0) {
+            throw new StorageException("文件大小必须大于零");
+        }
+        try {
+            long marginBytes = safetyMargin == null ? DataSize.ofMegabytes(256).toBytes() : safetyMargin.toBytes();
+            if (marginBytes < 0) {
+                throw new StorageException("本地磁盘安全余量不能为负数");
+            }
+            long required = Math.addExact(incomingBytes, marginBytes);
+            long usable = Files.getFileStore(root).getUsableSpace();
+            if (usable < required) {
+                throw new StorageException("本地磁盘空间不足，请清理空间后重试");
+            }
+        } catch (IOException | ArithmeticException exception) {
+            throw new StorageException("无法检查本地磁盘可用空间", exception);
         }
     }
 
@@ -141,10 +184,55 @@ public class LocalFileStorage implements FileStorage {
         if (key == null || key.isBlank()) {
             throw new StorageException("文件 key 不能为空");
         }
+        if (key.indexOf('\\') >= 0 || key.chars().anyMatch(Character::isISOControl)) {
+            throw new StorageException("文件 key 包含非法路径");
+        }
         Path candidate = root.resolve(key).normalize();
         if (!candidate.startsWith(root)) {
             throw new StorageException("文件 key 包含非法路径");
         }
+        validateExistingPath(candidate);
         return candidate;
+    }
+
+    private void validateExistingPath(Path candidate) {
+        Path current = candidate;
+        while (current != null && current.startsWith(root)) {
+            if (Files.isSymbolicLink(current)) {
+                throw new StorageException("文件 key 包含非法链接");
+            }
+            if (current.equals(root)) {
+                break;
+            }
+            current = current.getParent();
+        }
+    }
+
+    private void verifyUploadedSize(Path temporary, long expectedSize) throws IOException {
+        if (Files.size(temporary) != expectedSize) {
+            throw new IOException("临时文件大小与上传声明不一致");
+        }
+    }
+
+    private void moveAtomicallyWithoutReplacement(Path source, Path target) throws IOException {
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+            throw new FileAlreadyExistsException(target.toString());
+        }
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException exception) {
+            Files.move(source, target);
+        }
+    }
+
+    private void deleteTemporaryFile(Path temporary) {
+        if (temporary == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(temporary);
+        } catch (IOException exception) {
+            log.warn("清理本地临时上传文件失败: path={}", temporary);
+        }
     }
 }

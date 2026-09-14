@@ -2,7 +2,8 @@ package com.example.farm.task;
 
 import com.example.farm.common.utils.LogUtil;
 import com.example.farm.common.utils.RedisUtil;
-import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.utils.PrinterLock;
+import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
@@ -168,26 +169,22 @@ public class PrinterMonitorTask {
     }
 
     private PrinterStatusResult fetchAndUpdateStatus(Printer printer) {
-        if (redisUtil == null) {
-            PrinterStatusResult result = doFetchAndUpdateStatus(printer, null, null);
-            scheduleNextPoll(result);
-            return result;
-        }
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK,
-                "monitor:" + printer.getId());
-        String lockValue = java.util.UUID.randomUUID().toString();
-        if (!redisUtil.tryLock(lockKey, lockValue, 10, TimeUnit.SECONDS)) {
-            return new PrinterStatusResult(printer.getId(), null, false,
-                    "其他监控实例正在巡检", null, null, null, null, null, true);
-        }
+        AtomicBoolean actionStarted = new AtomicBoolean();
         try {
-            PrinterStatusResult result = doFetchAndUpdateStatus(printer, lockKey, lockValue);
-            scheduleNextPoll(result);
-            return result;
-        } finally {
-            if (lockValue.equals(redisUtil.getLockValue(lockKey))) {
-                redisUtil.unlock(lockKey);
+            return PrinterLock.execute(printer.getId(), redisUtil, () -> {
+                PrinterLock.ensureValid(printer.getId());
+                actionStarted.set(true);
+                PrinterStatusResult fetched = doFetchAndUpdateStatus(printer, null, null);
+                PrinterLock.ensureValid(printer.getId());
+                scheduleNextPoll(fetched);
+                return fetched;
+            });
+        } catch (BusinessException exception) {
+            if (!actionStarted.get() && exception.getCode() == 409L) {
+                return new PrinterStatusResult(printer.getId(), null, false,
+                        "其他监控实例正在巡检", null, null, null, null, null, true);
             }
+            throw exception;
         }
     }
 

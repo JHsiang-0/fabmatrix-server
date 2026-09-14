@@ -1,6 +1,7 @@
 package com.example.farm.service;
 
 import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.Printer;
@@ -44,7 +45,7 @@ class PrinterCacheRedisTest {
 
     @Test
     void skipsDatabaseUpdateWhenPrinterStatusLockIsUnavailable() {
-        when(redisUtil.tryLock(anyString(), anyString(), eq(5L), eq(TimeUnit.SECONDS))).thenReturn(false);
+        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(false);
         Printer printer = new Printer();
         printer.setId(403L);
 
@@ -57,7 +58,7 @@ class PrinterCacheRedisTest {
 
     @Test
     void reportsFailureWhenDatabaseStatusUpdateAffectsNoRows() {
-        when(redisUtil.tryLock(anyString(), anyString(), eq(5L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
         when(printerMapper.updateById(any(Printer.class))).thenReturn(0);
         Printer printer = new Printer();
         printer.setId(403L);
@@ -70,7 +71,7 @@ class PrinterCacheRedisTest {
 
     @Test
     void reportsSuccessOnlyWhenDatabaseStatusUpdateAffectsARow() {
-        when(redisUtil.tryLock(anyString(), anyString(), eq(5L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
         when(printerMapper.updateById(any(Printer.class))).thenReturn(1);
         Printer printer = new Printer();
         printer.setId(403L);
@@ -91,5 +92,43 @@ class PrinterCacheRedisTest {
 
         verify(redisUtil).tryLock(eq(RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, 403L)),
                 anyString(), eq(5L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void reentrantStatusUpdateReusesTheRenewedPrinterLock() {
+        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(printerMapper.updateById(any(Printer.class))).thenReturn(1);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        PrinterCacheService service = new PrinterCacheServiceImpl(redisUtil, printerMapper, historyService);
+
+        PrinterLock.execute(403L, redisUtil, () -> {
+            assertThat(service.updatePrinterStatusWithLock(printer)).isTrue();
+            return null;
+        });
+
+        verify(redisUtil).tryLock(eq(RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, 403L)),
+                anyString(), eq(60L), eq(TimeUnit.SECONDS));
+        verify(redisUtil).releaseLockIfOwned(anyString(), anyString());
+        verify(printerMapper).updateById(printer);
+    }
+
+    @Test
+    void reentrantHealthUpdateReusesTheRenewedPrinterLock() {
+        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(printerMapper.updateCommunicationHealth(any(Printer.class))).thenReturn(1);
+        Printer printer = new Printer();
+        printer.setId(403L);
+        PrinterCacheService service = new PrinterCacheServiceImpl(redisUtil, printerMapper, historyService);
+
+        PrinterLock.execute(403L, redisUtil, () -> {
+            assertThat(service.updatePrinterHealthWithLock(printer)).isTrue();
+            return null;
+        });
+
+        verify(redisUtil).tryLock(eq(RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, 403L)),
+                anyString(), eq(60L), eq(TimeUnit.SECONDS));
+        verify(redisUtil).releaseLockIfOwned(anyString(), anyString());
+        verify(printerMapper).updateCommunicationHealth(printer);
     }
 }

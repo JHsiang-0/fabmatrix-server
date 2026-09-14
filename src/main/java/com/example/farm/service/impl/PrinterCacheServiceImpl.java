@@ -1,7 +1,9 @@
 package com.example.farm.service.impl;
 
 import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.mapper.PrinterMapper;
@@ -85,38 +87,26 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         if (printer == null || printer.getId() == null) return false;
 
         Long printerId = printer.getId();
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
-        String lockValue = UUID.randomUUID().toString();
-
-        boolean locked = false;
         try {
-            locked = redisUtil.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
-            if (!locked) {
+            return PrinterLock.execute(printerId, redisUtil, () -> {
+                PrinterLock.ensureValid(printerId);
+                boolean updated = printerMapper.updateById(printer) > 0;
+                if (updated) {
+                    // 状态也属于打印机列表快照的一部分，避免列表缓存继续暴露旧状态。
+                    refreshPrinterCache();
+                }
+                return updated;
+            });
+        } catch (BusinessException e) {
+            if (e.getCode() == 409L) {
                 log.debug("更新打印机状态时未获取到分布式锁: printerId={}", printerId);
-                return false;
+            } else {
+                log.error("更新打印机状态到数据库失败: printerId={}", printerId, e);
             }
-
-            boolean updated = printerMapper.updateById(printer) > 0;
-            if (updated) {
-                // 状态也属于打印机列表快照的一部分，避免列表缓存继续暴露旧状态。
-                refreshPrinterCache();
-            }
-            return updated;
-
+            return false;
         } catch (Exception e) {
             log.error("更新打印机状态到数据库失败: printerId={}", printerId, e);
             return false;
-        } finally {
-            if (locked) {
-                releaseLock(lockKey, lockValue);
-            }
-        }
-    }
-
-    private void releaseLock(String lockKey, String lockValue) {
-        String currentValue = redisUtil.getLockValue(lockKey);
-        if (lockValue.equals(currentValue)) {
-            redisUtil.unlock(lockKey);
         }
     }
 
@@ -298,26 +288,23 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
             return false;
         }
         Long printerId = printer.getId();
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
-        String lockValue = UUID.randomUUID().toString();
-        boolean locked = false;
         try {
-            locked = redisUtil.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
-            if (!locked) {
-                return false;
+            return PrinterLock.execute(printerId, redisUtil, () -> {
+                PrinterLock.ensureValid(printerId);
+                boolean updated = printerMapper.updateCommunicationHealth(printer) > 0;
+                if (updated) {
+                    refreshPrinterCache();
+                }
+                return updated;
+            });
+        } catch (BusinessException e) {
+            if (e.getCode() != 409L) {
+                log.error("更新打印机通信健康失败: printerId={}", printerId, e);
             }
-            boolean updated = printerMapper.updateCommunicationHealth(printer) > 0;
-            if (updated) {
-                refreshPrinterCache();
-            }
-            return updated;
+            return false;
         } catch (Exception e) {
             log.error("更新打印机通信健康失败: printerId={}", printerId, e);
             return false;
-        } finally {
-            if (locked) {
-                releaseLock(lockKey, lockValue);
-            }
         }
     }
 

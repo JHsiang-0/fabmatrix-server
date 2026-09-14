@@ -1,5 +1,6 @@
 package com.example.farm.task;
 
+import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.config.PrinterMonitorProperties;
@@ -22,12 +23,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +54,8 @@ class PrinterMonitorAdapterTest {
     private PrintJobService printJobService;
     @Mock
     private WebSocketEventPublisher eventPublisher;
+    @Mock
+    private RedisUtil redisUtil;
 
     private PrinterMonitorTask monitorTask;
 
@@ -142,6 +148,25 @@ class PrinterMonitorAdapterTest {
         releaseQuery.countDown();
 
         verify(adapter, timeout(1000).times(1)).getStatus(any());
+    }
+
+    @Test
+    void skipsPrinterWhenAnotherInstanceOwnsThePrinterLock() throws Exception {
+        Printer printer = printer("RRF");
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS)))
+                .thenReturn(false);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        Field redisField = PrinterMonitorTask.class.getDeclaredField("redisUtil");
+        redisField.setAccessible(true);
+        redisField.set(monitorTask, redisUtil);
+
+        monitorTask.checkPrinterStatus();
+
+        verify(redisUtil, timeout(1000)).tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+        verify(adapterFactory, never()).getAdapter("RRF");
+        verifyNoInteractions(printerCacheService, eventPublisher);
     }
 
     @Test

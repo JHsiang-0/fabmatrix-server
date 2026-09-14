@@ -51,6 +51,8 @@ HELP.md
 *.pid
 *.seed
 *.pid.lock
+/backup/
+/logs/
 
 # OS generated files
 .DS_Store

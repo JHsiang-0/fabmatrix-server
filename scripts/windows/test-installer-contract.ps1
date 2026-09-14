@@ -491,6 +491,7 @@ $portableConfig = Join-Path $scriptRoot 'service\portable-config.ps1'
 $dataAcl = Join-Path $scriptRoot 'service\data-acl.ps1'
 $recovery = Join-Path $scriptRoot 'service\recover-upgrade-state.ps1'
 $serviceXml = Join-Path $scriptRoot 'service\service-xml.ps1'
+$healthCheck = Join-Path $scriptRoot 'service\health-check.ps1'
 $control = Join-Path $scriptRoot 'service\service-control.ps1'
 $tray = Join-Path $projectRoot 'src\main\java\com\example\farm\tray\FabMatrixTray.java'
 $backup = Join-Path $projectRoot 'scripts\local-backup.ps1'
@@ -659,6 +660,39 @@ Assert-NotContains $serviceXml '<env name="LOG_PATH"' 'WinSW must not override S
 Assert-Contains $control 'ValidateSet' 'tray service actions'
 Assert-Contains $control 'Get-FabMatrixEffectivePort|effective-port\.txt' 'tray service control uses installed effective port'
 Assert-Contains $control 'Wait-FabMatrixHealth|actuator/health' 'tray service start health check'
+Assert-Contains $install 'health-check\.ps1|Test-FabMatrixHealthResponse' 'installer uses shared health response helper'
+Assert-Contains $control 'health-check\.ps1|Test-FabMatrixHealthResponse' 'service control uses shared health response helper'
+Assert-Contains $build 'health-check\.ps1' 'shared health helper payload copy'
+Assert-Exists $healthCheck 'shared health response helper'
+$healthCheckSource = Get-Content -LiteralPath $healthCheck -Raw -Encoding UTF8
+$healthCheckTokens = $null
+$healthCheckParseErrors = $null
+$healthCheckAst = [System.Management.Automation.Language.Parser]::ParseInput($healthCheckSource, $healthCheck, [ref]$healthCheckTokens, [ref]$healthCheckParseErrors)
+if ($healthCheckParseErrors.Count -ne 0) { throw "Health helper AST parse failed: $($healthCheckParseErrors[0].Message)" }
+$healthCheckFunction = $healthCheckAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-FabMatrixHealthResponse' }, $true)
+if ($null -eq $healthCheckFunction) { throw 'Health helper does not expose Test-FabMatrixHealthResponse.' }
+. $healthCheck
+$healthUpJson = '{"status":"UP","components":{"db":{"status":"UP"}}}'
+$healthCases = @(
+    [pscustomobject]@{ Name = 'HTTP 200 Byte[] UP'; StatusCode = 200; Content = [Text.Encoding]::UTF8.GetBytes($healthUpJson); Expected = $true },
+    [pscustomobject]@{ Name = 'HTTP 200 string UP'; StatusCode = 200; Content = $healthUpJson; Expected = $true },
+    [pscustomobject]@{ Name = 'invalid JSON'; StatusCode = 200; Content = '{"status":"UP","secret":"contract-sensitive-marker"'; Expected = $false },
+    [pscustomobject]@{ Name = 'DOWN'; StatusCode = 200; Content = '{"status":"DOWN"}'; Expected = $false },
+    [pscustomobject]@{ Name = 'non-200 UP'; StatusCode = 503; Content = $healthUpJson; Expected = $false }
+)
+foreach ($healthCase in $healthCases) {
+    $response = [pscustomobject]@{ StatusCode = $healthCase.StatusCode; Content = $healthCase.Content }
+    $actual = Test-FabMatrixHealthResponse -Response $response
+    if ([bool]$actual -ne $healthCase.Expected) {
+        throw "Shared health response helper regression: $($healthCase.Name) expected $($healthCase.Expected), got $actual"
+    }
+}
+$sensitiveProbeResponse = [pscustomobject]@{ StatusCode = 200; Content = '{"status":"UP","secret":"contract-sensitive-marker"' }
+$sensitiveProbeOutput = (& { Test-FabMatrixHealthResponse -Response $sensitiveProbeResponse } 2>&1 | Out-String)
+if ($sensitiveProbeOutput -match 'contract-sensitive-marker') {
+    throw 'Shared health response helper leaked response content.'
+}
+Write-Host 'FabMatrix shared health response helper regression checks passed.'
 Assert-Contains $tray 'SystemTray|FabMatrixTray' 'pure JDK tray controller'
 Assert-Contains $tray 'service-state.*effective-port\.txt|PORT_METADATA_DIRECTORY.*PORT_METADATA_FILE' 'tray installed effective port metadata path'
 Assert-Contains $tray 'tray\.lock|tryLock' 'single instance'
@@ -1085,7 +1119,8 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     foreach ($relative in @('FabMatrixServer.exe', 'FabMatrixTray.exe', 'service\purge-local-data.ps1', 'maintenance\local-backup.ps1',
             'maintenance\local-restore.ps1', 'maintenance\data-acl.ps1', 'maintenance\portable-config.ps1',
             'service\capture-upgrade-state.ps1', 'service\data-acl.ps1', 'service\migrate-legacy-data.ps1',
-            'service\portable-config.ps1', 'service\recover-upgrade-state.ps1', 'service\service-xml.ps1')) {
+            'service\portable-config.ps1', 'service\recover-upgrade-state.ps1', 'service\service-xml.ps1',
+            'service\health-check.ps1')) {
         Assert-Exists (Join-Path $payload $relative) "payload $relative"
     }
     Invoke-PackagedLocalStartupProbe $payload $configure

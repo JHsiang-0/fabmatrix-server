@@ -349,6 +349,7 @@ if ($SelfTestPortConfig) {
 
 . (Join-Path $serviceDir 'service-xml.ps1')
 . (Join-Path $serviceDir 'data-acl.ps1')
+. (Join-Path $serviceDir 'health-check.ps1')
 
 function Set-PrivateFirewallRule([ValidateRange(1, 65535)][int]$EffectivePort) {
     if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) -or
@@ -397,7 +398,7 @@ function Install-WinSwServiceWithRetry {
 function Test-FabMatrixHealth([ValidateRange(1, 65535)][int]$EffectivePort) {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$EffectivePort/actuator/health" -TimeoutSec 2 -ErrorAction Stop
-        return $response.StatusCode -eq 200 -and $response.Content -match '"status"\s*:\s*"UP"'
+        return Test-FabMatrixHealthResponse -Response $response
     } catch {
         return $false
     }

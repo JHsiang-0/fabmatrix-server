@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $serviceName = 'FabMatrixServer'
 $defaultPort = 28081
 $installDir = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+. (Join-Path $installDir 'service\health-check.ps1')
 
 function ConvertTo-FabMatrixPort([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
@@ -87,7 +88,7 @@ function Wait-ServiceStatus($Service, [System.ServiceProcess.ServiceControllerSt
 function Test-FabMatrixHealth([int]$Port) {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" -TimeoutSec 2 -ErrorAction Stop
-        return $response.StatusCode -eq 200 -and $response.Content -match '"status"\s*:\s*"UP"'
+        return Test-FabMatrixHealthResponse -Response $response
     } catch {
         return $false
     }

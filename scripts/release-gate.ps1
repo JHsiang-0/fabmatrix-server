@@ -33,6 +33,9 @@ function Assert-WorkspaceClean([string]$Root, [string]$Label) {
 
 Assert-WorkspaceClean $serverRoot 'server'
 Assert-WorkspaceClean $resolvedClientRoot 'client'
+Invoke-ReleaseStep 'release scan contract' {
+    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $serverRoot 'scripts\test-release-scan.ps1')
+}
 Invoke-ReleaseStep 'version and source safety scan' {
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $serverRoot 'scripts\release-scan.ps1') -ServerRoot $serverRoot -ClientRoot $resolvedClientRoot
 }

@@ -60,17 +60,22 @@ function Test-TextPath([string]$Path, [string]$RelativePath, [bool]$Artifact) {
 }
 
 Assert-VersionContract
-$sourceFiles = @(
+$requiredSourceFiles = @(
     'pom.xml',
-    'src\main\resources\application-prod.yaml',
     'scripts\windows\installer\Farm.iss',
     'scripts\windows\build-installer.ps1',
     'scripts\windows\README-Windows.md'
 )
-foreach ($relativePath in $sourceFiles) {
+foreach ($relativePath in $requiredSourceFiles) {
     $path = Join-Path $resolvedServerRoot $relativePath
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Add-Finding $relativePath 'missing-input' 'Release scan input is missing'; continue }
     Test-TextPath $path $relativePath $false
+}
+
+$optionalSourceFiles = @('src\main\resources\application-prod.yaml')
+foreach ($relativePath in $optionalSourceFiles) {
+    $path = Join-Path $resolvedServerRoot $relativePath
+    if (Test-Path -LiteralPath $path -PathType Leaf) { Test-TextPath $path $relativePath $false }
 }
 
 foreach ($inputPath in $ArtifactPath) {

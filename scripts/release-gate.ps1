@@ -1,5 +1,6 @@
 param(
     [string]$ClientRoot = '',
+    [string]$MavenPath = '',
     [switch]$AllowDirtyWorkspace,
     [switch]$SkipExternalTools,
     [string]$CandidateRecordPath = ''
@@ -40,18 +41,23 @@ Invoke-ReleaseStep 'version and source safety scan' {
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $serverRoot 'scripts\release-scan.ps1') -ServerRoot $serverRoot -ClientRoot $resolvedClientRoot
 }
 
-$maven = Get-Command mvn.cmd -ErrorAction SilentlyContinue
-if ($null -eq $maven -and (Test-Path -LiteralPath (Join-Path $serverRoot 'mvnw.cmd'))) {
-    $mavenPath = Join-Path $serverRoot 'mvnw.cmd'
-} elseif ($null -ne $maven) {
-    $mavenPath = $maven.Source
+if (-not [string]::IsNullOrWhiteSpace($MavenPath)) {
+    $mavenCandidate = if ([IO.Path]::IsPathRooted($MavenPath)) { $MavenPath } else { Join-Path $serverRoot $MavenPath }
+    if (-not (Test-Path -LiteralPath $mavenCandidate -PathType Leaf)) {
+        throw "Specified MavenPath does not exist: $mavenCandidate"
+    }
+    $resolvedMavenPath = (Resolve-Path -LiteralPath $mavenCandidate).Path
+} elseif (Test-Path -LiteralPath (Join-Path $serverRoot 'mvnw.cmd') -PathType Leaf) {
+    $resolvedMavenPath = (Resolve-Path -LiteralPath (Join-Path $serverRoot 'mvnw.cmd')).Path
 } else {
-    throw 'Maven or mvnw.cmd was not found.'
+    $maven = Get-Command mvn.cmd -ErrorAction SilentlyContinue
+    if ($null -eq $maven) { throw 'Maven or mvnw.cmd was not found.' }
+    $resolvedMavenPath = $maven.Source
 }
 Push-Location $serverRoot
 try {
-    Invoke-ReleaseStep 'Maven full test' { & $mavenPath 'test' }
-    Invoke-ReleaseStep 'Maven package build' { & $mavenPath 'package' '-DskipTests' }
+    Invoke-ReleaseStep 'Maven full test' { & $resolvedMavenPath 'test' }
+    Invoke-ReleaseStep 'Maven package build' { & $resolvedMavenPath 'package' '-DskipTests' }
 } finally {
     Pop-Location
 }

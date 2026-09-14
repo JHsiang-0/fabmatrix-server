@@ -64,6 +64,11 @@ public class User implements Serializable {
     @Schema(description = "账号是否启用")
     private Boolean enabled = true;
 
+    /** 密码、角色或账号状态变化时递增，以即时失效既有 Token。 */
+    @TableField("token_version")
+    @Schema(description = "会话版本")
+    private Long tokenVersion = 0L;
+
     /**
      * 邮箱
      */

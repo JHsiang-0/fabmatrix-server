@@ -6,7 +6,9 @@ import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.User;
 import com.example.farm.entity.vo.PrinterVO;
+import com.example.farm.mapper.UserMapper;
 import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.service.FarmStatusSnapshotService;
 import com.example.farm.config.CommonObjectMapperConfig;
@@ -46,6 +48,7 @@ class WebSocketSecurityTest {
 
     private final FarmStatusSnapshotService snapshotService = org.mockito.Mockito.mock(FarmStatusSnapshotService.class);
     private final LoginProtectUtil loginProtectUtil = org.mockito.Mockito.mock(LoginProtectUtil.class);
+    private final UserMapper userMapper = org.mockito.Mockito.mock(UserMapper.class);
 
     @BeforeEach
     void setJwtSecret() {
@@ -53,6 +56,7 @@ class WebSocketSecurityTest {
         WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(snapshotService);
         new WebSocketServer().setLoginProtectUtil(loginProtectUtil);
+        new WebSocketServer().setUserMapper(null);
         new WebSocketServer().setObjectMapper(new CommonObjectMapperConfig().objectMapper());
     }
 
@@ -63,6 +67,7 @@ class WebSocketSecurityTest {
         WebSocketServer.configureMaxConnections(100);
         new WebSocketServer().setSnapshotService(null);
         new WebSocketServer().setLoginProtectUtil(null);
+        new WebSocketServer().setUserMapper(null);
         new WebSocketServer().setObjectMapper(null);
     }
 
@@ -301,6 +306,35 @@ class WebSocketSecurityTest {
     }
 
     @Test
+    void closesSessionWhenTokenVersionChangesDuringHeartbeat() throws Exception {
+        User currentUser = new User();
+        currentUser.setId(1L);
+        currentUser.setUsername("operator");
+        currentUser.setRole("OPERATOR");
+        currentUser.setEnabled(true);
+        currentUser.setTokenVersion(0L);
+        when(userMapper.selectById(1L)).thenReturn(currentUser);
+
+        Session session = authorizedSessionWithToken(token(1L, "OPERATOR", 0L, "operator"));
+        RemoteEndpoint.Basic basic = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
+        RemoteEndpoint.Async async = org.mockito.Mockito.mock(RemoteEndpoint.Async.class);
+        when(session.getBasicRemote()).thenReturn(basic);
+        when(session.getAsyncRemote()).thenReturn(async);
+        when(session.isOpen()).thenReturn(true);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
+
+        WebSocketServer server = new WebSocketServer();
+        server.setUserMapper(userMapper);
+        server.onOpen(session);
+        currentUser.setTokenVersion(1L);
+
+        WebSocketServer.sendHeartbeat();
+
+        verify(session).close(any(jakarta.websocket.CloseReason.class));
+        assertThat(WebSocketServer.getOnlineCount()).isZero();
+    }
+
+    @Test
     void removesSessionWhenProtocolHeartbeatFails() throws Exception {
         Session session = authorizedSession();
         RemoteEndpoint.Basic basic = org.mockito.Mockito.mock(RemoteEndpoint.Basic.class);
@@ -342,9 +376,17 @@ class WebSocketSecurityTest {
     }
 
     private Session authorizedSession(Long userId, String role, String sessionId) {
+        return authorizedSessionWithToken(sessionId, token(userId, role));
+    }
+
+    private Session authorizedSessionWithToken(String token) {
+        return authorizedSessionWithToken("authorized-session", token);
+    }
+
+    private Session authorizedSessionWithToken(String sessionId, String token) {
         Session session = org.mockito.Mockito.mock(Session.class);
         when(session.getId()).thenReturn(sessionId);
-        when(session.getRequestParameterMap()).thenReturn(Map.of("token", List.of(token(userId, role))));
+        when(session.getRequestParameterMap()).thenReturn(Map.of("token", List.of(token)));
         Map<String, Object> properties = new HashMap<>();
         when(session.getUserProperties()).thenReturn(properties);
         return session;
@@ -358,6 +400,16 @@ class WebSocketSecurityTest {
         return JWT.create()
                 .withClaim("userId", userId)
                 .withClaim("role", role)
+                .withExpiresAt(new Date(System.currentTimeMillis() + 60_000))
+                .sign(Algorithm.HMAC256("websocket-test-secret"));
+    }
+
+    private String token(Long userId, String role, Long tokenVersion, String username) {
+        return JWT.create()
+                .withClaim("userId", userId)
+                .withClaim("username", username)
+                .withClaim("role", role)
+                .withClaim("tokenVersion", tokenVersion)
                 .withExpiresAt(new Date(System.currentTimeMillis() + 60_000))
                 .sign(Algorithm.HMAC256("websocket-test-secret"));
     }

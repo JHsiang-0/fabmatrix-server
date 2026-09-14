@@ -4,6 +4,8 @@ import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
+import com.example.farm.entity.User;
+import com.example.farm.mapper.UserMapper;
 import com.example.farm.service.FarmStatusSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.websocket.*;
@@ -15,6 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,6 +38,7 @@ public class WebSocketServer {
     private static volatile ObjectMapper objectMapper;
     private static volatile FarmStatusSnapshotService snapshotService;
     private static volatile LoginProtectUtil loginProtectUtil;
+    private static volatile UserMapper userMapper;
 
     /**
      * Jakarta Endpoint 由容器创建，使用 setter 将 Spring 快照服务注册到端点。
@@ -57,6 +62,12 @@ public class WebSocketServer {
         WebSocketServer.loginProtectUtil = service;
     }
 
+    /** 将数据库用户状态桥接到 Jakarta Endpoint，用于连接存续期间的即时失效检查。 */
+    @Autowired
+    public void setUserMapper(UserMapper mapper) {
+        WebSocketServer.userMapper = mapper;
+    }
+
     @OnOpen
     public void onOpen(Session session) {
         String token = firstText(session.getRequestParameterMap().get("token"));
@@ -71,19 +82,15 @@ public class WebSocketServer {
         try {
             DecodedJWT jwt = JwtUtils.verifyToken(token);
             Long userId = jwt.getClaim("userId").asLong();
-            String role = jwt.getClaim("role").asString();
+            String role = normalizeRole(jwt.getClaim("role").asString());
+            Long tokenVersion = readTokenVersion(jwt);
             if (userId == null || role == null || role.isBlank()) {
                 closeForPolicy(session, "Token 缺少用户身份");
                 return;
             }
-            LoginProtectUtil protectUtil = loginProtectUtil;
-            if (protectUtil == null) {
-                closeForPolicy(session, "鉴权服务尚未就绪");
-                return;
-            }
             try {
-                if (protectUtil.isUserDisabled(userId)) {
-                    closeForPolicy(session, "用户已被禁用");
+                if (!isCurrentSessionValid(userId, jwt.getClaim("username").asString(), role, tokenVersion)) {
+                    closeForPolicy(session, "会话已失效");
                     return;
                 }
             } catch (RuntimeException exception) {
@@ -92,7 +99,7 @@ public class WebSocketServer {
                 closeForPolicy(session, "鉴权服务暂不可用");
                 return;
             }
-            SessionContext context = new SessionContext(session);
+            SessionContext context = new SessionContext(session, userId, role, tokenVersion, jwt.getExpiresAt());
             synchronized (sessions) {
                 if (sessions.size() >= maxConnections) {
                     closeForPolicy(session, "WebSocket 连接数已达上限");
@@ -164,6 +171,10 @@ public class WebSocketServer {
             Session session = context.session;
             if (!session.isOpen()) {
                 closeAndRemove(session);
+                continue;
+            }
+            if (!isCurrentSessionValid(context)) {
+                closeForSessionInvalidation(session);
                 continue;
             }
             synchronized (context.lock) {
@@ -276,6 +287,17 @@ public class WebSocketServer {
         }
     }
 
+    private static void closeForSessionInvalidation(Session session) {
+        removeSession(session);
+        try {
+            if (session.isOpen()) {
+                session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "会话已失效"));
+            }
+        } catch (IOException closeException) {
+            log.debug("关闭失效 WebSocket 会话失败: sessionId={}", session.getId(), closeException);
+        }
+    }
+
     private static void sendLocked(SessionContext context, Object data) throws Exception {
         ObjectMapper mapper = objectMapper;
         if (mapper == null) {
@@ -299,12 +321,59 @@ public class WebSocketServer {
 
     private static final class SessionContext {
         private final Session session;
+        private final Long userId;
+        private final String role;
+        private final Long tokenVersion;
+        private final Date expiresAt;
         private final Object lock = new Object();
         private final AtomicLong sequence = new AtomicLong();
         private volatile boolean ready;
 
-        private SessionContext(Session session) {
+        private SessionContext(Session session, Long userId, String role, Long tokenVersion, Date expiresAt) {
             this.session = session;
+            this.userId = userId;
+            this.role = role;
+            this.tokenVersion = tokenVersion;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    private static Long readTokenVersion(DecodedJWT jwt) {
+        Long tokenVersion = jwt.getClaim("tokenVersion").asLong();
+        return tokenVersion == null ? 0L : tokenVersion;
+    }
+
+    private static String normalizeRole(String role) {
+        return role == null ? null : role.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static boolean isCurrentSessionValid(SessionContext context) {
+        if (context.expiresAt == null || !context.expiresAt.after(new Date())) return false;
+        return isCurrentSessionValid(context.userId, null, context.role, context.tokenVersion);
+    }
+
+    private static boolean isCurrentSessionValid(Long userId, String username, String role, Long tokenVersion) {
+        UserMapper mapper = userMapper;
+        if (mapper != null) {
+            try {
+                User user = mapper.selectById(userId);
+                long currentVersion = user == null || user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+                return user != null && !Boolean.FALSE.equals(user.getEnabled())
+                        && (username == null || username.equals(user.getUsername()))
+                        && role.equalsIgnoreCase(user.getRole())
+                        && currentVersion == tokenVersion;
+            } catch (RuntimeException exception) {
+                log.warn("WebSocket 会话状态检查失败，主动关闭连接: userId={}", userId, exception);
+                return false;
+            }
+        }
+
+        LoginProtectUtil protectUtil = loginProtectUtil;
+        try {
+            return protectUtil != null && !protectUtil.isUserDisabled(userId);
+        } catch (RuntimeException exception) {
+            log.warn("WebSocket 用户禁用状态检查失败，主动关闭连接: userId={}", userId, exception);
+            return false;
         }
     }
 

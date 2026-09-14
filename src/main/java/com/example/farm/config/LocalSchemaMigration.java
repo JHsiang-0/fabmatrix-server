@@ -39,6 +39,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         correctLegacyDefaultDashboardLayout();
         createAuditLogTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
+        addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("farm_dispatch_plan", "retry_key", "VARCHAR(128)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_plan_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_item_id", "VARCHAR(64)");
@@ -53,6 +54,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_printer(monitor_enabled, firmware_type)");
         jdbcTemplate.update("UPDATE farm_print_file SET visibility = 'PRIVATE' "
                 + "WHERE visibility IS NULL OR UPPER(visibility) NOT IN ('PRIVATE', 'PUBLIC')");
+        jdbcTemplate.update("UPDATE farm_user SET token_version = 0 WHERE token_version IS NULL");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_print_file_visibility_parent "
                 + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();

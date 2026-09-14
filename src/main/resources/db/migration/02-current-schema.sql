@@ -116,6 +116,11 @@ CALL farm_add_column_if_missing(
     'farm_print_file', 'parent_id',
     'BIGINT NULL DEFAULT NULL COMMENT ''父目录ID（NULL表示根目录）'' AFTER `id`'
 )$$
+
+CALL farm_add_column_if_missing(
+    'farm_user', 'token_version',
+    'BIGINT NOT NULL DEFAULT 0 COMMENT ''会话版本（密码、角色或账号状态变化时递增）'' AFTER `enabled`'
+)$$
 CALL farm_add_column_if_missing(
     'farm_print_file', 'is_folder',
     'TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否为文件夹（0-文件，1-文件夹）'' AFTER `parent_id`'

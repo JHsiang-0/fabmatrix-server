@@ -37,15 +37,13 @@ public class JwtUtils {
         log.info("JWT 工具初始化完成，Token 有效期: {} 毫秒", expireTime);
     }
 
-    /**
-     * 根据用户ID和用户名，生成 Token
-     *
-     * @param userId   用户ID
-     * @param username 用户名
-     * @param role     用户角色
-     * @return JWT Token 字符串
-     */
+    /** 兼容旧调用方：没有会话版本 claim 的 Token 按版本 0 签发。 */
     public static String generateToken(Long userId, String username, String role) {
+        return generateToken(userId, username, role, 0L);
+    }
+
+    /** 根据用户身份和当前会话版本生成 Token。 */
+    public static String generateToken(Long userId, String username, String role, Long tokenVersion) {
         Date expireDate = new Date(System.currentTimeMillis() + STATIC_EXPIRE_TIME);
 
         // 设置头部信息
@@ -58,6 +56,7 @@ public class JwtUtils {
                 .withClaim("userId", userId)
                 .withClaim("username", username)
                 .withClaim("role", role)
+                .withClaim("tokenVersion", tokenVersion == null ? 0L : tokenVersion)
                 .withExpiresAt(expireDate)
                 .sign(Algorithm.HMAC256(STATIC_SECRET_KEY));
     }

@@ -39,6 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.List;
+
 /**
  * 用户服务实现。
  */
@@ -101,6 +103,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw authenticationFailure("账号或密码错误");
         }
 
+        User lockedUser = getBaseMapper().selectByIdForUpdate(user.getId());
+        if (lockedUser != null) {
+            user = lockedUser;
+        }
+
         if (Boolean.FALSE.equals(user.getEnabled())
                 || (user.getEnabled() == null && loginProtectUtil.isUserDisabled(user.getId()))) {
             recordLoginFailure(user.getUsername(), user.getId(), "ACCOUNT_DISABLED");
@@ -129,7 +136,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             log.info("用户密码已自动迁移为加密存储: username={}", user.getUsername());
         }
 
-        String token = JwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole());
+        String token = JwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), currentTokenVersion(user));
         LoginResultDTO result = new LoginResultDTO(
                 token,
                 jwtExpireTime / 1000,
@@ -205,7 +212,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             invalidateBootstrapTokenAfterCommit();
 
             LoginResultDTO result = new LoginResultDTO(
-                    JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole()),
+                    JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole(), currentTokenVersion(admin)),
                     jwtExpireTime / 1000,
                     admin.getId(),
                     admin.getUsername(),
@@ -272,7 +279,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException("两次输入的新密码不一致");
         }
 
-        User user = getById(userId);
+        User user = getUserForUpdate(userId);
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
@@ -292,6 +299,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         user.setPasswordHash(passwordEncoder.encode(changePasswordDTO.getNewPassword()));
+        incrementTokenVersion(user);
         updateUserOrThrow(user, "用户修改密码失败");
         log.info("用户修改密码成功: username={}", user.getUsername());
     }
@@ -299,7 +307,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     @Transactional
     public void updateUserInfo(UserUpdateDTO updateDTO) {
-        User user = getById(updateDTO.getId());
+        if (StringUtils.isNotBlank(updateDTO.getRole())) {
+            lockEnabledAdminIds();
+        }
+        User user = getUserForUpdate(updateDTO.getId());
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
@@ -315,9 +326,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             user.setPhone(updateDTO.getPhone());
         }
 
+        boolean roleChanged = false;
         if (StringUtils.isNotBlank(updateDTO.getRole())) {
-            user.setRole(normalizeRole(updateDTO.getRole()));
+            String nextRole = normalizeRole(updateDTO.getRole());
+            roleChanged = !nextRole.equalsIgnoreCase(user.getRole());
+            if (roleChanged && ROLE_ADMIN.equalsIgnoreCase(user.getRole())
+                    && Boolean.TRUE.equals(user.getEnabled())
+                    && !ROLE_ADMIN.equals(nextRole)) {
+                assertNotLastActiveAdmin(user.getId());
+            }
+            user.setRole(nextRole);
         }
+
+        if (roleChanged) incrementTokenVersion(user);
 
         updateUserOrThrow(user, "用户信息更新失败");
         recordSuccess("USER_UPDATE", "USER", user.getId(), user.getUsername());
@@ -364,7 +385,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     @Transactional
     public UserVO disableUser(Long userId, Long adminId) {
-        User user = getById(userId);
+        lockEnabledAdminIds();
+        User user = getUserForUpdate(userId);
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
@@ -374,7 +396,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         assertAdmin(adminId);
         if (!Boolean.FALSE.equals(user.getEnabled())) {
+            if (ROLE_ADMIN.equalsIgnoreCase(user.getRole())) {
+                assertNotLastActiveAdmin(user.getId());
+            }
             user.setEnabled(false);
+            incrementTokenVersion(user);
             updateUserOrThrow(user, "用户禁用失败");
         }
         loginProtectUtil.disableUser(userId);
@@ -387,7 +413,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     @Transactional
     public UserVO enableUser(Long userId, Long adminId) {
-        User user = getById(userId);
+        lockEnabledAdminIds();
+        User user = getUserForUpdate(userId);
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
@@ -395,6 +422,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         assertAdmin(adminId);
         if (!Boolean.TRUE.equals(user.getEnabled())) {
             user.setEnabled(true);
+            incrementTokenVersion(user);
             updateUserOrThrow(user, "用户启用失败");
         }
         loginProtectUtil.enableUser(userId);
@@ -435,6 +463,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
             if (currentHash != null && !currentHash.isEmpty()) {
                 user.setPasswordHash(passwordEncoder.encode(currentHash));
+                incrementTokenVersion(user);
                 updateUserOrThrow(user, "用户密码迁移失败");
                 migratedCount++;
                 log.info("用户密码已迁移: username={}", user.getUsername());
@@ -494,6 +523,35 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
     }
 
+    private User getUserForUpdate(Long userId) {
+        User lockedUser = getBaseMapper().selectByIdForUpdate(userId);
+        return lockedUser == null ? getById(userId) : lockedUser;
+    }
+
+    private List<Long> lockEnabledAdminIds() {
+        return getBaseMapper().selectEnabledAdminIdsForUpdate();
+    }
+
+    private long currentTokenVersion(User user) {
+        return user == null || user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+    }
+
+    private void incrementTokenVersion(User user) {
+        long currentVersion = currentTokenVersion(user);
+        if (currentVersion == Long.MAX_VALUE) {
+            throw new BusinessException("用户会话版本已达到上限，请联系管理员");
+        }
+        user.setTokenVersion(currentVersion + 1);
+    }
+
+    /** 锁定活跃管理员集合，避免并发降级/停用同时留下零个管理员。 */
+    private void assertNotLastActiveAdmin(Long targetUserId) {
+        List<Long> adminIds = lockEnabledAdminIds();
+        if (adminIds != null && adminIds.stream().anyMatch(targetUserId::equals) && adminIds.size() <= 1) {
+            throw new BusinessException(409, "系统至少需要保留一个启用的管理员账号");
+        }
+    }
+
     private boolean isSetupStateInitialized() {
         if (jdbcTemplate == null) {
             return false;
@@ -538,7 +596,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (admin == null) {
             throw new BusinessException("管理员账号不存在");
         }
-        if (!ROLE_ADMIN.equalsIgnoreCase(admin.getRole())) {
+        if (!ROLE_ADMIN.equalsIgnoreCase(admin.getRole()) || Boolean.FALSE.equals(admin.getEnabled())) {
             throw new BusinessException("当前用户无管理员权限");
         }
     }

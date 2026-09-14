@@ -9,6 +9,7 @@ import com.example.farm.entity.dto.ChangePasswordDTO;
 import com.example.farm.entity.dto.UserRegisterDTO;
 import com.example.farm.entity.dto.UserUpdateDTO;
 import com.example.farm.entity.dto.UserLoginDTO;
+import com.example.farm.entity.dto.LoginResultDTO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.BootstrapTokenService;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class UserAuthenticationTest {
@@ -82,6 +84,23 @@ class UserAuthenticationTest {
     }
 
     @Test
+    void loginTokenContainsTheLockedCurrentSessionVersion() {
+        ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "login-session-version-secret");
+        ReflectionTestUtils.setField(JwtUtils.class, "STATIC_EXPIRE_TIME", 60_000L);
+        ReflectionTestUtils.setField(userService, "jwtExpireTime", 60_000L);
+        User user = user(1L, "operator", "Operator123");
+        user.setRole("OPERATOR");
+        user.setTokenVersion(7L);
+        when(userMapper.selectOne(any(), eq(true))).thenReturn(user);
+        when(userMapper.selectByIdForUpdate(1L)).thenReturn(user);
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        LoginResultDTO result = userService.login(login("operator", "Operator123"));
+
+        assertThat(JwtUtils.verifyToken(result.getToken()).getClaim("tokenVersion").asLong()).isEqualTo(7L);
+    }
+
+    @Test
     void loginFailsWhenLegacyPasswordMigrationAffectsNoRows() {
         User user = user(1L, "admin", "Admin123");
         when(userMapper.selectOne(any(), eq(true))).thenReturn(user);
@@ -124,6 +143,26 @@ class UserAuthenticationTest {
     }
 
     @Test
+    void changingPasswordIncrementsTokenVersion() {
+        User user = user(1L, "operator", "OldPass1");
+        user.setRole("OPERATOR");
+        user.setTokenVersion(4L);
+        when(userMapper.selectByIdForUpdate(1L)).thenReturn(user);
+        when(passwordEncoder.encode("NewPass1")).thenReturn("new-hash");
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        ChangePasswordDTO request = new ChangePasswordDTO();
+        request.setOldPassword("OldPass1");
+        request.setNewPassword("NewPass1");
+        request.setConfirmPassword("NewPass1");
+
+        userService.changePassword(1L, request);
+
+        assertThat(user.getTokenVersion()).isEqualTo(5L);
+        verify(userMapper).updateById(user);
+    }
+
+    @Test
     void changingPasswordRejectsMismatchedPasswordsBeforeReadingUser() {
         ChangePasswordDTO request = new ChangePasswordDTO();
         request.setOldPassword("OldPass1");
@@ -147,6 +186,61 @@ class UserAuthenticationTest {
 
         assertThatThrownBy(() -> userService.updateUserInfo(request))
                 .hasMessage("用户信息更新失败");
+    }
+
+    @Test
+    void changingRoleIncrementsTokenVersion() {
+        User user = user(1L, "admin", "stored-hash");
+        user.setTokenVersion(2L);
+        when(userMapper.selectByIdForUpdate(1L)).thenReturn(user);
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        UserUpdateDTO request = new UserUpdateDTO();
+        request.setId(1L);
+        request.setRole("OPERATOR");
+
+        userService.updateUserInfo(request);
+
+        assertThat(user.getRole()).isEqualTo("OPERATOR");
+        assertThat(user.getTokenVersion()).isEqualTo(3L);
+        verify(userMapper).updateById(user);
+        var lockOrder = inOrder(userMapper);
+        lockOrder.verify(userMapper).selectEnabledAdminIdsForUpdate();
+        lockOrder.verify(userMapper).selectByIdForUpdate(1L);
+    }
+
+    @Test
+    void cannotDemoteTheLastEnabledAdmin() {
+        User user = user(1L, "admin", "stored-hash");
+        when(userMapper.selectByIdForUpdate(1L)).thenReturn(user);
+        when(userMapper.selectEnabledAdminIdsForUpdate()).thenReturn(java.util.List.of(1L));
+
+        UserUpdateDTO request = new UserUpdateDTO();
+        request.setId(1L);
+        request.setRole("OPERATOR");
+
+        assertThatThrownBy(() -> userService.updateUserInfo(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("系统至少需要保留一个启用的管理员账号")
+                .extracting("code")
+                .isEqualTo(409L);
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    void cannotDisableTheLastEnabledAdmin() {
+        User target = user(2L, "target-admin", "stored-hash");
+        User actor = user(1L, "admin", "stored-hash");
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+        when(userMapper.selectById(1L)).thenReturn(actor);
+        when(userMapper.selectEnabledAdminIdsForUpdate()).thenReturn(java.util.List.of(2L));
+
+        assertThatThrownBy(() -> userService.disableUser(2L, 1L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("系统至少需要保留一个启用的管理员账号")
+                .extracting("code")
+                .isEqualTo(409L);
+        verify(userMapper, never()).updateById(any(User.class));
     }
 
     @Test

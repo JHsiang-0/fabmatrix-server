@@ -190,6 +190,7 @@ CREATE TABLE `farm_user`  (
   `password_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '加密后的密码',
   `role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'OPERATOR' COMMENT '角色权限：ADMIN, OPERATOR',
   `enabled` tinyint(1) NOT NULL DEFAULT '1' COMMENT '账号是否启用',
+  `token_version` bigint NOT NULL DEFAULT '0' COMMENT '会话版本（密码、角色或账号状态变化时递增）',
   `email` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '邮箱',
   `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '手机号',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -201,7 +202,7 @@ CREATE TABLE `farm_user`  (
 -- ----------------------------
 -- Records of farm_user
 -- ----------------------------
-INSERT INTO `farm_user` VALUES (1, 'admin', '$2a$10$KwtwJhEjIizaBlbl09U2Q.QZm3WL8eGTlmEhol88mhOpfAnxt/qh6', 'ADMIN', 1, NULL, NULL, '2026-03-01 14:54:42', '2026-03-01 14:54:42');
-INSERT INTO `farm_user` VALUES (2, 'user', '$2a$10$4HGt01EtACUq/KPjDybMS.U06MNRY.Zt8gSZcUhT0mNhuIK6CdQIK', 'OPERATOR', 1, 'codexiang@vip.qq.com', '17628236031', '2026-03-04 15:04:42', '2026-03-04 15:04:42');
+INSERT INTO `farm_user` VALUES (1, 'admin', '$2a$10$KwtwJhEjIizaBlbl09U2Q.QZm3WL8eGTlmEhol88mhOpfAnxt/qh6', 'ADMIN', 1, 0, NULL, NULL, '2026-03-01 14:54:42', '2026-03-01 14:54:42');
+INSERT INTO `farm_user` VALUES (2, 'user', '$2a$10$4HGt01EtACUq/KPjDybMS.U06MNRY.Zt8gSZcUhT0mNhuIK6CdQIK', 'OPERATOR', 1, 0, 'codexiang@vip.qq.com', '17628236031', '2026-03-04 15:04:42', '2026-03-04 15:04:42');
 
 SET FOREIGN_KEY_CHECKS = 1;

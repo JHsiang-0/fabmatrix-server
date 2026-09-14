@@ -2,4 +2,34 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.UserMapper">
 
+    <select id="selectByIdForUpdate" resultType="com.example.farm.entity.User">
+        SELECT *
+        FROM farm_user
+        WHERE id = #{userId}
+        FOR UPDATE
+    </select>
+
+    <select id="selectByIdForUpdate" databaseId="sqlite" resultType="com.example.farm.entity.User">
+        SELECT *
+        FROM farm_user
+        WHERE id = #{userId}
+    </select>
+
+    <select id="selectEnabledAdminIdsForUpdate" resultType="java.lang.Long">
+        SELECT id
+        FROM farm_user
+        WHERE COALESCE(enabled, 1) = 1
+          AND UPPER(role) = 'ADMIN'
+        ORDER BY id
+        FOR UPDATE
+    </select>
+
+    <select id="selectEnabledAdminIdsForUpdate" databaseId="sqlite" resultType="java.lang.Long">
+        SELECT id
+        FROM farm_user
+        WHERE COALESCE(enabled, 1) = 1
+          AND UPPER(role) = 'ADMIN'
+        ORDER BY id
+    </select>
+
 </mapper>

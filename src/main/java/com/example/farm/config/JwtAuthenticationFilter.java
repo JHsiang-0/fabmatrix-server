@@ -6,6 +6,8 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
+import com.example.farm.entity.User;
+import com.example.farm.mapper.UserMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -29,6 +31,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final LoginProtectUtil loginProtectUtil;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private UserMapper userMapper;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
@@ -43,7 +48,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (SecurityContextHolder.getContext().getAuthentication() == null) {
                     Long userId = jwt.getClaim("userId").asLong();
                     String username = jwt.getClaim("username").asString();
-                    String role = jwt.getClaim("role").asString();
+                    String role = normalizeRole(jwt.getClaim("role").asString());
+                    Long tokenVersion = readTokenVersion(jwt);
 
                     if (userId != null) {
                         try {
@@ -57,6 +63,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             renderJson(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, 5001,
                                     "用户状态暂时无法确认，请稍后重试");
                             return;
+                        }
+
+                        if (userMapper != null) {
+                            User currentUser;
+                            try {
+                                currentUser = userMapper.selectById(userId);
+                            } catch (RuntimeException exception) {
+                                logger.warn("访问被拒绝：用户会话状态校验不可用，userId=" + userId, exception);
+                                renderJson(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, 5001,
+                                        "用户状态暂时无法确认，请稍后重试");
+                                return;
+                            }
+                            if (!isCurrentSessionValid(currentUser, username, role, tokenVersion)) {
+                                renderJson(response, HttpServletResponse.SC_UNAUTHORIZED, 401,
+                                        "登录状态已失效，请重新登录");
+                                return;
+                            }
                         }
                     }
 
@@ -80,6 +103,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private Long readTokenVersion(DecodedJWT jwt) {
+        Long tokenVersion = jwt.getClaim("tokenVersion").asLong();
+        return tokenVersion == null ? 0L : tokenVersion;
+    }
+
+    private String normalizeRole(String role) {
+        return role == null ? null : role.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    private boolean isCurrentSessionValid(User user, String username, String role, Long tokenVersion) {
+        if (user == null || Boolean.FALSE.equals(user.getEnabled()) || role == null || username == null) {
+            return false;
+        }
+        long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+        return username.equals(user.getUsername())
+                && role.equalsIgnoreCase(user.getRole())
+                && currentVersion == tokenVersion;
     }
 
     private void renderJson(HttpServletResponse response, int statusCode, long code, String message) throws IOException {

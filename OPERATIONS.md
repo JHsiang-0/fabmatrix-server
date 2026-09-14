@@ -32,7 +32,7 @@ Local Edition 使用 SQLite 和本地文件目录，不需要启动 Docker、MyS
 
 ```bash
 mvn clean package -DskipTests
-java -jar target/Farm-0.0.1-SNAPSHOT.jar --spring.profiles.active=local --server.port=28081
+java -jar target/fabmatrix-server-1.0.0.jar --spring.profiles.active=local --server.port=28081
 ```
 
 手动运行 Local profile 时默认数据目录为 `${user.home}/FarmData`，可用 `FARM_DATA_DIR=D:/FarmData` 指定。正式 Windows 安装包使用统一数据根：安装在系统盘时为 `C:\ProgramData\FabMatrix`，安装在非系统盘时为 `{app}\data`；两者均包含 `config\application.yml`、`database\farm.db`、`files`、`logs`、`backups`。正式唯一构建入口为 `scripts/windows/build-installer.ps1`，旧的 `scripts/build-local-installer.ps1` 仅委托该入口。

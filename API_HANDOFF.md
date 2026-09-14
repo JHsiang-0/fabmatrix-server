@@ -6,7 +6,9 @@
 
 > 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，坐标按服务端当前动态布局校验，布局上限为 30×60 且物理槽位总数不超过 1800；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
 
-项目执行入口：[PROJECT.md](./PROJECT.md)；Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v2/`。
+> 版本说明：本文的 `v2.2` 是接口契约修订号，不是产品版本。当前对外产品为 `1.0.0` 准正式版，接口路径继续使用 `/api/v1` 以保持兼容。版本和规格归属见 [`docs/VERSION_AND_ROADMAP.md`](./docs/VERSION_AND_ROADMAP.md)。
+
+项目执行入口：[PROJECT.md](./PROJECT.md)；后端 Kiro 需求、设计和任务清单位于 `.kiro/specs/farm-v2/`，前端联合发布门禁位于前端 `.kiro/specs/farm-v1-release-readiness/`。
 
 ## TC-001 冻结契约：任务查询与状态机
 
@@ -545,7 +547,7 @@ T9.5 已完成：Klipper/Moonraker 与 RRF 均通过统一 Adapter Factory 选�
 
 T9.8 已完成后端基础部分：`GET /actuator/health` 为免认证探活端点且不返回依赖详情，`health/info` 为基础暴露范围；生产环境仍由 `ProductionSafetyValidator` 收紧密钥、CORS 和 Swagger/OpenAPI，且已有配置回归测试。启动顺序、备份、迁移和无真实打印机时关闭任务的要求见 `OPERATIONS.md`。RustFS 和打印机真实连通性仍需现场检查。
 
-T9.9 已完成：`PRINTER_OFFLINE` 使用稳定的 `printerId/status/reason` 数据，连续离线由监控逻辑抑制重复事件；设备恢复时重新发布 `PRINTER_STATUS`。失败任务通过 `JOB_STATUS` 携带 `jobId/status/progress/errorReason`。服务端每 30 秒发送 WebSocket 协议级 Ping，失败连接自动清理，不新增业务消息类型。真实前端 `/home/codex/workspace/farm-ui` 已实现断线重连、指数退避、离线/失败告警展示和对应自动化测试；浏览器级真实后端端到端仍待完成。
+T9.9 已完成：`PRINTER_OFFLINE` 使用稳定的 `printerId/status/reason` 数据，连续离线由监控逻辑抑制重复事件；设备恢复时重新发布 `PRINTER_STATUS`。失败任务通过 `JOB_STATUS` 携带 `jobId/status/progress/errorReason`。服务端每 30 秒发送 WebSocket 协议级 Ping，失败连接自动清理，不新增业务消息类型。真实前端 `D:\WorkSpace\Vue\fabmatrix-client` 已实现断线重连、指数退避、离线/失败告警展示和对应自动化测试；浏览器级真实后端端到端仍待完成。
 
 Service 层测试已覆盖任务状态转换、重试/重新排队/优先级更新、文件和任务资源归属、文件删除保护、打印机控制前置校验、协议异常和监控离线处理；Mapper 的真实 MySQL 查询分页、完整设备链路和端到端流程仍需现场环境。
 
@@ -896,7 +898,7 @@ TC-008 自动化范围与真实环境验收分开记录：自动化覆盖前端 
 | 任务队列 | `GET /api/v1/print-jobs/queue` | HTTP 200，返回 2 个队列任务 |
 | 实时状态 | `WS /ws/farm-status?token=<JWT>` | 握手成功，收到 `type=SNAPSHOT`，包含 46 台打印机和有效时间戳 |
 
-前端对应文件：`/home/codex/workspace/farm-ui/src/utils/request.js` 负责 Token 和统一响应处理；`src/api/user.js`、`src/api/printer.js`、`src/api/printFile.js`、`src/api/job.js` 负责 REST；`src/views/BatchDispatch.vue` 负责用户确认的批量上传/预览/派发；`src/stores/printer/realtimeStore.js` 负责 `/ws/farm-status` 的连接、快照、增量消息和断档恢复。
+前端对应文件：`D:\WorkSpace\Vue\fabmatrix-client/src/utils/request.js` 负责 Token 和统一响应处理；`src/api/user.js`、`src/api/printer.js`、`src/api/printFile.js`、`src/api/job.js` 负责 REST；`src/views/BatchDispatch.vue` 负责用户确认的批量上传/预览/派发；`src/stores/printer/realtimeStore.js` 负责 `/ws/farm-status` 的连接、快照、增量消息和断档恢复。
 
 本次验证是健康、认证、查询和 WebSocket 握手冒烟，不包含 RRF 控制、文件上传到打印机、启动打印、暂停、急停或完整打印完成链路。
 
@@ -955,7 +957,7 @@ farm.scheduler.enabled=false
 12. 为 ADMIN/OPERATOR 增加 401/403 集成测试。
 13. Klipper 和 RRF 都通过协议适配器接入；RRF 已有可复现 HTTP 协议测试，并已在真实目标 `192.168.0.77` 完成控制、上传、Farm 安全任务和启动请求的响应级验证；完整生产任务物理链路仍待现场验收。
 
-RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。2026-09-03 已对真实目标 `192.168.0.77` 完成空密码、只读对象模型、控制、上传、Farm 安全任务和启动请求探测；该设备响应 `isEmulated=true`、`boardType=unknown`，且未返回 `sessionKey`，后端已兼容此类响应。响应级验证和无动作探针任务已完成，但完整生产物理打印链路仍不能视为验收。此前 `192.168.0.62` 仅为误输入产生的历史测试记录。前端真实仓库为 `/home/codex/workspace/farm-ui`。
+RRF 3.7 协议证据已登记在 [RRF 3.7 协议证据](.kiro/specs/printer-protocol-and-websocket/rrf-3.7-protocol-evidence.md)。2026-09-03 已对真实目标 `192.168.0.77` 完成空密码、只读对象模型、控制、上传、Farm 安全任务和启动请求探测；该设备响应 `isEmulated=true`、`boardType=unknown`，且未返回 `sessionKey`，后端已兼容此类响应。响应级验证和无动作探针任务已完成，但完整生产物理打印链路仍不能视为验收。此前 `192.168.0.62` 仅为误输入产生的历史测试记录。前端真实仓库为 `D:\WorkSpace\Vue\fabmatrix-client`。
 
 ## 11. 前端开发优先顺序
 

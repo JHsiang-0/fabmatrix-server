@@ -29,9 +29,10 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -358,12 +359,21 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         String subnetPrefix = validateSubnetPrefix(subnet);
         log.info("开始扫描局域网 Klipper/RRF 设备：subnet={}", subnetPrefix);
 
-        // 获取数据库中所有已存在的 MAC 地址（用于判断新旧设备）
-        Set<String> existingMacs = this.list().stream()
-                .map(Printer::getMacAddress)
-                .filter(StringUtils::hasText)
-                .map(mac -> macAddressUtil.normalizeMacAddress(mac))
-                .collect(Collectors.toSet());
+        // MAC 是首选设备标识；部分 RRF 设备或跨网段部署无法获取 MAC，必须按 IP 兜底，
+        // 否则已导入设备会一直显示为 UNKNOWN_MAC 并被重复新增。
+        Map<String, Printer> existingByMac = new HashMap<>();
+        Map<String, Printer> existingByIp = new HashMap<>();
+        for (Printer printer : this.list()) {
+            if (StringUtils.hasText(printer.getMacAddress())) {
+                String normalizedMac = macAddressUtil.normalizeMacAddress(printer.getMacAddress());
+                if (StringUtils.hasText(normalizedMac)) {
+                    existingByMac.putIfAbsent(normalizedMac, printer);
+                }
+            }
+            if (StringUtils.hasText(printer.getIpAddress())) {
+                existingByIp.putIfAbsent(printer.getIpAddress(), printer);
+            }
+        }
 
         ExecutorService executor = Executors.newFixedThreadPool(50);
         List<CompletableFuture<PrinterScanResultDTO>> futures = new ArrayList<>();
@@ -386,17 +396,34 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                         // 步骤 3: 构建扫描结果
                         PrinterScanResultDTO result = new PrinterScanResultDTO();
                         result.setIpAddress(targetIp);
-                        result.setMacAddress(macAddress);
+                        String normalizedMac = macAddressUtil.normalizeMacAddress(macAddress);
+                        result.setMacAddress(normalizedMac);
                         result.setFirmwareType(protocolType.name());
 
-                        if (StringUtils.hasText(macAddress)) {
-                            String normalizedMac = macAddressUtil.normalizeMacAddress(macAddress);
-                            boolean isNew = !existingMacs.contains(normalizedMac);
-                            result.setIsNewDevice(isNew);
-                            result.setStatus(isNew ? "NEW" : "EXISTING");
-                            result.setSuggestedName(macAddressUtil.generateDefaultPrinterName(macAddress));
+                        Printer existingPrinter = null;
+                        if (StringUtils.hasText(normalizedMac)) {
+                            existingPrinter = existingByMac.get(normalizedMac);
+                            Printer sameIpPrinter = existingByIp.get(targetIp);
+                            if (existingPrinter == null && sameIpPrinter != null
+                                    && !StringUtils.hasText(sameIpPrinter.getMacAddress())) {
+                                existingPrinter = sameIpPrinter;
+                            }
                         } else {
-                            // 无法获取 MAC，标记为需要手动处理
+                            existingPrinter = existingByIp.get(targetIp);
+                        }
+
+                        if (existingPrinter != null) {
+                            result.setIsNewDevice(false);
+                            result.setStatus("EXISTING");
+                            result.setSuggestedName(StringUtils.hasText(existingPrinter.getName())
+                                    ? existingPrinter.getName()
+                                    : "Printer_" + targetIp.substring(targetIp.lastIndexOf('.') + 1));
+                        } else if (StringUtils.hasText(normalizedMac)) {
+                            result.setIsNewDevice(true);
+                            result.setStatus("NEW");
+                            result.setSuggestedName(macAddressUtil.generateDefaultPrinterName(normalizedMac));
+                        } else {
+                            // 无 MAC 且 IP 未登记，允许首次录入；后续扫描将通过 IP 识别为已知设备。
                             result.setIsNewDevice(true);
                             result.setStatus("UNKNOWN_MAC");
                             result.setSuggestedName("Printer_" + targetIp.substring(targetIp.lastIndexOf('.') + 1));
@@ -495,8 +522,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                 if (!StringUtils.hasText(result.getIpAddress())) {
                     throw new BusinessException(400, "IP 地址不能为空");
                 }
-                processSingleDevice(result, insertedCount, updatedCount);
-                if (Boolean.TRUE.equals(result.getIsNewDevice())) {
+                BatchDeviceOutcome outcome = processSingleDevice(result);
+                if (outcome == BatchDeviceOutcome.INSERTED) {
                     insertedCount++;
                 } else {
                     updatedCount++;
@@ -530,35 +557,73 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
     /**
      * 处理单台设备的 Upsert 逻辑
      */
-    private void processSingleDevice(PrinterScanResultDTO result, int insertedCount, int updatedCount) {
+    private BatchDeviceOutcome processSingleDevice(PrinterScanResultDTO result) {
         String ipAddress = result.getIpAddress();
-        String macAddress = result.getMacAddress();
+        String macAddress = macAddressUtil.normalizeMacAddress(result.getMacAddress());
+        result.setMacAddress(macAddress);
 
-        // 如果没有 MAC 地址，尝试获取
-        if (!StringUtils.hasText(macAddress)) {
-            macAddress = macAddressUtil.getMacAddress(ipAddress);
-            result.setMacAddress(macAddress);
-        } else {
-            macAddress = macAddressUtil.normalizeMacAddress(macAddress);
-        }
-
-        // 步骤 1: 防 IP 冲突处理
-        releaseIpIfOccupied(ipAddress, macAddress);
-
-        // 步骤 2: 基于 MAC 的 Upsert
+        // 扫描阶段已经尝试过 MAC 探测。批量导入不再逐台重复等待 ARP/API 超时，
+        // 无 MAC 设备使用 IP 作为稳定的本地兜底标识。
         if (StringUtils.hasText(macAddress)) {
-            // 有 MAC 地址，执行真正的 Upsert
+            Printer existingByMac = baseMapper.selectByMacAddress(macAddress);
+            if (existingByMac != null) {
+                releaseIpIfOccupied(ipAddress, macAddress);
+                updatePrinterFromScanResult(existingByMac, result, macAddress);
+                return BatchDeviceOutcome.UPDATED;
+            }
+
+            Printer existingByIp = baseMapper.selectByIpAddress(ipAddress);
+            if (existingByIp != null && !StringUtils.hasText(existingByIp.getMacAddress())) {
+                // 设备首次录入时未取得 MAC，本次扫描取得后直接补全原记录，保留任务和布局关联。
+                updatePrinterFromScanResult(existingByIp, result, macAddress);
+                return BatchDeviceOutcome.UPDATED;
+            }
+
+            releaseIpIfOccupied(ipAddress, macAddress);
             Printer printer = buildPrinterFromScanResult(result);
             baseMapper.upsertByMacAddress(printer);
+            return BatchDeviceOutcome.INSERTED;
         } else {
-            // 无 MAC 地址，降级为普通插入
-            log.warn("设备无 MAC 地址，降级处理: IP={}", ipAddress);
+            Printer existingByIp = baseMapper.selectByIpAddress(ipAddress);
+            if (existingByIp != null) {
+                log.info("设备无 MAC 地址，按 IP 更新已知设备: ID={}, IP={}", existingByIp.getId(), ipAddress);
+                updatePrinterFromScanResult(existingByIp, result, null);
+                return BatchDeviceOutcome.UPDATED;
+            }
+
+            log.warn("设备无 MAC 地址，按 IP 首次录入: IP={}", ipAddress);
             Printer printer = buildPrinterFromScanResult(result);
             printer.setMacAddress(null);
             if (!this.save(printer)) {
                 throw new BusinessException("新增打印机失败");
             }
+            return BatchDeviceOutcome.INSERTED;
         }
+    }
+
+    private void updatePrinterFromScanResult(Printer printer, PrinterScanResultDTO result, String macAddress) {
+        printer.setIpAddress(result.getIpAddress());
+        if (StringUtils.hasText(macAddress)) {
+            printer.setMacAddress(macAddress);
+        }
+        if (StringUtils.hasText(result.getSuggestedName())) {
+            printer.setName(result.getSuggestedName());
+        }
+        printer.setFirmwareType(normalizeFirmwareType(StringUtils.hasText(result.getFirmwareType())
+                ? result.getFirmwareType() : printer.getFirmwareType()));
+        if (StringUtils.hasText(result.getApiKey())) {
+            printer.setApiKey(result.getApiKey());
+        }
+        printer.setStatus(PrinterStatus.UNKNOWN.name());
+        printer.setUpdatedAt(LocalDateTime.now());
+        if (baseMapper.updateById(printer) <= 0) {
+            throw new BusinessException("更新已知打印机失败");
+        }
+    }
+
+    private enum BatchDeviceOutcome {
+        INSERTED,
+        UPDATED
     }
 
     /**

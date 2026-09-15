@@ -5,6 +5,8 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrinterAddDTO;
 import com.example.farm.entity.dto.PrinterUpdateDTO;
 import com.example.farm.mapper.PrinterMapper;
+import com.example.farm.protocol.PrinterProtocolDetector;
+import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.impl.PrinterServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,9 +17,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,6 +36,8 @@ class PrinterServiceFirmwareTypeTest {
     private PrinterCacheService printerCacheService;
     @Mock
     private MacAddressUtil macAddressUtil;
+    @Mock
+    private PrinterProtocolDetector protocolDetector;
 
     @InjectMocks
     private PrinterServiceImpl printerService;
@@ -140,6 +148,56 @@ class PrinterServiceFirmwareTypeTest {
         ArgumentCaptor<Printer> printer = ArgumentCaptor.forClass(Printer.class);
         verify(printerMapper).upsertByMacAddress(printer.capture());
         assertThat(printer.getValue().getStatus()).isEqualTo("UNKNOWN");
+    }
+
+    @Test
+    void batchUpsertWithoutMacUpdatesExistingIpInsteadOfCreatingDuplicate() {
+        Printer existing = new Printer();
+        existing.setId(81L);
+        existing.setName("existing-rrf");
+        existing.setIpAddress("192.168.1.81");
+        existing.setFirmwareType("RRF");
+
+        var scan = com.example.farm.entity.dto.PrinterScanResultDTO.of(
+                "192.168.1.81", null, true);
+        scan.setFirmwareType("RRF");
+        scan.setSuggestedName("existing-rrf");
+
+        when(printerMapper.selectByIpAddress("192.168.1.81")).thenReturn(existing);
+        when(printerMapper.updateById(existing)).thenReturn(1);
+
+        PrinterService.BatchUpsertResult result = printerService.batchUpsertPrinters(List.of(scan));
+
+        assertThat(result.getInsertedCount()).isZero();
+        assertThat(result.getUpdatedCount()).isEqualTo(1);
+        assertThat(result.getFailedCount()).isZero();
+        verify(printerMapper).updateById(existing);
+        verify(printerMapper, never()).insert(any(Printer.class));
+        verify(macAddressUtil, never()).getMacAddress(anyString());
+    }
+
+    @Test
+    void scanWithoutMacClassifiesExistingIpAsKnownDevice() {
+        Printer existing = new Printer();
+        existing.setId(81L);
+        existing.setName("existing-rrf");
+        existing.setIpAddress("192.168.1.81");
+        existing.setFirmwareType("RRF");
+
+        when(printerMapper.selectList(any())).thenReturn(List.of(existing));
+        when(protocolDetector.detect(anyString())).thenAnswer(invocation ->
+                "192.168.1.81".equals(invocation.getArgument(0)) ? PrinterProtocolType.RRF : null);
+        when(macAddressUtil.getMacAddress("192.168.1.81")).thenReturn(null);
+
+        var results = printerService.scanDevices("192.168.1");
+
+        assertThat(results).singleElement().satisfies(device -> {
+            assertThat(device.getIpAddress()).isEqualTo("192.168.1.81");
+            assertThat(device.getMacAddress()).isNull();
+            assertThat(device.getIsNewDevice()).isFalse();
+            assertThat(device.getStatus()).isEqualTo("EXISTING");
+            assertThat(device.getSuggestedName()).isEqualTo("existing-rrf");
+        });
     }
 
     @Test

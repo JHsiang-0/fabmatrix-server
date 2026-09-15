@@ -12,7 +12,7 @@ import lombok.Data;
 @Schema(description = "首次管理员初始化状态")
 public class FirstAdminSetupStatusDTO {
 
-    @Schema(description = "系统是否已经存在用户")
+    @Schema(description = "数据库是否已有用户或首次管理员初始化是否已永久关闭")
     private boolean initialized;
 
     @Schema(description = "当前实例是否允许进行首次管理员初始化")

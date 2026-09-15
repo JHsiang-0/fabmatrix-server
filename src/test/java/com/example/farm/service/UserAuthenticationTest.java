@@ -366,6 +366,20 @@ class UserAuthenticationTest {
     }
 
     @Test
+    void disabledFirstAdminSetupStatusIsNotInitializedWithoutUsers() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", false);
+        when(userMapper.selectCount(any())).thenReturn(0L);
+
+        var status = userService.getFirstAdminSetupStatus();
+
+        assertThat(status.isInitialized()).isFalse();
+        assertThat(status.isSetupAvailable()).isFalse();
+        verify(userMapper).selectCount(any());
+        verifyNoInteractions(jdbcTemplate);
+        verifyNoInteractions(bootstrapTokenService);
+    }
+
+    @Test
     void enabledFirstAdminSetupStatusReadsSetupLatchAndInvalidatesBootstrapToken() {
         ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
         when(jdbcTemplate.queryForObject("SELECT initialized FROM farm_setup_state WHERE id = 1", Integer.class))

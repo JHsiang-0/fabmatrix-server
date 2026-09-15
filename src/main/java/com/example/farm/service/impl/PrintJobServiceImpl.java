@@ -531,6 +531,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("启动打印失败：任务状态不正确，jobId={}, status={}", jobId, job.getStatus());
             throw new BusinessException(422, "任务当前状态为 [" + job.getStatus() + "]，仅 ASSIGNED 或 READY 状态可启动打印");
         }
+        if (!startPrint && PrintJobStatus.READY.name().equals(normalizedStatus)) {
+            throw new BusinessException(409, "文件已经上传到打印机，无需重复上传");
+        }
 
         Long printerId = job.getPrinterId();
         Printer printer = printerService.getById(printerId);
@@ -557,30 +560,32 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 ? fileRecord.getSafeName()
                 : filename;
 
-        // 通过协议适配器上传文件
+        // READY 表示文件已在设备端；此时启动只发送打印命令，不重复上传。
+        boolean startUploadedFile = startPrint && PrintJobStatus.READY.name().equals(normalizedStatus);
         boolean deviceActionStarted = false;
         try {
             PrinterLock.ensureValid(printerId);
-            org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
-            if (fileStream == null) {
-                throw new BusinessException("无法从对象存储中读取切片文件");
-            }
-
             var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
             PrinterEndpoint deviceEndpoint = endpointOf(printer, startPrint
                     ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE);
 
-            // 只在设备调用准备完成后记录上传阶段。startPrint 本身不再持有数据库长事务，
-            // 避免 Windows Local Edition 的 SQLite 单连接在网络 I/O 期间阻塞整个服务。
-            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.UPLOADING);
-            job.setStatus(PrintJobStatus.UPLOADING.name());
-            job.setUpdatedAt(LocalDateTime.now());
-            updateJobOrThrow(job, "上传文件到打印机失败");
-
-            deviceActionStarted = true;
-            deviceAdapter
-                    .uploadFile(deviceEndpoint,
-                            fileStream, filename, startPrint);
+            if (startUploadedFile) {
+                deviceActionStarted = true;
+                deviceAdapter.startFile(deviceEndpoint, filename);
+            } else {
+                org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
+                if (fileStream == null) {
+                    throw new BusinessException("无法从对象存储中读取切片文件");
+                }
+                // 设备网络调用前记录上传阶段，但不持有数据库长事务。
+                PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.UPLOADING);
+                job.setStatus(PrintJobStatus.UPLOADING.name());
+                job.setUpdatedAt(LocalDateTime.now());
+                updateJobOrThrow(job, "上传文件到打印机失败");
+                eventPublisher.publishJobStatus(job);
+                deviceActionStarted = true;
+                deviceAdapter.uploadFile(deviceEndpoint, fileStream, filename, startPrint);
+            }
             if (startPrint && deviceEndpoint.protocolType() == PrinterProtocolType.RRF) {
                 confirmRrfPrintStarted(deviceAdapter, deviceEndpoint, filename);
             }
@@ -719,7 +724,6 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void cancelJob(Long jobId) {
         PrintJob job = getAccessibleJob(jobId);
         if (job.getPrinterId() != null) {
@@ -756,20 +760,23 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             if (printer.getIpAddress() == null || printer.getIpAddress().isBlank()) {
                 throw new BusinessException(10001, "打印机没有可用的网络地址");
             }
-            PrinterEndpoint endpoint = endpointOf(printer, PrinterOperation.CANCEL);
-            PrinterLock.ensureValid(printerId);
-            boolean deviceActionStarted = false;
-            try {
-                var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
-                deviceActionStarted = true;
-                deviceAdapter.cancel(endpoint);
+            if (!PrintJobStatus.ASSIGNED.name().equals(status)
+                    && !PrintJobStatus.READY.name().equals(status)) {
+                PrinterEndpoint endpoint = endpointOf(printer, PrinterOperation.CANCEL);
                 PrinterLock.ensureValid(printerId);
-            } catch (RuntimeException exception) {
-                if (!deviceActionStarted) {
-                    throw exception;
+                boolean deviceActionStarted = false;
+                try {
+                    var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
+                    deviceActionStarted = true;
+                    deviceAdapter.cancel(endpoint);
+                    PrinterLock.ensureValid(printerId);
+                } catch (RuntimeException exception) {
+                    if (!deviceActionStarted) {
+                        throw exception;
+                    }
+                    markReconciliation(jobId, "取消设备动作结果未知: " + summarizeDeviceException(exception));
+                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
                 }
-                markReconciliation(jobId, "取消设备动作结果未知: " + summarizeDeviceException(exception));
-                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
             }
             if (!printerService.clearJobBinding(printerId, jobId)) {
                 throw new BusinessException("取消打印任务失败：打印机状态保存失败");
@@ -1192,6 +1199,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Override
     public void markReconciliation(Long jobId, String reason) {
         if (jobId == null) return;
+        java.util.concurrent.atomic.AtomicBoolean stateChanged = new java.util.concurrent.atomic.AtomicBoolean(false);
         Runnable action = () -> {
             PrintJob current = this.getById(jobId);
             if (current == null) return;
@@ -1209,10 +1217,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 current.setStatus(PrintJobStatus.RECONCILING.name());
                 current.setErrorReason(safeReason);
                 eventPublisher.publishJobStatus(current);
-                if (auditLogService != null) {
-                    auditLogService.recordFailure("JOB_RECONCILE_REQUIRED", "JOB", jobId,
-                            "打印任务 #" + jobId, "DEVICE_ACTION_UNKNOWN");
-                }
+                stateChanged.set(true);
             }
         };
         if (transactionManager == null) {
@@ -1221,6 +1226,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             TransactionTemplate template = new TransactionTemplate(transactionManager);
             template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
             template.executeWithoutResult(status -> action.run());
+        }
+        // Windows Local Edition 的 SQLite 连接池只有一个连接。必须等待上面的
+        // REQUIRES_NEW 状态事务释放连接后，再开启失败审计自己的新事务。
+        if (stateChanged.get() && auditLogService != null) {
+            auditLogService.recordFailure("JOB_RECONCILE_REQUIRED", "JOB", jobId,
+                    "打印任务 #" + jobId, "DEVICE_ACTION_UNKNOWN");
         }
     }
 

@@ -27,16 +27,24 @@ public class RrfApiClient {
 
     private static final int STATUS_MAX_ATTEMPTS = 2;
     private static final long STATUS_RETRY_BACKOFF_MILLIS = 100L;
+    private static final Duration CONTROL_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration UPLOAD_TIMEOUT = Duration.ofMinutes(30);
 
     private final RestClient restClient;
+    private final RestClient uploadRestClient;
     private final ObjectMapper objectMapper;
 
     public RrfApiClient() {
-        this(defaultRestClient());
+        this(defaultRestClient(CONTROL_TIMEOUT), defaultRestClient(UPLOAD_TIMEOUT));
     }
 
     RrfApiClient(RestClient restClient) {
+        this(restClient, restClient);
+    }
+
+    RrfApiClient(RestClient restClient, RestClient uploadRestClient) {
         this.restClient = restClient;
+        this.uploadRestClient = uploadRestClient;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -153,7 +161,7 @@ public class RrfApiClient {
         String safeFilename = safeFilename(filename, operation);
         Session session = connect(endpoint, operation);
         try {
-            var request = restClient.post()
+            var request = uploadRestClient.post()
                     .uri(uri(endpoint, "/rr_upload", "name", "0:/gcodes/" + safeFilename))
                     .headers(headers -> addSessionKey(headers, session))
                     .contentType(MediaType.APPLICATION_OCTET_STREAM);
@@ -172,8 +180,13 @@ public class RrfApiClient {
         }
 
         if (startPrint) {
-            executeGcode(endpoint, "M32 \"0:/gcodes/" + safeFilename + "\"", PrinterOperation.START_PRINT);
+            startFile(endpoint, safeFilename);
         }
+    }
+
+    public void startFile(PrinterEndpoint endpoint, String filename) {
+        String safeFilename = safeFilename(filename, PrinterOperation.START_PRINT);
+        executeGcode(endpoint, "M32 \"0:/gcodes/" + safeFilename + "\"", PrinterOperation.START_PRINT);
     }
 
     private Session connect(PrinterEndpoint endpoint, PrinterOperation operation) {
@@ -397,13 +410,13 @@ public class RrfApiClient {
         );
     }
 
-    private static RestClient defaultRestClient() {
+    private static RestClient defaultRestClient(Duration readTimeout) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(3))
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
-        factory.setReadTimeout(Duration.ofSeconds(3));
+        factory.setReadTimeout(readTimeout);
         return RestClient.builder().requestFactory(factory).build();
     }
 

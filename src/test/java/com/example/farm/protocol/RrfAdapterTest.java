@@ -11,6 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -68,6 +70,42 @@ class RrfAdapterTest {
                 .isSameAs(unsupported);
         verify(rrfApiClient).executeGcode(any(), org.mockito.ArgumentMatchers.eq("M25"),
                 org.mockito.ArgumentMatchers.eq(PrinterOperation.PAUSE));
+    }
+
+    @Test
+    void pausesBeforeCancellingAnActiveRrfPrint() {
+        when(rrfApiClient.getStatus(endpoint()))
+                .thenReturn(status("processing"), status("pausing"), status("paused"), status("idle"));
+
+        adapter().cancel(endpoint());
+
+        var ordered = inOrder(rrfApiClient);
+        ordered.verify(rrfApiClient).getStatus(endpoint());
+        ordered.verify(rrfApiClient).executeGcode(endpoint(), "M25", PrinterOperation.CANCEL);
+        ordered.verify(rrfApiClient, org.mockito.Mockito.times(2)).getStatus(endpoint());
+        ordered.verify(rrfApiClient).executeGcode(endpoint(), "M0", PrinterOperation.CANCEL);
+        ordered.verify(rrfApiClient).getStatus(endpoint());
+    }
+
+    @Test
+    void doesNotSendCancelCommandWhenRrfIsAlreadyIdle() {
+        when(rrfApiClient.getStatus(endpoint())).thenReturn(status("idle"));
+
+        adapter().cancel(endpoint());
+
+        verify(rrfApiClient, never()).executeGcode(any(), any(), any());
+    }
+
+    @Test
+    void startsAnAlreadyUploadedRrfFileWithoutUploadingAgain() {
+        adapter().startFile(endpoint(), "folder/demo.gcode");
+
+        verify(rrfApiClient).startFile(endpoint(), "folder/demo.gcode");
+    }
+
+    private RrfStatusResponse status(String state) {
+        return new RrfStatusResponse(state, null, "demo.gcode", null,
+                null, null, null, null, null, null, null);
     }
 
     private RrfAdapter adapter() {

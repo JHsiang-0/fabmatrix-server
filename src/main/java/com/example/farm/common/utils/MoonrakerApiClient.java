@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -26,6 +27,7 @@ public class MoonrakerApiClient {
     private static final long STATUS_RETRY_BACKOFF_MILLIS = 100L;
 
     private final RestClient restClient;
+    private final RestClient uploadRestClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public MoonrakerApiClient() {
@@ -41,6 +43,16 @@ public class MoonrakerApiClient {
 
         this.restClient = RestClient.builder()
                 .requestFactory(factory)
+                .build();
+
+        HttpClient uploadHttpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(3))
+                .build();
+        JdkClientHttpRequestFactory uploadFactory = new JdkClientHttpRequestFactory(uploadHttpClient);
+        uploadFactory.setReadTimeout(Duration.ofMinutes(30));
+        this.uploadRestClient = RestClient.builder()
+                .requestFactory(uploadFactory)
                 .build();
     }
 
@@ -270,6 +282,28 @@ public class MoonrakerApiClient {
         }
     }
 
+    /** 启动 Moonraker 存储中已经存在的 G-code 文件。 */
+    public boolean startPrint(String ipAddress, String apiKey, String filename) {
+        String targetUrl = String.format("http://%s:7125/printer/print/start", ipAddress);
+        try {
+            var requestBuilder = restClient.post()
+                    .uri(UriComponentsBuilder.fromUriString(targetUrl)
+                            .queryParam("filename", filename)
+                            .build()
+                            .encode()
+                            .toUri());
+            if (apiKey != null && !apiKey.isBlank()) {
+                requestBuilder.header("X-Api-Key", apiKey);
+            }
+            requestBuilder.retrieve().toBodilessEntity();
+            return true;
+        } catch (Exception exception) {
+            log.error("启动已上传文件失败: 打印机IP={}，文件名={}，原因={}",
+                    ipAddress, filename, exception.getMessage());
+            return false;
+        }
+    }
+
     public boolean uploadAndPrint(String ipAddress, org.springframework.core.io.Resource gcodeResource, String filename) {
         // 你的原有逻辑
         String targetUrl = String.format("http://%s:7125/server/files/upload", ipAddress);
@@ -318,7 +352,7 @@ public class MoonrakerApiClient {
 
         log.info("上传文件到打印机: ip={}, filename={}, startPrint={}", ipAddress, filename, startPrint);
 
-        var requestBuilder = restClient.post()
+        var requestBuilder = uploadRestClient.post()
                 .uri(targetUrl)
                 .contentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA)
                 .body(body);

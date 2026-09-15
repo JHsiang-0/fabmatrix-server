@@ -16,6 +16,9 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class RrfAdapter implements PrinterProtocolAdapter {
 
+    private static final int CANCEL_CONFIRM_ATTEMPTS = 12;
+    private static final long CANCEL_CONFIRM_DELAY_MILLIS = 500L;
+
     private final RrfApiClient rrfApiClient;
 
     @Override
@@ -45,7 +48,20 @@ public class RrfAdapter implements PrinterProtocolAdapter {
 
     @Override
     public void cancel(PrinterEndpoint endpoint) {
+        validateEndpoint(endpoint, PrinterOperation.CANCEL);
+        PrinterDeviceStatus current = getStatus(endpoint);
+        if (current.status() == PrinterStatus.IDLE) {
+            return;
+        }
+        if (current.status() == PrinterStatus.PRINTING || current.status() == PrinterStatus.PREPARING) {
+            executeGcode(endpoint, PrinterOperation.CANCEL, "M25");
+            waitForState(endpoint, PrinterStatus.PAUSED, "暂停");
+        } else if (current.status() != PrinterStatus.PAUSED) {
+            throw failure(PrinterOperation.CANCEL, FailureCategory.REJECTED,
+                    "RRF 当前状态不允许取消打印: " + current.rawState());
+        }
         executeGcode(endpoint, PrinterOperation.CANCEL, "M0");
+        waitForCancellationAccepted(endpoint);
     }
 
     @Override
@@ -61,6 +77,59 @@ public class RrfAdapter implements PrinterProtocolAdapter {
                     FailureCategory.REJECTED, "上传文件不能为空");
         }
         rrfApiClient.uploadFile(endpoint, file, filename, startPrint);
+    }
+
+    @Override
+    public void startFile(PrinterEndpoint endpoint, String filename) {
+        validateEndpoint(endpoint, PrinterOperation.START_PRINT);
+        rrfApiClient.startFile(endpoint, filename);
+    }
+
+    private void waitForState(PrinterEndpoint endpoint, PrinterStatus expected, String action) {
+        PrinterDeviceStatus latest = null;
+        for (int attempt = 1; attempt <= CANCEL_CONFIRM_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+                sleepBeforeCancelConfirmation();
+            }
+            latest = getStatus(endpoint);
+            boolean expectedStateReached = latest.status() == expected;
+            if (expected == PrinterStatus.PAUSED) {
+                expectedStateReached = expectedStateReached && "paused".equals(normalize(latest.rawState()));
+            }
+            if (expectedStateReached) {
+                return;
+            }
+        }
+        throw failure(PrinterOperation.CANCEL, FailureCategory.TIMEOUT,
+                "RRF 未确认" + action + "完成，当前状态: "
+                        + (latest == null ? "unknown" : latest.rawState()));
+    }
+
+    private void sleepBeforeCancelConfirmation() {
+        try {
+            Thread.sleep(CANCEL_CONFIRM_DELAY_MILLIS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PrinterProtocolException(PrinterOperation.CANCEL, PrinterProtocolType.RRF,
+                    FailureCategory.UNKNOWN, "等待 RRF 取消确认时被中断", exception);
+        }
+    }
+
+    private void waitForCancellationAccepted(PrinterEndpoint endpoint) {
+        PrinterDeviceStatus latest = null;
+        for (int attempt = 1; attempt <= CANCEL_CONFIRM_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+                sleepBeforeCancelConfirmation();
+            }
+            latest = getStatus(endpoint);
+            String rawState = normalize(latest.rawState());
+            if (latest.status() == PrinterStatus.IDLE || "cancelling".equals(rawState)) {
+                return;
+            }
+        }
+        throw failure(PrinterOperation.CANCEL, FailureCategory.TIMEOUT,
+                "RRF 未确认取消命令已生效，当前状态: "
+                        + (latest == null ? "unknown" : latest.rawState()));
     }
 
     PrinterDeviceStatus toDeviceStatus(RrfStatusResponse source) {

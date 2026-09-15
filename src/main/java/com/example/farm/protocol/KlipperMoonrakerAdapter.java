@@ -84,6 +84,14 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
         }
     }
 
+    @Override
+    public void startFile(PrinterEndpoint endpoint, String filename) {
+        validateEndpoint(endpoint, PrinterOperation.START_PRINT);
+        executeBoolean(PrinterOperation.START_PRINT, endpoint,
+                () -> moonrakerApiClient.startPrint(endpoint.ipAddress(), endpoint.apiKey(), filename),
+                "启动打印失败");
+    }
+
     private PrinterDeviceStatus toDeviceStatus(MoonrakerStatusDTO source) {
         String systemState = normalize(source.getSystemState());
         String rawState = normalize(source.getState());

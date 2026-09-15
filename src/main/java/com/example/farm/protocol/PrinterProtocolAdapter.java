@@ -25,4 +25,9 @@ public interface PrinterProtocolAdapter {
      * 上传文件；startPrint 为 true 时要求协议端在上传成功后开始打印。
      */
     void uploadFile(PrinterEndpoint endpoint, Resource file, String filename, boolean startPrint);
+
+    /**
+     * 启动设备端已经存在的文件，不再重复上传。
+     */
+    void startFile(PrinterEndpoint endpoint, String filename);
 }

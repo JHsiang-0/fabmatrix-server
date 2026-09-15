@@ -79,5 +79,9 @@ class PrinterProtocolAdapterFactoryTest {
         @Override
         public void uploadFile(PrinterEndpoint endpoint, Resource file, String filename, boolean startPrint) {
         }
+
+        @Override
+        public void startFile(PrinterEndpoint endpoint, String filename) {
+        }
     }
 }

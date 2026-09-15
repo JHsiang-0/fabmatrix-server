@@ -30,6 +30,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobAdapterTest {
@@ -109,6 +110,26 @@ class PrintJobAdapterTest {
     }
 
     @Test
+    void readyTaskStartsUploadedFileWithoutDownloadingOrUploadingAgain() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("READY");
+        Printer printer = printer();
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printFileMapper.selectById(20L)).thenReturn(file());
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printerService.updateById(any(Printer.class))).thenReturn(true);
+
+        printJobService.startPrint(1001L, 2L, "START_PRINT");
+
+        verify(adapter).startFile(any(PrinterEndpoint.class), org.mockito.ArgumentMatchers.eq("demo.gcode"));
+        verify(adapter, never()).uploadFile(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(rustFsClient, never()).getFileStream(any());
+        assertThat(job.getStatus()).isEqualTo("PRINTING");
+    }
+
+    @Test
     void confirmsSafetyOnlyForTheMatchingBoundJob() {
         mockUser(2L, "OPERATOR");
         PrintJob job = job("ASSIGNED");
@@ -139,19 +160,18 @@ class PrintJobAdapterTest {
     }
 
     @Test
-    void cancelUsesAdapterBeforeUnbindingPrinter() {
+    void cancelAssignedTaskWithoutSendingDeviceCancel() {
         mockUser(2L, "OPERATOR");
         PrintJob job = job("ASSIGNED");
         Printer printer = printer();
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
-        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
         when(printerService.clearJobBinding(403L, 1001L)).thenReturn(true);
 
         printJobService.cancelJob(1001L);
 
-        verify(adapter).cancel(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
+        verify(adapter, never()).cancel(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
         assertThat(job.getStatus()).isEqualTo("CANCELLED");
         assertThat(printer.getCurrentJobId()).isNull();
         verify(eventPublisher).publishJobStatus(job);
@@ -218,7 +238,6 @@ class PrintJobAdapterTest {
         Printer printer = printer();
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
-        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printerService.clearJobBinding(403L, 1001L)).thenReturn(false);
 
         assertThatThrownBy(() -> printJobService.cancelJob(1001L))
@@ -231,13 +250,13 @@ class PrintJobAdapterTest {
     @Test
     void deviceCancelFailurePersistsReconcilingStateAndKeepsPrinterBinding() {
         mockUser(2L, "OPERATOR");
-        PrintJob job = job("ASSIGNED");
+        PrintJob job = job("PRINTING");
         Printer printer = printer();
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateStatusIfCurrent(org.mockito.ArgumentMatchers.eq(1001L),
-                org.mockito.ArgumentMatchers.eq("ASSIGNED"),
+                org.mockito.ArgumentMatchers.eq("PRINTING"),
                 org.mockito.ArgumentMatchers.eq("RECONCILING"),
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
         doThrow(new RuntimeException("connection reset")).when(adapter)

@@ -154,6 +154,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public FirstAdminSetupStatusDTO getFirstAdminSetupStatus() {
+        if (!firstAdminSetupEnabled) {
+            return new FirstAdminSetupStatusDTO(count() > 0, false);
+        }
+
         boolean initialized = isSetupStateInitialized() || count() > 0;
         if (initialized && bootstrapTokenService != null) {
             bootstrapTokenService.invalidate();

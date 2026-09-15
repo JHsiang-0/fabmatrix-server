@@ -20,16 +20,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
@@ -47,6 +51,8 @@ class UserAuthenticationTest {
     private PrintFileMapper printFileMapper;
     @Mock
     private BootstrapTokenService bootstrapTokenService;
+    @Mock
+    private JdbcTemplate jdbcTemplate;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -56,6 +62,7 @@ class UserAuthenticationTest {
         ReflectionTestUtils.setField(userService, "baseMapper", userMapper);
         ReflectionTestUtils.setField(userService, "printFileMapper", printFileMapper);
         ReflectionTestUtils.setField(userService, "bootstrapTokenService", bootstrapTokenService);
+        ReflectionTestUtils.setField(userService, "jdbcTemplate", jdbcTemplate);
     }
 
     @Test
@@ -301,6 +308,7 @@ class UserAuthenticationTest {
         ReflectionTestUtils.setField(userService, "jwtExpireTime", 604800000L);
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", "test-secret-key");
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_EXPIRE_TIME", 604800000L);
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
         when(passwordEncoder.encode("Admin123")).thenReturn("encoded-admin-password");
         doAnswer(invocation -> {
             User admin = invocation.getArgument(0);
@@ -334,6 +342,57 @@ class UserAuthenticationTest {
         assertThat(insertedFolder.getValue().getParentId()).isNull();
         assertThat(insertedFolder.getValue().getUserId()).isEqualTo(1L);
         verify(bootstrapTokenService).invalidate();
+    }
+
+    @Test
+    void disabledFirstAdminSetupStatusUsesUserCountWithoutReadingSetupLatch() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", false);
+        when(userMapper.selectCount(any())).thenReturn(1L);
+        JdbcTemplate unavailableLatch = mock(JdbcTemplate.class, invocation -> {
+            if ("queryForObject".equals(invocation.getMethod().getName())) {
+                throw new AssertionError("disabled setup must not query the Local setup latch");
+            }
+            return null;
+        });
+        ReflectionTestUtils.setField(userService, "jdbcTemplate", unavailableLatch);
+
+        var status = userService.getFirstAdminSetupStatus();
+
+        assertThat(status.isInitialized()).isTrue();
+        assertThat(status.isSetupAvailable()).isFalse();
+        verify(userMapper).selectCount(any());
+        verifyNoInteractions(unavailableLatch);
+        verifyNoInteractions(bootstrapTokenService);
+    }
+
+    @Test
+    void enabledFirstAdminSetupStatusReadsSetupLatchAndInvalidatesBootstrapToken() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
+        when(jdbcTemplate.queryForObject("SELECT initialized FROM farm_setup_state WHERE id = 1", Integer.class))
+                .thenReturn(1);
+
+        var status = userService.getFirstAdminSetupStatus();
+
+        assertThat(status.isInitialized()).isTrue();
+        assertThat(status.isSetupAvailable()).isFalse();
+        verify(jdbcTemplate).queryForObject("SELECT initialized FROM farm_setup_state WHERE id = 1", Integer.class);
+        verify(bootstrapTokenService).invalidate();
+    }
+
+    @Test
+    void enabledFirstAdminSetupStatusRemainsAvailableBeforeInitialization() {
+        ReflectionTestUtils.setField(userService, "firstAdminSetupEnabled", true);
+        when(jdbcTemplate.queryForObject("SELECT initialized FROM farm_setup_state WHERE id = 1", Integer.class))
+                .thenReturn(0);
+        when(userMapper.selectCount(any())).thenReturn(0L);
+
+        var status = userService.getFirstAdminSetupStatus();
+
+        assertThat(status.isInitialized()).isFalse();
+        assertThat(status.isSetupAvailable()).isTrue();
+        verify(jdbcTemplate).queryForObject("SELECT initialized FROM farm_setup_state WHERE id = 1", Integer.class);
+        verify(userMapper).selectCount(any());
+        verify(bootstrapTokenService, never()).invalidate();
     }
 
     @Test

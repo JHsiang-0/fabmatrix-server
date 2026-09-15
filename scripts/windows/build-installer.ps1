@@ -399,9 +399,12 @@ icon=$trayIconPropertyPath
     Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\local-restore.ps1') -Destination (Join-Path $maintenancePath 'local-restore.ps1') -Force
     Copy-Item -LiteralPath (Join-Path $scriptRoot 'service\data-acl.ps1') -Destination (Join-Path $maintenancePath 'data-acl.ps1') -Force
     Copy-Item -LiteralPath (Join-Path $scriptRoot 'service\portable-config.ps1') -Destination (Join-Path $maintenancePath 'portable-config.ps1') -Force
-    Invoke-Checked 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-        (Join-Path $scriptRoot 'test-installer-contract.ps1'), '-SkipTrayCompile', '-PayloadPath', $payloadPath,
-        '-ClientRoot', $ClientRoot)
+    $contractArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        (Join-Path $scriptRoot 'test-installer-contract.ps1'), '-SkipTrayCompile', '-PayloadPath', $payloadPath)
+    if (-not [string]::IsNullOrWhiteSpace($ClientRoot)) {
+        $contractArguments += @('-ClientRoot', $ClientRoot)
+    }
+    Invoke-Checked 'powershell.exe' $contractArguments
     Write-Host "Payload: $payloadPath"
     if ($Mode -eq 'Payload') { return }
 

@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class PrintJobAdapterTest {
@@ -83,7 +84,7 @@ class PrintJobAdapterTest {
         assertThat(endpoint.getValue().apiKey()).isEqualTo("device-secret");
         assertThat(job.getStatus()).isEqualTo("PRINTING");
         assertThat(job.getOperatorUsernameSnapshot()).isEqualTo("2");
-        verify(eventPublisher).publishJobStatus(job);
+        verify(eventPublisher, times(2)).publishJobStatus(job);
     }
 
     @Test
@@ -200,7 +201,7 @@ class PrintJobAdapterTest {
 
         assertThat(job.getStatus()).isEqualTo("RECONCILING");
         assertThat(job.getErrorReason()).contains("设备已接受动作但状态落库失败");
-        verify(eventPublisher).publishJobStatus(job);
+        verify(eventPublisher, times(2)).publishJobStatus(job);
     }
 
     @Test
@@ -228,7 +229,7 @@ class PrintJobAdapterTest {
         assertThat(job.getStatus()).isEqualTo("RECONCILING");
         assertThat(job.getErrorReason()).contains("启动设备动作结果未知");
         assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
-        verify(eventPublisher).publishJobStatus(job);
+        verify(eventPublisher, times(2)).publishJobStatus(job);
     }
 
     @Test

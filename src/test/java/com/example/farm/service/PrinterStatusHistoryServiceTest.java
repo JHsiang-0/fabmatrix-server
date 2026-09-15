@@ -147,6 +147,28 @@ class PrinterStatusHistoryServiceTest {
     }
 
     @Test
+    void persistsFilenameChangeWithoutPersistingProgressOnlyUpdates() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
+        PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
+                redisUtil, mock(PrinterMapper.class), historyService);
+        MoonrakerStatusDTO status = new MoonrakerStatusDTO();
+        status.setUnifiedState("PRINTING");
+        status.setState("printing");
+        status.setFilename("first.gcode");
+        status.setProgress(10.0);
+        when(historyService.record(403L, status)).thenReturn(true);
+
+        cacheService.recordStatusHistory(403L, status);
+        status.setProgress(20.0);
+        cacheService.recordStatusHistory(403L, status);
+        status.setFilename("second.gcode");
+        cacheService.recordStatusHistory(403L, status);
+
+        verify(historyService, times(2)).record(403L, status);
+    }
+
+    @Test
     void retriesHistoryWhenPreviousInsertWasNotPersisted() {
         RedisUtil redisUtil = mock(RedisUtil.class);
         PrinterMapper printerMapper = mock(PrinterMapper.class);

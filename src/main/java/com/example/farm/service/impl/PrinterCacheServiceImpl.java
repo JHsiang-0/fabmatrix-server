@@ -43,8 +43,6 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     private static final int HISTORY_KEEP_COUNT = 2880;
     // 心跳超时时间：30秒
     private static final long HEARTBEAT_TIMEOUT_SECONDS = 30;
-    // 持久化状态历史的最小采样间隔；状态发生变化时立即记录。
-    private static final long PERSIST_HISTORY_INTERVAL_MILLIS = 60_000;
     private final Map<Long, PersistedStatus> lastPersistedStatuses = new ConcurrentHashMap<>();
 
     @Override
@@ -136,13 +134,12 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
             log.error("写入打印机状态历史失败: printerId={}", printerId, e);
         }
 
-        // Redis 保留高频短期数据；MySQL 只保存状态变化或每分钟一次的样本，
-        // 既支持分页和重启后查询，也避免每台设备每5秒产生一条持久化记录。
+        // Redis 保留高频短期数据；持久化历史只记录状态、文件或错误信息变化，
+        // 避免打印过程中每分钟重复写入同一状态，保持“状态历史”的可读性。
         PersistedStatus current = PersistedStatus.from(status);
         PersistedStatus previous = lastPersistedStatuses.get(printerId);
         long now = System.currentTimeMillis();
-        if (previous == null || now - previous.recordedAt() >= PERSIST_HISTORY_INTERVAL_MILLIS
-                || !current.sameState(previous)) {
+        if (previous == null || !current.sameState(previous)) {
             if (printerStatusHistoryService.record(printerId, status)) {
                 lastPersistedStatuses.put(printerId, current.withRecordedAt(now));
             } else {
@@ -309,21 +306,22 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     }
 
     private record PersistedStatus(String unifiedState, String rawState,
-                                   String systemMessage, long recordedAt) {
+                                   String systemMessage, String filename, long recordedAt) {
 
         private static PersistedStatus from(MoonrakerStatusDTO status) {
             return new PersistedStatus(status.getUnifiedState(), status.getState(),
-                    status.getSystemMessage(), 0);
+                    status.getSystemMessage(), status.getFilename(), 0);
         }
 
         private PersistedStatus withRecordedAt(long timestamp) {
-            return new PersistedStatus(unifiedState, rawState, systemMessage, timestamp);
+            return new PersistedStatus(unifiedState, rawState, systemMessage, filename, timestamp);
         }
 
         private boolean sameState(PersistedStatus other) {
             return Objects.equals(unifiedState, other.unifiedState)
                     && Objects.equals(rawState, other.rawState)
-                    && Objects.equals(systemMessage, other.systemMessage);
+                    && Objects.equals(systemMessage, other.systemMessage)
+                    && Objects.equals(filename, other.filename);
         }
     }
 }

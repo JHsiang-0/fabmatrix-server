@@ -42,7 +42,7 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(queryParam("key", "state"))
                 .andExpect(header("X-Session-Key", "123"))
-                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"processing\",\"upTime\":1234}}",
+                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"processing\",\"currentTool\":0,\"upTime\":1234}}",
                         MediaType.APPLICATION_JSON));
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
                 .andExpect(method(GET))
@@ -50,6 +50,9 @@ class RrfApiClientTest {
                 .andExpect(header("X-Session-Key", "123"))
                 .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"file\":{\"fileName\":\"demo.gcode\",\"size\":1000},\"filePosition\":425,\"timesLeft\":{\"file\":12},\"lastFileCancelled\":false,\"lastFileAborted\":false}}",
                         MediaType.APPLICATION_JSON));
+        expectTemperatureModels(
+                "{\"key\":\"heat\",\"result\":{\"bedHeaters\":[-1],\"heaters\":[{\"current\":55.4,\"active\":60,\"standby\":0,\"state\":\"active\",\"sensor\":0},{\"current\":237.3,\"active\":240,\"standby\":180,\"state\":\"active\",\"sensor\":1}]}}",
+                "{\"key\":\"tools\",\"result\":[{\"number\":0,\"heaters\":[1]}]}");
         expectDisconnect();
 
         RrfStatusResponse response = client.getStatus(endpoint());
@@ -60,6 +63,10 @@ class RrfApiClientTest {
         assertThat(response.filePosition()).isEqualByComparingTo("425");
         assertThat(response.fileSize()).isEqualByComparingTo("1000");
         assertThat(response.timesLeft()).isEqualByComparingTo("12");
+        assertThat(response.toolTemperature()).isEqualByComparingTo("237.3");
+        assertThat(response.toolTarget()).isEqualByComparingTo("240");
+        assertThat(response.bedTemperature()).isEqualByComparingTo("55.4");
+        assertThat(response.bedTarget()).isEqualByComparingTo("60");
         assertThat(response.deviceUptime()).isEqualByComparingTo("1234");
         assertThat(response.lastFileCancelled()).isFalse();
         assertThat(response.lastFileAborted()).isFalse();
@@ -83,6 +90,7 @@ class RrfApiClientTest {
                 .andExpect(queryParam("key", "job"))
                 .andExpect(header("X-Session-Key", "123"))
                 .andRespond(withSuccess("{\"key\":\"job\",\"result\":{}}", MediaType.APPLICATION_JSON));
+        expectEmptyTemperatureModels();
         expectDisconnect();
 
         RrfStatusResponse response = client.getStatus(endpoint());
@@ -156,6 +164,7 @@ class RrfApiClientTest {
                 .andExpect(queryParam("key", "job"))
                 .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"filePosition\":0}}",
                         MediaType.APPLICATION_JSON));
+        expectEmptyTemperatureModels();
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_disconnect")))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("{\"err\":0}", MediaType.APPLICATION_JSON));
@@ -231,6 +240,23 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(header("X-Session-Key", "123"))
                 .andRespond(withSuccess("{\"err\":0}", MediaType.APPLICATION_JSON));
+    }
+
+    private void expectEmptyTemperatureModels() {
+        expectTemperatureModels(
+                "{\"key\":\"heat\",\"result\":{\"heaters\":[]}}",
+                "{\"key\":\"tools\",\"result\":[]}");
+    }
+
+    private void expectTemperatureModels(String heatResponse, String toolsResponse) {
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "heat"))
+                .andRespond(withSuccess(heatResponse, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "tools"))
+                .andRespond(withSuccess(toolsResponse, MediaType.APPLICATION_JSON));
     }
 
     private PrinterEndpoint endpoint() {

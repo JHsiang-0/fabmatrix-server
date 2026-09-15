@@ -52,6 +52,11 @@ public class WebSocketEventPublisher {
         data.put("lastFileAborted", status.lastFileAborted());
         data.put("lastDuration", status.lastDuration());
         data.put("deviceUptime", status.deviceUptime());
+        data.put("connectionStatus", "ONLINE");
+        data.put("lastKnownStatus", status.status());
+        data.put("lastProtocolState", status.rawState());
+        data.put("lastSeenAt", LocalDateTime.now());
+        data.put("consecutiveFailureCount", 0);
         data.put("stateSource", "DEVICE_POLL");
         publishAfterCommit(() -> broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, data)));
     }

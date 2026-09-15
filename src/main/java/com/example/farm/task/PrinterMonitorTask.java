@@ -362,7 +362,9 @@ public class PrinterMonitorTask {
         boolean jobChanged = false;
         boolean requiresReconciliation = false;
 
-        if (!isObservedFileCompatible(job, status)) {
+        // READY 表示文件已上传但尚未启动。RRF 空闲时 job.file 可能仍指向上一次打印文件，
+        // 因此只有设备实际进入打印/暂停阶段时才校验当前文件，避免把正常待启动任务误判为异常。
+        if (isDeviceExecuting(state) && !isObservedFileCompatible(job, status)) {
             requiresReconciliation = reconcileIdleJob(job,
                     "设备当前文件与 Farm 任务不一致，请人工核对后再决定任务结果");
             jobChanged = requiresReconciliation;
@@ -461,7 +463,10 @@ public class PrinterMonitorTask {
             case "standby", "ready", "idle":
                 // RRF 的 idle/standby 可能表示尚未开始，也可能表示刚完成、取消或中止。
                 // 只有设备提供了明确证据才结束 Farm 任务，否则保留绑定并进入人工核对。
-                if (isRecentUploading(job)) {
+                if (PrintJobStatus.READY.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+                    // 仅上传成功后的预期状态：设备保持空闲，任务保持 READY，等待人工启动。
+                    break;
+                } else if (isRecentUploading(job)) {
                     // 文件传输和启动确认在数据库事务之外执行；给设备调用保留短暂窗口，
                     // 避免巡检把正常进行中的 UPLOADING 误判为异常。
                     break;
@@ -497,6 +502,10 @@ public class PrinterMonitorTask {
             }
         }
         return requiresReconciliation;
+    }
+
+    private boolean isDeviceExecuting(String state) {
+        return "printing".equals(state) || "paused".equals(state);
     }
 
     private boolean isObservedFileCompatible(PrintJob job, PrinterDeviceStatus status) {

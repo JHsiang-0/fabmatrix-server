@@ -73,23 +73,28 @@ public class RrfApiClient {
             connected = true;
             JsonNode stateResponse = getModel(endpoint, session, "state");
             JsonNode jobResponse = getModel(endpoint, session, "job");
+            JsonNode heatResponse = getModel(endpoint, session, "heat");
+            JsonNode toolsResponse = getModel(endpoint, session, "tools");
 
             JsonNode state = resultNode(stateResponse);
             JsonNode job = resultNode(jobResponse);
+            JsonNode heat = resultNode(heatResponse);
+            JsonNode tools = resultNode(toolsResponse);
             JsonNode file = child(job, "file");
             BigDecimal fileSize = decimal(file, "size");
             BigDecimal filePosition = decimal(job, "filePosition");
             BigDecimal progress = percentage(filePosition, fileSize);
+            TemperatureSnapshot temperatures = temperatures(state, heat, tools);
 
             return new RrfStatusResponse(
                     text(state, "status"),
                     null,
                     firstText(text(file, "fileName"), text(job, "lastFileName")),
                     progress,
-                    null,
-                    null,
-                    null,
-                    null,
+                    temperatures.toolCurrent(),
+                    temperatures.toolTarget(),
+                    temperatures.bedCurrent(),
+                    temperatures.bedTarget(),
                     decimal(job, "duration"),
                     decimal(file, "printTime"),
                     decimal(job, "rawExtrusion"),
@@ -272,6 +277,81 @@ public class RrfApiClient {
                 "RRF G-code 响应缺少 buff/err 成功标记", null);
     }
 
+    private TemperatureSnapshot temperatures(JsonNode state, JsonNode heat, JsonNode tools) {
+        JsonNode heaters = heat.path("heaters");
+        if (!heaters.isArray() || heaters.isEmpty()) {
+            return TemperatureSnapshot.empty();
+        }
+
+        int toolHeaterIndex = toolHeaterIndex(state, tools);
+        int bedHeaterIndex = firstConfiguredIndex(heat.path("bedHeaters"));
+        if (bedHeaterIndex < 0) {
+            // 部分 RRF 3.7 beta 固件会返回全 -1 的 bedHeaters；此时使用未被当前工具占用的
+            // 第一个有效加热器作为热床，兼容常见的 heater0=热床、heater1=喷头布局。
+            bedHeaterIndex = firstHeaterExcept(heaters, toolHeaterIndex);
+        }
+
+        HeaterTemperature tool = heaterTemperature(heaters, toolHeaterIndex);
+        HeaterTemperature bed = heaterTemperature(heaters, bedHeaterIndex);
+        return new TemperatureSnapshot(tool.current(), tool.target(), bed.current(), bed.target());
+    }
+
+    private int toolHeaterIndex(JsonNode state, JsonNode tools) {
+        if (!tools.isArray()) {
+            return -1;
+        }
+        int currentTool = state.path("currentTool").asInt(Integer.MIN_VALUE);
+        JsonNode fallback = null;
+        for (JsonNode tool : tools) {
+            if (!tool.path("heaters").isArray() || tool.path("heaters").isEmpty()) {
+                continue;
+            }
+            if (fallback == null) {
+                fallback = tool;
+            }
+            if (tool.path("number").asInt(Integer.MIN_VALUE) == currentTool) {
+                return firstConfiguredIndex(tool.path("heaters"));
+            }
+        }
+        return fallback == null ? -1 : firstConfiguredIndex(fallback.path("heaters"));
+    }
+
+    private int firstConfiguredIndex(JsonNode indices) {
+        if (!indices.isArray()) {
+            return -1;
+        }
+        for (JsonNode value : indices) {
+            if (value.canConvertToInt() && value.asInt() >= 0) {
+                return value.asInt();
+            }
+        }
+        return -1;
+    }
+
+    private int firstHeaterExcept(JsonNode heaters, int excludedIndex) {
+        for (int index = 0; index < heaters.size(); index++) {
+            if (index != excludedIndex && heaters.path(index).path("sensor").asInt(-1) >= 0) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private HeaterTemperature heaterTemperature(JsonNode heaters, int index) {
+        if (index < 0 || index >= heaters.size()) {
+            return HeaterTemperature.empty();
+        }
+        JsonNode heater = heaters.path(index);
+        BigDecimal current = decimal(heater, "current");
+        String state = text(heater, "state");
+        BigDecimal target = "standby".equalsIgnoreCase(state)
+                ? decimal(heater, "standby") : decimal(heater, "active");
+        if (target == null) {
+            target = firstDecimal(decimal(heater, "active"), decimal(heater, "standby"));
+        }
+        return new HeaterTemperature(current, target);
+    }
+
     private JsonNode parse(String response, PrinterOperation operation, String message) {
         if (response == null || response.isBlank()) {
             throw failure(operation, FailureCategory.PROTOCOL_ERROR, message, null);
@@ -421,5 +501,18 @@ public class RrfApiClient {
     }
 
     private record Session(String key) {
+    }
+
+    private record HeaterTemperature(BigDecimal current, BigDecimal target) {
+        private static HeaterTemperature empty() {
+            return new HeaterTemperature(null, null);
+        }
+    }
+
+    private record TemperatureSnapshot(BigDecimal toolCurrent, BigDecimal toolTarget,
+                                       BigDecimal bedCurrent, BigDecimal bedTarget) {
+        private static TemperatureSnapshot empty() {
+            return new TemperatureSnapshot(null, null, null, null);
+        }
     }
 }

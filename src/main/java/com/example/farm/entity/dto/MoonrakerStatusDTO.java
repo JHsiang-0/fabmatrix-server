@@ -1,5 +1,7 @@
 package com.example.farm.entity.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -128,6 +130,20 @@ public class MoonrakerStatusDTO {
      */
     @Schema(description = "热床目标温度（℃）", example = "60.0")
     private Double bedTarget;
+
+    // ========== 设备任务来源 ===========
+    @Schema(description = "设备任务来源：FARM、EXTERNAL、UNKNOWN、NONE", example = "EXTERNAL")
+    private String taskSource;
+
+    @Schema(description = "当前占用该设备的 Farm 平台任务 ID；没有绑定时为 null")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long farmJobId;
+
+    @Schema(description = "设备任务来源判定原因", example = "FILENAME_MISMATCH")
+    private String taskMatchReason;
+
+    @Schema(description = "当前绑定的 Farm 平台任务状态；没有绑定时为 null", example = "READY")
+    private String farmJobStatus;
 
     // ========== 统一状态字段 ==========
     /**

@@ -2,6 +2,8 @@ package com.example.farm.service;
 
 import com.example.farm.controller.FarmStatusMessage;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.protocol.PrinterDeviceStatus;
+import com.example.farm.protocol.PrinterStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -10,6 +12,7 @@ import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -137,6 +140,24 @@ class WebSocketEventPublisherTest {
     }
 
     @Test
+    void publishesExternalTaskObservationWithoutClaimingFarmOwnership() {
+        PrinterDeviceStatus status = new PrinterDeviceStatus(
+                PrinterStatus.PRINTING, "processing", null, "external.gcode", BigDecimal.TEN,
+                null, null, null, null, null, null, null);
+
+        publisher.publishPrinterStatus(403L, status, "EXTERNAL", 1001L, "READY",
+                "FILENAME_MISMATCH");
+
+        var data = (java.util.Map<?, ?>) publisher.lastMessage.data();
+        assertThat(data.get("taskSource")).isEqualTo("EXTERNAL");
+        assertThat(data.get("observedFilename")).isEqualTo("external.gcode");
+        assertThat(data.get("farmJobId")).isEqualTo("1001");
+        assertThat(data.get("currentJobId")).isEqualTo("1001");
+        assertThat(data.get("currentJobStatus")).isEqualTo("READY");
+        assertThat(data.get("taskMatchReason")).isEqualTo("FILENAME_MISMATCH");
+    }
+
+    @Test
     void publishesLayoutUpdateOnlyAfterTransactionCommit() {
         TransactionSynchronizationManager.initSynchronization();
 
@@ -164,6 +185,13 @@ class WebSocketEventPublisherTest {
 
         @Override
         protected void broadcastJobStatus(FarmStatusMessage message) {
+            broadcastCount++;
+            lastMessage = message;
+            messages.add(message);
+        }
+
+        @Override
+        protected void broadcastPrinterStatus(FarmStatusMessage message) {
             broadcastCount++;
             lastMessage = message;
             messages.add(message);

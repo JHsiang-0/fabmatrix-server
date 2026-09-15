@@ -8,6 +8,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.entity.enums.DeviceTaskSource;
 import com.example.farm.entity.enums.PrintJobStatus;
 import com.example.farm.protocol.PrinterDeviceStatus;
 import com.example.farm.protocol.PrinterEndpoint;
@@ -68,6 +69,8 @@ public class PrinterMonitorTask {
     private final Map<Long, Boolean> lastOnlineStates = new ConcurrentHashMap<>();
     private final Map<Long, String> lastPublishedConnectionStatuses = new ConcurrentHashMap<>();
     private final Map<Long, PrinterDeviceStatus> lastPublishedStatuses = new ConcurrentHashMap<>();
+    private final Map<Long, TaskObservation> lastPublishedTaskObservations = new ConcurrentHashMap<>();
+    private final Map<Long, TaskObservation> lastLoggedTaskObservations = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastOfflineLogAt = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastHealthPersistAt = new ConcurrentHashMap<>();
     private final Map<Long, Integer> consecutiveSuccessCounts = new ConcurrentHashMap<>();
@@ -182,7 +185,7 @@ public class PrinterMonitorTask {
         } catch (BusinessException exception) {
             if (!actionStarted.get() && exception.getCode() == 409L) {
                 return new PrinterStatusResult(printer.getId(), null, false,
-                        "其他监控实例正在巡检", null, null, null, null, null, true);
+                        "其他监控实例正在巡检", null, null, null, null, null, true, null);
             }
             throw exception;
         }
@@ -195,7 +198,7 @@ public class PrinterMonitorTask {
         if (latestPrinter == null) {
             log.warn("监控设备已不存在，跳过状态同步: printerId={}", printerId);
             return new PrinterStatusResult(printerId, null, false, "打印机不存在",
-                    null, null, null, null, null, false);
+                    null, null, null, null, null, false, null);
         }
         printer = latestPrinter;
         String printerName = printer.getName();
@@ -207,17 +210,18 @@ public class PrinterMonitorTask {
             long duration = System.currentTimeMillis() - startTime;
 
             if (status != null) {
-                handlePrinterOnline(printerId, printerName, status, printer, duration);
+                TaskObservation taskObservation = handlePrinterOnline(
+                        printerId, printerName, status, printer, duration);
                 return new PrinterStatusResult(printerId, status, true, null,
                         printer.getConnectionStatus(), printer.getLastKnownStatus(),
                         printer.getLastSeenAt(), printer.getLastCommunicationError(),
-                        printer.getConsecutiveFailureCount(), false);
+                        printer.getConsecutiveFailureCount(), false, taskObservation);
             } else {
                 handleCommunicationFailure(printer, "设备未返回状态");
                 return new PrinterStatusResult(printerId, null, false, "设备未返回状态",
                         printer.getConnectionStatus(), printer.getLastKnownStatus(),
                         printer.getLastSeenAt(), printer.getLastCommunicationError(),
-                        printer.getConsecutiveFailureCount(), false);
+                        printer.getConsecutiveFailureCount(), false, null);
             }
         } catch (Exception e) {
             logOfflineQueryFailure(printerId, printerName, e);
@@ -225,7 +229,7 @@ public class PrinterMonitorTask {
             return new PrinterStatusResult(printerId, null, false, "设备状态查询失败",
                     printer.getConnectionStatus(), printer.getLastKnownStatus(),
                     printer.getLastSeenAt(), printer.getLastCommunicationError(),
-                    printer.getConsecutiveFailureCount(), false);
+                    printer.getConsecutiveFailureCount(), false, null);
         }
     }
 
@@ -289,30 +293,34 @@ public class PrinterMonitorTask {
                 || "ready".equals(state) || "complete".equals(state);
     }
 
-    private void handlePrinterOnline(Long printerId, String printerName,
-                                     PrinterDeviceStatus status, Printer printer, long duration) {
+    private TaskObservation handlePrinterOnline(Long printerId, String printerName,
+                                                PrinterDeviceStatus status, Printer printer, long duration) {
         lastOfflineLogAt.remove(printerId);
         recordCommunicationSuccess(printer, status);
-        MoonrakerStatusDTO legacyStatus = toLegacyStatus(status);
+        TaskObservationContext taskContext = classifyTaskObservation(printer, status);
+        TaskObservation taskObservation = taskContext.observation();
+        MoonrakerStatusDTO legacyStatus = toLegacyStatus(status, taskObservation);
         // 缓存状态
         printerCacheService.cachePrinterStatus(printerId, legacyStatus);
         printerCacheService.recordStatusHistory(printerId, legacyStatus);
         printerCacheService.markPrinterOnline(printerId);
+        logTaskObservationChange(printer, taskObservation);
 
         // 使用适配器输出的原始任务状态驱动现有农场业务逻辑。
         String deviceState = normalizeRawState(status.rawState());
 
         // ========== 核心业务逻辑：农场任务 vs 野生任务 ==========
         boolean requiresReconciliation = false;
-        if ("printing".equals(deviceState)) {
-            if (printer.getCurrentJobId() != null) {
+        if (isDeviceExecuting(deviceState)) {
+            if (taskObservation.source() == DeviceTaskSource.FARM
+                    && printer.getCurrentJobId() != null) {
                 // 农场任务：同步打印进度
-                requiresReconciliation = syncPrintJobStatus(printer, status);
+                requiresReconciliation = syncPrintJobStatus(printer, status, taskContext.farmJob());
             } else {
-                // 野生任务：锁定机器，防止被自动调度抢单
+                // 外部任务或来源未知：按设备真实状态锁定机器，但不改动等待中的 Farm 任务。
+                reconcileConflictingActiveFarmJob(printer, taskObservation, taskContext.farmJob());
                 if (!"PRINTING".equals(printer.getStatus())) {
                     updatePrinterStatus(printer, "PRINTING");
-                    log.info("发现单机直连打印任务，锁定机器: {}", printer.getName());
                 }
             }
         } else if (("complete".equals(deviceState) || "standby".equals(deviceState) || "ready".equals(deviceState))
@@ -322,7 +330,7 @@ public class PrinterMonitorTask {
             log.info("单机直连打印任务结束，释放机器: {}", printer.getName());
         } else if (printer.getCurrentJobId() != null) {
             // 农场任务：其他状态同步（complete/error/cancelled/paused）
-            requiresReconciliation = syncPrintJobStatus(printer, status);
+            requiresReconciliation = syncPrintJobStatus(printer, status, taskContext.farmJob());
         }
 
         // 检查状态变更（保留原有逻辑，更新数据库状态）
@@ -333,19 +341,19 @@ public class PrinterMonitorTask {
 
         // 记录慢查询
         LogUtil.slowOperation("fetchPrinterStatus", duration, SLOW_THRESHOLD_MS);
+        return taskObservation;
     }
 
     /**
      * 同步打印任务状态（农场任务专用）
      * 根据 Moonraker 状态更新 PrintJob 表，并在任务结束时解绑机器
      */
-    private boolean syncPrintJobStatus(Printer printer, PrinterDeviceStatus status) {
+    private boolean syncPrintJobStatus(Printer printer, PrinterDeviceStatus status, PrintJob job) {
         Long jobId = printer.getCurrentJobId();
         if (jobId == null) {
             return false;
         }
 
-        PrintJob job = printJobService.getById(jobId);
         if (job == null) {
             log.error("发现幽灵绑定：打印机绑定的任务不存在，保留绑定并标记设备 ERROR: printerId={}, jobId={}",
                     printer.getId(), jobId);
@@ -361,18 +369,6 @@ public class PrinterMonitorTask {
         BigDecimal progress = status.progress();
         boolean jobChanged = false;
         boolean requiresReconciliation = false;
-
-        // READY 表示文件已上传但尚未启动。RRF 空闲时 job.file 可能仍指向上一次打印文件，
-        // 因此只有设备实际进入打印/暂停阶段时才校验当前文件，避免把正常待启动任务误判为异常。
-        if (isDeviceExecuting(state) && !isObservedFileCompatible(job, status)) {
-            requiresReconciliation = reconcileIdleJob(job,
-                    "设备当前文件与 Farm 任务不一致，请人工核对后再决定任务结果");
-            jobChanged = requiresReconciliation;
-            if (jobChanged && printJobService.updateById(job)) {
-                eventPublisher.publishJobStatus(job);
-            }
-            return requiresReconciliation;
-        }
 
         switch (state) {
             case "printing":
@@ -508,17 +504,110 @@ public class PrinterMonitorTask {
         return "printing".equals(state) || "paused".equals(state);
     }
 
-    private boolean isObservedFileCompatible(PrintJob job, PrinterDeviceStatus status) {
-        if (printFileMapper == null || status.filename() == null || status.filename().isBlank()) {
-            return true;
+    private TaskObservationContext classifyTaskObservation(Printer printer, PrinterDeviceStatus status) {
+        String state = normalizeRawState(status.rawState());
+        Long farmJobId = printer.getCurrentJobId();
+        PrintJob farmJob = farmJobId == null ? null : printJobService.getById(farmJobId);
+        String farmJobStatus = farmJob == null ? null : PrintJobStatus.normalize(farmJob.getStatus());
+        String observedFilename = fileBasename(status.filename());
+
+        if (!isDeviceExecuting(state)) {
+            return new TaskObservationContext(new TaskObservation(DeviceTaskSource.NONE, farmJobId, farmJobStatus,
+                    "DEVICE_NOT_EXECUTING", observedFilename), farmJob);
+        }
+        if (farmJobId == null) {
+            return new TaskObservationContext(new TaskObservation(DeviceTaskSource.EXTERNAL, null, null,
+                    "NO_FARM_JOB", observedFilename), null);
+        }
+        if (farmJob == null) {
+            return new TaskObservationContext(new TaskObservation(DeviceTaskSource.UNKNOWN, farmJobId, null,
+                    "FARM_JOB_MISSING", observedFilename), null);
+        }
+        if (!java.util.Objects.equals(farmJob.getPrinterId(), printer.getId())) {
+            return new TaskObservationContext(new TaskObservation(DeviceTaskSource.UNKNOWN, farmJobId, farmJobStatus,
+                    "FARM_JOB_BINDING_MISMATCH", observedFilename), farmJob);
+        }
+
+        ObservedFileMatch fileMatch = compareObservedFile(farmJob, status);
+        if (fileMatch == ObservedFileMatch.MATCHED
+                && PrintJobStatus.ASSIGNED.name().equals(farmJobStatus)) {
+            return new TaskObservationContext(new TaskObservation(DeviceTaskSource.EXTERNAL, farmJobId, farmJobStatus,
+                    "FARM_JOB_NOT_TRANSFERRED", observedFilename), farmJob);
+        }
+        TaskObservation observation = switch (fileMatch) {
+            case MATCHED -> new TaskObservation(DeviceTaskSource.FARM, farmJobId, farmJobStatus,
+                    "FILENAME_MATCHED", observedFilename);
+            case MISMATCHED -> new TaskObservation(DeviceTaskSource.EXTERNAL, farmJobId, farmJobStatus,
+                    "FILENAME_MISMATCH", observedFilename);
+            case UNKNOWN -> new TaskObservation(DeviceTaskSource.UNKNOWN, farmJobId, farmJobStatus,
+                    "DEVICE_FILENAME_UNAVAILABLE", observedFilename);
+        };
+        return new TaskObservationContext(observation, farmJob);
+    }
+
+    private ObservedFileMatch compareObservedFile(PrintJob job, PrinterDeviceStatus status) {
+        if (status.filename() == null || status.filename().isBlank() || printFileMapper == null) {
+            return ObservedFileMatch.UNKNOWN;
         }
         PrintFile expected = printFileMapper.selectById(job.getFileId());
         if (expected == null) {
-            return false;
+            return ObservedFileMatch.UNKNOWN;
         }
         String observed = fileBasename(status.filename());
-        return sameFilename(observed, fileBasename(expected.getOriginalName()))
-                || sameFilename(observed, fileBasename(expected.getSafeName()));
+        if (sameFilename(observed, fileBasename(expected.getOriginalName()))
+                || sameFilename(observed, fileBasename(expected.getSafeName()))) {
+            return ObservedFileMatch.MATCHED;
+        }
+        return ObservedFileMatch.MISMATCHED;
+    }
+
+    private void reconcileConflictingActiveFarmJob(Printer printer, TaskObservation observation, PrintJob job) {
+        if (observation.source() != DeviceTaskSource.EXTERNAL
+                || !"FILENAME_MISMATCH".equals(observation.matchReason())
+                || observation.farmJobId() == null) {
+            return;
+        }
+        if (job == null) {
+            return;
+        }
+        String jobStatus = PrintJobStatus.normalize(job.getStatus());
+        if (!PrintJobStatus.PRINTING.name().equals(jobStatus)
+                && !PrintJobStatus.PAUSED.name().equals(jobStatus)) {
+            return;
+        }
+        if (reconcileIdleJob(job,
+                "设备正在打印其他文件，平台任务结果需要人工核对")) {
+            if (printJobService.updateById(job)) {
+                eventPublisher.publishJobStatus(job);
+            }
+        }
+    }
+
+    private void logTaskObservationChange(Printer printer, TaskObservation observation) {
+        TaskObservation previous = lastLoggedTaskObservations.put(printer.getId(), observation);
+        if (observation.equals(previous)) {
+            return;
+        }
+        switch (observation.source()) {
+            case EXTERNAL -> log.warn(
+                    "检测到设备端外部打印: printerId={}, printerName={}, observedFile={}, farmJobId={}, reason={}",
+                    printer.getId(), printer.getName(), observation.deviceFilename(),
+                    observation.farmJobId(), observation.matchReason());
+            case UNKNOWN -> log.warn(
+                    "设备正在打印但无法确认任务来源: printerId={}, printerName={}, observedFile={}, farmJobId={}, reason={}",
+                    printer.getId(), printer.getName(), observation.deviceFilename(),
+                    observation.farmJobId(), observation.matchReason());
+            case FARM -> log.info(
+                    "设备打印已匹配平台任务: printerId={}, farmJobId={}, observedFile={}",
+                    printer.getId(), observation.farmJobId(), observation.deviceFilename());
+            case NONE -> {
+                if (previous != null && (previous.source() == DeviceTaskSource.EXTERNAL
+                        || previous.source() == DeviceTaskSource.UNKNOWN)) {
+                    log.info("设备端外部打印已结束: printerId={}, previousFile={}, farmJobId={}",
+                            printer.getId(), previous.deviceFilename(), previous.farmJobId());
+                }
+            }
+        }
     }
 
     private String fileBasename(String filename) {
@@ -787,6 +876,7 @@ public class PrinterMonitorTask {
         Boolean wasOnline = lastOnlineStates.put(result.printerId, result.online);
         if (!result.online) {
             lastPublishedStatuses.remove(result.printerId);
+            lastPublishedTaskObservations.remove(result.printerId);
             if ("OFFLINE".equalsIgnoreCase(result.connectionStatus)
                     && !Boolean.FALSE.equals(wasOnline)) {
                 eventPublisher.publishPrinterOffline(result.printerId, result.offlineReason);
@@ -795,12 +885,20 @@ public class PrinterMonitorTask {
         }
 
         PrinterDeviceStatus previous = lastPublishedStatuses.put(result.printerId, result.status);
-        if (!result.status.equals(previous)) {
-            eventPublisher.publishPrinterStatus(result.printerId, result.status);
+        TaskObservation previousObservation = result.taskObservation == null ? null
+                : lastPublishedTaskObservations.put(result.printerId, result.taskObservation);
+        if (!result.status.equals(previous)
+                || !java.util.Objects.equals(result.taskObservation, previousObservation)) {
+            TaskObservation observation = result.taskObservation;
+            eventPublisher.publishPrinterStatus(result.printerId, result.status,
+                    observation == null ? null : observation.source().name(),
+                    observation == null ? null : observation.farmJobId(),
+                    observation == null ? null : observation.farmJobStatus(),
+                    observation == null ? null : observation.matchReason());
         }
     }
 
-    private MoonrakerStatusDTO toLegacyStatus(PrinterDeviceStatus status) {
+    private MoonrakerStatusDTO toLegacyStatus(PrinterDeviceStatus status, TaskObservation observation) {
         MoonrakerStatusDTO legacy = new MoonrakerStatusDTO();
         legacy.setState(status.rawState());
         legacy.setSystemMessage(status.systemMessage());
@@ -814,6 +912,10 @@ public class PrinterMonitorTask {
         legacy.setTotalDuration(doubleValue(status.totalDuration()));
         legacy.setFilamentUsed(doubleValue(status.filamentUsed()));
         legacy.setUnifiedState(status.status() == null ? PrinterStatus.UNKNOWN.name() : status.status().name());
+        legacy.setTaskSource(observation.source().name());
+        legacy.setFarmJobId(observation.farmJobId());
+        legacy.setTaskMatchReason(observation.matchReason());
+        legacy.setFarmJobStatus(observation.farmJobStatus());
         return legacy;
     }
 
@@ -848,6 +950,20 @@ public class PrinterMonitorTask {
                                        String connectionStatus, String lastKnownStatus,
                                        LocalDateTime lastSeenAt, String lastCommunicationError,
                                        Integer consecutiveFailureCount,
-                                       boolean skipped) {
+                                       boolean skipped, TaskObservation taskObservation) {
+    }
+
+    private record TaskObservation(DeviceTaskSource source, Long farmJobId,
+                                   String farmJobStatus, String matchReason,
+                                   String deviceFilename) {
+    }
+
+    private record TaskObservationContext(TaskObservation observation, PrintJob farmJob) {
+    }
+
+    private enum ObservedFileMatch {
+        MATCHED,
+        MISMATCHED,
+        UNKNOWN
     }
 }

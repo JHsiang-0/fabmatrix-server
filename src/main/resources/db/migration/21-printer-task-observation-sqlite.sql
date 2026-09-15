@@ -1,0 +1,7 @@
+-- Local Edition 的已有 SQLite 数据库由 LocalSchemaMigration 幂等补齐：
+-- farm_printer_status_history.task_source
+-- farm_printer_status_history.farm_job_id
+-- farm_printer_status_history.task_match_reason
+--
+-- SQLite 缺少跨版本通用的 ALTER TABLE ADD COLUMN IF NOT EXISTS，
+-- 因此不要直接重复执行本文件；它只用于升级审计说明。

@@ -443,7 +443,8 @@ Authorization: Bearer <token>
 ```
 
 返回 `Result<PageResult<PrinterStatusHistoryVO>>`。`records` 按 `recordedAt` 倒序，字段包括
-`id`、`printerId`、`status`、`rawState`、`systemMessage`、`filename`、`progress`、温度目标/当前值、
+`id`、`printerId`、`status`、`rawState`、`systemMessage`、`filename`、`taskSource`、`farmJobId`、
+`taskMatchReason`、`progress`、温度目标/当前值、
 耗材/时长数据和 `recordedAt`。时间参数使用不带时区的 ISO-8601 本地时间；`pageNum` 从1开始，
 `pageSize` 范围为1-100；`from` 晚于 `to` 返回 HTTP 400。不存在打印机返回 HTTP 404。
 
@@ -451,7 +452,10 @@ Authorization: Bearer <token>
 
 状态历史的存储边界已经冻结：Redis List 仍用于最近高频状态（最多2880条、24小时过期），
 MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本和每分钟采样样本，支持服务重启后分页查询。
-新增数据库卷会自动执行 `06-add-printer-status-history.sql`；已有 Docker 数据卷不会自动执行，升级前备份后手工执行该脚本。
+新增数据库卷会自动执行 `06-add-printer-status-history.sql`；已有 Docker 数据卷不会自动执行，升级前备份后手工执行
+`21-printer-task-observation-mysql.sql`。Windows Local Edition 由 `LocalSchemaMigration` 幂等补齐新增列，不清理既有历史。
+
+`taskSource` 的值固定为 `FARM`、`EXTERNAL`、`UNKNOWN`、`NONE`：只有设备正在执行的文件名与当前平台任务文件名明确匹配时才是 `FARM`；没有平台任务或文件名明确不一致时为 `EXTERNAL`；设备正在执行但缺少足够文件信息时为 `UNKNOWN`；设备未执行打印时为 `NONE`。外部任务不创建 `farm_print_job`，但其设备文件名、进度、温度、开始/变化/结束会继续写入打印机状态历史。
 
 状态历史写入属于监控旁路：MySQL 插入失败不会阻塞当前设备状态监控，但只有 Mapper 实际影响行数大于 0 时才算样本已持久化；失败样本不会更新时间游标，后续采样会继续尝试写入。
 
@@ -752,6 +756,8 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 
 当前消息版本固定为 `version=1`；前端应先按 `version` 分支解析，未知版本应保留 REST 快照兜底。每条逻辑事件带唯一 `eventId`；`sequence` 在真实发送时按 WebSocket 会话分配，是该会话实际可见消息流的严格递增序列。权限过滤、事务回滚和仅发送给其他会话的 `SNAPSHOT` 不会制造序列缺口；并发发送按会话串行化。重连后不能依赖旧 sequence 连续，必须重新请求 REST 快照。前端在已连接期间发现 sequence 断档时，也应重新请求打印机和任务 REST 快照恢复当前状态，不能伪造缺失事件。
 
+`SNAPSHOT.data.printers` 继续保留安全的打印机 REST 快照；`SNAPSHOT.data.printerStatuses` 额外携带当前仍在缓存有效期内的设备观测，元素结构为 `{ printerId, data }`。新连接客户端应按 `printerId` 合并两者，因此无需等待下一次设备状态变化即可区分外部任务；旧客户端忽略新增字段仍可继续工作。
+
 统一使用：
 
 ```json
@@ -766,6 +772,12 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
     "unifiedState": "PRINTING",
     "state": "printing",
     "filename": "demo.gcode",
+    "observedFilename": "demo.gcode",
+    "taskSource": "FARM",
+    "farmJobId": "1001",
+    "currentJobId": "1001",
+    "currentJobStatus": "PRINTING",
+    "taskMatchReason": "FILENAME_MATCHED",
     "progress": 35.5,
     "printDuration": 120.0,
     "totalDuration": 340.0,
@@ -778,7 +790,7 @@ WebSocket 握手必须携带登录接口返回的 JWT。浏览器客户端使用
 }
 ```
 
-服务端当前实际发送的顶层字段为 `version`、`type`、`eventId`、`sequence`、`printerId`、`timestamp`、`data`；`eventId` 为逻辑事件唯一标识，`sequence` 为目标会话实际发送序列。`JOB_STATUS` 的 `data.jobId` 始终是任务 ID 字符串，`data.currentJobId` 是打印机当前绑定任务：`QUEUED`、`COMPLETED`、`FAILED`、`CANCELLED` 显式为 `null`，活动态只有在实际绑定打印机时才为该任务 ID；废弃任务状态 `PREPARING` 在 WebSocket 边界规范化为 `UPLOADING`，正式 active 集合仅为 `ASSIGNED/UPLOADING/READY/PRINTING/PAUSED/RECONCILING`。`printerId` 可以为 `null`，无打印机任务仍发布事件。ADMIN 接收全部任务事件，OPERATOR 只接收本人任务，过滤事件不会泄露其他任务元数据。客户端重连或发现版本/序列不连续时，应重新请求打印机和任务 REST 快照。
+服务端当前实际发送的顶层字段为 `version`、`type`、`eventId`、`sequence`、`printerId`、`timestamp`、`data`；`eventId` 为逻辑事件唯一标识，`sequence` 为目标会话实际发送序列。`PRINTER_STATUS` 的 `data.taskSource` 表达设备当前打印来源，`observedFilename` 是设备实际报告的文件，`farmJobId/currentJobId` 仅表达当前平台绑定，不得据此推断设备正在执行该任务；只有 `taskSource=FARM` 才允许监控推进平台任务。`JOB_STATUS` 的 `data.jobId` 始终是任务 ID 字符串，`data.currentJobId` 是打印机当前绑定任务：`QUEUED`、`COMPLETED`、`FAILED`、`CANCELLED` 显式为 `null`，活动态只有在实际绑定打印机时才为该任务 ID；废弃任务状态 `PREPARING` 在 WebSocket 边界规范化为 `UPLOADING`，正式 active 集合仅为 `ASSIGNED/UPLOADING/READY/PRINTING/PAUSED/RECONCILING`。`printerId` 可以为 `null`，无打印机任务仍发布事件。ADMIN 接收全部任务事件，OPERATOR 只接收本人任务，过滤事件不会泄露其他任务元数据。客户端重连或发现版本/序列不连续时，应重新请求打印机和任务 REST 快照。
 
 消息类型冻结为：
 

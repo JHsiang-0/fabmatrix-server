@@ -1,6 +1,7 @@
 package com.example.farm.service;
 
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,13 +23,22 @@ class FarmStatusSnapshotServiceTest {
         printer.setApiKey("must-not-leak");
         printer.setStatus("IDLE");
         when(printerService.list()).thenReturn(List.of(printer));
+        PrinterCacheService printerCacheService = mock(PrinterCacheService.class);
+        MoonrakerStatusDTO realtimeStatus = new MoonrakerStatusDTO();
+        realtimeStatus.setUnifiedState("PRINTING");
+        realtimeStatus.setFilename("external.gcode");
+        realtimeStatus.setTaskSource("EXTERNAL");
+        realtimeStatus.setTaskMatchReason("NO_FARM_JOB");
+        when(printerCacheService.getCachedStatus(403L)).thenReturn(realtimeStatus);
 
-        Map<String, Object> snapshot = new FarmStatusSnapshotService(printerService).buildSnapshot();
+        Map<String, Object> snapshot = new FarmStatusSnapshotService(
+                printerService, printerCacheService).buildSnapshot();
 
         assertThat(snapshot).containsKey("printers");
         assertThat(snapshot.get("printers")).asList().hasSize(1);
         assertThat(snapshot.toString()).doesNotContain("must-not-leak");
         assertThat(snapshot.toString()).contains("Printer_C0DA");
+        assertThat(snapshot.toString()).contains("external.gcode", "EXTERNAL");
     }
 
     @Test
@@ -36,8 +46,10 @@ class FarmStatusSnapshotServiceTest {
         PrinterService printerService = mock(PrinterService.class);
         when(printerService.list()).thenReturn(List.of());
 
-        Map<String, Object> snapshot = new FarmStatusSnapshotService(printerService).buildSnapshot();
+        Map<String, Object> snapshot = new FarmStatusSnapshotService(
+                printerService, mock(PrinterCacheService.class)).buildSnapshot();
 
         assertThat(snapshot).containsEntry("printers", List.of());
+        assertThat(snapshot).containsEntry("printerStatuses", List.of());
     }
 }

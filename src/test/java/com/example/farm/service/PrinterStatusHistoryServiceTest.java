@@ -35,6 +35,9 @@ class PrinterStatusHistoryServiceTest {
         status.setState("printing");
         status.setProgress(42.5);
         status.setToolTemperature(210.0);
+        status.setTaskSource("EXTERNAL");
+        status.setFarmJobId(1001L);
+        status.setTaskMatchReason("FILENAME_MISMATCH");
         when(mapper.insert(any(PrinterStatusHistory.class))).thenReturn(1);
 
         assertThat(service.record(403L, status)).isTrue();
@@ -47,6 +50,9 @@ class PrinterStatusHistoryServiceTest {
         assertThat(saved.getRawState()).isEqualTo("printing");
         assertThat(saved.getProgress()).isEqualByComparingTo(new BigDecimal("42.5"));
         assertThat(saved.getToolTemperature()).isEqualByComparingTo(new BigDecimal("210.0"));
+        assertThat(saved.getTaskSource()).isEqualTo("EXTERNAL");
+        assertThat(saved.getFarmJobId()).isEqualTo(1001L);
+        assertThat(saved.getTaskMatchReason()).isEqualTo("FILENAME_MISMATCH");
         assertThat(saved.getRecordedAt()).isNotNull();
     }
 
@@ -163,6 +169,29 @@ class PrinterStatusHistoryServiceTest {
         status.setProgress(20.0);
         cacheService.recordStatusHistory(403L, status);
         status.setFilename("second.gcode");
+        cacheService.recordStatusHistory(403L, status);
+
+        verify(historyService, times(2)).record(403L, status);
+    }
+
+    @Test
+    void persistsTaskSourceChangeEvenWhenDeviceStateAndFilenameStayTheSame() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
+        PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
+                redisUtil, mock(PrinterMapper.class), historyService);
+        MoonrakerStatusDTO status = new MoonrakerStatusDTO();
+        status.setUnifiedState("PRINTING");
+        status.setState("printing");
+        status.setFilename("demo.gcode");
+        status.setTaskSource("UNKNOWN");
+        status.setTaskMatchReason("DEVICE_FILENAME_UNAVAILABLE");
+        when(historyService.record(403L, status)).thenReturn(true);
+
+        cacheService.recordStatusHistory(403L, status);
+        status.setTaskSource("FARM");
+        status.setFarmJobId(1001L);
+        status.setTaskMatchReason("FILENAME_MATCHED");
         cacheService.recordStatusHistory(403L, status);
 
         verify(historyService, times(2)).record(403L, status);

@@ -64,7 +64,8 @@ class DashboardLayoutMigrationTest {
             assertThat(yaml).contains("14-v2-user-default-folder-names-mysql.sql:/docker-entrypoint-initdb.d/14-v2-user-default-folder-names-mysql.sql:ro",
                     "15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro",
                     "16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro",
-                    "17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro");
+                    "17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro",
+                    "21-printer-task-observation-mysql.sql:/docker-entrypoint-initdb.d/21-printer-task-observation-mysql.sql:ro");
         }
     }
 

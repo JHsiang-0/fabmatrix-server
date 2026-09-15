@@ -306,22 +306,29 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     }
 
     private record PersistedStatus(String unifiedState, String rawState,
-                                   String systemMessage, String filename, long recordedAt) {
+                                   String systemMessage, String filename,
+                                   String taskSource, Long farmJobId,
+                                   String taskMatchReason, long recordedAt) {
 
         private static PersistedStatus from(MoonrakerStatusDTO status) {
             return new PersistedStatus(status.getUnifiedState(), status.getState(),
-                    status.getSystemMessage(), status.getFilename(), 0);
+                    status.getSystemMessage(), status.getFilename(), status.getTaskSource(),
+                    status.getFarmJobId(), status.getTaskMatchReason(), 0);
         }
 
         private PersistedStatus withRecordedAt(long timestamp) {
-            return new PersistedStatus(unifiedState, rawState, systemMessage, filename, timestamp);
+            return new PersistedStatus(unifiedState, rawState, systemMessage, filename,
+                    taskSource, farmJobId, taskMatchReason, timestamp);
         }
 
         private boolean sameState(PersistedStatus other) {
             return Objects.equals(unifiedState, other.unifiedState)
                     && Objects.equals(rawState, other.rawState)
                     && Objects.equals(systemMessage, other.systemMessage)
-                    && Objects.equals(filename, other.filename);
+                    && Objects.equals(filename, other.filename)
+                    && Objects.equals(taskSource, other.taskSource)
+                    && Objects.equals(farmJobId, other.farmJobId)
+                    && Objects.equals(taskMatchReason, other.taskMatchReason);
         }
     }
 }

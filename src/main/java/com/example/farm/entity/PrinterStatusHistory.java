@@ -44,6 +44,15 @@ public class PrinterStatusHistory implements Serializable {
     @TableField("filename")
     private String filename;
 
+    @TableField("task_source")
+    private String taskSource;
+
+    @TableField("farm_job_id")
+    private Long farmJobId;
+
+    @TableField("task_match_reason")
+    private String taskMatchReason;
+
     @TableField("progress")
     private BigDecimal progress;
 

@@ -39,6 +39,9 @@ public class PrinterStatusHistoryServiceImpl implements PrinterStatusHistoryServ
             history.setRawState(status.getState());
             history.setSystemMessage(status.getSystemMessage());
             history.setFilename(status.getFilename());
+            history.setTaskSource(status.getTaskSource());
+            history.setFarmJobId(status.getFarmJobId());
+            history.setTaskMatchReason(status.getTaskMatchReason());
             history.setProgress(decimal(status.getProgress()));
             history.setToolTemperature(decimal(status.getToolTemperature()));
             history.setToolTarget(decimal(status.getToolTarget()));

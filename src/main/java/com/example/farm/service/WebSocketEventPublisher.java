@@ -29,6 +29,12 @@ public class WebSocketEventPublisher {
     }
 
     public void publishPrinterStatus(Long printerId, PrinterDeviceStatus status) {
+        publishPrinterStatus(printerId, status, null, null, null, null);
+    }
+
+    public void publishPrinterStatus(Long printerId, PrinterDeviceStatus status,
+                                     String taskSource, Long farmJobId,
+                                     String farmJobStatus, String taskMatchReason) {
         if (printerId == null || status == null) {
             return;
         }
@@ -37,6 +43,12 @@ public class WebSocketEventPublisher {
         data.put("state", status.rawState());
         data.put("systemMessage", status.systemMessage());
         data.put("filename", status.filename());
+        data.put("observedFilename", status.filename());
+        data.put("taskSource", taskSource);
+        data.put("farmJobId", farmJobId == null ? null : String.valueOf(farmJobId));
+        data.put("currentJobId", farmJobId == null ? null : String.valueOf(farmJobId));
+        data.put("currentJobStatus", farmJobStatus);
+        data.put("taskMatchReason", taskMatchReason);
         data.put("progress", status.progress());
         data.put("toolTemperature", status.toolTemperature());
         data.put("toolTarget", status.toolTarget());

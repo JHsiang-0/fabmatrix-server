@@ -45,6 +45,10 @@ public class LocalSchemaMigration implements CommandLineRunner {
         addColumnIfMissing("farm_dispatch_plan_item", "source_item_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "recovery_action", "VARCHAR(64)");
         addColumnIfMissing("farm_print_file", "visibility", "VARCHAR(7) NOT NULL DEFAULT 'PRIVATE'");
+        addColumnIfMissing("farm_printer_status_history", "task_source",
+                "VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN'");
+        addColumnIfMissing("farm_printer_status_history", "farm_job_id", "INTEGER");
+        addColumnIfMissing("farm_printer_status_history", "task_match_reason", "VARCHAR(64)");
         addPrinterMonitorColumnsIfMissing();
         migratePrintJobQuerySemantics();
         migratePrintJobAuditModel();

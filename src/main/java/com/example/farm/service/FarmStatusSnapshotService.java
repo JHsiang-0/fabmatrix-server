@@ -1,6 +1,7 @@
 package com.example.farm.service;
 
 import com.example.farm.entity.vo.PrinterVO;
+import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -18,11 +19,23 @@ import java.util.Map;
 public class FarmStatusSnapshotService {
 
     private final PrinterService printerService;
+    private final PrinterCacheService printerCacheService;
 
     public Map<String, Object> buildSnapshot() {
-        List<PrinterVO> printers = printerService.list().stream()
+        var printerEntities = printerService.list();
+        List<PrinterVO> printers = printerEntities.stream()
                 .map(PrinterVO::from)
                 .toList();
-        return Map.of("printers", printers);
+        List<Map<String, Object>> printerStatuses = printerEntities.stream()
+                .filter(printer -> printer.getId() != null)
+                .map(printer -> {
+                    MoonrakerStatusDTO status = printerCacheService.getCachedStatus(printer.getId());
+                    return status == null ? null : Map.<String, Object>of(
+                            "printerId", String.valueOf(printer.getId()),
+                            "data", status);
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        return Map.of("printers", printers, "printerStatuses", printerStatuses);
     }
 }

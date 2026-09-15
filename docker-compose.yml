@@ -33,6 +33,7 @@ services:
       - ./src/main/resources/db/migration/17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro
       - ./src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql:/docker-entrypoint-initdb.d/18-v2-print-job-query-semantics-mysql.sql:ro
       - ./src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql:/docker-entrypoint-initdb.d/19-v2-print-job-audit-model-mysql.sql:ro
+      - ./src/main/resources/db/migration/21-printer-task-observation-mysql.sql:/docker-entrypoint-initdb.d/21-printer-task-observation-mysql.sql:ro
     command:
       - --default-time-zone=+08:00
       - --character-set-server=utf8mb4

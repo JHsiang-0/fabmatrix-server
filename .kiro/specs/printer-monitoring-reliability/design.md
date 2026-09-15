@@ -162,3 +162,18 @@ last observed progress
 ## 10. 验证和发布
 
 数据库升级前必须备份已有 Docker 数据卷并手工执行增量 SQL。测试环境关闭真实设备轮询。真实 Klipper/RRF 的断网、重启和物理打印结果属于集成验收，不由单元测试替代。
+
+## 11. 外部任务观测模型
+
+设备轮询状态增加独立于 `farm_print_job` 的任务来源：
+
+```text
+FARM      设备正在执行且文件名明确匹配当前平台任务
+EXTERNAL  设备正在执行，但没有平台任务或文件名明确不匹配
+UNKNOWN   设备正在执行，但协议没有提供足以匹配的文件名
+NONE      设备当前未执行打印
+```
+
+`farm_printer.current_job_id` 继续表达平台任务的占用/等待关系，不代表设备当前打印文件必然属于该任务。`READY` 任务遇到 `EXTERNAL` 或 `UNKNOWN` 观测时保持原状态，打印机业务状态仍按设备实际状态显示为 `PRINTING`。已经进入 `PRINTING/PAUSED` 的平台任务若明确观测到其他文件，任务进入 `RECONCILING`，但设备仍按外部打印继续监控。
+
+实时缓存、WebSocket 和 `farm_printer_status_history` 统一携带 `task_source`、`farm_job_id` 与 `task_match_reason`。外部任务不创建伪造的 `farm_print_job`，因此不会污染生产任务数量、成功率和操作员审计；其开始、状态变化和结束由设备状态历史记录。

@@ -104,6 +104,8 @@ CREATE INDEX IF NOT EXISTS idx_print_job_active_status_created_id
 CREATE TABLE IF NOT EXISTS farm_printer_status_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT, printer_id INTEGER, status VARCHAR(20),
     raw_state VARCHAR(50), system_message VARCHAR(255), filename VARCHAR(255),
+    task_source VARCHAR(16) NOT NULL DEFAULT 'UNKNOWN', farm_job_id INTEGER,
+    task_match_reason VARCHAR(64),
     progress NUMERIC(5,2), tool_temperature NUMERIC(10,2), tool_target NUMERIC(10,2),
     bed_temperature NUMERIC(10,2), bed_target NUMERIC(10,2), print_duration NUMERIC(10,2),
     total_duration NUMERIC(10,2), filament_used NUMERIC(10,2), recorded_at TIMESTAMP

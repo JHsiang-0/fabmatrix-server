@@ -3,7 +3,10 @@ package com.example.farm.task;
 import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
+import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.config.PrinterMonitorProperties;
+import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterDeviceStatus;
 import com.example.farm.protocol.PrinterOperation;
@@ -56,6 +59,8 @@ class PrinterMonitorAdapterTest {
     private WebSocketEventPublisher eventPublisher;
     @Mock
     private RedisUtil redisUtil;
+    @Mock
+    private PrintFileMapper printFileMapper;
 
     private PrinterMonitorTask monitorTask;
 
@@ -237,8 +242,12 @@ class PrinterMonitorAdapterTest {
         PrintJob job = new PrintJob();
         job.setId(1001L);
         job.setPrinterId(403L);
+        job.setFileId(3001L);
         job.setStatus("UPLOADING");
         job.setProgress(BigDecimal.ZERO);
+        PrintFile expectedFile = new PrintFile();
+        expectedFile.setId(3001L);
+        expectedFile.setOriginalName("demo.gcode");
 
         when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
         when(printerService.getById(403L)).thenReturn(printer);
@@ -247,9 +256,11 @@ class PrinterMonitorAdapterTest {
                 PrinterStatus.PRINTING, "processing", null, "demo.gcode", BigDecimal.valueOf(35.5),
                 null, null, null, null, null, null, null));
         when(printJobService.getById(1001L)).thenReturn(job);
+        when(printFileMapper.selectById(3001L)).thenReturn(expectedFile);
         when(printJobService.updateById(any(PrintJob.class))).thenReturn(true);
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
                 eventPublisher, monitorProperties());
+        installPrintFileMapper();
 
         monitorTask.checkPrinterStatus();
 
@@ -257,6 +268,110 @@ class PrinterMonitorAdapterTest {
         assertThat(job.getStatus()).isEqualTo("PRINTING");
         assertThat(job.getProgress()).isEqualByComparingTo("35.5");
         verify(eventPublisher, timeout(1000)).publishJobStatus(job);
+    }
+
+    @Test
+    void keepsReadyFarmTaskWhenDevicePrintsDifferentFileAndClassifiesExternal() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setFileId(3001L);
+        job.setStatus("READY");
+        PrintFile expectedFile = new PrintFile();
+        expectedFile.setId(3001L);
+        expectedFile.setOriginalName("platform.gcode");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(
+                PrinterStatus.PRINTING, "processing", null, "external.gcode", BigDecimal.TEN,
+                null, null, null, null, null, null, null));
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printFileMapper.selectById(3001L)).thenReturn(expectedFile);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrintFileMapper();
+
+        monitorTask.checkPrinterStatus();
+
+        var statusCaptor = org.mockito.ArgumentCaptor.forClass(MoonrakerStatusDTO.class);
+        verify(printerCacheService, timeout(1000)).cachePrinterStatus(eq(403L), statusCaptor.capture());
+        assertThat(statusCaptor.getValue().getTaskSource()).isEqualTo("EXTERNAL");
+        assertThat(statusCaptor.getValue().getFarmJobId()).isEqualTo(1001L);
+        assertThat(statusCaptor.getValue().getTaskMatchReason()).isEqualTo("FILENAME_MISMATCH");
+        assertThat(job.getStatus()).isEqualTo("READY");
+        assertThat(job.getProgress()).isNull();
+        verify(printJobService, never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, timeout(1000)).publishPrinterStatus(
+                eq(403L), any(PrinterDeviceStatus.class), eq("EXTERNAL"), eq(1001L), eq("READY"),
+                eq("FILENAME_MISMATCH"));
+    }
+
+    @Test
+    void doesNotClaimMatchingDeviceFileBeforeFarmTaskWasTransferred() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setFileId(3001L);
+        job.setStatus("ASSIGNED");
+        PrintFile expectedFile = new PrintFile();
+        expectedFile.setId(3001L);
+        expectedFile.setOriginalName("same-name.gcode");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(
+                PrinterStatus.PRINTING, "processing", null, "same-name.gcode", BigDecimal.TEN,
+                null, null, null, null, null, null, null));
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printFileMapper.selectById(3001L)).thenReturn(expectedFile);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrintFileMapper();
+
+        monitorTask.checkPrinterStatus();
+
+        assertThat(job.getStatus()).isEqualTo("ASSIGNED");
+        verify(printJobService, never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, timeout(1000)).publishPrinterStatus(
+                eq(403L), any(PrinterDeviceStatus.class), eq("EXTERNAL"), eq(1001L), eq("ASSIGNED"),
+                eq("FARM_JOB_NOT_TRANSFERRED"));
+    }
+
+    @Test
+    void doesNotAssociateReadyFarmTaskWhenDeviceFilenameIsUnavailable() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setFileId(3001L);
+        job.setStatus("READY");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(
+                PrinterStatus.PRINTING, "processing", null, null, BigDecimal.TEN,
+                null, null, null, null, null, null, null));
+        when(printJobService.getById(1001L)).thenReturn(job);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrintFileMapper();
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, never()).updateById(any(PrintJob.class));
+        verify(eventPublisher, timeout(1000)).publishPrinterStatus(
+                eq(403L), any(PrinterDeviceStatus.class), eq("UNKNOWN"), eq(1001L), eq("READY"),
+                eq("DEVICE_FILENAME_UNAVAILABLE"));
+        assertThat(job.getStatus()).isEqualTo("READY");
     }
 
     @Test
@@ -376,6 +491,16 @@ class PrinterMonitorAdapterTest {
         PrinterMonitorProperties properties = new PrinterMonitorProperties();
         properties.setPrinterIds(List.of(403L));
         return properties;
+    }
+
+    private void installPrintFileMapper() {
+        try {
+            Field mapperField = PrinterMonitorTask.class.getDeclaredField("printFileMapper");
+            mapperField.setAccessible(true);
+            mapperField.set(monitorTask, printFileMapper);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
     private PrinterDeviceStatus printingStatus() {

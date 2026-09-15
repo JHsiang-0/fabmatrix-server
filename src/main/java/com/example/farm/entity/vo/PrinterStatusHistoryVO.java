@@ -24,6 +24,13 @@ public class PrinterStatusHistoryVO {
     private String rawState;
     private String systemMessage;
     private String filename;
+    @Schema(description = "设备任务来源：FARM、EXTERNAL、UNKNOWN、NONE")
+    private String taskSource;
+    @Schema(description = "观测时绑定的 Farm 平台任务 ID")
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long farmJobId;
+    @Schema(description = "设备任务来源判定原因")
+    private String taskMatchReason;
     private BigDecimal progress;
     private BigDecimal toolTemperature;
     private BigDecimal toolTarget;
@@ -46,6 +53,9 @@ public class PrinterStatusHistoryVO {
         vo.rawState = history.getRawState();
         vo.systemMessage = history.getSystemMessage();
         vo.filename = history.getFilename();
+        vo.taskSource = history.getTaskSource();
+        vo.farmJobId = history.getFarmJobId();
+        vo.taskMatchReason = history.getTaskMatchReason();
         vo.progress = history.getProgress();
         vo.toolTemperature = history.getToolTemperature();
         vo.toolTarget = history.getToolTarget();

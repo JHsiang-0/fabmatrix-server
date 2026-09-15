@@ -86,7 +86,7 @@ mvn clean
 
 - `application.yaml` 默认激活 `dev`。
 - `dev` 使用本机映射的 MySQL、Redis、RustFS，HTTP/WebSocket 默认端口为 `28081`，可由 `SERVER_PORT` 覆盖。
-- `dev` 中 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，没有真实打印机时不要打开监控，否则会轮询不存在的设备并产生错误日志。
+- `dev` 中 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，没有真实打印机时不要打开监控，否则会轮询不存在的设备并产生错误日志。Windows Local Edition 则默认启用监控组件，并继续通过每台设备的 `monitor_enabled` 开关决定是否轮询；后台自动派单仍保持关闭。
 - `test` 使用 H2，关闭调度任务和 WebSocket，服务端口为随机端口。
 - `prod` 使用环境变量配置敏感信息，端口默认为 `28081`（可由 `SERVER_PORT` 覆盖），生产环境调度任务默认会启用（任务条件缺省时 `matchIfMissing=true`）。
 

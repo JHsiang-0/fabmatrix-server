@@ -587,6 +587,7 @@ Assert-Contains $installer "commonappdata.*FabMatrix.*installer.*service-install
 foreach ($config in @($baseConfig, $devConfig, $localConfig)) {
     Assert-Contains $config '\$\{SERVER_PORT:28081\}' "default SERVER_PORT for $config"
 }
+Assert-Contains $localConfig 'enabled: \$\{FARM_MONITOR_ENABLED:true\}' 'Local profile printer monitoring default'
 Assert-Contains $prodConfig 'name: \$\{LOG_FILE_PATH:\.\/logs\/farm\.log\}' 'prod complete LOG_FILE_PATH logging name'
 Assert-Contains $logback 'property name="FARM_LOG_FILE" value="\$\{LOG_FILE:-\$\{LOG_PATH:-\.\/logs\}\/farm\.log\}"' 'complete logging.file.name compatible log path'
 Assert-Contains $logback '<file>\$\{FARM_LOG_FILE\}</file>' 'main log uses complete resolved file path'
@@ -656,6 +657,7 @@ Assert-Contains $portableConfig 'datasource|FARM_DATA_DIR|storage-path|logs/farm
 Assert-Contains $recovery 'StartMode|WasRunning|sc\.exe config' 'best-effort original service recovery'
 Assert-Contains $serviceXml '&quot;|ConvertTo-XmlText|stoptimeout>30sec' 'quoted escaped WinSW arguments and stop timeout'
 Assert-Contains $serviceXml '<env name="SERVER_PORT" value="\$portXml" />' 'WinSW service-level effective port environment'
+Assert-Contains $serviceXml '<env name="FARM_MONITOR_ENABLED" value="true" />' 'WinSW enables Local Edition printer monitoring'
 Assert-NotContains $serviceXml '<env name="LOG_PATH"' 'WinSW must not override Spring Boot logging path'
 Assert-Contains $control 'ValidateSet' 'tray service actions'
 Assert-Contains $control 'Get-FabMatrixEffectivePort|effective-port\.txt' 'tray service control uses installed effective port'
@@ -842,6 +844,10 @@ $servicePortEnvironment = @($xmlDocument.service.env | Where-Object { $_.name -e
 if ($servicePortEnvironment.Count -ne 1 -or [int]$servicePortEnvironment[0].value -ne $contractEffectivePort) {
     throw 'WinSW XML did not freeze the resolved custom effective port.'
 }
+$serviceMonitorEnvironment = @($xmlDocument.service.env | Where-Object { $_.name -eq 'FARM_MONITOR_ENABLED' })
+if ($serviceMonitorEnvironment.Count -ne 1 -or [string]$serviceMonitorEnvironment[0].value -ne 'true') {
+    throw 'WinSW XML did not enable Local Edition printer monitoring.'
+}
 if ([int](([string]$xmlDocument.service.stoptimeout) -replace '\D', '') -lt 20) {
     throw 'WinSW stop timeout is shorter than graceful shutdown timeout.'
 }
@@ -858,6 +864,7 @@ try {
     & $configure -Edition Local -ConfigDir $configDir -DataRoot $configData -Force | Out-Null
     $generatedConfig = Join-Path $configDir 'application.yml'
     Assert-Contains $generatedConfig '\$\{FARM_DATA_DIR\}/database/farm\.db' 'generated portable SQLite path'
+    Assert-Contains $generatedConfig 'monitor:\s*\r?\n\s+enabled: true' 'generated Local config enables printer monitoring'
     Assert-Contains $generatedConfig '\$\{FARM_DATA_DIR\}/files' 'generated portable files path'
     Assert-Contains $generatedConfig 'port: 28081' 'generated default server port'
     Assert-Contains $generatedConfig 'bootstrap-token-file: .+bootstrap\.token' 'generated bootstrap token path'

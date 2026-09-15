@@ -1,5 +1,7 @@
 # FabMatrix Server Windows Local Edition
 
+Windows Local Edition 默认启动打印机状态监控组件，导入设备后由数据库中的单台设备“监控”开关决定是否参与轮询；任务自动派单调度器仍保持关闭。WinSW 服务显式注入 `FARM_MONITOR_ENABLED=true`，因此覆盖安装旧版本后也不会继续沿用候选版中误写的全局关闭状态。
+
 正式构建入口是 `scripts/windows/build-installer.ps1`。它使用 Java 25 `jpackage` 生成后端和纯 JDK 托盘控制器的共享 runtime，再使用 Inno Setup 生成 `FabMatrix-Server-Setup-1.0.0.exe`；WinSW `v2.12.0` 仅负责承载 Windows 服务。
 
 ## 安装、升级和数据布局

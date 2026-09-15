@@ -470,7 +470,8 @@ MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本�
 覆盖正在执行的任务。默认连续失败 3 次才判定通信离线，恢复成功后清零失败计数；任务在断网后仍保留
 `currentJobId`，设备恢复但返回空闲且没有完成证据时进入 `RECONCILING`。
 
-监控总开关仍为 `farm.monitor.enabled`。不配置历史 `farm.monitor.printer-ids` 时，巡检目标来自数据库中
+监控总开关仍为 `farm.monitor.enabled`。Windows Local Edition 默认启用该开关，且安装服务显式注入
+`FARM_MONITOR_ENABLED=true`；开发 Profile 仍默认关闭，避免无真实设备时产生轮询。不配置历史 `farm.monitor.printer-ids` 时，巡检目标来自数据库中
 `monitor_enabled=true`、协议受支持且 IP 有效的设备；非空旧白名单只作为迁移期间的限制并产生告警。
 历史数据执行 `11-printer-monitor-reliability.sql` 后默认不自动纳入监控，新录入设备默认启用。
 

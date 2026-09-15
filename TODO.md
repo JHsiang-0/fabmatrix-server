@@ -94,6 +94,7 @@ Farm 是一个局域网内的本地打印农场服务端，多个客户端通过
 - [x] P1.7.20 / T16.20 修复完全卸载遗漏 `%ProgramData%\Farm` 后重装回灌旧账号/8080：普通和默认静默卸载继续保留当前 DataRoot、legacy Farm 根及诊断数据；显式完全卸载严格识别并清理当前根、旧版 Farm 布局和去重后的 `%ProgramData%\FabMatrix` 项目残留，保留 T16.19 的双确认、`UninstallSilent`、同步退出码、默认“否”、reparse 防护及非递归 LiteralPath 删除。迁移脚本原子返回真实 migrated 结果，据此在卸载后 fresh reinstall 场景把旧默认 8080 迁至 requested default 28081，同时保留自定义端口和显式 `SERVER_PORT`；多目标临时夹具、端口自测、installer contract、393 项测试和完整安装器构建已覆盖。
 
  - [x] P1.7.21 / T16.21 统一所有认证入口密码规则为 6-20 个字符，仅限制长度；首次管理员初始化、登录、管理员创建用户、个人修改密码和遗留注册 API/DTO/Mock 均已同步，保留确认密码一致、旧密码校验、BCrypt、登录保护、最大长度和权限逻辑。Bean Validation、关键服务路径和 OpenAPI 文案已覆盖。
+ - [x] P1.7.22 / T16.22 修复 Windows Local Edition 全局监控被默认关闭：Local Profile、安装时配置和 WinSW 服务统一启用 `PrinterMonitorTask`，设备仍由各自 `monitor_enabled` 开关决定是否轮询，后台自动派单继续关闭；覆盖安装可纠正旧候选版保留的关闭配置。Windows 安装器契约、打包 Local 健康探针和后端 442 项测试通过。
 
 ### v3 预留：后台自动派单与设备状态同步优化（不计入 v2 验收）
 

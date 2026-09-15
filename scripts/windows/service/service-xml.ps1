@@ -62,6 +62,7 @@ function New-FabMatrixServiceXml {
   <arguments>$argumentsXml</arguments>
   <env name="FARM_DATA_DIR" value="$dataXml" />
   <env name="SERVER_PORT" value="$portXml" />
+  <env name="FARM_MONITOR_ENABLED" value="true" />
   <logpath>$serviceLogsXml</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>10485760</sizeThreshold>

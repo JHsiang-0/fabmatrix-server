@@ -217,6 +217,13 @@
 - [x] 同步 UserLoginDTO、UserRegisterDTO、ChangePasswordDTO 的 Bean Validation、OpenAPI 描述、API_HANDOFF/协作文案及前端 Mock 契约。
 - [x] 增加 5/6/20/21 位、纯数字/纯字母和确认密码不一致边界测试，并完成 `mvnw.cmd test` 回归。
 
+### T16.22 [修复] Windows Local Edition 默认启动设备监控
+
+- [x] 修复安装版虽然单台设备 `monitor_enabled=true`，但全局 `farm.monitor.enabled=false` 导致 `PrinterMonitorTask` 未创建、设备状态长期停留在 `UNKNOWN` 的问题。
+- [x] Local Profile 和全新安装配置默认启用状态监控；WinSW 服务显式注入 `FARM_MONITOR_ENABLED=true`，使覆盖安装也能纠正旧候选版保留的关闭配置。
+- [x] 保留数据库中的单台设备监控开关，后台任务自动派单继续关闭；补充 Local 配置、生成配置和 WinSW XML 安装器契约回归。
+- [x] Windows 安装器契约、打包 Local 启动/健康探针和后端 442 项测试通过；新安装包 SHA-256 为 `F9BD0BD0E5ED23C7578D90859153C7C7C6D2C9B9A8169BE9E8BDB5AE3F82B22A`。
+
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 
 **对应需求：REQ-12、REQ-13**

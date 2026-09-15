@@ -21,6 +21,8 @@ import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -39,13 +41,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(classes = FarmApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
 @TestPropertySource(properties = {
-        "FARM_DATA_DIR=target/local-edition-test-data",
         "farm.websocket.enabled=false",
+        "farm.monitor.enabled=false",
         "spring.datasource.hikari.connection-timeout=1000"
 })
 class LocalEditionMapperTest {
 
     private static final Path DATA_DIR = Path.of("target/local-edition-test-data");
+
+    @DynamicPropertySource
+    static void localDataDirectory(DynamicPropertyRegistry registry) throws Exception {
+        Files.createDirectories(DATA_DIR);
+        registry.add("FARM_DATA_DIR", () -> DATA_DIR.toString());
+    }
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

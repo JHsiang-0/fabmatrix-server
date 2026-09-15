@@ -55,6 +55,7 @@ class LocalSchemaUpgradeIntegrationTest {
         registry.add("FARM_DATA_DIR", () -> dataDirectory.toString());
         registry.add("logging.file.path", () -> dataDirectory.resolve("logs").toString());
         registry.add("farm.websocket.enabled", () -> "false");
+        registry.add("farm.monitor.enabled", () -> "false");
     }
 
     @AfterAll

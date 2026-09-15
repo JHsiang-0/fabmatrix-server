@@ -101,7 +101,7 @@ farm:
   local:
     storage-path: $portableFiles
   monitor:
-    enabled: false
+    enabled: true
   scheduler:
     enabled: false
   security:

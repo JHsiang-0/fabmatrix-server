@@ -28,7 +28,8 @@ farm:
   local:
     storage-path: ${FARM_DATA_DIR:${user.home}/FarmData}/files
   monitor:
-    enabled: ${FARM_MONITOR_ENABLED:false}
+    # Local Edition 默认启动全局巡检；每台设备仍由 farm_printer.monitor_enabled 独立控制。
+    enabled: ${FARM_MONITOR_ENABLED:true}
     # 设备级开关在 farm_printer.monitor_enabled；此列表仅用于旧配置兼容
     printer-ids: []
     failure-threshold: 3

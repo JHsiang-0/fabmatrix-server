@@ -26,9 +26,11 @@ import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.protocol.PrinterEndpoint;
+import com.example.farm.protocol.PrinterDeviceStatus;
 import com.example.farm.protocol.PrinterOperation;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
@@ -52,6 +54,9 @@ import java.util.function.Supplier;
 @Service
 @RequiredArgsConstructor
 public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> implements PrintJobService {
+
+    private static final int RRF_START_CONFIRM_ATTEMPTS = 8;
+    private static final long RRF_START_CONFIRM_DELAY_MILLIS = 400L;
 
     private final PrintJobMapper farmPrintJobMapper;
     private final PrintFileMapper printFileMapper;
@@ -448,18 +453,19 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void confirmPrinterSafe(Long printerId, Long operatorId) {
+    public void confirmPrinterSafe(Long jobId, Long printerId, Long operatorId) {
         Long currentUserId = SecurityContextUtil.getCurrentUserId();
         if (!Objects.equals(currentUserId, operatorId)) {
             throw new BusinessException(403, "操作员身份必须来自当前登录用户");
         }
         withPrinterLock(printerId, () -> {
-            doConfirmPrinterSafe(printerId, operatorId);
+            doConfirmPrinterSafe(jobId, printerId, operatorId);
             return null;
         });
     }
 
-    private void doConfirmPrinterSafe(Long printerId, Long operatorId) {
+    private void doConfirmPrinterSafe(Long jobId, Long printerId, Long operatorId) {
+        PrintJob job = getAccessibleJob(jobId);
         Printer printer = printerService.getById(printerId);
 
         if (printer == null) {
@@ -467,18 +473,28 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("打印机不存在");
         }
 
+        String jobStatus = PrintJobStatus.normalize(job.getStatus());
+        if (!PrintJobStatus.ASSIGNED.name().equals(jobStatus)
+                && !PrintJobStatus.READY.name().equals(jobStatus)) {
+            throw new BusinessException(422, "任务当前状态不允许进行现场安全确认");
+        }
+        if (!Objects.equals(job.getPrinterId(), printerId)
+                || !Objects.equals(printer.getCurrentJobId(), jobId)) {
+            throw new BusinessException(409, "任务与打印机当前绑定不一致，请刷新后重试");
+        }
+
         // 行为：将 Printer 的 is_safe_to_print 设为 true
         printer.setIsSafeToPrint(true);
         updatePrinterOrThrow(printer, "确认打印机安全失败");
 
         String operatorInfo = operatorId != null ? "operatorId=" + operatorId : "operator=system";
-        LogUtil.bizInfo("现场确认安全", "打印机ID", printerId, "打印机名称", printer.getName(), "操作员", operatorInfo);
-        recordSuccess("JOB_SAFE_CONFIRM", "PRINTER", printerId, printer.getName());
-        log.info("现场确认打印机安全: printerId={}, operatorId={}", printerId, operatorId);
+        LogUtil.bizInfo("现场确认安全", "任务ID", jobId, "打印机ID", printerId,
+                "打印机名称", printer.getName(), "操作员", operatorInfo);
+        recordSuccess("JOB_SAFE_CONFIRM", "JOB", jobId, "打印任务 #" + jobId);
+        log.info("现场确认打印机安全: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void startPrint(Long jobId, Long operatorId, String action) {
         if (operatorId == null) {
             throw new BusinessException("启动打印必须记录操作员ID");
@@ -530,14 +546,6 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("热床未确认安全，禁止打印！请先在现场确认清理完毕后再试");
         }
 
-        // 设备动作前先记录上传阶段；请求返回成功不等于设备已经完成最终动作。
-        if (PrintJobStatus.ASSIGNED.name().equals(normalizedStatus)
-                || PrintJobStatus.READY.name().equals(normalizedStatus)) {
-            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.UPLOADING);
-            job.setStatus(PrintJobStatus.UPLOADING.name());
-            updateJobOrThrow(job, "上传文件到打印机失败");
-        }
-
         // 获取文件信息
         PrintFile fileRecord = PrintFileAccess.requireAccessible(job.getFileId(), printFileMapper::selectById);
         if (fileRecord == null) {
@@ -549,84 +557,165 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 ? fileRecord.getSafeName()
                 : filename;
 
-            // 通过协议适配器上传文件
-            boolean deviceActionStarted = false;
-            try {
-                PrinterLock.ensureValid(printerId);
-                org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
-                if (fileStream == null) {
-                    throw new BusinessException("无法从对象存储中读取切片文件");
-                }
-
-                var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
-                PrinterEndpoint deviceEndpoint = endpointOf(printer, startPrint
-                        ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE);
-                deviceActionStarted = true;
-                deviceAdapter
-                        .uploadFile(deviceEndpoint,
-                                fileStream, filename, startPrint);
-                PrinterLock.ensureValid(printerId);
-            } catch (BusinessException exception) {
-                if (deviceActionStarted) {
-                    markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
-                    markPrinterActionUnknown(printer, "启动设备动作结果未知");
-                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
-                }
-                throw exception;
-            } catch (com.example.farm.protocol.PrinterProtocolException exception) {
-                if (deviceActionStarted) {
-                    markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
-                    markPrinterActionUnknown(printer, "启动设备动作结果未知");
-                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
-                }
-                throw exception;
-            } catch (Exception exception) {
-                log.error("文件上传失败：设备调用异常，jobId={}, printerId={}, ip={}",
-                        jobId, printerId, printer.getIpAddress(), exception);
-                if (deviceActionStarted) {
-                    markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
-                    markPrinterActionUnknown(printer, "启动设备动作结果未知");
-                    throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
-                }
-                throw new BusinessException("机器连接失败，请检查网络：" + exception.getMessage());
+        // 通过协议适配器上传文件
+        boolean deviceActionStarted = false;
+        try {
+            PrinterLock.ensureValid(printerId);
+            org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
+            if (fileStream == null) {
+                throw new BusinessException("无法从对象存储中读取切片文件");
             }
 
-        // 根据 action 决定状态
-        if (startPrint) {
-            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
-            // 行为：将 Job 状态改为 PRINTING，记录 operatorId
-            job.setStatus(PrintJobStatus.PRINTING.name());
-            job.setOperatorId(operatorId);
-            job.setOperatorUsernameSnapshot(resolveUsernameSnapshot(operatorId));
-            job.setStartedAt(LocalDateTime.now());
-            updateJobOrThrow(job, "启动打印失败");
+            var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
+            PrinterEndpoint deviceEndpoint = endpointOf(printer, startPrint
+                    ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE);
 
-            // 行为：将 Printer 的 is_safe_to_print 再次置为 false，状态改为 PRINTING
-            printer.setStatus("PRINTING");
-            printer.setIsSafeToPrint(false);
-            updatePrinterOrThrow(printer, "启动打印失败");
-            eventPublisher.publishJobStatus(job);
-
-            recordSuccess("JOB_START", "JOB", jobId, "打印任务 #" + jobId);
-            LogUtil.bizInfo("现场启动打印", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
-            log.info("现场启动打印成功: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
-        } else {
-            // UPLOAD_ONLY: 仅上传文件，状态改为 READY（就绪待机）
-            if (!PrintJobStatus.READY.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
-                PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
-            }
-            job.setStatus(PrintJobStatus.READY.name());
+            // 只在设备调用准备完成后记录上传阶段。startPrint 本身不再持有数据库长事务，
+            // 避免 Windows Local Edition 的 SQLite 单连接在网络 I/O 期间阻塞整个服务。
+            PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.UPLOADING);
+            job.setStatus(PrintJobStatus.UPLOADING.name());
+            job.setUpdatedAt(LocalDateTime.now());
             updateJobOrThrow(job, "上传文件到打印机失败");
 
-            // 打印机状态保持 IDLE（等待手动在机器上点击打印）
-            printer.setIsSafeToPrint(false);
-            updatePrinterOrThrow(printer, "上传文件到打印机失败");
-            eventPublisher.publishJobStatus(job);
-
-            recordSuccess("JOB_UPLOAD", "JOB", jobId, "打印任务 #" + jobId);
-            LogUtil.bizInfo("文件上传到机器（待机）", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
-            log.info("文件已上传到机器（待机）: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
+            deviceActionStarted = true;
+            deviceAdapter
+                    .uploadFile(deviceEndpoint,
+                            fileStream, filename, startPrint);
+            if (startPrint && deviceEndpoint.protocolType() == PrinterProtocolType.RRF) {
+                confirmRrfPrintStarted(deviceAdapter, deviceEndpoint, filename);
+            }
+            PrinterLock.ensureValid(printerId);
+        } catch (BusinessException exception) {
+            if (deviceActionStarted) {
+                markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
+                markPrinterActionUnknown(printer, "启动设备动作结果未知");
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
+            throw exception;
+        } catch (com.example.farm.protocol.PrinterProtocolException exception) {
+            if (deviceActionStarted) {
+                log.error("打印机协议调用结果未知: jobId={}, printerId={}, protocol={}, reason={}",
+                        jobId, printerId, printer.getFirmwareType(), summarizeDeviceException(exception), exception);
+                markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
+                markPrinterActionUnknown(printer, "启动设备动作结果未知");
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
+            throw exception;
+        } catch (Exception exception) {
+            log.error("文件上传失败：设备调用异常，jobId={}, printerId={}, ip={}",
+                    jobId, printerId, printer.getIpAddress(), exception);
+            if (deviceActionStarted) {
+                markReconciliation(jobId, "启动设备动作结果未知: " + summarizeDeviceException(exception));
+                markPrinterActionUnknown(printer, "启动设备动作结果未知");
+                throw new BusinessException(503, "设备动作结果未知，任务已进入人工核对");
+            }
+            throw new BusinessException("机器连接失败，请检查网络：" + exception.getMessage());
         }
+
+        // 根据 action 在一个新的短事务中落库；此时设备网络调用已经结束。
+        try {
+            executeShortTransaction(() -> {
+                if (startPrint) {
+                    PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
+                    // 行为：将 Job 状态改为 PRINTING，记录 operatorId
+                    job.setStatus(PrintJobStatus.PRINTING.name());
+                    job.setOperatorId(operatorId);
+                    job.setOperatorUsernameSnapshot(resolveUsernameSnapshot(operatorId));
+                    job.setStartedAt(LocalDateTime.now());
+                    updateJobOrThrow(job, "启动打印失败");
+
+                    // 行为：将 Printer 的 is_safe_to_print 再次置为 false，状态改为 PRINTING
+                    printer.setStatus("PRINTING");
+                    printer.setIsSafeToPrint(false);
+                    updatePrinterOrThrow(printer, "启动打印失败");
+                    eventPublisher.publishJobStatus(job);
+
+                    recordSuccess("JOB_START", "JOB", jobId, "打印任务 #" + jobId);
+                    LogUtil.bizInfo("现场启动打印", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
+                    log.info("现场启动打印成功: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
+                } else {
+                    // UPLOAD_ONLY: 仅上传文件，状态改为 READY（就绪待机）
+                    if (!PrintJobStatus.READY.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+                        PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.READY);
+                    }
+                    job.setStatus(PrintJobStatus.READY.name());
+                    updateJobOrThrow(job, "上传文件到打印机失败");
+
+                    // 打印机状态保持 IDLE（等待手动在机器上点击打印）
+                    printer.setIsSafeToPrint(false);
+                    updatePrinterOrThrow(printer, "上传文件到打印机失败");
+                    eventPublisher.publishJobStatus(job);
+
+                    recordSuccess("JOB_UPLOAD", "JOB", jobId, "打印任务 #" + jobId);
+                    LogUtil.bizInfo("文件上传到机器（待机）", "任务ID", jobId, "打印机ID", printerId, "操作员ID", operatorId, "文件名", filename);
+                    log.info("文件已上传到机器（待机）: jobId={}, printerId={}, operatorId={}", jobId, printerId, operatorId);
+                }
+                return null;
+            });
+        } catch (Exception exception) {
+            log.error("设备动作完成后状态落库失败: jobId={}, printerId={}, protocol={}",
+                    jobId, printerId, printer.getFirmwareType(), exception);
+            markReconciliation(jobId, "设备已接受动作但状态落库失败: " + summarizeDeviceException(exception));
+            markPrinterActionUnknown(printer, "设备已接受动作但状态落库失败");
+            throw new BusinessException(503, "设备已接受动作，但任务状态保存失败，已进入人工核对");
+        }
+    }
+
+    private void confirmRrfPrintStarted(com.example.farm.protocol.PrinterProtocolAdapter adapter,
+                                        PrinterEndpoint endpoint, String expectedFilename) {
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= RRF_START_CONFIRM_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+                sleepBeforeStartConfirmation();
+            }
+            try {
+                PrinterDeviceStatus status = adapter.getStatus(endpoint);
+                if (status != null
+                        && (status.status() == PrinterStatus.PRINTING || status.status() == PrinterStatus.PAUSED)
+                        && isExpectedDeviceFile(status.filename(), expectedFilename)) {
+                    return;
+                }
+                String observedState = status == null ? "无响应" : status.rawState();
+                String observedFile = status == null ? null : status.filename();
+                lastFailure = new IllegalStateException(
+                        "RRF 未确认进入打印状态，state=" + observedState + ", file=" + observedFile);
+            } catch (Exception exception) {
+                lastFailure = exception;
+            }
+        }
+        throw new BusinessException(503, lastFailure == null
+                ? "RRF 未确认打印已启动"
+                : "RRF 未确认打印已启动: " + summarizeDeviceException(lastFailure));
+    }
+
+    private boolean isExpectedDeviceFile(String observedFilename, String expectedFilename) {
+        if (observedFilename == null || observedFilename.isBlank()) {
+            return true;
+        }
+        return deviceFileBasename(observedFilename).equalsIgnoreCase(deviceFileBasename(expectedFilename));
+    }
+
+    private String deviceFileBasename(String filename) {
+        if (filename == null) return "";
+        String normalized = filename.replace('\\', '/');
+        int separator = normalized.lastIndexOf('/');
+        return separator >= 0 ? normalized.substring(separator + 1) : normalized;
+    }
+
+    private void sleepBeforeStartConfirmation() {
+        try {
+            Thread.sleep(RRF_START_CONFIRM_DELAY_MILLIS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(503, "等待 RRF 启动确认时被中断");
+        }
+    }
+
+    private <T> T executeShortTransaction(Supplier<T> action) {
+        if (transactionManager == null) {
+            return action.get();
+        }
+        return new TransactionTemplate(transactionManager).execute(status -> action.get());
     }
 
     @Override

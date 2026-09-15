@@ -115,11 +115,12 @@ public interface PrintJobService extends IService<PrintJob> {
      * 现场确认打印机热床已清理安全（两步式安全打印的第二步之一）
      * - 行为：操作员在现场清理完热床后调用。将 Printer 的 is_safe_to_print 设为 true
      *
+     * @param jobId      当前绑定的打印任务 ID
      * @param printerId  打印机 ID
      * @param operatorId 操作员 ID（可选，从安全上下文获取）
      * @throws BusinessException 当打印机不存在时抛出
      */
-    void confirmPrinterSafe(Long printerId, Long operatorId);
+    void confirmPrinterSafe(Long jobId, Long printerId, Long operatorId);
 
     /**
      * 现场启动打印（两步式安全打印的第二步之二）

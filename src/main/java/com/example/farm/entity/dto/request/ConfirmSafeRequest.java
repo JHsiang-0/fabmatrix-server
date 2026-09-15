@@ -12,6 +12,11 @@ import lombok.Data;
 @Schema(description = "确认机器安全请求参数")
 public class ConfirmSafeRequest {
 
+    @Schema(description = "打印任务ID", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotNull(message = "任务 ID 不能为空")
+    @Positive(message = "任务 ID 必须为正数")
+    private Long jobId;
+
     @Schema(description = "打印机ID", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotNull(message = "打印机 ID 不能为空")
     @Positive(message = "打印机 ID 必须为正数")

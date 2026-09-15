@@ -380,7 +380,7 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             } else {
                 item.setStatus(DispatchPlanItemStatus.ASSIGNED.name());
                 item.setMessage(DispatchAction.START_AFTER_CONFIRM.name().equals(plan.getAction())
-                        ? "已派发，需现场安全确认后启动" : "已派发到打印机，未启动");
+                        ? "已分配，需现场安全确认后启动" : "已分配到打印机，未启动");
             }
             item.setReasonCode(null);
             item.setCompletedAt(LocalDateTime.now());

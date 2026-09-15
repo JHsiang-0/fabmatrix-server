@@ -109,6 +109,36 @@ class PrintJobAdapterTest {
     }
 
     @Test
+    void confirmsSafetyOnlyForTheMatchingBoundJob() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        printer.setIsSafeToPrint(false);
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.updateById(printer)).thenReturn(true);
+
+        printJobService.confirmPrinterSafe(1001L, 403L, 2L);
+
+        assertThat(printer.getIsSafeToPrint()).isTrue();
+        verify(printerService).updateById(printer);
+    }
+
+    @Test
+    void rejectsSafetyConfirmationForAnotherBoundJob() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        printer.setCurrentJobId(9999L);
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+
+        assertThatThrownBy(() -> printJobService.confirmPrinterSafe(1001L, 403L, 2L))
+                .hasMessage("任务与打印机当前绑定不一致，请刷新后重试")
+                .extracting("code").isEqualTo(409L);
+    }
+
+    @Test
     void cancelUsesAdapterBeforeUnbindingPrinter() {
         mockUser(2L, "OPERATOR");
         PrintJob job = job("ASSIGNED");
@@ -128,7 +158,7 @@ class PrintJobAdapterTest {
     }
 
     @Test
-    void startPrintFailsWithoutPublishingWhenPrinterStateCannotBeSaved() {
+    void startPrintEntersReconciliationWhenPrinterStateCannotBeSavedAfterDeviceAction() {
         mockUser(2L, "OPERATOR");
         PrintJob job = job("ASSIGNED");
         Printer printer = printer();
@@ -138,12 +168,19 @@ class PrintJobAdapterTest {
         when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
+        when(printJobMapper.updateStatusIfCurrent(org.mockito.ArgumentMatchers.eq(1001L),
+                org.mockito.ArgumentMatchers.eq("PRINTING"),
+                org.mockito.ArgumentMatchers.eq("RECONCILING"),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
         when(printerService.updateById(any(Printer.class))).thenReturn(false);
 
         assertThatThrownBy(() -> printJobService.startPrint(1001L, 2L, "START_PRINT"))
-                .hasMessage("启动打印失败：打印机状态保存失败");
+                .hasMessage("设备已接受动作，但任务状态保存失败，已进入人工核对")
+                .extracting("code").isEqualTo(503L);
 
-        verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(any());
+        assertThat(job.getStatus()).isEqualTo("RECONCILING");
+        assertThat(job.getErrorReason()).contains("设备已接受动作但状态落库失败");
+        verify(eventPublisher).publishJobStatus(job);
     }
 
     @Test

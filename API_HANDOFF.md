@@ -357,7 +357,7 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority` | 更新排队优先级 |
 | POST | `/print-jobs/{jobId}/assign` | ADMIN/OPERATOR | 无必填请求参数；额外 `printerId` query 被忽略 | deprecated；固定 HTTP 410/业务码 410，不产生服务或设备调用 |
 | POST | `/print-jobs/safe/assign` | ADMIN/OPERATOR | `jobId,printerId` | 安全派发 |
-| POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `printerId,operatorId?` | 安全确认 |
+| POST | `/print-jobs/safe/confirm` | ADMIN/OPERATOR | `jobId,printerId,operatorId?` | 对当前任务和打印机绑定进行安全确认 |
 | POST | `/print-jobs/safe/start` | ADMIN/OPERATOR | `jobId,operatorId?,action?` | 启动或仅上传 |
 | POST | `/print-jobs/batch/preview` | ADMIN/OPERATOR | `fileIds,printerIds,strategy,action` | `DispatchPlanPreviewVO`；预览无副作用 |
 | POST | `/print-jobs/batch/confirm` | ADMIN/OPERATOR | `planId,version,itemIds,confirmationToken` | `BatchDispatchConfirmVO`；仅计划创建者或 ADMIN 可确认，逐项创建任务并返回结果 |

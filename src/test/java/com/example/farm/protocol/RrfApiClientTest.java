@@ -107,6 +107,21 @@ class RrfApiClientTest {
     }
 
     @Test
+    void acceptsOfficialBufferOnlyGcodeResponse() {
+        expectConnect();
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_gcode")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("gcode", "M32%20%220:/gcodes/demo.gcode%22"))
+                .andExpect(header("X-Session-Key", "123"))
+                .andRespond(withSuccess("{\"buff\":1024}", MediaType.APPLICATION_JSON));
+        expectDisconnect();
+
+        client.executeGcode(endpoint(), "M32 \"0:/gcodes/demo.gcode\"", PrinterOperation.START_PRINT);
+
+        server.verify();
+    }
+
+    @Test
     void allowsEmptyPasswordWhenRrfDeviceDoesNotRequireOne() {
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
                 .andExpect(method(GET))

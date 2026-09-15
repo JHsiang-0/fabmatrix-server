@@ -231,6 +231,35 @@ class PrinterMonitorAdapterTest {
     }
 
     @Test
+    void mapsRrfProcessingToPrintingAndTracksFarmJobProgress() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("UPLOADING");
+        job.setProgress(BigDecimal.ZERO);
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(
+                PrinterStatus.PRINTING, "processing", null, "demo.gcode", BigDecimal.valueOf(35.5),
+                null, null, null, null, null, null, null));
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(any(PrintJob.class))).thenReturn(true);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, timeout(1000)).updateById(job);
+        assertThat(job.getStatus()).isEqualTo("PRINTING");
+        assertThat(job.getProgress()).isEqualByComparingTo("35.5");
+        verify(eventPublisher, timeout(1000)).publishJobStatus(job);
+    }
+
+    @Test
     void doesNotTreatIdleDeviceAsCompletedWhenFarmJobIsPrinting() {
         Printer printer = printer("RRF");
         printer.setCurrentJobId(1001L);

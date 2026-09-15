@@ -374,6 +374,16 @@ public class PrinterMonitorTask {
 
         switch (state) {
             case "printing":
+                if (!PrintJobStatus.PRINTING.name().equals(PrintJobStatus.normalize(job.getStatus()))) {
+                    if (!transitionFromDevice(job, PrintJobStatus.PRINTING)) {
+                        break;
+                    }
+                    job.setStatus(PrintJobStatus.PRINTING.name());
+                    if (job.getStartedAt() == null) {
+                        job.setStartedAt(LocalDateTime.now());
+                    }
+                    jobChanged = true;
+                }
                 // 更新进度（差值大于 1.0% 时才更新）
                 if (progress != null) {
                     BigDecimal newProgress = progress;
@@ -451,7 +461,11 @@ public class PrinterMonitorTask {
             case "standby", "ready", "idle":
                 // RRF 的 idle/standby 可能表示尚未开始，也可能表示刚完成、取消或中止。
                 // 只有设备提供了明确证据才结束 Farm 任务，否则保留绑定并进入人工核对。
-                if (Boolean.TRUE.equals(status.lastFileCancelled())) {
+                if (isRecentUploading(job)) {
+                    // 文件传输和启动确认在数据库事务之外执行；给设备调用保留短暂窗口，
+                    // 避免巡检把正常进行中的 UPLOADING 误判为异常。
+                    break;
+                } else if (Boolean.TRUE.equals(status.lastFileCancelled())) {
                     jobChanged = finishJobFromDevice(printer, job, PrintJobStatus.CANCELLED,
                             "设备报告最近一次文件已取消");
                 } else if (Boolean.TRUE.equals(status.lastFileAborted())) {
@@ -522,6 +536,12 @@ public class PrinterMonitorTask {
         }
         return status.timesLeft() != null && status.timesLeft().signum() == 0
                 && status.filePosition() != null && status.filePosition().signum() > 0;
+    }
+
+    private boolean isRecentUploading(PrintJob job) {
+        return PrintJobStatus.UPLOADING.name().equals(PrintJobStatus.normalize(job.getStatus()))
+                && job.getUpdatedAt() != null
+                && job.getUpdatedAt().isAfter(LocalDateTime.now().minusMinutes(2));
     }
 
     private boolean finishJobFromDevice(Printer printer, PrintJob job,
@@ -801,9 +821,17 @@ public class PrinterMonitorTask {
     }
 
     private String normalizeRawState(String rawState) {
-        return rawState == null || rawState.isBlank()
-                ? "unknown"
-                : rawState.trim().toLowerCase(java.util.Locale.ROOT);
+        if (rawState == null || rawState.isBlank()) {
+            return "unknown";
+        }
+        String normalized = rawState.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (normalized) {
+            case "processing" -> "printing";
+            case "pausing" -> "paused";
+            case "halted" -> "error";
+            case "off", "disconnected" -> "offline";
+            default -> normalized;
+        };
     }
 
     private record PrinterStatusResult(Long printerId, PrinterDeviceStatus status,

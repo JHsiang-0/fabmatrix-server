@@ -230,7 +230,7 @@ public class PrintJobController {
         req = requireBody(req);
         printJobService.assignJob(req.getJobId(), req.getPrinterId());
         log.info("安全派发任务成功: jobId={}, printerId={}", req.getJobId(), req.getPrinterId());
-        return Result.success(null, "任务已派发，请通知现场操作员确认安全后启动打印");
+        return Result.success(null, "任务已分配，请通知现场操作员确认安全后启动打印");
     }
 
     /**
@@ -249,8 +249,9 @@ public class PrintJobController {
     public Result<Void> confirmPrinterSafe(@Valid @RequestBody ConfirmSafeRequest req) {
         req = requireBody(req);
         Long operatorId = SecurityContextUtil.getCurrentUserId();
-        printJobService.confirmPrinterSafe(req.getPrinterId(), operatorId);
-        log.info("现场确认打印机安全: printerId={}, operatorId={}", req.getPrinterId(), operatorId);
+        printJobService.confirmPrinterSafe(req.getJobId(), req.getPrinterId(), operatorId);
+        log.info("现场确认打印机安全: jobId={}, printerId={}, operatorId={}",
+                req.getJobId(), req.getPrinterId(), operatorId);
         return Result.success(null, "热床已确认安全，可以启动打印");
     }
 
@@ -258,7 +259,7 @@ public class PrintJobController {
      * 现场启动打印（两步式安全打印第二步之二）
      * - 校验任务状态为 ASSIGNED
      * - 校验打印机已确认安全
-     * - 调用 Moonraker 启动打印
+     * - 通过对应协议适配器下发文件并启动打印
      *
      * @param req 启动请求（jobId, operatorId）
      * @return 操作结果

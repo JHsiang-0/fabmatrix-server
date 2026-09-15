@@ -238,12 +238,25 @@ public class RrfApiClient {
 
     private void ensureSuccessfulGcodeResult(String response, PrinterOperation operation) {
         JsonNode root = parse(response, operation, "解析 RRF G-code 响应失败");
-        int errorCode = root.path("err").asInt(-1);
-        if (errorCode != 0) {
+        JsonNode error = root.get("err");
+        if (error != null && error.canConvertToInt()) {
+            int errorCode = error.asInt();
+            if (errorCode == 0) {
+                return;
+            }
             FailureCategory category = errorCode == 1
                     ? FailureCategory.REJECTED : FailureCategory.PROTOCOL_ERROR;
             throw failure(operation, category, "RRF 设备拒绝执行 G-code", null);
         }
+
+        // RRF 官方 rr_gcode 成功响应只有 buff 字段，表示命令已进入设备缓冲区。
+        // 部分兼容网关额外返回 err=0，因此上方继续兼容该形式。
+        JsonNode bufferSpace = root.get("buff");
+        if (bufferSpace != null && bufferSpace.canConvertToInt() && bufferSpace.asInt() >= 0) {
+            return;
+        }
+        throw failure(operation, FailureCategory.PROTOCOL_ERROR,
+                "RRF G-code 响应缺少 buff/err 成功标记", null);
     }
 
     private JsonNode parse(String response, PrinterOperation operation, String message) {

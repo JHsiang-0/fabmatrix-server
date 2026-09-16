@@ -7,6 +7,7 @@ import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.PrinterExecution;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.enums.DeviceTaskSource;
 import com.example.farm.entity.enums.PrintJobStatus;
@@ -18,6 +19,7 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
+import com.example.farm.service.PrinterExecutionService;
 import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.mapper.PrintFileMapper;
 import jakarta.annotation.PreDestroy;
@@ -62,6 +64,9 @@ public class PrinterMonitorTask {
 
     @Autowired(required = false)
     private RedisUtil redisUtil;
+
+    @Autowired(required = false)
+    private PrinterExecutionService printerExecutionService;
 
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService;
@@ -310,12 +315,13 @@ public class PrinterMonitorTask {
         String deviceState = normalizeRawState(status.rawState());
 
         // ========== 核心业务逻辑：农场任务 vs 野生任务 ==========
-        boolean requiresReconciliation = false;
+        SyncOutcome syncOutcome = SyncOutcome.NONE;
         if (isDeviceExecuting(deviceState)) {
+            observeExecutingSession(printer, status, taskContext);
             if (taskObservation.source() == DeviceTaskSource.FARM
                     && printer.getCurrentJobId() != null) {
                 // 农场任务：同步打印进度
-                requiresReconciliation = syncPrintJobStatus(printer, status, taskContext.farmJob());
+                syncOutcome = syncPrintJobStatus(printer, status, taskContext.farmJob());
             } else {
                 // 外部任务或来源未知：按设备真实状态锁定机器，但不改动等待中的 Farm 任务。
                 reconcileConflictingActiveFarmJob(printer, taskObservation, taskContext.farmJob());
@@ -330,11 +336,20 @@ public class PrinterMonitorTask {
             log.info("单机直连打印任务结束，释放机器: {}", printer.getName());
         } else if (printer.getCurrentJobId() != null) {
             // 农场任务：其他状态同步（complete/error/cancelled/paused）
-            requiresReconciliation = syncPrintJobStatus(printer, status, taskContext.farmJob());
+            syncOutcome = syncPrintJobStatus(printer, status, taskContext.farmJob());
+            if (isIdleState(status.rawState())) {
+                closeNonFarmExecutionAfterIdle(printer, status);
+            }
+        } else if (isIdleState(status.rawState())) {
+            closeNonFarmExecutionAfterIdle(printer, status);
         }
 
         // 检查状态变更（保留原有逻辑，更新数据库状态）
-        String newDbStatus = requiresReconciliation ? "ERROR" : determineDbStatus(status);
+        String newDbStatus = switch (syncOutcome) {
+            case RECONCILING -> "ERROR";
+            case TERMINAL_PENDING -> "PREPARING";
+            case NONE -> determineDbStatus(status);
+        };
         if (!newDbStatus.equals(printer.getStatus())) {
             updatePrinterStatus(printer, newDbStatus);
         }
@@ -348,27 +363,28 @@ public class PrinterMonitorTask {
      * 同步打印任务状态（农场任务专用）
      * 根据 Moonraker 状态更新 PrintJob 表，并在任务结束时解绑机器
      */
-    private boolean syncPrintJobStatus(Printer printer, PrinterDeviceStatus status, PrintJob job) {
+    private SyncOutcome syncPrintJobStatus(Printer printer, PrinterDeviceStatus status, PrintJob job) {
         Long jobId = printer.getCurrentJobId();
         if (jobId == null) {
-            return false;
+            return SyncOutcome.NONE;
         }
 
         if (job == null) {
             log.error("发现幽灵绑定：打印机绑定的任务不存在，保留绑定并标记设备 ERROR: printerId={}, jobId={}",
                     printer.getId(), jobId);
-            return true;
+            return SyncOutcome.RECONCILING;
         }
         if (!java.util.Objects.equals(job.getPrinterId(), printer.getId())) {
             log.error("发现幽灵绑定：任务反向绑定不一致，保留绑定并标记设备 ERROR: printerId={}, jobId={}, jobPrinterId={}",
                     printer.getId(), jobId, job.getPrinterId());
-            return true;
+            return SyncOutcome.RECONCILING;
         }
 
         String state = normalizeRawState(status.rawState());
         BigDecimal progress = status.progress();
         boolean jobChanged = false;
         boolean requiresReconciliation = false;
+        boolean terminalPending = false;
 
         switch (state) {
             case "printing":
@@ -394,6 +410,12 @@ public class PrinterMonitorTask {
                 break;
 
             case "complete":
+                PrinterExecution completedExecution = findMatchingFarmExecution(printer, job);
+                if (completedExecution != null) {
+                    terminalPending = !finishPersistedExecution(
+                            completedExecution, printer, job, PrintJobStatus.COMPLETED, null);
+                    break;
+                }
                 // 任务完成
                 if (!transitionFromDevice(job, PrintJobStatus.COMPLETED)) {
                     break;
@@ -412,6 +434,12 @@ public class PrinterMonitorTask {
                 break;
 
             case "error":
+                PrinterExecution failedExecution = findMatchingFarmExecution(printer, job);
+                if (failedExecution != null) {
+                    terminalPending = !finishPersistedExecution(
+                            failedExecution, printer, job, PrintJobStatus.FAILED, "打印出错");
+                    break;
+                }
                 // 任务失败
                 if (!transitionFromDevice(job, PrintJobStatus.FAILED)) {
                     break;
@@ -429,6 +457,12 @@ public class PrinterMonitorTask {
                 break;
 
             case "cancelled":
+                PrinterExecution cancelledExecution = findMatchingFarmExecution(printer, job);
+                if (cancelledExecution != null) {
+                    terminalPending = !finishPersistedExecution(
+                            cancelledExecution, printer, job, PrintJobStatus.CANCELLED, "用户取消");
+                    break;
+                }
                 // 任务取消
                 if (!transitionFromDevice(job, PrintJobStatus.CANCELLED)) {
                     break;
@@ -466,6 +500,31 @@ public class PrinterMonitorTask {
                     // 文件传输和启动确认在数据库事务之外执行；给设备调用保留短暂窗口，
                     // 避免巡检把正常进行中的 UPLOADING 误判为异常。
                     break;
+                } else if (printerExecutionService != null
+                        && hasMatchingFarmExecution(printer, job)) {
+                    PrinterExecution execution = findMatchingFarmExecution(printer, job);
+                    if (printerExecutionService.deviceRestarted(execution, status)) {
+                        requiresReconciliation = reconcileIdleJob(job,
+                                "设备运行时间已重置，无法确认任务终态，请人工核对");
+                        jobChanged = requiresReconciliation;
+                    } else if (Boolean.TRUE.equals(status.lastFileCancelled())) {
+                        terminalPending = !finishPersistedExecution(
+                                execution, printer, job, PrintJobStatus.CANCELLED,
+                                "设备报告最近一次文件已取消");
+                    } else if (Boolean.TRUE.equals(status.lastFileAborted())) {
+                        terminalPending = !finishPersistedExecution(
+                                execution, printer, job, PrintJobStatus.FAILED,
+                                "设备报告最近一次文件已中止");
+                    } else {
+                        execution = printerExecutionService.observeIdle(printer.getId(), status);
+                        if (execution != null && execution.getIdleObservationCount() != null
+                                && execution.getIdleObservationCount() >= 2) {
+                            terminalPending = !finishPersistedExecution(
+                                    execution, printer, job, PrintJobStatus.COMPLETED, null);
+                        } else {
+                            terminalPending = true;
+                        }
+                    }
                 } else if (Boolean.TRUE.equals(status.lastFileCancelled())) {
                     jobChanged = finishJobFromDevice(printer, job, PrintJobStatus.CANCELLED,
                             "设备报告最近一次文件已取消");
@@ -497,7 +556,108 @@ public class PrinterMonitorTask {
                 eventPublisher.publishJobStatus(job);
             }
         }
-        return requiresReconciliation;
+        if (requiresReconciliation) {
+            return SyncOutcome.RECONCILING;
+        }
+        return terminalPending ? SyncOutcome.TERMINAL_PENDING : SyncOutcome.NONE;
+    }
+
+    private void observeExecutingSession(Printer printer, PrinterDeviceStatus status,
+                                         TaskObservationContext context) {
+        if (printerExecutionService == null) {
+            return;
+        }
+        TaskObservation observation = context.observation();
+        Long farmJobId = observation.source() == DeviceTaskSource.FARM
+                ? observation.farmJobId() : null;
+        String executionSource = observation.source().name();
+        try {
+            // 已经由启动确认或先前文件名匹配建立的 FARM 会话，不能因为某一帧 RRF
+            // 暂时缺少文件名而降级成 UNKNOWN；明确文件名不匹配时仍会切换为 EXTERNAL。
+            if (observation.source() == DeviceTaskSource.UNKNOWN) {
+                PrinterExecution active = printerExecutionService.findActive(printer.getId());
+                if (active != null && "FARM".equals(active.getSource())
+                        && java.util.Objects.equals(active.getFarmJobId(), observation.farmJobId())) {
+                    farmJobId = active.getFarmJobId();
+                    executionSource = "FARM";
+                }
+            }
+            printerExecutionService.observeExecuting(
+                    printer.getId(), farmJobId, executionSource,
+                    expectedFilename(context.farmJob()), status);
+        } catch (Exception exception) {
+            log.error("持久化设备执行会话失败，继续保守监控: printerId={}, farmJobId={}",
+                    printer.getId(), farmJobId, exception);
+        }
+    }
+
+    private boolean hasMatchingFarmExecution(Printer printer, PrintJob job) {
+        return findMatchingFarmExecution(printer, job) != null;
+    }
+
+    private PrinterExecution findMatchingFarmExecution(Printer printer, PrintJob job) {
+        if (printerExecutionService == null || printer == null || job == null) {
+            return null;
+        }
+        PrinterExecution execution = printerExecutionService.findActive(printer.getId());
+        return execution != null
+                && "FARM".equals(execution.getSource())
+                && java.util.Objects.equals(execution.getFarmJobId(), job.getId())
+                && Boolean.TRUE.equals(execution.getHasSeenProcessing())
+                ? execution : null;
+    }
+
+    private boolean finishPersistedExecution(PrinterExecution execution, Printer printer, PrintJob job,
+                                             PrintJobStatus target, String reason) {
+        try {
+            if (!printerExecutionService.finishFarmExecution(execution, printer, job, target, reason)) {
+                return false;
+            }
+            printerCacheService.refreshPrinterCache();
+            eventPublisher.publishJobStatus(job);
+            log.info("设备执行会话已确认任务终态: executionId={}, jobId={}, printerId={}, status={}",
+                    execution.getId(), job.getId(), printer.getId(), target);
+            return true;
+        } catch (Exception exception) {
+            log.error("设备执行会话终态落库失败，将保留会话等待重试: executionId={}, jobId={}, printerId={}",
+                    execution == null ? null : execution.getId(), job.getId(), printer.getId(), exception);
+            return false;
+        }
+    }
+
+    private void closeNonFarmExecutionAfterIdle(Printer printer, PrinterDeviceStatus status) {
+        if (printerExecutionService == null) {
+            return;
+        }
+        try {
+            PrinterExecution execution = printerExecutionService.findActive(printer.getId());
+            if (execution == null || "FARM".equals(execution.getSource())) {
+                return;
+            }
+            execution = printerExecutionService.observeIdle(printer.getId(), status);
+            if (execution == null || execution.getIdleObservationCount() == null
+                    || execution.getIdleObservationCount() < 2) {
+                return;
+            }
+            String terminal = Boolean.TRUE.equals(status.lastFileCancelled()) ? "CANCELLED"
+                    : Boolean.TRUE.equals(status.lastFileAborted()) ? "FAILED" : "COMPLETED";
+            printerExecutionService.finishNonFarmExecution(execution, terminal,
+                    "设备由执行态稳定返回空闲");
+        } catch (Exception exception) {
+            log.error("关闭外部设备执行会话失败，将在下次巡检重试: printerId={}",
+                    printer.getId(), exception);
+        }
+    }
+
+    private String expectedFilename(PrintJob job) {
+        if (job == null || job.getFileId() == null || printFileMapper == null) {
+            return null;
+        }
+        PrintFile file = printFileMapper.selectById(job.getFileId());
+        if (file == null) {
+            return null;
+        }
+        return file.getOriginalName() == null ? file.getSafeName() : file.getOriginalName();
     }
 
     private boolean isDeviceExecuting(String state) {
@@ -965,5 +1125,11 @@ public class PrinterMonitorTask {
         MATCHED,
         MISMATCHED,
         UNKNOWN
+    }
+
+    private enum SyncOutcome {
+        NONE,
+        TERMINAL_PENDING,
+        RECONCILING
     }
 }

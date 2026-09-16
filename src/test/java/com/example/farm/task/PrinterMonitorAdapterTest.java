@@ -4,6 +4,7 @@ import com.example.farm.common.utils.RedisUtil;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.PrinterExecution;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.config.PrinterMonitorProperties;
 import com.example.farm.mapper.PrintFileMapper;
@@ -18,6 +19,7 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.PrinterExecutionService;
 import com.example.farm.service.WebSocketEventPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -61,6 +63,8 @@ class PrinterMonitorAdapterTest {
     private RedisUtil redisUtil;
     @Mock
     private PrintFileMapper printFileMapper;
+    @Mock
+    private PrinterExecutionService printerExecutionService;
 
     private PrinterMonitorTask monitorTask;
 
@@ -457,6 +461,93 @@ class PrinterMonitorAdapterTest {
     }
 
     @Test
+    void completesRrfJobFromPersistedExecutionTransitionWhenIdlePayloadResetsCounters() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        printer.setStatus("PRINTING");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PRINTING");
+        PrinterExecution execution = new PrinterExecution();
+        execution.setId(7001L);
+        execution.setPrinterId(403L);
+        execution.setFarmJobId(1001L);
+        execution.setSource("FARM");
+        execution.setState("ACTIVE");
+        execution.setHasSeenProcessing(true);
+        execution.setIdleObservationCount(2);
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(idleStatus());
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printerExecutionService.findActive(403L)).thenReturn(execution);
+        when(printerExecutionService.observeIdle(eq(403L), any())).thenReturn(execution);
+        when(printerExecutionService.finishFarmExecution(
+                execution, printer, job, com.example.farm.entity.enums.PrintJobStatus.COMPLETED, null))
+                .thenAnswer(invocation -> {
+                    job.setStatus("COMPLETED");
+                    printer.setCurrentJobId(null);
+                    return true;
+                });
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrinterExecutionService();
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printerExecutionService, timeout(1000)).finishFarmExecution(
+                execution, printer, job, com.example.farm.entity.enums.PrintJobStatus.COMPLETED, null);
+        verify(printerService, never()).clearJobBinding(403L, 1001L);
+        verify(eventPublisher, timeout(1000)).publishJobStatus(job);
+        assertThat(job.getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void closesPersistedExecutionWhenFirmwareReportsExplicitCompletion() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        printer.setStatus("PRINTING");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("PRINTING");
+        PrinterExecution execution = new PrinterExecution();
+        execution.setId(7002L);
+        execution.setPrinterId(403L);
+        execution.setFarmJobId(1001L);
+        execution.setSource("FARM");
+        execution.setState("ACTIVE");
+        execution.setHasSeenProcessing(true);
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(completedStatus());
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printerExecutionService.findActive(403L)).thenReturn(execution);
+        when(printerExecutionService.finishFarmExecution(
+                execution, printer, job, com.example.farm.entity.enums.PrintJobStatus.COMPLETED, null))
+                .thenAnswer(invocation -> {
+                    job.setStatus("COMPLETED");
+                    printer.setCurrentJobId(null);
+                    return true;
+                });
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrinterExecutionService();
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printerExecutionService, timeout(1000)).finishFarmExecution(
+                execution, printer, job, com.example.farm.entity.enums.PrintJobStatus.COMPLETED, null);
+        verify(printerService, never()).clearJobBinding(any(), any());
+        assertThat(job.getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
     void keepsGhostBindingAndMarksPrinterForReconciliation() {
         Printer printer = printer("RRF");
         printer.setCurrentJobId(9999L);
@@ -498,6 +589,16 @@ class PrinterMonitorAdapterTest {
             Field mapperField = PrinterMonitorTask.class.getDeclaredField("printFileMapper");
             mapperField.setAccessible(true);
             mapperField.set(monitorTask, printFileMapper);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private void installPrinterExecutionService() {
+        try {
+            Field serviceField = PrinterMonitorTask.class.getDeclaredField("printerExecutionService");
+            serviceField.setAccessible(true);
+            serviceField.set(monitorTask, printerExecutionService);
         } catch (ReflectiveOperationException exception) {
             throw new AssertionError(exception);
         }

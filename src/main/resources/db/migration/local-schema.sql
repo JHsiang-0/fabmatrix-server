@@ -111,6 +111,38 @@ CREATE TABLE IF NOT EXISTS farm_printer_status_history (
     total_duration NUMERIC(10,2), filament_used NUMERIC(10,2), recorded_at TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS farm_printer_execution (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL,
+    farm_job_id INTEGER,
+    source VARCHAR(16) NOT NULL,
+    state VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    expected_filename VARCHAR(255),
+    observed_filename VARCHAR(255),
+    has_seen_processing INTEGER NOT NULL DEFAULT 0,
+    has_seen_paused INTEGER NOT NULL DEFAULT 0,
+    idle_observation_count INTEGER NOT NULL DEFAULT 0,
+    last_raw_state VARCHAR(50),
+    max_progress NUMERIC(5,2),
+    max_file_position NUMERIC(20,2),
+    file_size NUMERIC(20,2),
+    device_uptime_at_start INTEGER,
+    device_uptime_last INTEGER,
+    started_at TIMESTAMP NOT NULL,
+    last_seen_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP,
+    end_reason VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_printer_execution_printer_state
+    ON farm_printer_execution(printer_id, state, id);
+CREATE INDEX IF NOT EXISTS idx_printer_execution_job
+    ON farm_printer_execution(farm_job_id, state);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_printer_execution_active
+    ON farm_printer_execution(printer_id) WHERE state = 'ACTIVE';
+
 CREATE TABLE IF NOT EXISTS farm_dispatch_plan (
     id VARCHAR(64) PRIMARY KEY, mode VARCHAR(20) NOT NULL, strategy VARCHAR(30) NOT NULL,
     action VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, version INTEGER NOT NULL DEFAULT 1,

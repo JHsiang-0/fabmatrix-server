@@ -1078,3 +1078,10 @@ src/test/java/com/example/farm/mapper/PrintFileMapperTest.java
 - 上传文件到设备完成打印的完整端到端测试。
 
 因此本文中的“现有接口”表示源码中存在，不表示已经完成真实环境验收。
+## 2026-09-16 RRF 自然完成第一阶段修复
+
+- 新增 `farm_printer_execution` 持久化设备执行会话。Local Edition 在启动时自动创建/升级；MySQL 使用 `22-printer-execution-mysql.sql` 手工升级已有数据库。
+- 平台任务只有在启动被设备确认或监控明确观测到匹配文件的 `processing/paused` 后，才建立 FARM 会话；`UPLOAD_ONLY` 产生的 `READY` 任务不会被空闲状态或残留文件名认领。
+- RRF 从已确认执行态连续两次返回 `idle`，且没有取消、中止、故障、设备重启或文件冲突证据时，任务自动转为 `COMPLETED`。该判断不依赖打印结束后可能重置的 `filePosition/timesLeft/progress`。
+- FARM 任务终态、打印机解绑和执行会话关闭由同一事务提交；外部打印只关闭 EXTERNAL/UNKNOWN 会话，不修改等待中的平台任务。
+- 本轮只修改源码、迁移、测试和文档，没有重启或替换现场运行中的安装版服务。真实设备行为仍需使用新安装包执行 T11.7 验收。

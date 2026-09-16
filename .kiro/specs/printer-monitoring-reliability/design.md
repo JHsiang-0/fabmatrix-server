@@ -177,3 +177,19 @@ NONE      设备当前未执行打印
 `farm_printer.current_job_id` 继续表达平台任务的占用/等待关系，不代表设备当前打印文件必然属于该任务。`READY` 任务遇到 `EXTERNAL` 或 `UNKNOWN` 观测时保持原状态，打印机业务状态仍按设备实际状态显示为 `PRINTING`。已经进入 `PRINTING/PAUSED` 的平台任务若明确观测到其他文件，任务进入 `RECONCILING`，但设备仍按外部打印继续监控。
 
 实时缓存、WebSocket 和 `farm_printer_status_history` 统一携带 `task_source`、`farm_job_id` 与 `task_match_reason`。外部任务不创建伪造的 `farm_print_job`，因此不会污染生产任务数量、成功率和操作员审计；其开始、状态变化和结束由设备状态历史记录。
+
+## 12. 持久化执行会话
+
+`farm_printer_execution` 保存一次设备真实执行过程，状态历史继续负责可读审计，两者职责分离。执行会话只在观测到 `processing/paused` 或平台启动已被设备确认后建立；`READY + idle` 不建立会话。
+
+RRF 完成判断使用持久化迁移：
+
+```text
+ACTIVE(FARM, has_seen_processing=true)
+  + 文件身份稳定
+  + 连续两次 idle
+  + 未取消/未中止/未 halted/uptime 未倒退
+  -> COMPLETED
+```
+
+设备 uptime 倒退、打印文件变化或绑定不一致时继续进入 `RECONCILING`。外部执行会话使用相同的开始/结束观测，但不创建或完成 `farm_print_job`。任务终态、`farm_printer.current_job_id` 清理和会话关闭由同一事务提交，WebSocket 在事务成功后发布。

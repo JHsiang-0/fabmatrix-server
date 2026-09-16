@@ -1,0 +1,28 @@
+-- 持久化设备执行会话：用于跨轮询和服务重启识别 processing/paused -> idle。
+CREATE TABLE IF NOT EXISTS farm_printer_execution (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    printer_id BIGINT NOT NULL,
+    farm_job_id BIGINT NULL,
+    source VARCHAR(16) NOT NULL,
+    state VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    expected_filename VARCHAR(255) NULL,
+    observed_filename VARCHAR(255) NULL,
+    has_seen_processing TINYINT(1) NOT NULL DEFAULT 0,
+    has_seen_paused TINYINT(1) NOT NULL DEFAULT 0,
+    idle_observation_count INT NOT NULL DEFAULT 0,
+    last_raw_state VARCHAR(50) NULL,
+    max_progress DECIMAL(5,2) NULL,
+    max_file_position DECIMAL(20,2) NULL,
+    file_size DECIMAL(20,2) NULL,
+    device_uptime_at_start BIGINT NULL,
+    device_uptime_last BIGINT NULL,
+    started_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    ended_at DATETIME NULL,
+    end_reason VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_printer_execution_printer_state (printer_id, state, id),
+    KEY idx_printer_execution_job (farm_job_id, state)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

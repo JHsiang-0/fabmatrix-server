@@ -38,6 +38,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         migrateDashboardLayout();
         correctLegacyDefaultDashboardLayout();
         createAuditLogTableIfMissing();
+        createPrinterExecutionTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("farm_dispatch_plan", "retry_key", "VARCHAR(128)");
@@ -63,6 +64,42 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();
         validatePrintFileStructure();
+    }
+
+    /** 持久化设备执行会话，避免 RRF 结束后清空 job 字段或服务重启导致终态证据丢失。 */
+    private void createPrinterExecutionTableIfMissing() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_printer_execution (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    printer_id INTEGER NOT NULL,
+                    farm_job_id INTEGER,
+                    source VARCHAR(16) NOT NULL,
+                    state VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+                    expected_filename VARCHAR(255),
+                    observed_filename VARCHAR(255),
+                    has_seen_processing INTEGER NOT NULL DEFAULT 0,
+                    has_seen_paused INTEGER NOT NULL DEFAULT 0,
+                    idle_observation_count INTEGER NOT NULL DEFAULT 0,
+                    last_raw_state VARCHAR(50),
+                    max_progress NUMERIC(5,2),
+                    max_file_position NUMERIC(20,2),
+                    file_size NUMERIC(20,2),
+                    device_uptime_at_start INTEGER,
+                    device_uptime_last INTEGER,
+                    started_at TIMESTAMP NOT NULL,
+                    last_seen_at TIMESTAMP NOT NULL,
+                    ended_at TIMESTAMP,
+                    end_reason VARCHAR(255),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_execution_printer_state "
+                + "ON farm_printer_execution(printer_id, state, id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_execution_job "
+                + "ON farm_printer_execution(farm_job_id, state)");
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_printer_execution_active "
+                + "ON farm_printer_execution(printer_id) WHERE state = 'ACTIVE'");
     }
 
     /** 首次引入持久化 setup 状态时，已有用户数据必须视为已初始化。 */

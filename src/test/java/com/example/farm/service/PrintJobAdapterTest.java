@@ -11,6 +11,7 @@ import com.example.farm.protocol.PrinterProtocolAdapter;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.service.impl.PrintJobServiceImpl;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +24,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
+import java.lang.reflect.Field;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,10 +53,19 @@ class PrintJobAdapterTest {
     @Mock
     private WebSocketEventPublisher eventPublisher;
     @Mock
+    private PrinterExecutionService printerExecutionService;
+    @Mock
     private InputStreamResource resource;
 
     @InjectMocks
     private PrintJobServiceImpl printJobService;
+
+    @BeforeEach
+    void installExecutionService() throws ReflectiveOperationException {
+        Field field = PrintJobServiceImpl.class.getDeclaredField("printerExecutionService");
+        field.setAccessible(true);
+        field.set(printJobService, printerExecutionService);
+    }
 
     @AfterEach
     void clearSecurityContext() {
@@ -84,6 +95,7 @@ class PrintJobAdapterTest {
         assertThat(endpoint.getValue().apiKey()).isEqualTo("device-secret");
         assertThat(job.getStatus()).isEqualTo("PRINTING");
         assertThat(job.getOperatorUsernameSnapshot()).isEqualTo("2");
+        verify(printerExecutionService).beginFarmExecution(403L, 1001L, "demo.gcode", null);
         verify(eventPublisher, times(2)).publishJobStatus(job);
     }
 
@@ -108,6 +120,7 @@ class PrintJobAdapterTest {
         verify(adapter).uploadFile(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class),
                 org.mockito.ArgumentMatchers.same(resource), org.mockito.ArgumentMatchers.eq("demo.gcode"),
                 org.mockito.ArgumentMatchers.eq(false));
+        verify(printerExecutionService, never()).beginFarmExecution(any(), any(), any(), any());
     }
 
     @Test

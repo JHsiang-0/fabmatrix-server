@@ -116,6 +116,14 @@ class LocalSchemaUpgradeIntegrationTest {
                 .contains("file_name_snapshot", "printer_name_snapshot", "machine_number_snapshot",
                         "creator_username_snapshot", "operator_username_snapshot", "retry_of_job_id",
                         "root_job_id", "attempt_number");
+        assertThat(jdbcTemplate.queryForList("PRAGMA table_info(farm_printer_execution)").stream()
+                .map(column -> String.valueOf(column.get("name"))))
+                .contains("printer_id", "farm_job_id", "source", "state", "has_seen_processing",
+                        "idle_observation_count", "device_uptime_at_start", "ended_at", "end_reason");
+        assertThat(jdbcTemplate.queryForList("PRAGMA index_list(farm_printer_execution)").stream()
+                .map(row -> String.valueOf(row.get("name"))))
+                .contains("uk_printer_execution_active", "idx_printer_execution_printer_state",
+                        "idx_printer_execution_job");
     }
 
     private static void createPreTc007Fixture(Path databasePath) {

@@ -34,6 +34,7 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.PrinterExecutionService;
 import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,6 +74,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
     @Autowired(required = false)
     private PlatformTransactionManager transactionManager;
+
+    /** 兼容旧单元测试；正式运行持久化设备执行会话以支持跨重启终态确认。 */
+    @Autowired(required = false)
+    private PrinterExecutionService printerExecutionService;
 
     /** 单元测试可不提供 Redis；正式运行由 Server Edition 注入并作为跨客户端占用锁。 */
     @Autowired(required = false)
@@ -563,6 +568,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         // READY 表示文件已在设备端；此时启动只发送打印命令，不重复上传。
         boolean startUploadedFile = startPrint && PrintJobStatus.READY.name().equals(normalizedStatus);
         boolean deviceActionStarted = false;
+        PrinterDeviceStatus confirmedDeviceStatus = null;
         try {
             PrinterLock.ensureValid(printerId);
             var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
@@ -587,7 +593,11 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 deviceAdapter.uploadFile(deviceEndpoint, fileStream, filename, startPrint);
             }
             if (startPrint && deviceEndpoint.protocolType() == PrinterProtocolType.RRF) {
-                confirmRrfPrintStarted(deviceAdapter, deviceEndpoint, filename);
+                confirmedDeviceStatus = confirmRrfPrintStarted(deviceAdapter, deviceEndpoint, filename);
+            }
+            if (startPrint && printerExecutionService != null) {
+                printerExecutionService.beginFarmExecution(
+                        printerId, jobId, filename, confirmedDeviceStatus);
             }
             PrinterLock.ensureValid(printerId);
         } catch (BusinessException exception) {
@@ -666,8 +676,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
     }
 
-    private void confirmRrfPrintStarted(com.example.farm.protocol.PrinterProtocolAdapter adapter,
-                                        PrinterEndpoint endpoint, String expectedFilename) {
+    private PrinterDeviceStatus confirmRrfPrintStarted(com.example.farm.protocol.PrinterProtocolAdapter adapter,
+                                                       PrinterEndpoint endpoint, String expectedFilename) {
         Exception lastFailure = null;
         for (int attempt = 1; attempt <= RRF_START_CONFIRM_ATTEMPTS; attempt++) {
             if (attempt > 1) {
@@ -678,7 +688,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 if (status != null
                         && (status.status() == PrinterStatus.PRINTING || status.status() == PrinterStatus.PAUSED)
                         && isExpectedDeviceFile(status.filename(), expectedFilename)) {
-                    return;
+                    return status;
                 }
                 String observedState = status == null ? "无响应" : status.rawState();
                 String observedFile = status == null ? null : status.filename();

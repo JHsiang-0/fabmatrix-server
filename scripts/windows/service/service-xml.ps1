@@ -65,7 +65,7 @@ function New-FabMatrixServiceXml {
   <env name="FARM_MONITOR_ENABLED" value="true" />
   <logpath>$serviceLogsXml</logpath>
   <log mode="roll-by-size">
-    <sizeThreshold>10485760</sizeThreshold>
+    <sizeThreshold>10240</sizeThreshold>
     <keepFiles>5</keepFiles>
   </log>
   <startmode>$StartMode</startmode>

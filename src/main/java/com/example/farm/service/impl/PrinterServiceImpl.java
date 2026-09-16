@@ -343,6 +343,23 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         return false;
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean confirmSafeIfBound(Long printerId, Long jobId) {
+        if (printerId == null || jobId == null) {
+            return false;
+        }
+        int affected = baseMapper.confirmSafeIfBound(printerId, jobId);
+        if (affected > 0) {
+            printerCacheService.refreshPrinterCache();
+            return true;
+        }
+        Printer current = this.getById(printerId);
+        return current != null
+                && Objects.equals(current.getCurrentJobId(), jobId)
+                && Boolean.TRUE.equals(current.getIsSafeToPrint());
+    }
+
     // ==================== 扫描与批量操作 ====================
 
     /**

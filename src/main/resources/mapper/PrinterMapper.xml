@@ -173,6 +173,14 @@
           AND status = 'IDLE'
     </update>
 
+    <update id="confirmSafeIfBound">
+        UPDATE farm_printer
+        SET is_safe_to_print = TRUE,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{printerId}
+          AND current_job_id = #{jobId}
+    </update>
+
     <select id="selectUnallocatedPrinters" resultType="com.example.farm.entity.vo.PrinterVO">
         SELECT id, name, machine_number AS machineNumber,
                ip_address AS ipAddress, mac_address AS macAddress, status

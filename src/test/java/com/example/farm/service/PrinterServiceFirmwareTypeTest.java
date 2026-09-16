@@ -223,4 +223,30 @@ class PrinterServiceFirmwareTypeTest {
                 .extracting("code")
                 .isEqualTo(400L);
     }
+
+    @Test
+    void confirmSafeUsesConditionalUpdateAndRefreshesCache() {
+        when(printerMapper.confirmSafeIfBound(403L, 1001L)).thenReturn(1);
+
+        assertThat(printerService.confirmSafeIfBound(403L, 1001L)).isTrue();
+
+        verify(printerMapper).confirmSafeIfBound(403L, 1001L);
+        verify(printerCacheService).refreshPrinterCache();
+        verify(printerMapper, never()).updateById(any(Printer.class));
+    }
+
+    @Test
+    void repeatedSafeConfirmationIsIdempotentWhenBindingIsUnchanged() {
+        Printer current = new Printer();
+        current.setId(403L);
+        current.setCurrentJobId(1001L);
+        current.setIsSafeToPrint(true);
+        when(printerMapper.confirmSafeIfBound(403L, 1001L)).thenReturn(0);
+        when(printerMapper.selectById(403L)).thenReturn(current);
+
+        assertThat(printerService.confirmSafeIfBound(403L, 1001L)).isTrue();
+
+        verify(printerCacheService, never()).refreshPrinterCache();
+        verify(printerMapper, never()).updateById(any(Printer.class));
+    }
 }

@@ -851,6 +851,13 @@ if ($serviceMonitorEnvironment.Count -ne 1 -or [string]$serviceMonitorEnvironmen
 if ([int](([string]$xmlDocument.service.stoptimeout) -replace '\D', '') -lt 20) {
     throw 'WinSW stop timeout is shorter than graceful shutdown timeout.'
 }
+if ([int]$xmlDocument.service.log.sizeThreshold -ne 10240) {
+    throw 'WinSW roll-by-size threshold must be expressed as 10240 KB (10 MiB).'
+}
+$serviceKeepFiles = [int]$xmlDocument.service.log.keepFiles
+if ($serviceKeepFiles -lt 5) {
+    throw 'WinSW must retain at least five service log files.'
+}
 $specialXml = New-FabMatrixServiceXml -InstallDir 'D:\Program Files\Fab&Matrix' -DataRoot 'D:\Program Files\Fab&Matrix\data' -Port 28081
 if ($specialXml -notmatch 'Fab&amp;Matrix' -or ([xml]$specialXml).service.arguments -notmatch 'Fab&Matrix') {
     throw 'WinSW XML dry-run did not XML-escape special path characters.'

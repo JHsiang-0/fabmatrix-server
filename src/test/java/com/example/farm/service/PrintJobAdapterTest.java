@@ -151,12 +151,30 @@ class PrintJobAdapterTest {
         printer.setIsSafeToPrint(false);
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
-        when(printerService.updateById(printer)).thenReturn(true);
+        when(printerService.confirmSafeIfBound(403L, 1001L)).thenReturn(true);
 
         printJobService.confirmPrinterSafe(1001L, 403L, 2L);
 
         assertThat(printer.getIsSafeToPrint()).isTrue();
-        verify(printerService).updateById(printer);
+        verify(printerService).confirmSafeIfBound(403L, 1001L);
+        verify(printerService, never()).updateById(printer);
+    }
+
+    @Test
+    void rejectsSafetyConfirmationWhenBindingChangesDuringAtomicUpdate() {
+        mockUser(2L, "OPERATOR");
+        PrintJob job = job("ASSIGNED");
+        Printer printer = printer();
+        printer.setIsSafeToPrint(false);
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.confirmSafeIfBound(403L, 1001L)).thenReturn(false);
+
+        assertThatThrownBy(() -> printJobService.confirmPrinterSafe(1001L, 403L, 2L))
+                .hasMessage("任务与打印机当前绑定已变化，请刷新后重试")
+                .extracting("code").isEqualTo(409L);
+
+        verify(printerService, never()).updateById(any(Printer.class));
     }
 
     @Test

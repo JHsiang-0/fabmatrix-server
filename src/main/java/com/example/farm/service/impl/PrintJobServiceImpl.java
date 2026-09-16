@@ -463,10 +463,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (!Objects.equals(currentUserId, operatorId)) {
             throw new BusinessException(403, "操作员身份必须来自当前登录用户");
         }
-        withPrinterLock(printerId, () -> {
-            doConfirmPrinterSafe(jobId, printerId, operatorId);
-            return null;
-        });
+        // 现场安全确认只写入数据库，不执行设备动作。不能等待监控线程持有的设备网络锁，
+        // 否则 RRF 状态查询变慢时会让确认请求长时间挂起。
+        doConfirmPrinterSafe(jobId, printerId, operatorId);
     }
 
     private void doConfirmPrinterSafe(Long jobId, Long printerId, Long operatorId) {
@@ -488,9 +487,12 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException(409, "任务与打印机当前绑定不一致，请刷新后重试");
         }
 
-        // 行为：将 Printer 的 is_safe_to_print 设为 true
+        // 使用绑定条件原子更新，避免完整实体写回覆盖监控线程刚更新的实时状态。
+        if (!Boolean.TRUE.equals(printer.getIsSafeToPrint())
+                && !printerService.confirmSafeIfBound(printerId, jobId)) {
+            throw new BusinessException(409, "任务与打印机当前绑定已变化，请刷新后重试");
+        }
         printer.setIsSafeToPrint(true);
-        updatePrinterOrThrow(printer, "确认打印机安全失败");
 
         String operatorInfo = operatorId != null ? "operatorId=" + operatorId : "operator=system";
         LogUtil.bizInfo("现场确认安全", "任务ID", jobId, "打印机ID", printerId,

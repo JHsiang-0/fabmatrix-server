@@ -115,6 +115,30 @@ class RrfApiClientTest {
     }
 
     @Test
+    void readsMacFromNetworkInterfaceMatchingScannedIp() {
+        expectConnect();
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "network"))
+                .andExpect(queryParam("flags", "vn"))
+                .andExpect(header("X-Session-Key", "123"))
+                .andRespond(withSuccess("""
+                        {"key":"network","result":{"interfaces":[
+                          {"actualIP":null,"mac":"02:00:4F:9E:27:DE","state":"disabled","type":"ethernet"},
+                          {"actualIP":"192.168.1.80","mac":"5C:8E:8B:10:CB:FD","state":"active","type":"wifi"}
+                        ]}}
+                        """, MediaType.APPLICATION_JSON));
+        expectDisconnect();
+
+        RrfApiClient.RrfNetworkIdentity identity = client.getNetworkIdentity(endpoint());
+
+        assertThat(identity).isNotNull();
+        assertThat(identity.actualIp()).isEqualTo("192.168.1.80");
+        assertThat(identity.macAddress()).isEqualTo("5C:8E:8B:10:CB:FD");
+        server.verify();
+    }
+
+    @Test
     void acceptsOfficialBufferOnlyGcodeResponse() {
         expectConnect();
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_gcode")))

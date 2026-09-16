@@ -13,9 +13,11 @@ import com.example.farm.entity.dto.PrinterUpdateDTO;
 import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.mapper.PrinterMapper;
-import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.PrinterEndpoint;
 import com.example.farm.protocol.PrinterProtocolDetector;
+import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterStatus;
+import com.example.farm.protocol.RrfApiClient;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterCacheService;
@@ -68,6 +70,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
     private final PrinterCacheService printerCacheService;
     private final MacAddressUtil macAddressUtil;
     private final PrinterProtocolDetector protocolDetector;
+    private final RrfApiClient rrfApiClient;
 
     // ==================== 基础 CRUD 操作 ====================
 
@@ -408,7 +411,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                         }
 
                         // 步骤 2: 获取 MAC 地址
-                        String macAddress = macAddressUtil.getMacAddress(targetIp);
+                        String macAddress = resolveScannedMacAddress(targetIp, protocolType);
 
                         // 步骤 3: 构建扫描结果
                         PrinterScanResultDTO result = new PrinterScanResultDTO();
@@ -499,6 +502,23 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             }
         }
         return normalized;
+    }
+
+    private String resolveScannedMacAddress(String ipAddress, PrinterProtocolType protocolType) {
+        if (protocolType == PrinterProtocolType.RRF) {
+            try {
+                RrfApiClient.RrfNetworkIdentity identity = rrfApiClient.getNetworkIdentity(
+                        new PrinterEndpoint(null, ipAddress, "", PrinterProtocolType.RRF));
+                if (identity != null && StringUtils.hasText(identity.macAddress())) {
+                    return identity.macAddress();
+                }
+            } catch (RuntimeException exception) {
+                // 密码保护、旧固件或兼容网关可能不提供 network 对象模型，继续使用 ARP 兜底。
+                log.debug("从 RRF 对象模型获取 MAC 失败，回退通用探测: IP={}, 原因={}",
+                        ipAddress, exception.getMessage());
+            }
+        }
+        return macAddressUtil.getMacAddress(ipAddress);
     }
 
     /**

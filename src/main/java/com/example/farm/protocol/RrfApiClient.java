@@ -65,6 +65,50 @@ public class RrfApiClient {
         throw lastFailure;
     }
 
+    /**
+     * 读取 RRF 网络接口身份。MAC 属于低频对象模型字段，因此必须使用 verbose 标志。
+     *
+     * <p>设备可能同时暴露禁用的有线接口和活动的 Wi-Fi 接口；这里只接受
+     * actualIP 与当前访问地址一致的接口，避免把另一块网卡的 MAC 绑定到设备记录。</p>
+     */
+    public RrfNetworkIdentity getNetworkIdentity(PrinterEndpoint endpoint) {
+        requireEndpoint(endpoint, PrinterOperation.GET_STATUS);
+        boolean connected = false;
+        Session session = null;
+        try {
+            session = connect(endpoint, PrinterOperation.GET_STATUS);
+            connected = true;
+            JsonNode network = resultNode(getModel(endpoint, session, "network", "vn"));
+            JsonNode interfaces = network.path("interfaces");
+            if (!interfaces.isArray()) {
+                return null;
+            }
+
+            RrfNetworkIdentity fallback = null;
+            for (JsonNode networkInterface : interfaces) {
+                String actualIp = text(networkInterface, "actualIP");
+                String macAddress = text(networkInterface, "mac");
+                if (!endpoint.ipAddress().equals(actualIp) || macAddress == null || macAddress.isBlank()) {
+                    continue;
+                }
+                RrfNetworkIdentity identity = new RrfNetworkIdentity(actualIp, macAddress);
+                if ("active".equalsIgnoreCase(text(networkInterface, "state"))) {
+                    return identity;
+                }
+                fallback = identity;
+            }
+            return fallback;
+        } catch (PrinterProtocolException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw failure(PrinterOperation.GET_STATUS, classify(exception), "读取 RRF 网络身份失败", exception);
+        } finally {
+            if (connected) {
+                disconnect(endpoint, session);
+            }
+        }
+    }
+
     private RrfStatusResponse getStatusOnce(PrinterEndpoint endpoint) {
         boolean connected = false;
         Session session = null;
@@ -220,9 +264,16 @@ public class RrfApiClient {
     }
 
     private JsonNode getModel(PrinterEndpoint endpoint, Session session, String key) {
+        return getModel(endpoint, session, key, null);
+    }
+
+    private JsonNode getModel(PrinterEndpoint endpoint, Session session, String key, String flags) {
         try {
+            URI modelUri = flags == null || flags.isBlank()
+                    ? uri(endpoint, "/rr_model", "key", key)
+                    : uri(endpoint, "/rr_model", "key", key, "flags", flags);
             String response = restClient.get()
-                    .uri(uri(endpoint, "/rr_model", "key", key))
+                    .uri(modelUri)
                     .headers(headers -> addSessionKey(headers, session))
                     .retrieve()
                     .body(String.class);
@@ -501,6 +552,9 @@ public class RrfApiClient {
     }
 
     private record Session(String key) {
+    }
+
+    public record RrfNetworkIdentity(String actualIp, String macAddress) {
     }
 
     private record HeaterTemperature(BigDecimal current, BigDecimal target) {

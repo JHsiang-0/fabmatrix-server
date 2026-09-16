@@ -24,8 +24,10 @@ import com.example.farm.service.WebSocketEventPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.lang.reflect.Field;
@@ -133,6 +135,52 @@ class PrinterMonitorAdapterTest {
         monitorTask.checkPrinterStatus();
         verify(eventPublisher, timeout(1000).times(1))
                 .publishPrinterOffline(403L, "设备状态查询失败");
+    }
+
+    @Test
+    void accumulatesCommunicationFailuresBeforeMarkingAnOnlinePrinterOffline() {
+        Printer printer = printer("RRF");
+        printer.setConnectionStatus("ONLINE");
+        printer.setConsecutiveFailureCount(0);
+        PrinterMonitorProperties properties = monitorProperties();
+        properties.setFailureThreshold(3);
+        when(printerCacheService.updatePrinterHealthWithLock(any(Printer.class))).thenReturn(true);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, properties);
+
+        ReflectionTestUtils.invokeMethod(monitorTask, "handleCommunicationFailure", printer, "连接超时");
+        ReflectionTestUtils.invokeMethod(monitorTask, "handleCommunicationFailure", printer, "连接超时");
+        ReflectionTestUtils.invokeMethod(monitorTask, "handleCommunicationFailure", printer, "连接超时");
+
+        ArgumentCaptor<Printer> updateCaptor = ArgumentCaptor.forClass(Printer.class);
+        verify(printerCacheService, org.mockito.Mockito.times(3))
+                .updatePrinterHealthWithLock(updateCaptor.capture());
+        List<Printer> updates = updateCaptor.getAllValues();
+        assertThat(updates).extracting(Printer::getConnectionStatus)
+                .containsExactly("ONLINE", "ONLINE", "OFFLINE");
+        assertThat(updates).extracting(Printer::getConsecutiveFailureCount)
+                .containsExactly(1, 2, 3);
+        verify(printerCacheService).markPrinterOffline(403L);
+        verify(printerCacheService).clearStatusCache(403L);
+    }
+
+    @Test
+    void persistsUnknownConnectionStatusWhenMigratedFailureCounterExists() {
+        Printer printer = printer("RRF");
+        printer.setConnectionStatus(null);
+        printer.setConsecutiveFailureCount(0);
+        PrinterMonitorProperties properties = monitorProperties();
+        properties.setFailureThreshold(3);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, properties);
+
+        ReflectionTestUtils.invokeMethod(monitorTask, "handleCommunicationFailure", printer, "连接超时");
+
+        ArgumentCaptor<Printer> updateCaptor = ArgumentCaptor.forClass(Printer.class);
+        verify(printerCacheService).updatePrinterHealthWithLock(updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getConnectionStatus()).isEqualTo("UNKNOWN");
+        assertThat(updateCaptor.getValue().getConsecutiveFailureCount()).isEqualTo(1);
+        verify(printerCacheService, never()).markPrinterOffline(403L);
     }
 
     @Test

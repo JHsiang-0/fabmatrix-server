@@ -941,21 +941,23 @@ public class PrinterMonitorTask {
         consecutiveSuccessCounts.remove(printer.getId());
         // 兼容尚未执行 11 号迁移的旧测试/旧数据；完成迁移后按阈值防止瞬时网络抖动误报离线。
         boolean offline = legacyWithoutHealthFields || failures >= threshold;
-        if (offline) {
-            printer.setConnectionStatus("OFFLINE");
+        String connectionStatus = offline ? "OFFLINE" : printer.getConnectionStatus();
+        if (connectionStatus == null || connectionStatus.isBlank()) {
+            connectionStatus = "UNKNOWN";
         }
+        printer.setConnectionStatus(connectionStatus);
 
         Printer updateEntity = new Printer();
         updateEntity.setId(printer.getId());
+        // connection_status 在本地版 SQLite 中为 NOT NULL。未达到离线阈值时也必须回写当前状态，
+        // 否则第一次探测失败会导致整条健康信息更新回滚，失败次数永远无法累积到阈值。
+        updateEntity.setConnectionStatus(connectionStatus);
         updateEntity.setConsecutiveFailureCount(failures);
         updateEntity.setLastCommunicationError(error);
         updateEntity.setLastSeenAt(printer.getLastSeenAt());
         updateEntity.setLastKnownStatus(printer.getLastKnownStatus());
         updateEntity.setLastProtocolState(printer.getLastProtocolState());
         updateEntity.setLastDeviceUptime(printer.getLastDeviceUptime());
-        if (offline) {
-            updateEntity.setConnectionStatus("OFFLINE");
-        }
         if (printerCacheService.updatePrinterHealthWithLock(updateEntity)) {
             lastHealthPersistAt.put(printer.getId(), System.currentTimeMillis());
         }

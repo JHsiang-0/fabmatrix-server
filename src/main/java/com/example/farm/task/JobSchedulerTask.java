@@ -83,7 +83,9 @@ public class JobSchedulerTask {
         try {
             // 获取空闲打印机
             List<Printer> idlePrinters = printerService.list(new LambdaQueryWrapper<Printer>()
-                    .eq(Printer::getStatus, "IDLE"));
+                    .eq(Printer::getStatus, "IDLE")
+                    .eq(Printer::getMonitorEnabled, true)
+                    .eq(Printer::getConnectionStatus, "ONLINE"));
 
             if (idlePrinters.isEmpty()) {
                 return;
@@ -142,7 +144,10 @@ public class JobSchedulerTask {
             }
 
             Printer currentPrinter = printerService.getById(printer.getId());
-            if (currentPrinter == null || !"IDLE".equals(currentPrinter.getStatus())) {
+            if (currentPrinter == null
+                    || !"IDLE".equals(currentPrinter.getStatus())
+                    || !Boolean.TRUE.equals(currentPrinter.getMonitorEnabled())
+                    || !"ONLINE".equalsIgnoreCase(currentPrinter.getConnectionStatus())) {
                 log.debug("打印机状态已变化，跳过派发: printerId={}, name={}", printer.getId(), printer.getName());
                 return false;
             }

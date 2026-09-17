@@ -61,6 +61,9 @@ public class PrinterVO implements Serializable {
     @Schema(description = "业务状态：OFFLINE(离线), IDLE(空闲), PREPARING(准备中), PRINTING(打印中), PAUSED(暂停), ERROR(故障), UNKNOWN(未知)")
     private String status;
 
+    @Schema(description = "当前有效状态；通信离线时为 OFFLINE，监控停用或通信未知时为 UNKNOWN，否则等于业务状态")
+    private String effectiveStatus;
+
     @Schema(description = "固件类型")
     private String firmwareType;
 
@@ -124,6 +127,7 @@ public class PrinterVO implements Serializable {
         vo.ipAddress = printer.getIpAddress();
         vo.macAddress = printer.getMacAddress();
         vo.status = printer.getStatus();
+        vo.effectiveStatus = resolveEffectiveStatus(printer);
         vo.firmwareType = printer.getFirmwareType();
         vo.isSafeToPrint = printer.getIsSafeToPrint();
         vo.currentJobId = printer.getCurrentJobId();
@@ -142,5 +146,21 @@ public class PrinterVO implements Serializable {
         vo.lastProtocolState = printer.getLastProtocolState();
         vo.lastDeviceUptime = printer.getLastDeviceUptime();
         return vo;
+    }
+
+    public static String resolveEffectiveStatus(Printer printer) {
+        if (printer == null || Boolean.FALSE.equals(printer.getMonitorEnabled())) {
+            return "UNKNOWN";
+        }
+        String connectionStatus = printer.getConnectionStatus();
+        if ("OFFLINE".equalsIgnoreCase(connectionStatus)) {
+            return "OFFLINE";
+        }
+        if ("UNKNOWN".equalsIgnoreCase(connectionStatus)) {
+            return "UNKNOWN";
+        }
+        String businessStatus = printer.getStatus();
+        return businessStatus == null || businessStatus.isBlank()
+                ? "UNKNOWN" : businessStatus.toUpperCase(java.util.Locale.ROOT);
     }
 }

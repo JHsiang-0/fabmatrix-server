@@ -134,6 +134,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (printer == null || !"IDLE".equals(printer.getStatus())) {
             return false;
         }
+        if (!isPrinterCommunicationReady(printer)) {
+            return false;
+        }
         if (printer.getCurrentJobId() != null) {
             return false;
         }
@@ -369,6 +372,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("派发打印任务失败：打印机非空闲状态，jobId={}, printerId={}, status={}", jobId, printerId, printer.getStatus());
             throw new BusinessException("该打印机正在忙碌，无法派单");
         }
+        requirePrinterCommunicationReady(printer);
         requireUnboundPrinter(printer);
 
         // 先以 CAS 进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
@@ -454,6 +458,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("派发任务失败：打印机非空闲，printerId={}, status={}", printerId, printer.getStatus());
             throw new BusinessException("打印机 [" + printer.getName() + "] 当前忙碌，无法派单");
         }
+        requirePrinterCommunicationReady(printer);
         requireUnboundPrinter(printer);
 
         PrintFile capabilityFile = printFileMapper.selectById(job.getFileId());
@@ -497,7 +502,6 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("确认打印机安全失败：打印机不存在，printerId={}", printerId);
             throw new BusinessException("打印机不存在");
         }
-
         String jobStatus = PrintJobStatus.normalize(job.getStatus());
         if (!PrintJobStatus.ASSIGNED.name().equals(jobStatus)
                 && !PrintJobStatus.READY.name().equals(jobStatus)) {
@@ -569,6 +573,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             log.warn("启动打印失败：打印机不存在，printerId={}", printerId);
             throw new BusinessException("打印机不存在");
         }
+        requirePrinterCommunicationReady(printer);
 
         // 校验 2：Printer 的 is_safe_to_print 必须为 true（仅在 START_PRINT 时校验）
         if (startPrint && !Boolean.TRUE.equals(printer.getIsSafeToPrint())) {
@@ -1216,6 +1221,28 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (auditLogService != null) {
             auditLogService.recordSuccess(action, targetType, targetId, targetLabel);
         }
+    }
+
+    private boolean isPrinterCommunicationReady(Printer printer) {
+        if (printer == null || Boolean.FALSE.equals(printer.getMonitorEnabled())) {
+            return false;
+        }
+        String connectionStatus = printer.getConnectionStatus();
+        // 兼容尚未迁移通信字段的历史测试/数据；正式数据会明确写入 ONLINE/OFFLINE/UNKNOWN。
+        return connectionStatus == null || connectionStatus.isBlank()
+                || "ONLINE".equalsIgnoreCase(connectionStatus);
+    }
+
+    private void requirePrinterCommunicationReady(Printer printer) {
+        if (isPrinterCommunicationReady(printer)) {
+            return;
+        }
+        log.warn("设备当前不可用，拒绝任务操作: printerId={}, monitorEnabled={}, connectionStatus={}, businessStatus={}",
+                printer == null ? null : printer.getId(),
+                printer == null ? null : printer.getMonitorEnabled(),
+                printer == null ? null : printer.getConnectionStatus(),
+                printer == null ? null : printer.getStatus());
+        throw new BusinessException(409, "打印机当前离线或状态未知，请恢复通信后再操作");
     }
 
     private void requireUnboundPrinter(Printer printer) {

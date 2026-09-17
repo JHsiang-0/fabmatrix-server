@@ -317,6 +317,32 @@ class PrintJobCreateTest {
         verify(eventPublisher, never()).publishJobStatus(any());
     }
 
+    @Test
+    void manualAssignmentRejectsIdleBusinessStateWhenCommunicationIsOffline() {
+        mockUser(1L, "OPERATOR");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setUserId(1L);
+        job.setStatus("QUEUED");
+        when(printJobMapper.selectById(1001L)).thenReturn(job);
+
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setName("RRF-403");
+        printer.setStatus("IDLE");
+        printer.setMonitorEnabled(true);
+        printer.setConnectionStatus("OFFLINE");
+        when(printerService.getById(403L)).thenReturn(printer);
+
+        assertThatThrownBy(() -> printJobService.assignJob(1001L, 403L))
+                .hasMessage("打印机当前离线或状态未知，请恢复通信后再操作")
+                .extracting("code")
+                .isEqualTo(409L);
+
+        verify(printJobMapper, never()).assignJobIfQueued(anyLong(), anyLong(), any(), any());
+        verify(eventPublisher, never()).publishJobStatus(any());
+    }
+
     private AtomicReference<PrintJob> stubInsert(boolean needsReload) {
         AtomicReference<PrintJob> created = new AtomicReference<>();
         doAnswer(invocation -> {

@@ -33,6 +33,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -83,10 +84,35 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         LambdaQueryWrapper<Printer> wrapper = new LambdaQueryWrapper<>();
 
         wrapper.like(StringUtils.hasText(queryDTO.getName()), Printer::getName, queryDTO.getName());
-        wrapper.eq(StringUtils.hasText(queryDTO.getStatus()), Printer::getStatus, queryDTO.getStatus());
+        applyEffectiveStatusFilter(wrapper, queryDTO.getStatus());
         wrapper.orderByDesc(Printer::getCreatedAt);
 
         return this.page(page, wrapper);
+    }
+
+    private void applyEffectiveStatusFilter(LambdaQueryWrapper<Printer> wrapper, String requestedStatus) {
+        if (!StringUtils.hasText(requestedStatus)) {
+            return;
+        }
+        String status = requestedStatus.trim().toUpperCase(Locale.ROOT);
+        if ("OFFLINE".equals(status)) {
+            wrapper.eq(Printer::getMonitorEnabled, true)
+                    .eq(Printer::getConnectionStatus, "OFFLINE");
+            return;
+        }
+        if ("UNKNOWN".equals(status)) {
+            wrapper.and(query -> query
+                    .eq(Printer::getMonitorEnabled, false)
+                    .or().isNull(Printer::getConnectionStatus)
+                    .or().eq(Printer::getConnectionStatus, "UNKNOWN")
+                    .or(nested -> nested.eq(Printer::getConnectionStatus, "ONLINE")
+                            .and(state -> state.isNull(Printer::getStatus)
+                                    .or().eq(Printer::getStatus, "UNKNOWN"))));
+            return;
+        }
+        wrapper.eq(Printer::getMonitorEnabled, true)
+                .eq(Printer::getConnectionStatus, "ONLINE")
+                .eq(Printer::getStatus, status);
     }
 
     /**

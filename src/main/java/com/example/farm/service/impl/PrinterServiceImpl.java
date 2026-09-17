@@ -84,6 +84,10 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         LambdaQueryWrapper<Printer> wrapper = new LambdaQueryWrapper<>();
 
         wrapper.like(StringUtils.hasText(queryDTO.getName()), Printer::getName, queryDTO.getName());
+        if (StringUtils.hasText(queryDTO.getFirmwareType())) {
+            wrapper.eq(Printer::getFirmwareType,
+                    PrinterProtocolType.normalize(queryDTO.getFirmwareType()).name());
+        }
         applyEffectiveStatusFilter(wrapper, queryDTO.getStatus());
         wrapper.orderByDesc(Printer::getCreatedAt);
 
@@ -296,7 +300,11 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         // 更新基础信息
         existingPrinter.setName(dto.getName());
         existingPrinter.setIpAddress(dto.getIpAddress());
-        existingPrinter.setMacAddress(dto.getMacAddress());
+        // 编辑表单不回传设备发现字段时必须保留原 MAC，避免普通名称/编号修改破坏设备身份。
+        if (dto.getMacAddress() != null) {
+            existingPrinter.setMacAddress(StringUtils.hasText(dto.getMacAddress())
+                    ? macAddressUtil.normalizeMacAddress(dto.getMacAddress()) : null);
+        }
         existingPrinter.setFirmwareType(normalizeFirmwareType(
                 StringUtils.hasText(dto.getFirmwareType())
                         ? dto.getFirmwareType() : existingPrinter.getFirmwareType()));
@@ -306,7 +314,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         }
         existingPrinter.setCurrentMaterial(dto.getCurrentMaterial());
         existingPrinter.setNozzleSize(dto.getNozzleSize());
-        existingPrinter.setMachineNumber(dto.getMachineNumber());
+        existingPrinter.setMachineNumber(StringUtils.hasText(dto.getMachineNumber())
+                ? dto.getMachineNumber().trim() : null);
 
         existingPrinter.setUpdatedAt(LocalDateTime.now());
 

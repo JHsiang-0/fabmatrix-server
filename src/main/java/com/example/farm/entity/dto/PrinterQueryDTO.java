@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
@@ -29,4 +30,8 @@ public class PrinterQueryDTO {
 
     @Schema(description = "状态筛选：IDLE(空闲), PRINTING(打印中), OFFLINE(离线), ERROR(故障)")
     private String status;
+
+    @Schema(description = "设备协议筛选：RRF 或 KLIPPER")
+    @Pattern(regexp = "(?i)^(RRF|KLIPPER)$", message = "设备协议只能是 RRF 或 KLIPPER")
+    private String firmwareType;
 }

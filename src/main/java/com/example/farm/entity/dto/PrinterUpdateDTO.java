@@ -53,6 +53,8 @@ public class PrinterUpdateDTO {
     private BigDecimal nozzleSize;
 
     @Schema(description = "设备编号/机台号（用于产线管理）")
+    @Size(max = 50, message = "设备编号不能超过50个字符")
+    @Pattern(regexp = "^[A-Za-z0-9_-]*$", message = "设备编号仅支持字母、数字、下划线和短横线")
     private String machineNumber;
 
 }

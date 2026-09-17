@@ -55,10 +55,10 @@ public class PrinterController {
     /**
      * 分页查询打印机列表。
      *
-     * @param queryDTO 查询条件（页码、页大小、名称、状态）
+     * @param queryDTO 查询条件（页码、页大小、名称、状态、设备协议）
      * @return 打印机分页结果
      */
-    @Operation(summary = "分页查询打印机列表", description = "支持按名称和状态筛选的分页查询")
+    @Operation(summary = "分页查询打印机列表", description = "支持按名称、状态和设备协议筛选的分页查询")
     @GetMapping("/page")
     public Result<PageResult<PrinterVO>> getPrinterPage(@Valid @ParameterObject PrinterQueryDTO queryDTO) {
         return Result.success(PageResult.from(printerService.pagePrinters(queryDTO), PrinterVO::from));

@@ -1,8 +1,14 @@
 package com.example.farm.service;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.farm.common.utils.MacAddressUtil;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.PrinterAddDTO;
+import com.example.farm.entity.dto.PrinterQueryDTO;
 import com.example.farm.entity.dto.PrinterUpdateDTO;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.PrinterProtocolDetector;
@@ -17,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -99,6 +106,7 @@ class PrinterServiceFirmwareTypeTest {
         existing.setName("klipper-01");
         existing.setIpAddress("192.168.1.80");
         existing.setFirmwareType("Klipper");
+        existing.setMacAddress("aa:bb:cc:dd:ee:ff");
         existing.setApiKey("device-secret");
         existing.setGridRow(2);
         existing.setGridCol(3);
@@ -114,6 +122,7 @@ class PrinterServiceFirmwareTypeTest {
         printerService.updatePrinter(request);
 
         assertThat(existing.getFirmwareType()).isEqualTo("KLIPPER");
+        assertThat(existing.getMacAddress()).isEqualTo("aa:bb:cc:dd:ee:ff");
         assertThat(existing.getApiKey()).isEqualTo("device-secret");
         assertThat(existing.getGridRow()).isEqualTo(2);
         assertThat(existing.getGridCol()).isEqualTo(3);
@@ -285,6 +294,24 @@ class PrinterServiceFirmwareTypeTest {
                 .hasMessage("IP 地址不能为空")
                 .extracting("code")
                 .isEqualTo(400L);
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void pagePrintersFiltersByCanonicalFirmwareType() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "printer-query-test"), Printer.class);
+        PrinterQueryDTO query = new PrinterQueryDTO();
+        query.setFirmwareType("rrf");
+        when(printerMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        printerService.pagePrinters(query);
+
+        ArgumentCaptor<LambdaQueryWrapper> wrapper = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(printerMapper).selectPage(any(Page.class), wrapper.capture());
+        assertThat(wrapper.getValue().getSqlSegment()).contains("firmware_type");
+        assertThat(wrapper.getValue().getParamNameValuePairs()).containsValue("RRF");
     }
 
     @Test

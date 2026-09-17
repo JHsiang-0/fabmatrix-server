@@ -91,7 +91,7 @@ public interface PrintJobService extends IService<PrintJob> {
      * @param jobId 任务 ID
      * @param printerId 打印机 ID
      * @return 是否派发成功
-     * @throws BusinessException 当任务状态、设备状态或工艺参数校验不通过时抛出
+     * @throws BusinessException 当任务状态或设备状态不满足要求时抛出；喷嘴/耗材不一致仅记录告警
      */
     boolean assignAndStartPrint(Long jobId, Long printerId);
 

@@ -62,6 +62,9 @@ public class FileNodeVO {
     @Schema(description = "耗材类型，目录为 null")
     private String materialType;
 
+    @Schema(description = "喷嘴直径，目录为 null")
+    private java.math.BigDecimal nozzleSize;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 
@@ -84,6 +87,7 @@ public class FileNodeVO {
         node.name = file.getOriginalName();
         node.fileSize = node.folder ? null : file.getFileSize();
         node.materialType = node.folder ? null : file.getMaterialType();
+        node.nozzleSize = node.folder ? null : file.getNozzleSize();
         node.createdAt = file.getCreatedAt();
         return node;
     }

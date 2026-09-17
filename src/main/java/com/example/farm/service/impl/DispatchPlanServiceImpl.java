@@ -170,6 +170,8 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
                 if (conflict != null) {
                     item.setReasonCode(conflict[0]);
                     item.setMessage(conflict[1]);
+                } else {
+                    item.setMessage(capabilityWarning(file, printer));
                 }
             }
             retryItems.add(item);
@@ -443,6 +445,7 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
                 item.setMessage(conflict[1]);
             } else if (printer != null) {
                 usedPrinters.add(printer.getId());
+                item.setMessage(capabilityWarning(file, printer));
             }
             items.add(item);
         }
@@ -457,8 +460,19 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
         if (strategy == DispatchStrategy.ROUND_ROBIN) {
             return printers.isEmpty() ? null : printers.get(index % printers.size());
         }
-        return printers.stream().filter(p -> p != null && !usedPrinters.contains(p.getId())
-                && isAvailable(p) && compatible(file, p)).findFirst().orElse(null);
+        Printer fallback = null;
+        for (Printer printer : printers) {
+            if (printer == null || usedPrinters.contains(printer.getId()) || !isAvailable(printer)) {
+                continue;
+            }
+            if (fallback == null) {
+                fallback = printer;
+            }
+            if (compatible(file, printer)) {
+                return printer;
+            }
+        }
+        return fallback;
     }
 
     private String[] conflict(PrintFile file, Printer printer, DispatchStrategy strategy,
@@ -470,8 +484,24 @@ public class DispatchPlanServiceImpl implements DispatchPlanService {
             return new String[]{"COUNT_MISMATCH", "文件和打印机数量不一致"};
         }
         if (!isAvailable(printer)) return new String[]{"PRINTER_UNAVAILABLE", "打印机当前不可用"};
-        if (!compatible(file, printer)) return new String[]{"CAPABILITY_MISMATCH", "耗材或喷嘴能力不匹配"};
         return null;
+    }
+
+    private String capabilityWarning(PrintFile file, Printer printer) {
+        if (file == null || printer == null) return null;
+        List<String> warnings = new ArrayList<>();
+        if (file.getMaterialType() != null && !file.getMaterialType().isBlank()
+                && printer.getCurrentMaterial() != null && !printer.getCurrentMaterial().isBlank()
+                && !file.getMaterialType().trim().equalsIgnoreCase(printer.getCurrentMaterial().trim())) {
+            warnings.add("耗材不一致：文件要求 " + file.getMaterialType().trim()
+                    + "，打印机当前为 " + printer.getCurrentMaterial().trim());
+        }
+        if (file.getNozzleSize() != null && printer.getNozzleSize() != null
+                && file.getNozzleSize().compareTo(printer.getNozzleSize()) != 0) {
+            warnings.add("喷嘴不一致：文件要求 " + file.getNozzleSize()
+                    + "，打印机当前为 " + printer.getNozzleSize());
+        }
+        return warnings.isEmpty() ? null : "警告：" + String.join("；", warnings) + "（仍可执行）";
     }
 
     private boolean compatible(PrintFile file, Printer printer) {

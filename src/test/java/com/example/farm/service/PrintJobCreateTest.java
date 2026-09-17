@@ -20,6 +20,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
+import java.math.BigDecimal;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -176,6 +177,32 @@ class PrintJobCreateTest {
         assertThat(created.get().getMachineNumberSnapshot()).isEqualTo("M-03");
         assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
         assertThat(printer.getIsSafeToPrint()).isFalse();
+        verify(adapterFactory, never()).getAdapter(any());
+    }
+
+    @Test
+    void allowsAssignmentWhenMaterialOrNozzleDoesNotMatch() {
+        mockUser(1L, "OPERATOR");
+        PrintFile printFile = file(20L, 1L);
+        printFile.setMaterialType("ABS");
+        printFile.setNozzleSize(new BigDecimal("0.40"));
+        when(printFileMapper.selectById(20L)).thenReturn(printFile);
+        AtomicReference<PrintJob> created = stubInsert(true);
+
+        Printer printer = new Printer();
+        printer.setId(403L);
+        printer.setName("Printer-403");
+        printer.setStatus("IDLE");
+        printer.setCurrentMaterial("PLA");
+        printer.setNozzleSize(new BigDecimal("0.60"));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(printerService.bindJobIfIdle(403L, 1001L)).thenReturn(true);
+        when(printJobMapper.assignJobIfQueued(anyLong(), anyLong(), any(), any())).thenReturn(1);
+
+        Long jobId = printJobService.createJob(request(403L));
+
+        assertThat(jobId).isEqualTo(1001L);
+        assertThat(created.get().getStatus()).isEqualTo("ASSIGNED");
         verify(adapterFactory, never()).getAdapter(any());
     }
 

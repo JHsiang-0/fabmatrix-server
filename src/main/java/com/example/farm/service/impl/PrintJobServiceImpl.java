@@ -288,6 +288,31 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         job.setAttemptNumber(1);
     }
 
+    /**
+     * 喷嘴和耗材属于工艺风险提示，不是任务创建或打印的硬性门禁。
+     * 仅在两侧都配置且明确不一致时记录告警，避免把未配置参数误判为冲突。
+     */
+    private void logCapabilityMismatchWarning(PrintFile file, Printer printer, String operation, Long jobId) {
+        if (file == null || printer == null) {
+            return;
+        }
+        List<String> warnings = new ArrayList<>();
+        if (file.getMaterialType() != null && !file.getMaterialType().isBlank()
+                && printer.getCurrentMaterial() != null && !printer.getCurrentMaterial().isBlank()
+                && !file.getMaterialType().trim().equalsIgnoreCase(printer.getCurrentMaterial().trim())) {
+            warnings.add("耗材不一致(" + file.getMaterialType().trim() + " vs "
+                    + printer.getCurrentMaterial().trim() + ")");
+        }
+        if (file.getNozzleSize() != null && printer.getNozzleSize() != null
+                && file.getNozzleSize().compareTo(printer.getNozzleSize()) != 0) {
+            warnings.add("喷嘴尺寸不一致(" + file.getNozzleSize() + " vs " + printer.getNozzleSize() + ")");
+        }
+        if (!warnings.isEmpty()) {
+            log.warn("打印参数不一致警告，允许继续：operation={}, jobId={}, printerId={}, {}",
+                    operation, jobId, printer.getId(), String.join("；", warnings));
+        }
+    }
+
     private String resolveUsernameSnapshot(Long userId) {
         if (userMapper != null && userId != null) {
             try {
@@ -360,20 +385,13 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         updateJobOrThrow(job, "上传文件到打印机失败");
         eventPublisher.publishJobStatus(job);
 
-        // 从切片文件获取工艺参数，做材料与喷嘴校验
+        // 从切片文件获取工艺参数，仅记录不一致告警，不阻断打印
         PrintFile fileRecord = PrintFileAccess.requireAccessible(job.getFileId(), printFileMapper::selectById);
         if (fileRecord == null) {
             throw new BusinessException("切片文件数据缺失");
         }
 
-        if (fileRecord.getNozzleSize() != null && printer.getNozzleSize() != null
-                && fileRecord.getNozzleSize().compareTo(printer.getNozzleSize()) != 0) {
-            throw new BusinessException("喷嘴尺寸不匹配(" + fileRecord.getNozzleSize() + " vs " + printer.getNozzleSize() + ")");
-        }
-        if (fileRecord.getMaterialType() != null && printer.getCurrentMaterial() != null
-                && !fileRecord.getMaterialType().equalsIgnoreCase(printer.getCurrentMaterial())) {
-            throw new BusinessException("装载耗材不匹配(" + fileRecord.getMaterialType() + " vs " + printer.getCurrentMaterial() + ")");
-        }
+        logCapabilityMismatchWarning(fileRecord, printer, "兼容派发并启动", jobId);
 
         String filename = fileRecord.getOriginalName();
         String safeName = fileRecord.getSafeName();
@@ -437,6 +455,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException("打印机 [" + printer.getName() + "] 当前忙碌，无法派单");
         }
         requireUnboundPrinter(printer);
+
+        PrintFile capabilityFile = printFileMapper.selectById(job.getFileId());
+        logCapabilityMismatchWarning(capabilityFile, printer, "安全派发", jobId);
 
         // 行为：以任务 CAS 写入设备和本次分配快照，再建立打印机侧原子绑定。
         if (!assignJobRecord(job, printer)) {
@@ -561,6 +582,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         if (fileRecord == null) {
             throw new BusinessException("切片文件数据缺失");
         }
+        logCapabilityMismatchWarning(fileRecord, printer, "现场启动", jobId);
 
         String filename = fileRecord.getOriginalName();
         String safeName = fileRecord.getSafeName() != null

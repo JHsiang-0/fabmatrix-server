@@ -410,6 +410,12 @@ public class PrinterMonitorTask {
                 break;
 
             case "complete":
+                if (!canApplyTerminalDeviceState(printer, job)) {
+                    log.debug("忽略尚未启动任务收到的设备完成状态: jobId={}, printerId={}, jobStatus={}",
+                            jobId, printer.getId(), job.getStatus());
+                    terminalPending = true;
+                    break;
+                }
                 PrinterExecution completedExecution = findMatchingFarmExecution(printer, job);
                 if (completedExecution != null) {
                     terminalPending = !finishPersistedExecution(
@@ -434,6 +440,12 @@ public class PrinterMonitorTask {
                 break;
 
             case "error":
+                if (!canApplyTerminalDeviceState(printer, job)) {
+                    log.debug("忽略尚未启动任务收到的设备错误状态: jobId={}, printerId={}, jobStatus={}",
+                            jobId, printer.getId(), job.getStatus());
+                    terminalPending = true;
+                    break;
+                }
                 PrinterExecution failedExecution = findMatchingFarmExecution(printer, job);
                 if (failedExecution != null) {
                     terminalPending = !finishPersistedExecution(
@@ -457,6 +469,12 @@ public class PrinterMonitorTask {
                 break;
 
             case "cancelled":
+                if (!canApplyTerminalDeviceState(printer, job)) {
+                    log.debug("忽略尚未启动任务收到的设备取消状态: jobId={}, printerId={}, jobStatus={}",
+                            jobId, printer.getId(), job.getStatus());
+                    terminalPending = true;
+                    break;
+                }
                 PrinterExecution cancelledExecution = findMatchingFarmExecution(printer, job);
                 if (cancelledExecution != null) {
                     terminalPending = !finishPersistedExecution(
@@ -593,6 +611,18 @@ public class PrinterMonitorTask {
 
     private boolean hasMatchingFarmExecution(Printer printer, PrintJob job) {
         return findMatchingFarmExecution(printer, job) != null;
+    }
+
+    /**
+     * 设备的 complete/error/cancelled 可能是上一份文件留下的状态。
+     * 任务尚未真正开始时不得消费这些终态，否则新派发任务会被误结束。
+     */
+    private boolean canApplyTerminalDeviceState(Printer printer, PrintJob job) {
+        String jobStatus = PrintJobStatus.normalize(job.getStatus());
+        return PrintJobStatus.PRINTING.name().equals(jobStatus)
+                || PrintJobStatus.PAUSED.name().equals(jobStatus)
+                || PrintJobStatus.RECONCILING.name().equals(jobStatus)
+                || hasMatchingFarmExecution(printer, job);
     }
 
     private PrinterExecution findMatchingFarmExecution(Printer printer, PrintJob job) {

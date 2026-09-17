@@ -79,6 +79,10 @@ public class PrintJobSummaryVO implements Serializable {
     @Schema(types = {"string", "null"}, description = "当前机器编号；关联打印机不存在时为 null")
     private String machineNumber;
 
+    @Schema(types = {"boolean", "null"},
+            description = "当前任务绑定的打印机是否已完成现场安全确认；未绑定或绑定已变化时为 false")
+    private Boolean safeToPrint;
+
     @Schema(types = {"string", "null"}, description = "创建人用户名；关联用户不存在时为 null")
     private String creatorUsername;
 

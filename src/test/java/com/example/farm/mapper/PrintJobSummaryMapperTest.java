@@ -67,7 +67,9 @@ class PrintJobSummaryMapperTest {
                 CREATE TABLE farm_printer (
                     id BIGINT PRIMARY KEY,
                     name VARCHAR(50),
-                    machine_number VARCHAR(50)
+                    machine_number VARCHAR(50),
+                    current_job_id BIGINT,
+                    is_safe_to_print BOOLEAN NOT NULL DEFAULT FALSE
                 )
                 """);
         jdbcTemplate.execute("""
@@ -115,6 +117,8 @@ class PrintJobSummaryMapperTest {
         insertJob(32L, null, null, 11L, null, 10, "QUEUED", "2026-09-11 08:00:00");
         insertJob(33L, null, null, 10L, null, 99, "PENDING", "2026-09-11 07:00:00");
         insertJob(34L, null, null, 10L, null, 98, "MANUAL", "2026-09-11 06:00:00");
+        jdbcTemplate.update("UPDATE farm_printer SET current_job_id = ?, is_safe_to_print = TRUE WHERE id = ?",
+                20L, 200L);
     }
 
     @AfterEach
@@ -135,9 +139,10 @@ class PrintJobSummaryMapperTest {
         assertThat(mapped).extracting(PrintJobSummaryVO::getFileName,
                         PrintJobSummaryVO::getPrinterName, PrintJobSummaryVO::getMachineNumber,
                         PrintJobSummaryVO::getCreatorUsername, PrintJobSummaryVO::getOperatorUsername,
-                        PrintJobSummaryVO::getMaterialType, PrintJobSummaryVO::getNozzleSize)
+                        PrintJobSummaryVO::getMaterialType, PrintJobSummaryVO::getNozzleSize,
+                        PrintJobSummaryVO::getSafeToPrint)
                 .containsExactly("model.gcode", "Printer A", "M-01", "creator", "operator",
-                        "PLA", new BigDecimal("0.40"));
+                        "PLA", new BigDecimal("0.40"), true);
         assertThat(missing).extracting(PrintJobSummaryVO::getId,
                         PrintJobSummaryVO::getFileName, PrintJobSummaryVO::getPrinterName,
                         PrintJobSummaryVO::getCreatorUsername, PrintJobSummaryVO::getOperatorUsername,

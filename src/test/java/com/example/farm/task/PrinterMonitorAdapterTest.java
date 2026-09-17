@@ -397,6 +397,33 @@ class PrinterMonitorAdapterTest {
     }
 
     @Test
+    void ignoresStaleCancelledStateForNewlyAssignedJob() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        printer.setStatus("PREPARING");
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setStatus("ASSIGNED");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(cancelledStatus());
+        when(printJobService.getById(1001L)).thenReturn(job);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, timeout(1000)).getById(1001L);
+        verify(printJobService, never()).updateById(any(PrintJob.class));
+        verify(printerService, never()).clearJobBinding(403L, 1001L);
+        assertThat(job.getStatus()).isEqualTo("ASSIGNED");
+        assertThat(printer.getCurrentJobId()).isEqualTo(1001L);
+    }
+
+    @Test
     void doesNotAssociateReadyFarmTaskWhenDeviceFilenameIsUnavailable() {
         Printer printer = printer("RRF");
         printer.setCurrentJobId(1001L);
@@ -675,6 +702,22 @@ class PrinterMonitorAdapterTest {
                 null,
                 "demo.gcode",
                 BigDecimal.valueOf(100),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private PrinterDeviceStatus cancelledStatus() {
+        return new PrinterDeviceStatus(
+                PrinterStatus.IDLE,
+                "cancelled",
+                null,
+                "previous.gcode",
+                BigDecimal.ZERO,
                 null,
                 null,
                 null,

@@ -33,6 +33,7 @@
         CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
              THEN COALESCE(j.machine_number_snapshot, p.machine_number)
              ELSE COALESCE(p.machine_number, j.machine_number_snapshot) END AS machine_number,
+        CASE WHEN p.current_job_id = j.id THEN p.is_safe_to_print ELSE FALSE END AS safe_to_print,
         CASE WHEN j.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
              THEN COALESCE(j.creator_username_snapshot, creator_user.username)
              ELSE COALESCE(creator_user.username, j.creator_username_snapshot) END AS creator_username,

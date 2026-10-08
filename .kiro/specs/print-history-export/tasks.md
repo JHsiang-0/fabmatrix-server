@@ -33,13 +33,32 @@
 ## T4 导出筛选与节纸表格改进（2026-10-08）
 
 - [x] 核对用户反馈：原弹窗只展示上次筛选；正式 Excel 已有可见第二张明细（13列），默认首表为汇总，旧文件未缺记录。只读证据 `target/history-export-sheet-review.json`。
-- [ ] 弹窗独立可编辑筛选、恢复列表条件/重置全部、不修改列表，不显示旧条数；权限和取消/会话保护保持有效。
+- [x] 弹窗独立可编辑状态/文件/打印机/创建人/结束时间筛选、恢复列表条件/重置全部、不修改列表，不显示旧条数；权限和取消/会话保护保持有效。日期显示完整秒级端点，手输 Enter/Tab 均按实际值验证；打印机建议有界读取并保留历史ID输入。
 - [x] PDF 横向紧凑表格、重复表头、完整13字段、8.3pt 正文；真实业务模型30条普通记录为2页，极长文本明确引用全宽完整附录，任务编号完整保留。
 - [x] 正式 Excel 明细第一且默认激活，保留汇总；非空记录为原生 `ExportDetails` Table，空结果保留筛选表头。350条跨流式窗口、13列真实业务记录、文本大ID/日期/数字/公式样式文本均回读通过；Mock 与弹窗由前端专项验证。
-- [ ] 后端全量与前端专项/全量/浏览器/发布门禁，PDF渲染视检、Excel文件回读。
-- [ ] 更新源码提交及两端安装包并独立保存本轮验证证据；真实覆盖安装/厂内数据仍为NOT RUN。
+- [x] 后端全量与前端专项/全量/浏览器/发布门禁，PDF渲染视检、Excel文件回读。
+- [x] 更新源码提交及两端安装包并独立保存本轮验证证据；真实覆盖安装/厂内数据仍为NOT RUN。
 
 本轮后端专项39/39、完整 `.\mvnw.cmd test` 768/768，0失败/错误/跳过，日志为 `target/history-export-table-tests.log`、`target/history-export-table-final-tests.log`。公共renderer11项、真实业务布局2项、SQLite业务26项；本轮新增4项。首轮仅PDF文本提取测试helper错误地把8.3pt按整数获取，已按PDFBox正确API修正并重跑。真实30条普通记录PDF与两页极长原因附录已逐页视检；目录 `target/history-export-preview/table-normal-business-pngs`、`table-business-pngs`，样例使用隔离合成数据。接口、DTO、查询、权限和数据库结构没有变更。
+
+本轮公共及真实业务布局共4份PDF、8张有效PNG已逐页视检，均为横向2页，无裁剪或叠字；证据 `target/history-export-table-layout-review.json`。首轮3页留下的旧 `page-3.png` 已明确忽略，不作为当前报告页数。前端专项19/19、Node433/433、浏览器4/4和Electron原生下载1/1通过；浏览器实际下载并回读明细首表、13字段和12条跨分页记录，独立筛选不改变列表，设备名称对应真实ID且精确秒级日期有效。完整 `release:gate` 通过，覆盖lint、Web/Desktop正式及Mock构建、Electron dist 1/1和源码/产物扫描；前端日志 `test-results/history-export-revision-*.log`。
+
+新服务端包由源码 `3492e19` 构建，安装器契约、隔离Local启动/健康/托盘检查通过，包中表格/附录类、中文字体许可及依赖已核对，证据 `target/history-export-table-payload-verification.json`。真实新payload HTTP冒烟以临时SQLite、随机loopback和真实两角色JWT完成四份导出：ADMIN3条、OPERATOR本人2条；PDF各1页横向表格，Excel明细首active/selected、完整13列原生Table/筛选、大ID文本与数值时长均通过，匿名401/非法状态400通过。监控/发现/调度关闭，仅合成数据；自有PID44044已停止，临时数据库及bootstrap凭据已清理。证据 `target/history-export-table-packaged-smoke.json`，不替代真实安装或厂内数据验收。
+
+## 表格改进交付产物（T4）
+
+源码提交：后端 `3492e19a85d836fbac5bdea66b5fcf0052ffd5f5`，前端 `3658a54817763a7460122769ff95a2ce7b6c91cc`。产品版本保持 `1.0.0`。
+
+核心修改：后端 `common/export/PdfReportWriter.java`、`ExcelReportWriter.java` 及3个renderer/真实SQLite测试类；前端 `src/views/JobHistory.vue`、`src/utils/fileExport.js`、`src/mock/historyExport.js`、Mock路由及专项/浏览器测试。规格、接口交接和版本索引同步更新；无新增SQL迁移。
+
+| 产物 | 路径（各仓库相对路径） | 大小（字节） | SHA-256 |
+| --- | --- | ---: | --- |
+| Server | `dist/windows-installer-history-export-table-20261008/FabMatrix-Server-Setup-1.0.0.exe` | 145390082 | `264E06DB9159B208726C97A8CA2F77D72C72A27D9EDECBD5AFF2EF7C9B7FD732` |
+| Client | `release/history-export-table-20261008-3658a54/FabMatrix-Client-Setup-1.0.0.exe` | 128290550 | `12AC26EB282C1A5B12353B51974FC25CD898BA91C5F3ECD0B22306A876A228EB` |
+
+服务端构建使用 `scripts/windows/build-installer.ps1 -Mode Full -OutputDir dist/windows-installer-history-export-table-20261008 -ClientRoot D:\WorkSpace\Vue\fabmatrix-client -SkipTests -NoClean`，同源码全量测试已先通过；构建日志 `target/history-export-table-installer-build.log`。源码与哈希同时记录于产物目录的 `release-info.txt/checksums.txt`。新包与首版包隔离保存，未执行安装。
+
+客户端构建使用 `npm.cmd run desktop:build -- --config.directories.output=release/history-export-table-20261008-3658a54`，日志 `test-results/history-export-table-installer-build.log/verification.log`。同目录含 `.exe.sha256/verification.json`；正式ASAR无Mock模式，主进程及48个打包dist文本文件与最终正式构建完全一致，包含独立筛选/重置/恢复/精确时间UI和导出接口，Mock导出fixture不在正式包中，扫描无发现。ASAR SHA-256为 `39E8ADDBADD6CF8E2F32BF5B1357CFAD8CA4B8EF0C1E4204D5EC7B0193E5E23A`。两端均未执行安装或真实厂内数据操作。
 
 ## 首版交付产物（T1/T2，保留历史证据）
 

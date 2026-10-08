@@ -20,7 +20,8 @@
 - [x] 后端完整 `.\mvnw.cmd test`：764/764，0 失败/错误/跳过，日志 `target/history-export-final-tests.log`；导出新增 50 项（Controller 15、真实 SQLite/业务文件 26、renderer 8、业务布局 1）。renderer 专项 9/9，日志 `target/history-export-renderer-tests.log`。
 - [x] 生成样例 PDF/XLSX：公共 renderer 与真实业务模型布局已渲染为 PNG 并逐页检查，中文/长理由续页/大 ID/完整尾 token/页脚正常；Excel 内容、类型、冻结/筛选和公式字符串已回读验证。目录 `target/history-export-preview`，布局样例为 `business-layout-sample.*`，真实 SQLite 样例为 `business-sample.*`；均为隔离测试数据，非厂内生产数据。
 - [x] 前端专项 16/16、全量 Node 430/430、浏览器下载 3/3、Electron 原生下载 1/1、lint、正式/Mock Web/Desktop 构建及完整 `release:gate` 均通过。
-- [ ] 新服务端/客户端安装包隔离构建、源码和文件哈希记录。
+- [x] 新服务端/客户端安装包隔离构建、源码和文件哈希记录；Windows 安装器契约、新 payload 临时 Local 启动/健康/托盘自测通过，包中导出类/查询/配置/中文字体及 POI/PDFBox 依赖已核对。客户端正式 ASAR、主进程与源码一致及 47 项 dist 文本无 Mock 扫描通过。
+- [x] 新 payload 原生 launcher/自带 runtime 的真实 HTTP 导出冒烟：随机 loopback 端口、独立临时 SQLite、所有监控/发现/调度关闭；真实 bootstrap、ADMIN/OPERATOR JWT，两角色四份 PDF/XLSX 的内容、中文字体、大 ID、数据类型和下载头均通过（ADMIN 3 条，OPERATOR 本人 2 条）。匿名401、非终态400通过，自有 PID 已停止、临时数据库/初始化凭据已删除。证据 `target/history-export-packaged-smoke.json`，测试样例 `target/history-export-packaged-smoke-{admin,operator}.{pdf,xlsx}`，不含实际厂内数据。
 
 ## T3 外部验收
 
@@ -28,3 +29,16 @@
 - [ ] 厂内真实数据导出、真实 MySQL 与原生 Excel/PDF 阅读器验收：NOT RUN。
 
 本轮不修改数据库结构/生产数据，不执行安装或打印机物理动作；不能继承历史验证结论。
+
+## 本轮交付产物
+
+源码提交：后端 `ed4f406`，前端 `526df89`。产品版本保持 `1.0.0`。
+
+| 产物 | 路径（各仓库相对路径） | 大小（字节） | SHA-256 |
+| --- | --- | ---: | --- |
+| Server | `dist/windows-installer-history-export-20261008/FabMatrix-Server-Setup-1.0.0.exe` | 145382126 | `8DC2E16D90E45C4859593F4673731C3E0CE0ED8412050AA735E2D5A53D84D6EB` |
+| Client | `release/history-export-20261008-526df89/FabMatrix-Client-Setup-1.0.0.exe` | 128287184 | `5F5764906D1998B12EF0E388321F51C5CDC828DBF511241C628523C1A8D943F6` |
+
+服务端构建：`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/windows/build-installer.ps1 -Mode Full -OutputDir dist/windows-installer-history-export-20261008 -ClientRoot D:\WorkSpace\Vue\fabmatrix-client -SkipTests -NoClean`，构建与新 payload 契约日志 `target/history-export-installer-build.log`；全量测试已在相同源码构建前通过。输出目录含 `release-info.txt/checksums.txt`。
+
+客户端构建：`npm.cmd run desktop:build -- --config.directories.output=release/history-export-20261008-526df89`，同目录含 `.sha256/verification.json`；正式 ASAR 包版本 1.0.0、无 Mock 模式，包含导出接口和入口。旧包保留；两端均未执行安装。

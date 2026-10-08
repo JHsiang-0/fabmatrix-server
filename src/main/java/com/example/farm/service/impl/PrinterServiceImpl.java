@@ -26,6 +26,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -767,7 +769,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         if (printers == null) {
             return List.of();
         }
-        return printers.stream().filter(this::isSupportedMonitorProtocol).toList();
+        return printers.stream()
+                .filter(printer -> StringUtils.hasText(printer.getIpAddress()))
+                .filter(this::isSupportedMonitorProtocol).toList();
     }
 
     private boolean isSupportedMonitorProtocol(Printer printer) {
@@ -792,10 +796,8 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         if (printer == null) {
             throw new BusinessException(404, "打印机不存在");
         }
-        printer.setMonitorEnabled(enabled);
-        if (!this.updateById(printer)) {
-            throw new BusinessException("更新打印机监控配置失败");
-        }
+        persistMonitorEnabled(printerId, enabled);
+        refreshMonitorConfigurationCacheAfterCommit();
     }
 
     @Override
@@ -808,15 +810,53 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         if (printerIds.size() > MAX_BATCH_SIZE) {
             throw new BusinessException(400, "单次最多更新100台打印机");
         }
-        List<Long> distinctIds = printerIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (printerIds.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessException(400, "打印机 ID 不能为空");
+        }
+        List<Long> distinctIds = printerIds.stream().distinct().toList();
         List<Printer> printers = this.listByIds(distinctIds);
         if (printers.size() != distinctIds.size()) {
             throw new BusinessException(404, "批量更新中包含不存在的打印机");
         }
-        printers.forEach(printer -> printer.setMonitorEnabled(enabled));
-        this.updateBatchById(printers);
-        printerCacheService.refreshPrinterCache();
+        // 只写监控开关，避免读取到的旧快照覆盖并发更新的任务绑定和通信健康。
+        for (Long printerId : distinctIds) {
+            persistMonitorEnabled(printerId, enabled);
+        }
+        refreshMonitorConfigurationCacheAfterCommit();
         return printers.size();
+    }
+
+    private void persistMonitorEnabled(Long printerId, boolean enabled) {
+        Printer update = new Printer();
+        update.setId(printerId);
+        update.setMonitorEnabled(enabled);
+        update.setUpdatedAt(LocalDateTime.now());
+        int affected = baseMapper.updateById(update);
+        if (affected == 1) {
+            return;
+        }
+        // MySQL 可按实际变化行数返回 0；仅在记录仍存在且开关已一致时视为幂等成功。
+        if (affected == 0) {
+            Boolean current = baseMapper.selectMonitorEnabledForUpdate(printerId);
+            if (Boolean.valueOf(enabled).equals(current)) {
+                return;
+            }
+        }
+        throw new BusinessException(409, "打印机监控配置更新冲突，请刷新后重试");
+    }
+
+    private void refreshMonitorConfigurationCacheAfterCommit() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    printerCacheService.refreshPrinterCache();
+                }
+            });
+        } else {
+            printerCacheService.refreshPrinterCache();
+        }
     }
 
     private void requireAdminForMonitorConfiguration() {

@@ -19,6 +19,9 @@ import java.util.List;
 @Mapper
 public interface PrinterMapper extends BaseMapper<Printer> {
 
+    /** 监控写入的幂等回查；MySQL 使用锁定读取，避免读到已删除记录的旧事务快照。 */
+    Boolean selectMonitorEnabledForUpdate(@Param("id") Long id);
+
     /**
      * 根据 MAC 地址查询打印机
      *

@@ -469,6 +469,10 @@ MySQL 表 `farm_printer_status_history` 保存首次样本、状态变化样本�
 | PUT | `/printers/{id}/monitor` | ADMIN | `{ "monitorEnabled": true }` | `Result<null>` |
 | PUT | `/printers/monitor/batch` | ADMIN | `{ "printerIds": [1,2], "monitorEnabled": true }` | 更新数量 |
 
+两个 PUT 均兼容 `enabled` 别名。请求体或 `monitorEnabled` 缺失、空 ID 列表、null ID、原始列表超过 100 项返回 HTTP 400；重复 ID 去重，批量成功返回唯一设备数。设备不存在返回 HTTP 404；查询后设备被删除等导致写入未影响目标行，且无法确认开关已一致时返回 HTTP 409，批量整体回滚。重复提交同值开关仍返回成功，兼容 MySQL 返回实际变化行数为 0 的情况。
+
+监控配置写入仅更新 `monitor_enabled/updated_at`，保留任务绑定、安全确认、实时状态、IP 和通信健康；缓存仅在事务提交后刷新。无 IP、空字符串或纯空白地址的设备可以保存开关，但不会进入巡检目标。修改开关不调用设备，停用不保证立即终止已经开始的巡检。
+
 打印机列表/详情中的 `monitorEnabled` 控制是否纳入后台巡检；`connectionStatus`、`lastSeenAt`、
 `lastCommunicationError`、`consecutiveFailureCount`、`lastKnownStatus` 和 `lastProtocolState` 表示通信健康与设备最近快照，不再用业务 `status=OFFLINE`
 覆盖正在执行的任务。默认连续失败 3 次才判定通信离线，恢复成功后清零失败计数；任务在断网后仍保留
@@ -1078,6 +1082,12 @@ src/test/java/com/example/farm/mapper/PrintFileMapperTest.java
 - 上传文件到设备完成打印的完整端到端测试。
 
 因此本文中的“现有接口”表示源码中存在，不表示已经完成真实环境验收。
+## 2026-10-08 监控配置可靠性回归（T2.5）
+
+- 单/批监控开关稀疏写入，避免旧快照覆盖并发任务绑定、安全标记、IP、设备状态或通信健康；未知设备预校验，零行且开关不一致时返回 409，批量整体回滚。
+- 新增 53 项 Controller/Service/SQLite 专项测试，覆盖权限、请求校验、重复 ID、同值幂等、无 IP、触发器模拟并发状态变化与写入失败、提交/回滚缓存行为和 MySQL 当前读方言选择；完整 `mvnw.cmd test` 528 项通过。
+- 仅修改源码、测试和文档；没有迁移现有数据库、调用打印机、重启安装服务或构建安装包。真实 MySQL 和设备行为仍需发布/现场验收。
+
 ## 2026-09-16 RRF 自然完成第一阶段修复
 
 - 新增 `farm_printer_execution` 持久化设备执行会话。Local Edition 在启动时自动创建/升级；MySQL 使用 `22-printer-execution-mysql.sql` 手工升级已有数据库。

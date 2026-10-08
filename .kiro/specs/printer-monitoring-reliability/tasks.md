@@ -2,6 +2,8 @@
 
 对应规格：`requirements.md`、`design.md`
 
+版本归属：产品 `1.0.0`，v2 功能基线的监控可靠性改造。最新自动化验证：2026-10-08；真实设备和安装验收仍按未完成项执行。
+
 状态约定：`[ ]` 未开始，`[~]` 进行中，`[x]` 已完成，`[-]` 裁剪。
 
 ## T0 基线确认
@@ -28,7 +30,7 @@
 - [x] T2.2 新增批量启用/停用接口，单次最多 100 台。
 - [x] T2.3 在 SecurityConfig 和 Service 层同时限制 ADMIN 修改权限。
 - [x] T2.4 更新打印机分页/详情 VO，返回监控开关和通信健康字段。
-- [ ] T2.5 增加空请求、重复 ID、未知 ID、无 IP 设备和权限测试。
+- [x] T2.5 补齐空请求/开关、空/null ID、100 项边界、重复 ID、未知 ID、无 IP 和 ADMIN/OPERATOR/匿名权限测试；修复整台打印机快照回写和批量忽略写入失败，开关更新仅写 `monitor_enabled/updated_at`，事务提交后刷新缓存。新增 53 项 Controller/Service/真实 SQLite 测试，覆盖并发状态保留、零行写入、同值幂等、MySQL 当前读方言和整体回滚；`mvnw.cmd test` 528 项通过，未操作现有数据库或设备。
 - [x] T2.6 更新 Swagger（由 Controller 注解自动生成）和 `API_HANDOFF.md`。
 
 ## T3 [改造] 监控目标选择与配置兼容
@@ -95,8 +97,8 @@
 
 **对应需求：REQ-08、REQ-09**
 
-- [x] T9.1 运行 `mvnw.cmd test`：252 个测试通过，0 失败、0 错误；仅有 RustFS/H2 测试环境告警和 JaCoCo/Mockito 运行时提示。
-- [~] T9.2 已有 Controller 权限、监控任务、Klipper Adapter、RRF Adapter 和状态机回归；新增监控配置/人工核对接口的专项测试仍可继续补充。
+- [x] T9.1 2026-10-08 运行 `mvnw.cmd test`：528 个测试通过，0 失败、0 错误、0 跳过；RustFS/H2 测试环境告警和 JaCoCo/Mockito 运行时提示不影响结果。
+- [~] T9.2 已有 Controller 权限、监控任务、Klipper Adapter、RRF Adapter 和状态机回归，监控配置专项已按 T2.5 完成；人工核对接口专项仍可继续补充。
 - [~] T9.3 已使用 Mock 验证断网、离线限频、完成证据、重启后 idle/RECONCILING 等关键流程；人工核对的重复提交/并发专项测试仍可继续补充。
 - [ ] T9.4 在有授权的真实设备上分别验证 Klipper/Moonraker 和 RRF 的只读状态恢复；不进行未经确认的物理控制。
 - [x] T9.5 更新 `API_HANDOFF.md`、运维配置说明和已知限制。

@@ -2,6 +2,14 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.PrinterMapper">
 
+    <select id="selectMonitorEnabledForUpdate" resultType="java.lang.Boolean">
+        SELECT monitor_enabled FROM farm_printer WHERE id = #{id}
+    </select>
+
+    <select id="selectMonitorEnabledForUpdate" databaseId="mysql" resultType="java.lang.Boolean">
+        SELECT monitor_enabled FROM farm_printer WHERE id = #{id} FOR UPDATE
+    </select>
+
     <select id="selectByMacAddress" resultType="com.example.farm.entity.Printer">
         SELECT * FROM farm_printer WHERE mac_address = #{macAddress} LIMIT 1
     </select>

@@ -56,6 +56,8 @@ firmware_type in ('KLIPPER', 'RRF')
 
 `farm.monitor.enabled` 仍是总开关；`interval` 和 `concurrency` 仍由配置控制。`printer-ids` 进入兼容期后只允许作为显式临时限制，不能把空值解释成全量历史扫描，并在启动日志中提示迁移状态。
 
+SQL 初筛后使用 `StringUtils.hasText` 排除纯空白 IP。无地址设备可以保存监控开关，配置接口不访问设备；实际巡检仍要求地址存在且非空白。
+
 ## 5. REST 契约
 
 建议新增：
@@ -69,14 +71,18 @@ PUT /api/v1/printers/monitor/batch
 请求体：
 
 ```json
-{"enabled": true}
+{"monitorEnabled": true}
 ```
 
 批量请求：
 
 ```json
-{"printerIds": [1, 2, 3], "enabled": true}
+{"printerIds": [1, 2, 3], "monitorEnabled": true}
 ```
+
+`enabled` 保留为兼容别名。请求体或开关缺失、空 ID 列表、null ID、原始列表超过 100 项返回 HTTP 400；重复 ID 去重后更新并返回唯一设备数。未知设备返回 HTTP 404，写入影响行数异常返回 HTTP 409，批量事务整体回滚。
+
+Service 使用只包含 `id/monitorEnabled/updatedAt` 的稀疏更新对象，禁止回写读取到的整台打印机快照；每项须影响一条记录，返回 0 时通过 `selectMonitorEnabledForUpdate` 回查，仅在记录仍存在且开关已经一致时允许幂等成功，以兼容 MySQL 实际变化行数语义。MySQL 方言使用 `FOR UPDATE` 当前读，避免默认 REPEATABLE READ 中普通查询仍看到已删除记录的旧快照；SQLite/H2 使用普通查询。批量先核对全部设备存在，再在同一事务中逐项更新，提交后统一刷新列表缓存，回滚不刷新。重复提交同值开关仍成功。该操作不改变任务、安全标记、设备状态、地址或通信健康，不立即终止已经开始的巡检。
 
 `PrinterVO`/详情 VO 增加监控开关、通信状态、最近在线时间、失败次数和最近错误摘要；不得返回 API Key。
 

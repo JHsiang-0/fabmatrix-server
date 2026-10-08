@@ -25,6 +25,7 @@
 - `.kiro/specs/farm-v2/`：后端手动优先和 Local Edition 功能基线；目录名是历史开发阶段，不是产品版本。
 - `.kiro/specs/farm-v1/`：基础能力和历史验收记录。
 - `.kiro/specs/printer-monitoring-reliability/`、`.kiro/specs/printer-protocol-and-websocket/`：设备协议、监控和实时通信规格。
+- [`printer-ip-rediscovery`](../.kiro/specs/printer-ip-rediscovery/requirements.md)：1.0.0 维护增强，已登记设备 DHCP 地址恢复、安全身份核对和管理员手动同步；现场/新安装包验收待执行。
 - 前端 `.kiro/specs/farm-v1-release-readiness/`：当前 1.0.0 联合发布门禁。
 - 前端 `.kiro/specs/farm-v3-batch-dispatch/`：后续后台自动派单规划，1.0.0 不发布。
 

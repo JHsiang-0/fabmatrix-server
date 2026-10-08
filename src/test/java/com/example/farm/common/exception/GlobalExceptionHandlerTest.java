@@ -39,6 +39,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void mapsUnavailableBusinessCodeTo503() {
+        var response = handler.handleBusinessException(new BusinessException(503, "服务正在关闭，请稍后重试"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo(503);
+    }
+
+    @Test
     void mapsDisabledFeatureToNotFoundAndPreservesStableCode() {
         var response = handler.handleBusinessException(new BusinessException(ResultCode.FEATURE_DISABLED));
 

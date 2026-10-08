@@ -5,10 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.Charset;
+import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,10 +32,17 @@ public class MacAddressUtil {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    // MAC 地址正则表达式（支持多种格式）
+    private static final String IPV4_TOKEN = "(?:[0-9]{1,3}\\.){3}[0-9]{1,3}";
+    private static final String MAC_TOKEN = "(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}";
+    private static final Pattern ARP_NUMERIC_ROW = Pattern.compile(
+            "^\\s*(" + IPV4_TOKEN + ")\\s+(?:ether\\s+)?(" + MAC_TOKEN + ")(?:\\s|$)");
+    private static final Pattern ARP_NAMED_ROW = Pattern.compile(
+            "^\\s*[^\\s(]*\\s*\\((" + IPV4_TOKEN + ")\\)\\s+at\\s+(" + MAC_TOKEN + ")(?:\\s|$)");
     private static final Pattern MAC_PATTERN = Pattern.compile(
-            "([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"
-    );
+            "(?:[0-9A-Fa-f]{12}|[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})");
+    private static final int MAX_ARP_OUTPUT_BYTES = 64 * 1024;
+    private static final Duration API_TIMEOUT = Duration.ofSeconds(3);
+    private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(API_TIMEOUT).build();
 
     /**
      * 尝试获取指定 IP 对应的 MAC 地址
@@ -65,34 +77,71 @@ public class MacAddressUtil {
      * @return MAC 地址，未找到返回 null
      */
     public String getMacFromArpTable(String ipAddress) {
+        if (!isIpv4Address(ipAddress) || Thread.currentThread().isInterrupted()) {
+            return null;
+        }
+        Process process = null;
         try {
             // 先执行 ping 确保 ARP 表中有记录
             pingHost(ipAddress);
-
-            // 执行 arp -a 命令获取 ARP 表
-            Process process = Runtime.getRuntime().exec("arp -a " + ipAddress);
-            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
-
-            if (!finished) {
-                process.destroyForcibly();
-                log.warn("ARP 命令执行超时: IP={}", ipAddress);
+            if (Thread.currentThread().isInterrupted()) {
                 return null;
             }
 
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    log.debug("ARP 输出: {}", line);
-                    String mac = extractMacFromString(line);
-                    if (mac != null) {
-                        return normalizeMacAddress(mac);
-                    }
-                }
+            // 执行 arp -a 命令获取 ARP 表
+            process = new ProcessBuilder("arp", "-a", ipAddress).redirectErrorStream(true).start();
+            boolean finished = process.waitFor(2, TimeUnit.SECONDS);
+
+            if (!finished) {
+                log.warn("ARP 命令执行超时: IP={}", ipAddress);
+                return null;
             }
+            if (process.exitValue() != 0) {
+                return null;
+            }
+            try (var output = process.getInputStream()) {
+                byte[] bytes = output.readNBytes(MAX_ARP_OUTPUT_BYTES + 1);
+                return bytes.length > MAX_ARP_OUTPUT_BYTES ? null
+                        : extractMacFromArpOutput(ipAddress, new String(bytes, Charset.defaultCharset()));
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.warn("从 ARP 表获取 MAC 地址失败: IP={}, 原因={}", ipAddress, e.getMessage());
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
         return null;
+    }
+
+    /** 仅接受目标 IP 所在的数据行；页眉、网关、相似 IP 和多接口冲突均不能用作身份。 */
+    String extractMacFromArpOutput(String ipAddress, String output) {
+        if (!isIpv4Address(ipAddress) || output == null) {
+            return null;
+        }
+        String result = null;
+        for (String line : output.split("\\R")) {
+            Matcher row = ARP_NUMERIC_ROW.matcher(line);
+            if (!row.find()) {
+                row = ARP_NAMED_ROW.matcher(line);
+                if (!row.find()) {
+                    continue;
+                }
+            }
+            if (!ipAddress.equals(row.group(1))) {
+                continue;
+            }
+            String mac = normalizeMacAddress(row.group(2));
+            if (mac != null) {
+                if (result != null && !result.equals(mac)) {
+                    return null;
+                }
+                result = mac;
+            }
+        }
+        return result;
     }
 
     /**
@@ -103,52 +152,66 @@ public class MacAddressUtil {
      * @return MAC 地址，获取失败返回 null
      */
     public String getMacFromMoonrakerApi(String ipAddress) {
+        return getMacFromMoonrakerApi(ipAddress, null);
+    }
+
+    /** 已登记设备可以使用它自己的 API Key；未知地址探测应传空 Key。 */
+    public String getMacFromMoonrakerApi(String ipAddress, String apiKey) {
+        if (!isIpv4Address(ipAddress) || Thread.currentThread().isInterrupted()) {
+            return null;
+        }
         try {
-            String url = String.format("http://%s:7125/machine/system_info", ipAddress);
-
-            // 使用简单的 HTTP 请求获取 JSON 响应
-            java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
-                    .connectTimeout(java.time.Duration.ofSeconds(3))
-                    .build();
-
-            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create(url))
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create("http://" + ipAddress + ":7125/machine/system_info"))
                     .GET()
-                    .timeout(java.time.Duration.ofSeconds(3))
-                    .build();
-
-            java.net.http.HttpResponse<String> response = client.send(request,
-                    java.net.http.HttpResponse.BodyHandlers.ofString());
+                    .timeout(API_TIMEOUT);
+            if (apiKey != null && !apiKey.isBlank()) {
+                builder.header("X-Api-Key", apiKey);
+            }
+            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200 && response.body() != null) {
-                JsonNode rootNode = mapper.readTree(response.body());
-                JsonNode resultNode = rootNode.path("result");
+                return extractMacFromMoonrakerResponse(ipAddress, mapper.readTree(response.body()));
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.debug("从 Moonraker API 获取 MAC 地址失败: IP={}, 类型={}", ipAddress, e.getClass().getSimpleName());
+        }
+        return null;
+    }
 
-                if (resultNode.has("system_info") && resultNode.path("system_info").has("network")) {
-                    JsonNode networkNode = resultNode.path("system_info").path("network");
-
-                    // 遍历所有网络接口查找匹配的 IP
-                    if (networkNode.isObject()) {
-                        var fields = networkNode.fields();
-                        while (fields.hasNext()) {
-                            var entry = fields.next();
-                            JsonNode ifaceNode = entry.getValue();
-
-                            if (ifaceNode.has("ip_address")) {
-                                String ifaceIp = ifaceNode.path("ip_address").asText();
-                                if (ipAddress.equals(ifaceIp) && ifaceNode.has("mac_address")) {
-                                    String mac = ifaceNode.path("mac_address").asText();
-                                    return normalizeMacAddress(mac);
-                                }
-                            }
-                        }
+    String extractMacFromMoonrakerResponse(String ipAddress, JsonNode response) {
+        if (!isIpv4Address(ipAddress) || response == null) {
+            return null;
+        }
+        JsonNode network = response.path("result").path("system_info").path("network");
+        if (!network.isObject()) {
+            return null;
+        }
+        String result = null;
+        for (JsonNode networkInterface : network) {
+            boolean targetInterface = ipAddress.equals(networkInterface.path("ip_address").asText());
+            JsonNode addresses = networkInterface.path("ip_addresses");
+            if (addresses.isArray()) {
+                for (JsonNode address : addresses) {
+                    if (ipAddress.equals(address.isTextual() ? address.asText() : address.path("address").asText())) {
+                        targetInterface = true;
                     }
                 }
             }
-        } catch (Exception e) {
-            log.debug("从 Moonraker API 获取 MAC 地址失败: IP={}, 原因={}", ipAddress, e.getMessage());
+            if (!targetInterface) {
+                continue;
+            }
+            String mac = normalizeMacAddress(networkInterface.path("mac_address").asText(null));
+            if (mac != null) {
+                if (result != null && !result.equals(mac)) {
+                    return null;
+                }
+                result = mac;
+            }
         }
-        return null;
+        return result;
     }
 
     /**
@@ -159,24 +222,10 @@ public class MacAddressUtil {
     private void pingHost(String ipAddress) {
         try {
             InetAddress address = InetAddress.getByName(ipAddress);
-            address.isReachable(1000); // 1秒超时
+            address.isReachable(500);
         } catch (Exception e) {
             log.debug("Ping 主机失败: IP={}", ipAddress);
         }
-    }
-
-    /**
-     * 从字符串中提取 MAC 地址
-     *
-     * @param input 输入字符串
-     * @return 提取到的 MAC 地址，未找到返回 null
-     */
-    private String extractMacFromString(String input) {
-        Matcher matcher = MAC_PATTERN.matcher(input);
-        if (matcher.find()) {
-            return matcher.group();
-        }
-        return null;
     }
 
     /**
@@ -187,16 +236,23 @@ public class MacAddressUtil {
      * @return 标准化后的 MAC 地址
      */
     public String normalizeMacAddress(String macAddress) {
+        return normalizeDeviceMacAddress(macAddress);
+    }
+
+    /** 无网络副作用的设备身份格式规范化，供持久化校验复用。 */
+    public static String normalizeDeviceMacAddress(String macAddress) {
         if (macAddress == null || macAddress.trim().isEmpty()) {
             return null;
         }
 
-        // 移除所有分隔符，只保留十六进制字符
-        String cleanMac = macAddress.replaceAll("[^0-9A-Fa-f]", "").toLowerCase();
-
-        // 验证长度是否为 12（6 字节 * 2 个十六进制字符）
-        if (cleanMac.length() != 12) {
-            log.warn("无效的 MAC 地址格式: {}", macAddress);
+        String trimmed = macAddress.trim();
+        if (!MAC_PATTERN.matcher(trimmed).matches()) {
+            return null;
+        }
+        String cleanMac = trimmed.replace(":", "").replace("-", "").toLowerCase(Locale.ROOT);
+        // 零地址、广播地址与组播地址不是可持久化的设备身份。
+        if ("000000000000".equals(cleanMac) || "ffffffffffff".equals(cleanMac)
+                || (Integer.parseInt(cleanMac.substring(0, 2), 16) & 1) != 0) {
             return null;
         }
 
@@ -210,6 +266,19 @@ public class MacAddressUtil {
         }
 
         return formatted.toString();
+    }
+
+    /** 严格 IPv4 字面量校验，禁止将主机名或命令参数当作地址执行。 */
+    public static boolean isIpv4Address(String ipAddress) {
+        if (ipAddress == null || !ipAddress.matches(IPV4_TOKEN)) {
+            return false;
+        }
+        for (String octet : ipAddress.split("\\.")) {
+            if ((octet.length() > 1 && octet.charAt(0) == '0') || Integer.parseInt(octet) > 255) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

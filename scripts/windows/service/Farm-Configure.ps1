@@ -102,6 +102,10 @@ farm:
     storage-path: $portableFiles
   monitor:
     enabled: true
+  discovery:
+    enabled: true
+    subnets: []
+    interval: 5m
   scheduler:
     enabled: false
   security:

@@ -49,6 +49,33 @@ Local Edition 启动会检查数据目录可写且可用空间不少于 100MB。
 
 jpackage 后端主 launcher 使用 console 模式且不带 `-Xrs`，WinSW 停止超时 30 秒，大于 Spring graceful shutdown 的 20 秒。干净 Windows 安装验收必须核对 WinSW 安装态日志，确认停止和升级时完成 graceful shutdown；脚本级验证不能替代这项验收。
 
+### 已登记打印机重新开机后的 IP 恢复
+
+Local Edition 默认开启 `farm.discovery.enabled`；基础/dev/test 默认关闭。自动恢复要求全局监控开启，并只扫描已启用单台监控且符合监控白名单的已登记设备。默认启动 10 秒后首次检查，此后每 5 分钟巡检；连续通信失败达到监控阈值时也可触发，共用同一限频和在途任务，不产生自动派单或打印动作。
+
+管理员可在打印机管理页点击独立“同步设备 IP”，查看扫描范围、进度和逐项结果。普通刷新只重新读取列表。MAC 和协议确认一致后，服务端保留原设备 ID、名称、编号、位置和任务绑定，仅同步地址并等待监控确认在线；未找到、无 MAC、重复身份或地址冲突的设备保持原登记记录，不必先删除设备重新添加。
+
+默认 `farm.discovery.subnets: []` 从合格已有设备的旧私有 IP 推断网段。需要限定范围或设备可能跨网段换地址时，以管理员身份编辑运行配置并重启服务，例如：
+
+```yaml
+farm:
+  discovery:
+    enabled: true
+    subnets: ["192.168.0", "192.168.1"]
+    initial-delay: 10s
+    interval: 5m
+    timeout: 2m
+    concurrency: 16
+```
+
+`subnets` 是私有 IPv4 的三段 `/24` 前缀，不填写 `.0/24` 或单个完整 IP；最多 8 个，检查 `.1` 至 `.254`。公网、非法范围、过多网段会失败并给出原因；无旧 IP 且范围未配置时不能推断。自动周期至少 30 秒，并发 1–64，默认总体网络发现超时 2 分钟。不需要执行 SQL、重建 Docker 数据卷或开启 scheduler。
+
+身份保护开启且设备登记有效 MAC 时，每次监控和上传/启动/控制动作前都匿名重新核验；身份未通过返回 503，不发送已有密钥或物理命令，也不提前释放任务绑定。无有效 MAC 的旧设备保留兼容行为，但无法自动恢复地址。
+
+匿名网络信息和精确目标 ARP 用于身份核对，ARP 中的网关 MAC 不能当作打印机身份。Moonraker 401/403 可通过匿名 `/access/info` 识别协议、同网段 ARP 补足 MAC；RRF 只读发现仅断开独立 sessionKey 会话，无 key 时等待设备 TTL，避免干扰已有正常会话。
+
+鉴权设备不公开 MAC 且跨 VLAN/路由不能取得真实 ARP 时，固定 DHCP 仍会被已开启的身份保护拒绝状态与动作。优先让服务端与设备处于同一可 ARP 网络；管理员若选择固定 DHCP、关闭 `farm.discovery.enabled` 并手工维护地址，也同步关闭新增身份保护。Windows 安装器契约已通过，真实关机换 IP、鉴权/跨网段和新 Windows 安装包安装验收尚未执行，详见 [规格任务](.kiro/specs/printer-ip-rediscovery/tasks.md)。
+
 ### 历史幽灵绑定修复记录
 
 2026-09-03 在当前开发 MySQL 数据卷中发现 1 条任务指向已不存在打印机的历史绑定：任务 `1` -> 打印机 `289`。执行修复前已生成备份 `/tmp/farm-before-ghost-repair-20260903.sql`，随后运行 `scripts/repair-ghost-bindings.sql`。脚本创建并写入 `farm_binding_repair_audit`，解除任务的打印机绑定，并将活动任务置为 `RECONCILING`，不删除任务、不自动重新派单、不调用打印机。执行后残留幽灵绑定为 0。生产环境执行前必须使用生产数据库备份替换示例路径，并先停应用。
@@ -220,5 +247,6 @@ mvn spring-boot:run
 
 - `GET /actuator/health` 返回 `DOWN`：先检查 MySQL/Redis 容器状态和应用配置；不要仅根据 Redis 缓存判断打印机是否存在。
 - 打印机离线：检查打印机 IP、协议类型、Klipper 7125/RRF HTTP 端口和 API Key；应用会将设备错误映射为稳定业务码。
+- 重新开机后 IP 变化：管理员查看“同步设备 IP”结果，并检查有效 MAC、监控开关/白名单和 `farm.discovery.subnets`；身份未确认优先检查同一可 ARP 网络，固定 DHCP 不能绕过已开启的身份保护，不能以另一台设备对旧地址的响应当作恢复成功。
 - 没有真实设备时不要开启监控任务，否则会持续产生设备不可达日志。
 - 生产日志不得包含密码、JWT、打印机 API Key、数据库密码或 RustFS 密钥。

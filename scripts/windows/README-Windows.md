@@ -2,6 +2,8 @@
 
 Windows Local Edition 默认启动打印机状态监控组件，导入设备后由数据库中的单台设备“监控”开关决定是否参与轮询；任务自动派单调度器仍保持关闭。WinSW 服务显式注入 `FARM_MONITOR_ENABLED=true`，因此覆盖安装旧版本后也不会继续沿用候选版中误写的全局关闭状态。
 
+`1.0.0` 维护增强增加已登记设备 IP 自动恢复：Local Profile/安装生成配置默认启用 `farm.discovery.enabled`；监控开启时首 10 秒后、每 5 分钟及连续失败限频发现设备，只在 MAC/协议身份一致后同步地址，保留设备 ID、名称、位置和任务绑定，不自动派单。前端管理员使用独立“同步设备 IP”查看结果；普通刷新不扫描网络。本次源码改动不代表已有安装包已更新，真实覆盖安装与厂内 DHCP 场景仍需新包验收。
+
 正式构建入口是 `scripts/windows/build-installer.ps1`。它使用 Java 25 `jpackage` 生成后端和纯 JDK 托盘控制器的共享 runtime，再使用 Inno Setup 生成 `FabMatrix-Server-Setup-1.0.0.exe`；WinSW `v2.12.0` 仅负责承载 Windows 服务。
 
 ## 安装、升级和数据布局
@@ -32,6 +34,10 @@ Windows Local Edition 默认启动打印机状态监控组件，导入设备后�
 ## 配置和备份恢复
 
 安装时由 `service\Farm-Configure.ps1` 生成目标机配置，并在目标机随机生成 JWT 和管理员密钥；密钥不写入构建目录或 Git。SQLite、files 和日志路径使用 `${FARM_DATA_DIR}` 占位，由 WinSW 在目标机注入当前数据根，因此跨盘恢复不会保留源机器绝对路径。编辑配置后请使用托盘的“管理员编辑配置”，或以管理员身份编辑后重启服务。
+
+设备地址发现默认使用 `farm.discovery.subnets: []`，从已开启监控、有效 MAC/协议的旧私有 IP 推断范围。需跨网段恢复时，将 `subnets` 配为最多 8 个厂内私有 IPv4 三段前缀，如 `["192.168.0", "192.168.1"]`，不填 CIDR `.0/24`；每段仅检查 `.1`–`.254`。默认 `initial-delay: 10s`、`interval: 5m`（自动限频共用）、`timeout: 2m`、`concurrency: 16`；dev/test 基础配置默认关闭自动发现。此功能不需要 SQLite/MySQL 迁移，不修改持久化文件布局。
+
+开启身份保护且登记有效 MAC 的设备，每次监控及上传/启动/控制命令前均匿名即时核验；身份未通过不发送已有密钥或物理动作且保留绑定。无有效 MAC 的旧记录保持兼容，但不能自动恢复。鉴权且跨 VLAN/路由无法读取真实 MAC 时，固定 DHCP 仍不能通过保护；优先调整为同一可 ARP 网络，或由管理员固定 DHCP、关闭 `farm.discovery.enabled` 并手工维护地址（同时关闭新增身份保护）。本轮安装器契约已通过，新配置/代码仍需新包构建与部署，真实安装/升级验收单独记录，见 [printer-ip-rediscovery](../../.kiro/specs/printer-ip-rediscovery/tasks.md)。
 
 备份/恢复必须先停止 `FabMatrixServer`，脚本不会自动停止服务，以避免 SQLite 热备份不一致。PowerShell 示例：
 

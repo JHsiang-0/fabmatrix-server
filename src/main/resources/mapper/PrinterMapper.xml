@@ -10,6 +10,56 @@
         SELECT monitor_enabled FROM farm_printer WHERE id = #{id} FOR UPDATE
     </select>
 
+    <sql id="addressSyncSelection">
+        SELECT * FROM farm_printer
+        WHERE 1 = 0
+        <if test="ids != null and !ids.isEmpty()">
+            OR id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        </if>
+        <if test="ipAddresses != null and !ipAddresses.isEmpty()">
+            OR ip_address IN
+            <foreach collection="ipAddresses" item="ip" open="(" separator="," close=")">#{ip}</foreach>
+        </if>
+        <if test="macIdentities != null and !macIdentities.isEmpty()">
+            OR LOWER(REPLACE(REPLACE(TRIM(mac_address), ':', ''), '-', '')) IN
+            <foreach collection="macIdentities" item="mac" open="(" separator="," close=")">#{mac}</foreach>
+        </if>
+        ORDER BY id
+    </sql>
+
+    <select id="selectAddressSyncPrintersForUpdate" resultType="com.example.farm.entity.Printer">
+        <include refid="addressSyncSelection"/>
+    </select>
+
+    <select id="selectAddressSyncPrintersForUpdate" databaseId="mysql"
+            resultType="com.example.farm.entity.Printer">
+        <include refid="addressSyncSelection"/> FOR UPDATE
+    </select>
+
+    <sql id="addressSyncIdentityGuard">
+        id = #{expected.id}
+        AND mac_address = #{expected.macAddress}
+        AND firmware_type = #{expected.firmwareType}
+        AND monitor_enabled = TRUE
+    </sql>
+
+    <update id="clearIpAddressIfUnchanged">
+        UPDATE farm_printer SET ip_address = NULL
+        WHERE <include refid="addressSyncIdentityGuard"/>
+        <choose>
+            <when test="expected.ipAddress != null">AND ip_address = #{expected.ipAddress}</when>
+            <otherwise>AND ip_address IS NULL</otherwise>
+        </choose>
+    </update>
+
+    <update id="updateIpAddressIfUnchanged">
+        UPDATE farm_printer
+        SET ip_address = #{ipAddress}, connection_status = 'UNKNOWN', updated_at = CURRENT_TIMESTAMP
+        WHERE <include refid="addressSyncIdentityGuard"/>
+          AND ip_address IS NULL
+    </update>
+
     <select id="selectByMacAddress" resultType="com.example.farm.entity.Printer">
         SELECT * FROM farm_printer WHERE mac_address = #{macAddress} LIMIT 1
     </select>

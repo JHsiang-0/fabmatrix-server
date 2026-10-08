@@ -113,6 +113,14 @@ farm:
     enabled: false
     interval: 10s
     max-items-per-run: 0
+  discovery:
+    enabled: ${FARM_DISCOVERY_ENABLED:false}
+    # 空列表仅推导已登记设备原 IP 所在的私有 /24；跨网段请显式配置三段前缀。
+    subnets: []
+    interval: 5m
+    initial-delay: 10s
+    timeout: 2m
+    concurrency: 16
   websocket:
     max-connections: 1000
     heartbeat-interval: 30s

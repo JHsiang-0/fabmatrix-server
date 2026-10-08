@@ -22,6 +22,18 @@ public interface PrinterMapper extends BaseMapper<Printer> {
     /** 监控写入的幂等回查；MySQL 使用锁定读取，避免读到已删除记录的旧事务快照。 */
     Boolean selectMonitorEnabledForUpdate(@Param("id") Long id);
 
+    /** IP 同步前锁定目标、地址占位和等价 MAC 记录；仅 MySQL 使用 FOR UPDATE。 */
+    List<Printer> selectAddressSyncPrintersForUpdate(@Param("ids") List<Long> ids,
+                                                   @Param("ipAddresses") List<String> ipAddresses,
+                                                   @Param("macIdentities") List<String> macIdentities);
+
+    /** 校验原身份和地址后临时释放本批次地址，支持设备互换 IP。 */
+    int clearIpAddressIfUnchanged(@Param("expected") Printer expected);
+
+    /** 只写地址和通信待确认标记，避免覆盖任务绑定和现场安全状态。 */
+    int updateIpAddressIfUnchanged(@Param("expected") Printer expected,
+                                   @Param("ipAddress") String ipAddress);
+
     /**
      * 根据 MAC 地址查询打印机
      *

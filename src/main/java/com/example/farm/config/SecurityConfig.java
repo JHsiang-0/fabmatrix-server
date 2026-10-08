@@ -69,6 +69,7 @@ public class SecurityConfig {
                         .hasRole("ADMIN")
 
                         // 打印机：操作员可以查看状态，只有管理员可以增删改和扫描设备
+                        .requestMatchers("/api/v1/printers/rediscover").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/printers/scan")
                         .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/printers/**")

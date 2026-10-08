@@ -39,6 +39,8 @@ farm:
   scheduler:
     enabled: false
     max-items-per-run: 0
+  discovery:
+    enabled: ${FARM_DISCOVERY_ENABLED:true}
   websocket:
     enabled: ${FARM_WEBSOCKET_ENABLED:true}
   security:

@@ -2,6 +2,7 @@ package com.example.farm.common.utils;
 
 import com.example.farm.common.constant.RedisKeyConstant;
 import com.example.farm.common.exception.BusinessException;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +20,7 @@ import java.util.function.Supplier;
  * Redis 同名锁保证跨实例互斥。Redis 锁由守护续租线程延长，避免上传或协议调用
  * 超过固定 TTL 后被第二个请求插入。</p>
  */
+@Slf4j
 public final class PrinterLock {
 
     private static final long LOCK_TTL_SECONDS = 60;
@@ -85,14 +87,16 @@ public final class PrinterLock {
             HELD_LOCKS.get().put(printerId, lease);
             return action.get();
         } finally {
-            if (lease != null) {
-                HELD_LOCKS.get().remove(printerId);
-                lease.close();
+            try {
+                if (lease != null) {
+                    HELD_LOCKS.get().remove(printerId);
+                    lease.close();
+                }
+            } finally {
+                localLock.unlock();
             }
-            localLock.unlock();
-            if (!localLock.hasQueuedThreads()) {
-                LOCAL_LOCKS.remove(printerId, localLock);
-            }
+            // 已取得锁引用但尚未调用 lock() 的请求不在队列中；保留每台设备的
+            // 进程内互斥锁，避免该窗口内另一个请求创建第二把锁。
         }
     }
 
@@ -136,7 +140,12 @@ public final class PrinterLock {
                 renewTask.cancel(false);
             }
             if (redisUtil != null && !lost) {
-                redisUtil.releaseLockIfOwned(lockKey, lockValue);
+                try {
+                    redisUtil.releaseLockIfOwned(lockKey, lockValue);
+                } catch (RuntimeException exception) {
+                    // 操作已完成，释放故障不能误报为未提交；Redis 租约会自然过期。
+                    log.warn("打印机锁释放失败，等待租约过期: printerId={}", printerId);
+                }
             }
         }
     }

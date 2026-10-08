@@ -34,6 +34,7 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.PrinterIdentityVerifier;
 import com.example.farm.service.PrinterExecutionService;
 import com.example.farm.service.WebSocketEventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -82,6 +83,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     /** 单元测试可不提供 Redis；正式运行由 Server Edition 注入并作为跨客户端占用锁。 */
     @Autowired(required = false)
     private RedisUtil redisUtil;
+
+    @Autowired(required = false)
+    private PrinterIdentityVerifier identityVerifier;
 
     @Override
     public PrintJobMapper getBaseMapper() {
@@ -375,6 +379,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         requirePrinterCommunicationReady(printer);
         requireUnboundPrinter(printer);
 
+
+        // 身份不符时应在任务派发和绑定写入前拒绝，不能把未下发的动作记录为结果未知。
+        PrinterEndpoint deviceEndpoint = endpointOf(printer, PrinterOperation.START_PRINT);
+
         // 先以 CAS 进入 ASSIGNED，外部设备调用成功后才进入 PRINTING。
         if (!assignJobRecord(job, printer)) {
             throw new BusinessException(409, "任务已被其他请求派发或状态已变化");
@@ -408,7 +416,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         }
 
         adapterFactory.getAdapter(printer.getFirmwareType())
-                .uploadFile(endpointOf(printer, PrinterOperation.START_PRINT), fileStream, filename, true);
+                .uploadFile(deviceEndpoint, fileStream, filename, true);
 
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
         job.setStatus(PrintJobStatus.PRINTING.name());
@@ -600,9 +608,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         PrinterDeviceStatus confirmedDeviceStatus = null;
         try {
             PrinterLock.ensureValid(printerId);
-            var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
             PrinterEndpoint deviceEndpoint = endpointOf(printer, startPrint
                     ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE);
+            var deviceAdapter = adapterFactory.getAdapter(printer.getFirmwareType());
 
             if (startUploadedFile) {
                 deviceActionStarted = true;
@@ -1326,6 +1334,10 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
         PrinterProtocolType protocolType = PrinterProtocolType.normalize(printer.getFirmwareType());
         if (printer.getIpAddress() == null || printer.getIpAddress().isBlank()) {
             throw new BusinessException(10001, "打印机没有可用的网络地址");
+        }
+        PrinterLock.ensureValid(printer.getId());
+        if (identityVerifier != null) {
+            identityVerifier.verifyFresh(printer);
         }
         return new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(), protocolType);
     }

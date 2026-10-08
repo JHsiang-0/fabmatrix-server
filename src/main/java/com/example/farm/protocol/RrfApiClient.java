@@ -70,6 +70,8 @@ public class RrfApiClient {
      *
      * <p>设备可能同时暴露禁用的有线接口和活动的 Wi-Fi 接口；这里只接受
      * actualIP 与当前访问地址一致的接口，避免把另一块网卡的 MAC 绑定到设备记录。</p>
+     * <p>仅释放返回独立 session key 的身份会话；无 key 的旧固件可能复用同源 IP
+     * 的现有控制会话，禁止主动断开，交给设备闲置超时回收。</p>
      */
     public RrfNetworkIdentity getNetworkIdentity(PrinterEndpoint endpoint) {
         requireEndpoint(endpoint, PrinterOperation.GET_STATUS);
@@ -103,7 +105,7 @@ public class RrfApiClient {
         } catch (Exception exception) {
             throw failure(PrinterOperation.GET_STATUS, classify(exception), "读取 RRF 网络身份失败", exception);
         } finally {
-            if (connected) {
+            if (connected && session != null && session.key() != null && !session.key().isBlank()) {
                 disconnect(endpoint, session);
             }
         }

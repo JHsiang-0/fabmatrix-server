@@ -17,6 +17,8 @@ import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.PrinterIdentityVerifier;
+import com.example.farm.service.PrinterRediscoveryService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterExecutionService;
@@ -50,6 +52,11 @@ import java.util.concurrent.TimeUnit;
 @Component
 @ConditionalOnProperty(prefix = "farm.monitor", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class PrinterMonitorTask {
+
+    @Autowired(required = false)
+    private PrinterIdentityVerifier identityVerifier;
+    @Autowired(required = false)
+    private PrinterRediscoveryService rediscoveryService;
 
     private final PrinterService printerService;
     private final PrinterCacheService printerCacheService;
@@ -206,10 +213,17 @@ public class PrinterMonitorTask {
                     null, null, null, null, null, false, null);
         }
         printer = latestPrinter;
+        if (Boolean.FALSE.equals(printer.getMonitorEnabled())) {
+            return new PrinterStatusResult(printerId, null, false, "设备监控已停用",
+                    null, null, null, null, null, true, null);
+        }
         String printerName = printer.getName();
         long startTime = System.currentTimeMillis();
 
         try {
+            if (identityVerifier != null) {
+                identityVerifier.verifyFresh(printer);
+            }
             PrinterDeviceStatus status = adapterFactory.getAdapter(printer.getFirmwareType())
                     .getStatus(endpointOf(printer));
             long duration = System.currentTimeMillis() - startTime;
@@ -222,7 +236,7 @@ public class PrinterMonitorTask {
                         printer.getLastSeenAt(), printer.getLastCommunicationError(),
                         printer.getConsecutiveFailureCount(), false, taskObservation);
             } else {
-                handleCommunicationFailure(printer, "设备未返回状态");
+                handleFailureAndRecoverAddress(printer, "设备未返回状态");
                 return new PrinterStatusResult(printerId, null, false, "设备未返回状态",
                         printer.getConnectionStatus(), printer.getLastKnownStatus(),
                         printer.getLastSeenAt(), printer.getLastCommunicationError(),
@@ -230,11 +244,26 @@ public class PrinterMonitorTask {
             }
         } catch (Exception e) {
             logOfflineQueryFailure(printerId, printerName, e);
-            handleCommunicationFailure(printer, summarizeException(e));
+            handleFailureAndRecoverAddress(printer, summarizeException(e));
             return new PrinterStatusResult(printerId, null, false, "设备状态查询失败",
                     printer.getConnectionStatus(), printer.getLastKnownStatus(),
                     printer.getLastSeenAt(), printer.getLastCommunicationError(),
                     printer.getConsecutiveFailureCount(), false, null);
+        }
+    }
+
+    private void handleFailureAndRecoverAddress(Printer printer, String message) {
+        handleCommunicationFailure(printer, message);
+        if (identityVerifier != null) {
+            identityVerifier.onCommunicationFailure(printer.getId());
+        }
+        if (rediscoveryService != null && printer.getConsecutiveFailureCount() != null
+                && printer.getConsecutiveFailureCount() >= monitorProperties.getFailureThreshold()) {
+            try {
+                rediscoveryService.startAutomatic();
+            } catch (RuntimeException recoveryFailure) {
+                log.warn("设备通信失败后的地址恢复调度失败: printerId={}", printer.getId());
+            }
         }
     }
 

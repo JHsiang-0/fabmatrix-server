@@ -4,7 +4,7 @@
 
 功能基线：历史 v2；当前发布门禁：前端 `.kiro/specs/farm-v1-release-readiness/`
 
-更新时间：2026-09-03
+更新时间：2026-10-08
 
 当前执行规格：`.kiro/specs/farm-v2/`
 
@@ -51,6 +51,7 @@ tasks.md
 - v1 历史规格：`.kiro/specs/farm-v1/`
 - 协议适配详细需求：`.kiro/specs/printer-protocol-and-websocket/requirements.md`
 - 协议适配详细设计：`.kiro/specs/printer-protocol-and-websocket/design.md`
+- 已登记设备 IP 恢复：`.kiro/specs/printer-ip-rediscovery/`；属于 `1.0.0` 维护增强，独立于后台自动派单，配套前端 R100-15。
 
 ## 3. 当前技术基线
 

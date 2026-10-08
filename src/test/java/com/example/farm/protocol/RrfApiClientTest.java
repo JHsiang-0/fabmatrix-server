@@ -2,6 +2,8 @@ package com.example.farm.protocol;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -14,11 +16,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
 import static org.hamcrest.Matchers.startsWith;
@@ -135,6 +140,51 @@ class RrfApiClientTest {
         assertThat(identity).isNotNull();
         assertThat(identity.actualIp()).isEqualTo("192.168.1.80");
         assertThat(identity.macAddress()).isEqualTo("5C:8E:8B:10:CB:FD");
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"err\":0}", "{\"err\":0,\"sessionKey\":null}",
+            "{\"err\":0,\"sessionKey\":\"\"}", "{\"err\":0,\"sessionKey\":\"  \"}"})
+    void anonymousIdentityReadDoesNotDisconnectASharedIpSession(String connectResponse) {
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
+                .andExpect(queryParam("password", ""))
+                .andExpect(queryParam("sessionKey", "yes"))
+                .andRespond(withSuccess(connectResponse, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(queryParam("key", "network"))
+                .andExpect(queryParam("flags", "vn"))
+                .andExpect(headerDoesNotExist("X-Session-Key"))
+                .andRespond(withSuccess("""
+                        {"result":{"interfaces":[{"actualIP":"192.168.1.80",
+                          "mac":"5c:8e:8b:10:cb:fd","state":"active"}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.getNetworkIdentity(emptyPasswordEndpoint())).isEqualTo(
+                new RrfApiClient.RrfNetworkIdentity("192.168.1.80", "5c:8e:8b:10:cb:fd"));
+        server.verify();
+    }
+
+    @Test
+    void failedAnonymousIdentityReadCannotDisconnectASharedIpSession() {
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_connect")))
+                .andRespond(withSuccess("{\"err\":0}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andRespond(withStatus(SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> client.getNetworkIdentity(emptyPasswordEndpoint()))
+                .isInstanceOf(PrinterProtocolException.class);
+        server.verify();
+    }
+
+    @Test
+    void failedNetworkIdentityReadStillReleasesItsIndependentSession() {
+        expectConnect();
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andRespond(withStatus(SERVICE_UNAVAILABLE));
+        expectDisconnect();
+
+        assertThatThrownBy(() -> client.getNetworkIdentity(endpoint())).isInstanceOf(PrinterProtocolException.class);
         server.verify();
     }
 

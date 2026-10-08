@@ -1,7 +1,7 @@
 # Farm 前后端接口交接与契约文档
 
 版本：v2.2
-更新时间：2026-09-12
+更新时间：2026-10-08
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
 
 > 本文以当前 Java 源码、`SecurityConfig` 和当前 OpenAPI 注解为准。第 4 节列出的正式 Farm API 均已有对应 Controller；开发环境兼容用路由单独列在第 4.6 节。v2 不提供后台自动派单接口，相关能力延期到 v3。SYNC-002 收口：GET/PUT 布局已实现，坐标按服务端当前动态布局校验，布局上限为 30×60 且物理槽位总数不超过 1800；Long 语义 ID 的 JSON 值为十进制字符串，非 ID 数值保持 number。
@@ -284,6 +284,8 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | DELETE | `/printers/delete/{id}` | ADMIN | Path ID | `Result<null>` |
 | GET | `/printers/scan` | ADMIN | Query：`subnet`，三段 IPv4 网段前缀，例如 `192.168.1` | Klipper/RRF 协议识别扫描结果数组；格式错误返回 `400/400` |
 | POST | `/printers/batch-add` | ADMIN | 扫描结果数组 | 批量新增/更新统计及逐项结果 |
+| POST | `/printers/rediscover` | ADMIN | 无请求体 | 启动已有受监控设备的异步 IP 同步；进行中复用同一任务 |
+| GET | `/printers/rediscover` | ADMIN | 无 | 查询本实例最近同步快照；不启动扫描 |
 | GET | `/printers/by-mac/{macAddress}` | ADMIN/OPERATOR | Path MAC | `PrinterVO` 或 null |
 | GET | `/printers/by-ip/{ipAddress}` | ADMIN/OPERATOR | Path IP | `PrinterVO` 或 null |
 | PUT | `/printers/positions` | ADMIN | 位置更新数组 | 已弃用；ADMIN 兼容调用并委托动态布局原子事务 |
@@ -305,6 +307,38 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 事件覆盖。
 
 新增、重新录入或批量扫描入库的打印机，在下一次协议状态探测完成前返回 `status=UNKNOWN`；`ONLINE` 不属于打印机状态枚举，也不会作为业务状态写入。普通配置编辑不重置设备当前状态。
+
+### 4.1.2 已登记设备 DHCP 地址恢复（1.0.0 维护增强）
+
+完整规格见 [printer-ip-rediscovery](.kiro/specs/printer-ip-rediscovery/requirements.md)。后台自动发现与管理员手动同步共用同一服务，只处理已开启监控且符合监控白名单的已有设备；MAC 与协议一致、身份唯一才同步新 IP。缺失/无效 MAC、协议不支持、未找到、重复身份或目标地址冲突均保留明确结果，未知设备不导入。支持事务内 IP 交换，条件写入失败整批回滚；只更新 `ip_address`、`connection_status=UNKNOWN`、`updated_at`，保留设备 ID、名称、编号、位置、凭据、监控开关、任务绑定、安全标记及业务状态，提交后刷新缓存，在线状态由下一轮监控确认。
+
+GET/POST 均返回 `Result<PrinterRediscoveryResultVO>`，data 为：
+
+```json
+{
+  "scanId": "任务标识或 null",
+  "status": "IDLE|RUNNING|COMPLETED|FAILED",
+  "message": "公开状态说明",
+  "startedAt": null,
+  "finishedAt": null,
+  "subnets": ["192.168.0"],
+  "scannedAddressCount": 0,
+  "updatedCount": 0,
+  "unchangedCount": 0,
+  "unresolvedCount": 0,
+  "items": []
+}
+```
+
+逐项字段为 `printerId`（Long 的字符串 JSON）、`printerName`、可空 `oldIpAddress/newIpAddress`、`status`、`message`。逐项状态为 `UPDATED/UNCHANGED/NOT_FOUND/MISSING_MAC/UNSUPPORTED_PROTOCOL/CONFLICT/SKIPPED`；不返回 MAC 或设备凭据。IDLE 表示本实例尚无任务，任务保存在内存且重启清空；GET 不写库、不发起扫描。COMPLETED 允许存在 `unresolvedCount>0`；FAILED 表示任务未成功提交，应按 message/逐项原因处理，不能当作更新成功。
+
+POST 无请求体，不接受前端指定 IP、MAC 或网段；范围由 `farm.discovery.subnets` 配置，空列表时从已有合格设备的私有 IP 推断。每个三段私有 IPv4 前缀检查 `.1`–`.254`，最多 8 个网段；配置格式/范围错误会在异步快照中返回 FAILED。重复在途请求复用 scanId，ADMIN 路由及服务层双重校验；匿名 401、OPERATOR 403。服务关闭返回 503；另实例占用、配置变化和地址冲突在任务快照中给出失败原因，避免部分写入。
+
+Local 默认启用自动恢复，基础/dev/test 默认关闭；只有 discovery 与全局 monitor 开启才在启动 10 秒后及每 5 分钟执行，监控连续失败触发使用同一自动限频。手动管理员同步可独立发起，不改变自动派单开关。前端 R100-15 使用独立“同步设备 IP”入口，普通刷新仅获取列表，2 秒串行 GET 轮询，完成刷新、失败重试、重新进入恢复在途任务并在卸载时清理。
+
+开启身份保护且登记有效 MAC 的设备，监控以及上传/启动/控制物理动作前逐次匿名核验，不复用旧成功缓存；不通过返回 503，拒绝发送密钥/命令并保留绑定。无有效 MAC 的旧记录保持兼容行为，但不能自动恢复。Moonraker 401/403 可用匿名 `/access/info` 识别协议并在同 ARP 网络核对 MAC；RRF 只读发现仅释放独立 sessionKey 会话，无 key 会话不 disconnect，交设备 idle TTL 回收，避免打断已有协议操作。
+
+身份核验不向未知地址发送已存 API Key。鉴权跨路由且匿名/ARP 都不能取得 MAC 时，固定 DHCP 也不能通过已开启的保护；优先让服务端与设备处于同一可 ARP 网络，或由管理员固定 DHCP、关闭 `farm.discovery.enabled` 并手工维护地址（同时关闭新增身份保护）。本轮无数据库迁移；Windows 安装器契约已通过，真实 DHCP/设备/新包安装验收尚未执行，后端最终测试和构建结果见独立规格任务记录。
 
 ### 4.2 文件
 

@@ -13,6 +13,7 @@ import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolException;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.service.PrinterControlService;
+import com.example.farm.service.PrinterIdentityVerifier;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrintJobService;
@@ -46,6 +47,9 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     private RedisUtil redisUtil;
 
     @Autowired(required = false)
+    private PrinterIdentityVerifier identityVerifier;
+
+    @Autowired(required = false)
     private PlatformTransactionManager transactionManager;
 
     @Override
@@ -59,7 +63,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
 
     private void doEmergencyStop(Long printerId) {
         Printer printer = endpointPrinter(printerId, PrinterOperation.EMERGENCY_STOP);
-        PrinterEndpoint endpoint = endpointOf(printerId, PrinterOperation.EMERGENCY_STOP);
+        PrinterEndpoint endpoint = endpointOf(printer, PrinterOperation.EMERGENCY_STOP);
         PrinterLock.ensureValid(printerId);
         boolean deviceActionStarted = false;
         try {
@@ -111,8 +115,8 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     }
 
     private void doPause(Long printerId) {
-        PrinterEndpoint endpoint = endpointOf(printerId, PrinterOperation.PAUSE);
-        Printer printer = printerService.getById(printerId);
+        Printer printer = endpointPrinter(printerId, PrinterOperation.PAUSE);
+        PrinterEndpoint endpoint = endpointOf(printer, PrinterOperation.PAUSE);
         PrinterLock.ensureValid(printerId);
         boolean deviceActionStarted = false;
         try {
@@ -163,8 +167,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     }
 
     private void doResume(Long printerId) {
-        PrinterEndpoint endpoint = endpointOf(printerId, PrinterOperation.RESUME);
-        Printer printer = printerService.getById(printerId);
+        Printer printer = endpointPrinter(printerId, PrinterOperation.RESUME);
         Long jobId = printer.getCurrentJobId();
         if (jobId == null) {
             throw new BusinessException(422, "打印机当前没有绑定任务");
@@ -178,6 +181,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
         }
         PrintJobStatus.requireTransition(job.getStatus(), PrintJobStatus.PRINTING);
 
+        PrinterEndpoint endpoint = endpointOf(printer, PrinterOperation.RESUME);
         PrinterLock.ensureValid(printerId);
         boolean deviceActionStarted = false;
         try {
@@ -228,9 +232,12 @@ public class PrinterControlServiceImpl implements PrinterControlService {
         });
     }
 
-    private PrinterEndpoint endpointOf(Long printerId, PrinterOperation operation) {
-        Printer printer = endpointPrinter(printerId, operation);
+    private PrinterEndpoint endpointOf(Printer printer, PrinterOperation operation) {
         PrinterProtocolType protocolType = PrinterProtocolType.normalize(printer.getFirmwareType());
+        PrinterLock.ensureValid(printer.getId());
+        if (identityVerifier != null) {
+            identityVerifier.verifyFresh(printer);
+        }
         return new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(), protocolType);
     }
 

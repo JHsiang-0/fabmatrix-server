@@ -27,6 +27,7 @@
 - `.kiro/specs/printer-monitoring-reliability/`、`.kiro/specs/printer-protocol-and-websocket/`：设备协议、监控和实时通信规格。
 - [`printer-ip-rediscovery`](../.kiro/specs/printer-ip-rediscovery/requirements.md)：1.0.0 维护增强，已登记设备 DHCP 地址恢复、安全身份核对和管理员手动同步；现场/新安装包验收待执行。
 - 前端 `.kiro/specs/farm-v1-release-readiness/`：当前 1.0.0 联合发布门禁。
+- [`print-history-export`](../.kiro/specs/print-history-export/requirements.md)：打印历史 Excel/PDF 导出、权限/筛选口径与公共文档生成模块，配套前端 R100-16。
 - 前端 `.kiro/specs/farm-v3-batch-dispatch/`：后续后台自动派单规划，1.0.0 不发布。
 
 历史文档不直接删除或重命名，避免破坏任务引用和提交历史；新增任务必须先在版本地图中登记归属。

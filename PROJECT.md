@@ -52,6 +52,7 @@ tasks.md
 - 协议适配详细需求：`.kiro/specs/printer-protocol-and-websocket/requirements.md`
 - 协议适配详细设计：`.kiro/specs/printer-protocol-and-websocket/design.md`
 - 已登记设备 IP 恢复：`.kiro/specs/printer-ip-rediscovery/`；属于 `1.0.0` 维护增强，独立于后台自动派单，配套前端 R100-15。
+- 打印历史 Excel/PDF 导出：`.kiro/specs/print-history-export/`；独立业务接口和公共文档生成模块，配套前端 R100-16，无数据库迁移。
 
 ## 3. 当前技术基线
 

@@ -86,6 +86,17 @@ public interface PrintJobMapper extends BaseMapper<PrintJob> {
                 PrintJobTimeField.CREATED_AT, startTime, endTime);
     }
 
+    /** 单次有界历史读取；固定结束时间口径，权限在 SQL 层生效，无分页和额外 count。 */
+    List<PrintJobSummaryVO> selectHistoryForExport(@Param("statuses") List<String> statuses,
+                                                   @Param("printerId") Long printerId,
+                                                   @Param("userId") Long userId,
+                                                   @Param("currentUserId") Long currentUserId,
+                                                   @Param("admin") boolean admin,
+                                                   @Param("fileName") String fileName,
+                                                   @Param("startTime") LocalDateTime startTime,
+                                                   @Param("endTime") LocalDateTime endTime,
+                                                   @Param("limit") int limit);
+
     /** 查询当前用户可见的单条任务详情摘要，权限条件在 SQL 层固定。 */
     PrintJobDetailVO selectAccessibleDetail(@Param("jobId") Long jobId,
                                              @Param("userId") Long userId,

@@ -129,6 +129,10 @@ farm:
     max-file-size: 1GB
     batch-max-files: 100
     presigned-url-max-minutes: 120
+  export:
+    # 同步导出可降低限制；服务端硬上限分别为 10000 / 1000，文件最多 20 MiB。
+    xlsx-max-rows: ${FARM_EXPORT_XLSX_MAX_ROWS:10000}
+    pdf-max-rows: ${FARM_EXPORT_PDF_MAX_ROWS:1000}
   security:
     cors-allowed-origins: "*"
     # 首次管理员初始化默认关闭，仅由 Local Edition 显式开启。

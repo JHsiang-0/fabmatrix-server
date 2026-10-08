@@ -76,6 +76,14 @@ farm:
 
 鉴权设备不公开 MAC 且跨 VLAN/路由不能取得真实 ARP 时，固定 DHCP 仍会被已开启的身份保护拒绝状态与动作。优先让服务端与设备处于同一可 ARP 网络；管理员若选择固定 DHCP、关闭 `farm.discovery.enabled` 并手工维护地址，也同步关闭新增身份保护。Windows 安装器契约已通过，真实关机换 IP、鉴权/跨网段和新 Windows 安装包安装验收尚未执行，详见 [规格任务](.kiro/specs/printer-ip-rediscovery/tasks.md)。
 
+### 打印历史 Excel/PDF 导出
+
+打印历史页的导出入口使用已应用的筛选条件，下载全部匹配的终态任务；修改筛选后先点击查询。管理员可查询全部或指定创建人，操作员只查询本人创建的任务。Excel 默认最多 10000 条，PDF 默认最多 1000 条，文件最多 20 MiB；超限需缩小日期、状态或其他筛选范围，不会自动截断。无匹配结果仍下载有效的零记录报告。
+
+如需降低同步导出开销，可由管理员在运行配置设置 `farm.export.xlsx-max-rows`（1–10000）及 `farm.export.pdf-max-rows`（1–1000），或设置对应环境变量 `FARM_EXPORT_XLSX_MAX_ROWS/FARM_EXPORT_PDF_MAX_ROWS` 后重启。无新增数据库迁移或对象存储配置。PDF 随应用附带 OFL 中文字体，无需 Windows 安装特定字体。
+
+报告中的记录条数按每次任务尝试计数，不能视为打印件数；经过时长包含暂停，缺失/异常时间留空。报告只包含平台任务，不含设备外部打印。字段和错误语义见 `API_HANDOFF.md`，本轮测试及真实安装/数据验收边界见 [导出任务](.kiro/specs/print-history-export/tasks.md)。
+
 ### 历史幽灵绑定修复记录
 
 2026-09-03 在当前开发 MySQL 数据卷中发现 1 条任务指向已不存在打印机的历史绑定：任务 `1` -> 打印机 `289`。执行修复前已生成备份 `/tmp/farm-before-ghost-repair-20260903.sql`，随后运行 `scripts/repair-ghost-bindings.sql`。脚本创建并写入 `farm_binding_repair_audit`，解除任务的打印机绑定，并将活动任务置为 `RECONCILING`，不删除任务、不自动重新派单、不调用打印机。执行后残留幽灵绑定为 0。生产环境执行前必须使用生产数据库备份替换示例路径，并先停应用。

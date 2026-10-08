@@ -164,6 +164,17 @@
             <artifactId>s3</artifactId>
             <version>2.25.27</version>
         </dependency>
+        <!-- 可复用报表导出：Excel 与内嵌中文字体 PDF -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.5.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.8</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

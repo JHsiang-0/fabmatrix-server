@@ -63,6 +63,32 @@ retry 采用新建任务记录，不使用 attempt 表。新任务为 QUEUED，�
 
 TC-001 只冻结契约；TC-002 已上线 queue/page/detail 的目标读模型和摘要 JOIN 查询，safe assign、safe start、safe confirm、reconcile 的成功 `data` 类型均为 null。TC-003 已上线多状态/文件名/创建与完成时间分页及旧状态迁移；TC-007 已上线历史快照、retry 新任务记录、谱系冲突检查、重试审计和旧 assign 410，并已通过自动化验证。
 
+## 打印历史导出契约（R100-16）
+
+`POST /api/v1/print-jobs/history/export` 由独立 `PrintJobExportController` 提供，ADMIN/OPERATOR 均可调用。管理员可导出全部或按创建人筛选；操作员固定只查询当前 JWT 用户创建的记录，提交其他 `userId` 不能扩大权限。成功直接返回二进制附件，不使用 `Result.data`；业务错误继续返回统一 JSON `Result`。
+
+```json
+{
+  "format": "XLSX",
+  "statuses": ["COMPLETED", "FAILED", "CANCELLED"],
+  "fileName": "支架",
+  "printerId": "564",
+  "userId": "1",
+  "startTime": "2026-10-01T00:00:00",
+  "endTime": "2026-10-08T23:59:59"
+}
+```
+
+仅 `format` 必填，取 `XLSX/PDF`；其他字段可省略。省略 `statuses` 默认三个终态，显式列表须为 1–3 项且只能是终态，兼容 `CANCELED`。文件名 trim 后最多 255 字符，沿用历史列表的转义字面包含规则；存在当前文件时筛选当前原名，删除后回退快照，显示名称仍优先历史快照。ID 须为正数；非法格式、状态、ID、时间或开始晚于结束返回 HTTP/业务码 400。
+
+导出不接受分页或客户端指定时间字段，固定按 `completedAt` 包含端点筛选和倒序排列，再按 ID 倒序；无日期筛选时保留结束时间缺失的旧终态并排在最后。时间字符串必须为 `yyyy-MM-dd'T'HH:mm:ss`，不接受 Z、偏移或小数秒，严格拒绝非法日历日期；时区 `Asia/Shanghai`。SQLite 查询兼容历史空格/ISO-T、省略零秒及不同小数位，列表与导出采用相同精确时间规则，不修改旧记录。前端使用已成功查询的筛选快照导出全部匹配记录，改动表单后须重新查询。
+
+Excel 提供“汇总/明细”两张工作表；PDF 提供中文汇总及分页任务明细。字段包含任务编号（文本）、文件名、打印机、机台号、创建人、操作员、结果、创建/开始/结束时间、经过分钟、尝试序号、原因。每次尝试是一条历史记录，条数不等于打印件数；只包含平台任务，不含设备外部打印。时长为开始到结束、包含暂停，缺失或异常时间留空；不提供未经记录的净打印时间或实际耗材统计。空结果生成有效的零记录报告。
+
+默认 XLSX 最多 10000 条、PDF 最多 1000 条，输出最多 20 MiB；任何超限返回 HTTP/业务码 422 并提示缩小筛选范围，不静默截断。`farm.export.xlsx-max-rows/pdf-max-rows` 可降低上限，环境变量为 `FARM_EXPORT_XLSX_MAX_ROWS/FARM_EXPORT_PDF_MAX_ROWS`，超过硬上限配置会阻止启动。附件具有对应 Content-Type、UTF-8 Content-Disposition、Content-Length、`Cache-Control: no-store`；CORS 暴露 Content-Disposition 和 trace ID。
+
+查询/权限/统计归属打印业务 Service，`common/export` 统一生成文档。未来操作历史等保留各自业务导出路径并复用此模块，本次没有增加其他业务导出、异步任务中心或数据库迁移。实现与验证记录见 [独立规格](.kiro/specs/print-history-export/tasks.md)。
+
 ## 1. 产品边界
 
 Farm 是局域网内的单农场服务端：一个服务端管理多台打印机，多个浏览器或客户端连接服务端。
@@ -536,6 +562,7 @@ HTTP 422，设备离线返回 `code=10001`。恢复时任务和打印机状态�
 |---|---|---|---|---|---|
 | POST | `/print-jobs` | ADMIN/OPERATOR | `fileId,priority,printerId?` | 新任务 ID | 已完成 |
 | POST | `/print-jobs/{id}/retry` | ADMIN/OPERATOR | Path ID，仅 FAILED | `Result<string>` 新任务 ID | 已完成 |
+| POST | `/print-jobs/history/export` | ADMIN/OPERATOR（按任务归属） | 导出格式与历史筛选 | Excel/PDF 二进制附件 | 见导出契约 |
 | POST | `/print-jobs/{id}/requeue` | ADMIN/OPERATOR | Path ID | `Result<null>` | 已完成 |
 | POST | `/print-jobs/{id}/reconcile` | ADMIN/OPERATOR（按任务归属） | `{ "result": "COMPLETED|FAILED|CANCELLED|QUEUED", "reason": "..." }` | `Result<null>` | 已完成 |
 | PUT | `/print-jobs/{id}/priority` | ADMIN/OPERATOR | JSON：`priority`，范围 `0-100` | `Result<null>` | 已完成 |

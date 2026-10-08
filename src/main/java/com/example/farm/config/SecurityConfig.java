@@ -88,6 +88,8 @@ public class SecurityConfig {
                         .hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers(HttpMethod.POST, "/api/v1/print-jobs/page")
                         .hasAnyRole("ADMIN", "OPERATOR")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/print-jobs/history/export")
+                        .hasAnyRole("ADMIN", "OPERATOR")
                         .requestMatchers("/api/v1/print-jobs/**").hasAnyRole("ADMIN", "OPERATOR")
 
                         // 物理控制属于生产操作，管理员和操作员均可执行
@@ -134,7 +136,7 @@ public class SecurityConfig {
         }
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
-        configuration.setExposedHeaders(List.of(RequestTraceLogFilter.TRACE_ID_HEADER));
+        configuration.setExposedHeaders(List.of(RequestTraceLogFilter.TRACE_ID_HEADER, "Content-Disposition"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

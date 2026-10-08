@@ -2,6 +2,13 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.PrintJobMapper">
 
+    <!-- 受控 include 属性仅引用列或绑定参数：兼容空格/ISO-T、省略秒和不同小数位，保留纳秒精度。 -->
+    <sql id="sqliteLocalDateTimeKey">
+        (SUBSTR(REPLACE(${value}, 'T', ' ') || ':00', 1, 19) || '.' ||
+         SUBSTR(CASE WHEN SUBSTR(${value}, 20, 1) = '.'
+                     THEN SUBSTR(${value}, 21) ELSE '' END || '000000000', 1, 9))
+    </sql>
+
     <sql id="jobSummaryColumns">
         j.id AS id,
         j.file_id AS file_id,
@@ -147,32 +154,105 @@
         <if test="startTime != null">
             <choose>
                 <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
-                    AND j.completed_at &gt;= #{startTime}
+                    AND <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.completed_at"/></include>
+                    &gt;= <include refid="sqliteLocalDateTimeKey"><property name="value" value="#{startTime}"/></include>
                 </when>
                 <otherwise>
-                    AND j.created_at &gt;= #{startTime}
+                    AND <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.created_at"/></include>
+                    &gt;= <include refid="sqliteLocalDateTimeKey"><property name="value" value="#{startTime}"/></include>
                 </otherwise>
             </choose>
         </if>
         <if test="endTime != null">
             <choose>
                 <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
-                    AND j.completed_at &lt;= #{endTime}
+                    AND <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.completed_at"/></include>
+                    &lt;= <include refid="sqliteLocalDateTimeKey"><property name="value" value="#{endTime}"/></include>
                 </when>
                 <otherwise>
-                    AND j.created_at &lt;= #{endTime}
+                    AND <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.created_at"/></include>
+                    &lt;= <include refid="sqliteLocalDateTimeKey"><property name="value" value="#{endTime}"/></include>
                 </otherwise>
             </choose>
         </if>
         <choose>
             <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
                 ORDER BY CASE WHEN j.completed_at IS NULL THEN 1 ELSE 0 END ASC,
-                         j.completed_at DESC, j.id DESC
+                         <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.completed_at"/></include> DESC, j.id DESC
             </when>
             <otherwise>
-                ORDER BY j.created_at DESC, j.id DESC
+                ORDER BY <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.created_at"/></include> DESC, j.id DESC
             </otherwise>
         </choose>
+    </select>
+
+    <sql id="historyExportFilters">
+        WHERE j.status IN ('COMPLETED', 'FAILED', 'CANCELLED', 'CANCELED')
+        AND j.status IN
+        <foreach collection="statuses" item="status" open="(" separator="," close=")">
+            #{status}
+        </foreach>
+        <if test="printerId != null">
+            AND j.printer_id = #{printerId}
+        </if>
+        <if test="admin and userId != null">
+            AND j.user_id = #{userId}
+        </if>
+        <if test="!admin">
+            AND j.user_id = #{currentUserId}
+        </if>
+        <if test="startTime != null">
+            <choose>
+                <when test="_databaseId == 'sqlite'">
+                    AND <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.completed_at"/></include>
+                    &gt;= <include refid="sqliteLocalDateTimeKey"><property name="value" value="#{startTime}"/></include>
+                </when>
+                <otherwise>AND j.completed_at &gt;= #{startTime}</otherwise>
+            </choose>
+        </if>
+        <if test="endTime != null">
+            <choose>
+                <when test="_databaseId == 'sqlite'">
+                    AND <include refid="sqliteLocalDateTimeKey"><property name="value" value="j.completed_at"/></include>
+                    &lt;= <include refid="sqliteLocalDateTimeKey"><property name="value" value="#{endTime}"/></include>
+                </when>
+                <otherwise>AND j.completed_at &lt;= #{endTime}</otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="historyExportOrderAndLimit">
+        ORDER BY CASE WHEN j.completed_at IS NULL THEN 1 ELSE 0 END ASC,
+        <choose>
+            <when test="_databaseId == 'sqlite'"><include refid="sqliteLocalDateTimeKey"><property name="value" value="j.completed_at"/></include> DESC, j.id DESC</when>
+            <otherwise>j.completed_at DESC, j.id DESC</otherwise>
+        </choose>
+        LIMIT #{limit}
+    </sql>
+
+    <select id="selectHistoryForExport" resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
+        SELECT
+        <include refid="jobSummaryColumns"/>
+        <include refid="jobSummaryJoins"/>
+        <include refid="historyExportFilters"/>
+        <if test="fileName != null and fileName != ''">
+            AND LOWER(COALESCE(f.original_name, j.file_name_snapshot))
+                LIKE CONCAT('%', LOWER(#{fileName}), '%') ESCAPE CHAR(92)
+        </if>
+        <include refid="historyExportOrderAndLimit"/>
+    </select>
+
+    <select id="selectHistoryForExport" databaseId="sqlite"
+            resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
+        SELECT
+        <include refid="jobSummaryColumns"/>
+        <include refid="jobSummaryJoins"/>
+        <include refid="historyExportFilters"/>
+        <if test="fileName != null and fileName != ''">
+            AND LOWER(COALESCE(f.original_name, j.file_name_snapshot))
+                LIKE '%' || LOWER(#{fileName}) || '%' ESCAPE CHAR(92)
+        </if>
+        <include refid="historyExportOrderAndLimit"/>
     </select>
 
     <select id="selectAccessibleDetail" resultType="com.example.farm.entity.vo.PrintJobDetailVO">

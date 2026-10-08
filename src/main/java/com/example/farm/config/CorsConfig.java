@@ -38,6 +38,7 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedMethods("GET", "POST", "DELETE", "PUT", "OPTIONS")
                 // 设置允许的 header 属性
                 .allowedHeaders("*")
+                .exposedHeaders(RequestTraceLogFilter.TRACE_ID_HEADER, "Content-Disposition")
                 // 跨域允许时间 (秒)
                 .maxAge(3600);
     }

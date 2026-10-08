@@ -39,9 +39,24 @@
 - [x] 新增 9 类 IP 功能回归共 163 项通过；另扩展协议、设备锁与异常映射测试。本轮全量包含这些测试，未探测真实设备。
 - [x] 后端完整 `.\mvnw.cmd test`：714 项，0 失败/错误/跳过；报告 `target/ip-rediscovery-final-tests.log`。
 - [x] Windows 安装器契约：本轮已通过，命令 `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/windows/test-installer-contract.ps1 -ClientRoot D:\WorkSpace\Vue\fabmatrix-client`。
-- [ ] 新服务端/客户端安装包构建：待补录本轮产物路径、大小与 SHA-256。
+- [x] 正式服务端/客户端安装包构建通过，隔离输出且保留旧产物；路径、大小与 SHA-256 见下表。服务端新 payload 在临时目录完成启动/健康探测与托盘自测，客户端正式 ASAR 确认含新界面且安全扫描通过。
 - [ ] 真实覆盖安装：NOT RUN，不能继承历史验证结论。
 - [ ] 厂内关机/重新分配 IP/开机后自动恢复、手动同步和名称/任务绑定保留：NOT RUN。
 - [ ] 旧 IP 被其他设备占用、地址交换、鉴权/跨 VLAN 无 MAC、真实 MySQL 和长时间网络稳定性：NOT RUN。
 
 本轮不执行数据库迁移、不修改生产数据、不操作设备物理动作；只有实际完成的验证才能标记完成。
+
+## 本轮交付产物
+
+源码提交：后端 `2461d5a`，前端 `cb9bf60`。版本保持 `1.0.0`。
+
+| 产物 | 路径（各仓库相对路径） | 大小（字节） | SHA-256 |
+| --- | --- | ---: | --- |
+| Server | `dist/windows-installer-ip-rediscovery-20261008/FabMatrix-Server-Setup-1.0.0.exe` | 119725640 | `2A0996FF71A9C0B18FE32C3EB472EBBB60E6DEADD8BB5F782CAD73A644A78EBF` |
+| Client | `release/ip-rediscovery-20261008-cb9bf60/FabMatrix-Client-Setup-1.0.0.exe` | 128285523 | `2CBD025DDA0E32927DE956C7F0339C58B3DB1BA09B5B0733281CE02F305534B9` |
+
+服务端构建：`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/windows/build-installer.ps1 -Mode Full -OutputDir dist/windows-installer-ip-rediscovery-20261008 -ClientRoot D:\WorkSpace\Vue\fabmatrix-client -SkipTests -NoClean`。全量测试已在同一源码打包前完成，日志 `target/ip-rediscovery-final-tests.log`；构建和新 payload 契约日志 `target/ip-rediscovery-installer-build.log`，包中配置与新身份恢复类已核对。
+
+客户端构建：`npm.cmd run desktop:build -- --config.directories.output=release/ip-rediscovery-20261008-cb9bf60`，正式 ASAR 为 `farmMode=production`；对抽取的 51 个文本文件执行正式产物扫描，0 findings。同目录保存安装器 `.sha256`；服务端保存 `checksums.txt` 和源码提交对应的 `release-info.txt`。
+
+本轮只生成安装器，不执行实际安装/升级、重启已安装服务、修改运行数据或连接真实打印机。厂内 DHCP 及安装保留数据验收仍为 NOT RUN。

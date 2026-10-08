@@ -196,14 +196,28 @@ class PrintJobHistoryExportPersistenceTest {
         if ("PDF".equals(format)) {
             try (var pdf = Loader.loadPDF(document.content())) {
                 String text = new PDFTextStripper().getText(pdf);
-                assertThat(text).contains("打印历史", "齿轮座.gcode", "一号打印机", "9007199254740993", "李操作员",
-                        "经过时长", "包含暂停", "不代表打印件数", "历史明细 · " + expectedRows + " 条记录");
-                if ("OPERATOR".equals(role)) assertThat(text).doesNotContain("记录 3");
-                else assertThat(text).contains("记录 3");
+                String compactText = text.replaceAll("\\s+", "");
+                assertThat(compactText).contains("打印历史", "齿轮座.gcode", "一号打印机", "9007199254740993", "李操作员",
+                        "经过时长", "包含暂停", "不代表打印件数", "历史明细·" + expectedRows + "条记录");
+                // Resource scope depends on exported data, independent of card/table presentation.
+                if ("OPERATOR".equals(role)) assertThat(compactText).doesNotContain("old-file.gcode", "old-creator");
+                else assertThat(compactText).contains("old-file.gcode", "old-creator");
             }
         } else {
             try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(document.content()))) {
                 var details = workbook.getSheet("明细");
+                // Opening the official workbook must immediately show the printable record table.
+                assertThat(workbook.getSheetName(0)).isEqualTo("明细");
+                assertThat(workbook.getActiveSheetIndex()).isZero();
+                assertThat(workbook.getFirstVisibleTab()).isZero();
+                assertThat(workbook.isSheetHidden(0)).isFalse();
+                assertThat(details.isSelected()).isTrue();
+                assertThat(details.getTables()).hasSize(1);
+                var recordTable = details.getTables().getFirst();
+                assertThat(recordTable.getName()).isEqualTo("ExportDetails");
+                assertThat(recordTable.getStartRowIndex()).isZero();
+                assertThat(recordTable.getEndRowIndex()).isEqualTo(expectedRows);
+                assertThat(recordTable.getColumnCount()).isEqualTo(13);
                 assertThat(details.getRow(0).getLastCellNum()).isEqualTo((short) 13);
                 assertThat(details.getLastRowNum()).isEqualTo(expectedRows);
                 assertThat(details.getRow(expectedRows).getCell(0).getCellType()).isEqualTo(CellType.STRING);

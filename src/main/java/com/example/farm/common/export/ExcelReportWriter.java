@@ -11,14 +11,23 @@ import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.ss.util.AreaReference;
+import org.apache.poi.ss.util.CellReference;
+import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFTable;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 final class ExcelReportWriter {
     private static final int MAX_CELL_LENGTH = 32_767;
@@ -29,8 +38,12 @@ final class ExcelReportWriter {
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(100)) {
             workbook.setCompressTempFiles(true);
             Styles styles = new Styles(workbook);
-            writeSummary(workbook, report, styles);
             writeDetails(workbook, report, styles);
+            writeSummary(workbook, report, styles);
+            workbook.setActiveSheet(0);
+            workbook.setSelectedTab(0);
+            workbook.getSheetAt(0).setSelected(true);
+            workbook.getSheetAt(1).setSelected(false);
             workbook.write(output);
         }
     }
@@ -64,12 +77,13 @@ final class ExcelReportWriter {
 
     private void writeDetails(SXSSFWorkbook workbook, ExportReport report, Styles styles) {
         SXSSFSheet sheet = workbook.createSheet("明细");
+        List<String> headers = uniqueHeaders(report);
         Row header = sheet.createRow(0);
         header.setHeightInPoints(28);
         for (int column = 0; column < report.columns().size(); column++) {
             ExportReport.Column definition = report.columns().get(column);
             sheet.setColumnWidth(column, definition.width() * 256);
-            text(header.createCell(column), definition.label(), styles.header);
+            text(header.createCell(column), headers.get(column), styles.header);
         }
         int rowIndex = 1;
         for (var values : report.rows()) {
@@ -84,9 +98,53 @@ final class ExcelReportWriter {
             row.setHeightInPoints(Math.min(409, Math.max(26, maxLines * 15 + 8)));
         }
         sheet.createFreezePane(0, 1);
-        sheet.setAutoFilter(new CellRangeAddress(0, Math.max(0, rowIndex - 1), 0, report.columns().size() - 1));
+        if (report.rows().isEmpty()) {
+            sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, report.columns().size() - 1));
+        } else {
+            createStructuredTable(workbook, headers, rowIndex - 1);
+        }
         sheet.setRepeatingRows(new CellRangeAddress(0, 0, -1, -1));
         configurePrint(sheet, true);
+    }
+
+    private List<String> uniqueHeaders(ExportReport report) {
+        Set<String> used = new HashSet<>();
+        List<String> headers = new ArrayList<>();
+        for (int index = 0; index < report.columns().size(); index++) {
+            String label = report.columns().get(index).label();
+            String base = label.isBlank() ? "列 " + (index + 1) : label;
+            String unique = base;
+            int occurrence = 2;
+            while (!used.add(unique.toLowerCase(Locale.ROOT))) {
+                unique = base + " (" + occurrence++ + ")";
+            }
+            headers.add(unique);
+        }
+        return headers;
+    }
+
+    private void createStructuredTable(SXSSFWorkbook workbook, List<String> headers, int lastRow) {
+        var sheet = workbook.getXSSFWorkbook().getSheet("明细");
+        AreaReference area = new AreaReference(new CellReference(0, 0),
+                new CellReference(Math.max(0, lastRow), headers.size() - 1), SpreadsheetVersion.EXCEL2007);
+        XSSFTable table = sheet.createTable(area);
+        table.setName("ExportDetails");
+        table.setDisplayName("ExportDetails");
+        table.getCTTable().setTotalsRowShown(false);
+        table.getCTTable().setHeaderRowCount(1);
+        // SXSSF has already flushed header rows to temporary XML. Supply their actual
+        // names explicitly instead of reading the underlying XSSF sheet's empty row 0.
+        for (int index = 0; index < headers.size(); index++) {
+            table.getCTTable().getTableColumns().getTableColumnArray(index).setName(headers.get(index));
+        }
+        var filter = table.getCTTable().isSetAutoFilter()
+                ? table.getCTTable().getAutoFilter() : table.getCTTable().addNewAutoFilter();
+        filter.setRef(area.formatAsString());
+        var style = table.getCTTable().isSetTableStyleInfo()
+                ? table.getCTTable().getTableStyleInfo() : table.getCTTable().addNewTableStyleInfo();
+        style.setName("TableStyleMedium2");
+        style.setShowRowStripes(true);
+        style.setShowColumnStripes(false);
     }
 
     private void configurePrint(SXSSFSheet sheet, boolean landscape) {

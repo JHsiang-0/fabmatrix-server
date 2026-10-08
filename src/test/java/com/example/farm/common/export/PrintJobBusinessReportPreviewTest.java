@@ -21,6 +21,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
+import java.io.ByteArrayInputStream;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -56,13 +59,13 @@ class PrintJobBusinessReportPreviewTest {
             request.setFormat(ExportFormat.PDF);
             ExportDocument document = service.export(request);
             Path directory = Path.of("target", "history-export-preview");
-            Files.createDirectories(directory.resolve("business-pngs"));
+            Files.createDirectories(directory.resolve("table-business-pngs"));
             Files.write(directory.resolve("business-layout-sample.pdf"), document.content());
             try (var pdf = Loader.loadPDF(document.content())) {
                 var renderer = new PDFRenderer(pdf);
                 for (int index = 0; index < pdf.getNumberOfPages(); index++) {
                     ImageIO.write(renderer.renderImageWithDPI(index, 110, ImageType.RGB), "png",
-                            directory.resolve("business-pngs").resolve("page-" + (index + 1) + ".png").toFile());
+                            directory.resolve("table-business-pngs").resolve("page-" + (index + 1) + ".png").toFile());
                 }
                 String text = new PDFTextStripper().getText(pdf).replaceAll("\\s", "");
                 assertThat(text).contains("时区", "Asia/Shanghai", "历史记录条数", "经过时长合计（分钟）", "统计口径", "时长口径",
@@ -70,6 +73,62 @@ class PrintJobBusinessReportPreviewTest {
             }
             request.setFormat(ExportFormat.XLSX);
             Files.write(directory.resolve("business-layout-sample.xlsx"), service.export(request).content());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    void thirtyNormalBusinessRecordsAreReadableAndUseAtMostThreePages() throws Exception {
+        PrintJobMapper mapper = mock(PrintJobMapper.class);
+        PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
+        when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        List<PrintJobSummaryVO> rows = new ArrayList<>();
+        for (int index = 0; index < 30; index++) {
+            var job = history(90071992547409930L + index, "COMPLETED", "生产外壳-" + index + ".gcode", "车间 A 一号机");
+            job.setCreatedAt(job.getCreatedAt().withSecond(23));
+            job.setStartedAt(job.getStartedAt().withSecond(23));
+            job.setCompletedAt(job.getCompletedAt().withSecond(23));
+            rows.add(job);
+        }
+        when(mapper.selectHistoryForExport(any(), isNull(), isNull(), eq(10L), anyBoolean(), isNull(), isNull(), isNull(), anyInt()))
+                .thenReturn(rows);
+        var service = new PrintJobHistoryExportService(mapper, new ReportExportService(), new ExportProperties(), transactions);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(10L,
+                "管理员", List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))));
+        try {
+            var request = new PrintJobHistoryExportRequest();
+            request.setFormat(ExportFormat.PDF);
+            var document = service.export(request);
+            Path directory = Path.of("target", "history-export-preview");
+            Files.createDirectories(directory.resolve("table-normal-business-pngs"));
+            Files.write(directory.resolve("normal-business-table.pdf"), document.content());
+            try (var pdf = Loader.loadPDF(document.content())) {
+                var renderer = new PDFRenderer(pdf);
+                for (int index = 0; index < pdf.getNumberOfPages(); index++) {
+                    ImageIO.write(renderer.renderImageWithDPI(index, 130, ImageType.RGB), "png",
+                            directory.resolve("table-normal-business-pngs").resolve("page-" + (index + 1) + ".png").toFile());
+                }
+                assertThat(pdf.getNumberOfPages()).isBetween(1, 3);
+                String text = new PDFTextStripper().getText(pdf);
+                for (PrintJobSummaryVO row : rows) assertThat(text).contains(row.getId().toString());
+                assertThat(text.replaceAll("\\s", "")).contains("30条记录", "Asia/Shanghai", "2700.00");
+                for (int page = 1; page <= pdf.getNumberOfPages(); page++) {
+                    var stripper = new PDFTextStripper();
+                    stripper.setStartPage(page);
+                    stripper.setEndPage(page);
+                    assertThat(stripper.getText(pdf)).contains("任务编号");
+                }
+            }
+            request.setFormat(ExportFormat.XLSX);
+            var spreadsheet = service.export(request);
+            Files.write(directory.resolve("normal-business-table.xlsx"), spreadsheet.content());
+            try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(spreadsheet.content()))) {
+                assertThat(workbook.getSheetName(0)).isEqualTo("明细");
+                assertThat(workbook.getActiveSheetIndex()).isZero();
+                assertThat(workbook.getSheetAt(0).getLastRowNum()).isEqualTo(30);
+                assertThat(workbook.getSheetAt(0).getTables().getFirst().getCTTable().getRef()).isEqualTo("A1:M31");
+            }
         } finally {
             SecurityContextHolder.clearContext();
         }

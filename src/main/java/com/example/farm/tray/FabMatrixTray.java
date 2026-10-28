@@ -4,7 +4,9 @@ import javax.imageio.ImageIO;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
-import javax.swing.JWindow;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.JDialog;
 import javax.swing.SwingUtilities;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
@@ -21,6 +23,7 @@ import java.awt.GraphicsEnvironment;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
+import java.awt.KeyEventDispatcher;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.SystemTray;
@@ -30,6 +33,7 @@ import java.awt.Window;
 import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -63,7 +67,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/** Pure JDK tray controller. It never controls printers and exiting it leaves the service running. */
+/** Pure JDK tray controller. Plain exit keeps the service running; explicit stop-and-exit uses SCM. */
 public final class FabMatrixTray {
     private static final String APPLICATION_ID = "com.jiadong3d.fabmatrix.server";
     private static final String APPLICATION_VERSION = "1.0.0";
@@ -81,9 +85,11 @@ public final class FabMatrixTray {
             "WenQuanYi Zen Hei");
     private static final String[] CHINESE_TRAY_TEXTS = {
             "服务：检查中", "健康：检查中", "刷新", "启动服务", "停止服务", "重启服务",
-            "复制首选局域网服务地址", "复制本机服务地址", "打开 files", "打开 logs", "管理员编辑配置",
-            "退出托盘（不停止服务）", "运行中", "已停止", "变更中", "未安装", "未知", "就绪", "不可用",
-            "服务：", "健康：", "FabMatrix Server | 服务 ", " | 健康 ",
+            "连接与初始化说明", "关闭", "复制首选局域网服务地址", "复制本机服务地址", "打开打印文件目录", "打开日志目录", "管理员编辑配置",
+            "本机连接地址", "局域网连接地址", "数据保存位置", "请在独立安装的客户端填写以上地址，服务端不包含前端网页",
+            "首次安装按客户端提示创建管理员，已有数据使用原账号登录；初始化入口仅在首次安装时可用",
+            "退出托盘（不停止服务）", "停止服务并退出", "所有客户端将断开连接，停止成功后才退出托盘", "运行中", "已停止", "变更中", "未安装", "未知", "就绪", "不可用",
+            "服务：", "健康：", "嘉东三维服务器 | 服务 ", " | 健康 ",
             "无法添加 FabMatrix 托盘图标: ", "将通过 Windows 服务控制器正常停止 FabMatrixServer。是否继续？",
             "UAC helper 超时", "缺少控制脚本: ", "服务操作失败: ", "打开配置失败: ",
             "无法打开目录: ", "已复制 ", "复制地址失败: "
@@ -103,6 +109,10 @@ public final class FabMatrixTray {
         }
         if (args.length == 1 && "--self-test-menu-font".equals(args[0])) {
             runMenuFontSelfTest();
+            return;
+        }
+        if (args.length == 1 && "--self-test-popup-focus".equals(args[0])) {
+            runPopupFocusSelfTest();
             return;
         }
         if (args.length == 1 && "--self-test-port-config".equals(args[0])) {
@@ -140,8 +150,10 @@ public final class FabMatrixTray {
         private JMenuItem serviceStatus;
         private JMenuItem healthStatus;
         private JPopupMenu popupMenu;
-        private JWindow menuAnchor;
+        private JDialog menuAnchor;
         private AWTEventListener popupDismissListener;
+        private KeyEventDispatcher popupEscapeDispatcher;
+        private boolean serviceOperationInProgress;
         private boolean popupGestureHandled;
         private TrayIcon trayIcon;
 
@@ -195,13 +207,15 @@ public final class FabMatrixTray {
             addAction(popupMenu, text.stopService(), () -> controlService("stop", true));
             addAction(popupMenu, text.restartService(), () -> controlService("restart", true));
             popupMenu.addSeparator();
+            addAction(popupMenu, text.connectionGuideTitle(), this::showConnectionGuide);
             addAction(popupMenu, text.copyPreferredAddress(), () -> copyText(preferredAddress()));
             addAction(popupMenu, text.copyLocalAddress(), () -> copyText("http://127.0.0.1:" + port));
             addAction(popupMenu, text.openFiles(), () -> openDirectory(dataRoot.resolve("files")));
             addAction(popupMenu, text.openLogs(), () -> openDirectory(dataRoot.resolve("logs")));
             addAction(popupMenu, text.editConfig(), this::editConfig);
             popupMenu.addSeparator();
-            addAction(popupMenu, text.exitTray(), this::shutdown);
+            addAction(popupMenu, text.stopAndExit(), this::stopServiceAndExit);
+            addAction(popupMenu, text.exitTray(), this::exitTrayOnly);
             popupMenu.addPopupMenuListener(new PopupMenuListener() {
                 @Override
                 public void popupMenuWillBecomeVisible(PopupMenuEvent event) {
@@ -228,7 +242,10 @@ public final class FabMatrixTray {
 
         private void addAction(JPopupMenu menu, String label, Runnable action) {
             JMenuItem item = addMenuItem(menu, label);
-            item.addActionListener(event -> action.run());
+            item.addActionListener(event -> {
+                hidePopupMenu();
+                action.run();
+            });
         }
 
         private void handlePopupGesture(MouseEvent event) {
@@ -256,46 +273,65 @@ public final class FabMatrixTray {
             Dimension menuSize = popupMenu.getPreferredSize();
             Point menuLocation = constrainPopupLocation(requestedLocation, menuSize);
 
-            JWindow anchor = new JWindow();
+            JDialog anchor = createMenuAnchor(menuLocation);
+            menuAnchor = anchor;
+            try {
+                anchor.setVisible(true);
+                anchor.toFront();
+                popupMenu.show(anchor, 0, 0);
+                anchor.requestFocus();
+                installPopupDismissListener();
+            } catch (RuntimeException error) {
+                hidePopupMenu();
+                throw error;
+            }
+        }
+
+        private JDialog createMenuAnchor(Point menuLocation) {
+            // A JWindow with no showing Frame/Dialog owner is not focusable,
+            // even when setFocusableWindowState(true) was requested.
+            JDialog anchor = new JDialog((java.awt.Frame) null);
+            anchor.setUndecorated(true);
             anchor.setType(Window.Type.POPUP);
             anchor.setAlwaysOnTop(true);
             anchor.setFocusableWindowState(true);
             anchor.setBounds(menuLocation.x, menuLocation.y, 1, 1);
-            menuAnchor = anchor;
-            try {
-                anchor.setVisible(true);
-                anchor.requestFocus();
-                popupMenu.show(anchor, 0, 0);
-                installPopupDismissListener();
-            } catch (RuntimeException error) {
-                if (popupMenu.isVisible()) {
-                    popupMenu.setVisible(false);
-                } else {
-                    disposeMenuAnchor();
-                }
-                throw error;
-            }
+            return anchor;
         }
 
         private void installPopupDismissListener() {
             requireEdt();
             removePopupDismissListener();
+            JDialog watchedAnchor = menuAnchor;
             popupDismissListener = event -> {
+                if (menuAnchor != watchedAnchor) return;
                 if (event instanceof MouseEvent mouseEvent && mouseEvent.getID() == MouseEvent.MOUSE_PRESSED) {
                     if (!isPopupInteraction(mouseEvent, popupMenu)) {
-                        SwingUtilities.invokeLater(this::hidePopupMenu);
+                        SwingUtilities.invokeLater(() -> {
+                            if (menuAnchor == watchedAnchor) hidePopupMenu();
+                        });
                     }
                     return;
                 }
                 if (event instanceof WindowEvent windowEvent &&
+                        isMenuWindow(windowEvent.getWindow()) &&
                         (windowEvent.getID() == WindowEvent.WINDOW_DEACTIVATED ||
                                 windowEvent.getID() == WindowEvent.WINDOW_LOST_FOCUS) &&
                         !isMenuWindow(windowEvent.getOppositeWindow())) {
-                    SwingUtilities.invokeLater(this::hidePopupMenuIfFocusOutside);
+                    SwingUtilities.invokeLater(() -> {
+                        if (menuAnchor == watchedAnchor) hidePopupMenuIfFocusOutside();
+                    });
                 }
             };
             Toolkit.getDefaultToolkit().addAWTEventListener(popupDismissListener,
                     AWTEvent.MOUSE_EVENT_MASK | AWTEvent.WINDOW_EVENT_MASK | AWTEvent.WINDOW_FOCUS_EVENT_MASK);
+            popupEscapeDispatcher = event -> {
+                if (menuAnchor != watchedAnchor || event.getID() != KeyEvent.KEY_PRESSED ||
+                        event.getKeyCode() != KeyEvent.VK_ESCAPE) return false;
+                hidePopupMenu();
+                return true;
+            };
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(popupEscapeDispatcher);
         }
 
         private void hidePopupMenuIfFocusOutside() {
@@ -315,6 +351,10 @@ public final class FabMatrixTray {
             AWTEventListener listener = popupDismissListener;
             popupDismissListener = null;
             if (listener != null) Toolkit.getDefaultToolkit().removeAWTEventListener(listener);
+            if (popupEscapeDispatcher != null) {
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(popupEscapeDispatcher);
+                popupEscapeDispatcher = null;
+            }
         }
 
         private void hidePopupMenu() {
@@ -329,7 +369,7 @@ public final class FabMatrixTray {
         private void disposeMenuAnchor() {
             requireEdt();
             removePopupDismissListener();
-            JWindow anchor = menuAnchor;
+            JDialog anchor = menuAnchor;
             menuAnchor = null;
             if (anchor != null) {
                 anchor.setVisible(false);
@@ -380,19 +420,57 @@ public final class FabMatrixTray {
         }
 
         private void controlService(String action, boolean confirmStop) {
+            if (serviceOperationInProgress) {
+                showError(text.serviceBusy());
+                return;
+            }
             if (confirmStop) {
                 int answer = JOptionPane.showConfirmDialog(null,
                         text.confirmStop(), text.dialogTitle(), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                 if (answer != JOptionPane.YES_OPTION) return;
             }
+            serviceOperationInProgress = true;
             executor.execute(() -> {
                 try {
                     runElevatedPowerShell("service-control.ps1", action);
                     refreshStatus();
                 } catch (Exception error) {
                     showError(text.serviceOperationFailed(error.getMessage()));
+                } finally {
+                    SwingUtilities.invokeLater(() -> serviceOperationInProgress = false);
                 }
             });
+        }
+
+        private void stopServiceAndExit() {
+            if (serviceOperationInProgress) {
+                showError(text.serviceBusy());
+                return;
+            }
+            int answer = JOptionPane.showOptionDialog(null, text.confirmStopAndExit(), text.dialogTitle(),
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null,
+                    new String[]{text.stopAndExit(), text.cancel()}, text.cancel());
+            if (answer != 0) return;
+            serviceOperationInProgress = true;
+            executor.execute(() -> {
+                try {
+                    runStopAndExit(true, () -> {
+                        runElevatedPowerShell("service-control.ps1", "stop");
+                        if (readServiceState() != ServiceState.STOPPED) throw new IOException(text.serviceDidNotStop());
+                    }, () -> SwingUtilities.invokeLater(this::shutdown),
+                            error -> showError(text.serviceOperationFailed(error.getMessage())));
+                } finally {
+                    SwingUtilities.invokeLater(() -> serviceOperationInProgress = false);
+                }
+            });
+        }
+
+        private void exitTrayOnly() {
+            if (serviceOperationInProgress) {
+                showError(text.serviceBusy());
+                return;
+            }
+            shutdown();
         }
 
         private void editConfig() {
@@ -444,6 +522,28 @@ public final class FabMatrixTray {
             } catch (Exception error) {
                 showError(text.openDirectoryFailed(error.getMessage()));
             }
+        }
+
+        private void showConnectionGuide() {
+            executor.execute(() -> {
+                ServiceState service = readServiceState();
+                boolean healthy = service == ServiceState.RUNNING && isHealthy();
+                String lanAddress = preferredAddress();
+                SwingUtilities.invokeLater(() -> {
+                    JTextArea details = new JTextArea(text.connectionGuide(service, healthy, port,
+                            lanAddress, dataRoot.toString()), 15, 46);
+                    details.setEditable(false);
+                    details.setLineWrap(true);
+                    details.setWrapStyleWord(true);
+                    details.setFont(menuFont);
+                    details.setCaretPosition(0);
+                    int choice = JOptionPane.showOptionDialog(null, new JScrollPane(details),
+                            text.connectionGuideTitle(), JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                            null, new String[]{text.copyPreferredAddress(), text.copyLocalAddress(), text.close()}, text.close());
+                    if (choice == 0) copyText(lanAddress);
+                    if (choice == 1) copyText("http://127.0.0.1:" + port);
+                });
+            });
         }
 
         private void copyText(String value) {
@@ -498,6 +598,66 @@ public final class FabMatrixTray {
                 throw new IllegalStateException("Swing tray menu access must run on the EDT");
             }
         }
+    }
+
+    @FunctionalInterface
+    private interface ServiceStopOperation {
+        void stop() throws Exception;
+    }
+
+    private static void runStopAndExit(boolean confirmed, ServiceStopOperation stop, Runnable exit,
+                                      java.util.function.Consumer<Exception> failure) {
+        if (!confirmed) return;
+        try {
+            stop.stop();
+        } catch (Exception error) {
+            failure.accept(error);
+            return;
+        }
+        exit.run();
+    }
+
+    private static void runPopupFocusSelfTest() throws Exception {
+        Controller controller = new Controller(new CountDownLatch(1));
+        try {
+            // Native window objects are created but never shown or focused.
+            SwingUtilities.invokeAndWait(() -> {
+                controller.initializeMenu();
+                controller.menuAnchor = controller.createMenuAnchor(new Point(0, 0));
+                if (!controller.menuAnchor.isFocusableWindow()) {
+                    throw new IllegalStateException("Tray menu owner cannot receive native focus");
+                }
+                controller.installPopupDismissListener();
+                controller.popupDismissListener.eventDispatched(new WindowEvent(controller.menuAnchor,
+                        WindowEvent.WINDOW_LOST_FOCUS, null));
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                if (controller.menuAnchor != null || controller.popupDismissListener != null ||
+                        controller.popupEscapeDispatcher != null) {
+                    throw new IllegalStateException("External focus loss did not clean up menu resources");
+                }
+                controller.menuAnchor = controller.createMenuAnchor(new Point(0, 0));
+                controller.installPopupDismissListener();
+                if (!controller.popupEscapeDispatcher.dispatchKeyEvent(new KeyEvent(controller.popupMenu,
+                        KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ESCAPE, (char) 27)) ||
+                        controller.menuAnchor != null || controller.popupEscapeDispatcher != null) {
+                    throw new IllegalStateException("Escape did not dismiss the tray menu");
+                }
+            });
+            List<String> events = new ArrayList<>();
+            runStopAndExit(false, () -> events.add("stop"), () -> events.add("exit"), error -> events.add("error"));
+            if (!events.isEmpty()) throw new IllegalStateException("Cancelled exit controlled the service");
+            runStopAndExit(true, () -> { events.add("stop"); throw new IOException("cancelled or failed"); },
+                    () -> events.add("exit"), error -> events.add("error"));
+            if (!events.equals(List.of("stop", "error"))) throw new IllegalStateException("Failed stop exited the tray");
+            events.clear();
+            runStopAndExit(true, () -> events.add("stop"), () -> events.add("exit"), error -> events.add("error"));
+            if (!events.equals(List.of("stop", "exit"))) throw new IllegalStateException("Exit preceded a confirmed stop");
+        } finally {
+            SwingUtilities.invokeAndWait(controller::hidePopupMenu);
+            controller.executor.shutdownNow();
+        }
+        System.out.println("FabMatrix tray native focusability, focus-loss/Escape cleanup and safe stop-exit self-test passed.");
     }
 
     private static Point constrainPopupLocation(Point requestedLocation, Dimension popupSize) {
@@ -785,12 +945,22 @@ public final class FabMatrixTray {
         private String startService() { return chinese ? "启动服务" : "Start service"; }
         private String stopService() { return chinese ? "停止服务" : "Stop service"; }
         private String restartService() { return chinese ? "重启服务" : "Restart service"; }
+        private String connectionGuideTitle() { return chinese ? "连接与初始化说明" : "Connection and first-time setup"; }
+        private String close() { return chinese ? "关闭" : "Close"; }
         private String copyPreferredAddress() { return chinese ? "复制首选局域网服务地址" : "Copy preferred LAN address"; }
         private String copyLocalAddress() { return chinese ? "复制本机服务地址" : "Copy local service address"; }
-        private String openFiles() { return chinese ? "打开 files" : "Open files"; }
-        private String openLogs() { return chinese ? "打开 logs" : "Open logs"; }
+        private String openFiles() { return chinese ? "打开打印文件目录" : "Open print file folder"; }
+        private String openLogs() { return chinese ? "打开日志目录" : "Open log folder"; }
         private String editConfig() { return chinese ? "管理员编辑配置" : "Edit configuration as administrator"; }
         private String exitTray() { return chinese ? "退出托盘（不停止服务）" : "Exit tray (service keeps running)"; }
+        private String stopAndExit() { return chinese ? "停止服务并退出" : "Stop service and exit"; }
+        private String cancel() { return chinese ? "取消" : "Cancel"; }
+        private String serviceBusy() { return chinese ? "服务操作正在进行，请稍后重试。" : "A service operation is in progress. Please try again shortly."; }
+        private String serviceDidNotStop() { return chinese ? "未确认服务已停止，托盘将保留。" : "The service has not been confirmed stopped; the tray will stay open."; }
+        private String confirmStopAndExit() {
+            return chinese ? "所有客户端将断开连接，停止成功后才退出托盘。打印机不会自动停止，期间无法通过本系统查看或控制设备。确定停止服务并退出吗？"
+                    : "All clients will disconnect. The tray exits only after the service stops. Printers will not stop automatically, and monitoring and controls will be unavailable. Stop service and exit?";
+        }
         private String serviceStatus(ServiceState state, int port) {
             return (chinese ? "服务：" : "Service: ") + state.label(chinese) + (chinese ? "（端口 " : " (port ") + port + (chinese ? "）" : ")");
         }
@@ -799,13 +969,25 @@ public final class FabMatrixTray {
                     (chinese ? "（端口 " : " (port ") + port + (chinese ? "）" : ")");
         }
         private String trayTooltip(ServiceState state, boolean healthy, int port) {
-            return chinese ? "FabMatrix Server v" + APPLICATION_VERSION + " | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用") + " | 端口 " + port
-                    : "FabMatrix Server v" + APPLICATION_VERSION + " | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable") + " | Port " + port;
+            return chinese ? "嘉东三维服务器 v" + APPLICATION_VERSION + " | 服务 " + state.label(true) + " | 健康 " + (healthy ? "就绪" : "不可用") + " | 端口 " + port
+                    : "嘉东三维服务器 v" + APPLICATION_VERSION + " | Service " + state.label(false) + " | Health " + (healthy ? "Ready" : "Unavailable") + " | Port " + port;
         }
-        private String dialogTitle() { return "FabMatrix Server"; }
+        private String dialogTitle() { return "嘉东三维服务器"; }
         private String confirmStop() {
-            return chinese ? "将通过 Windows 服务控制器正常停止 FabMatrixServer。是否继续？"
-                    : "FabMatrixServer will be stopped normally through the Windows Service Controller. Continue?";
+            return chinese ? "即将停止或重启服务。此操作不会自动停止打印机，期间无法通过本系统查看或控制设备。是否继续？"
+                    : "The service will stop or restart. Printers will not stop automatically, and monitoring and controls will be unavailable meanwhile. Continue?";
+        }
+        private String connectionGuide(ServiceState state, boolean healthy, int port, String lanAddress, String dataPath) {
+            String summary = serviceStatus(state, port) + "\n" + healthStatus(healthy, port) + "\n\n";
+            return summary + (chinese
+                    ? "本机连接地址：http://127.0.0.1:" + port + "\n局域网连接地址：" + lanAddress +
+                    "\n数据保存位置：" + dataPath + "\n\n请在独立安装的 FabMatrix 客户端填写以上地址，服务端不包含前端网页。" +
+                    "\n\n首次安装按客户端提示创建管理员，已有数据使用原账号登录。初始化入口仅在首次安装时可用。" +
+                    "\n\n若服务未运行，请先选择“启动服务”。局域网无法连接时检查网络和 Windows 专用网络防火墙。退出托盘不会停止服务。"
+                    : "Local address: http://127.0.0.1:" + port + "\nLAN address: " + lanAddress +
+                    "\nData folder: " + dataPath + "\n\nEnter an address in the separately installed FabMatrix client. The server does not host the client UI." +
+                    "\n\nFor a new installation, create the first administrator when prompted by the client. For existing data, sign in with your original account." +
+                    "\n\nStart the service if it is stopped. For LAN access problems, check the network and Windows Private firewall. Exiting the tray keeps the service running.");
         }
         private String trayAddFailed(String reason) { return (chinese ? "无法添加 FabMatrix 托盘图标: " : "Unable to add the FabMatrix tray icon: ") + reason; }
         private String uacHelperTimedOut() { return chinese ? "UAC helper 超时" : "The UAC helper timed out"; }
@@ -822,7 +1004,7 @@ public final class FabMatrixTray {
         private String[] menuItemTexts() {
             return new String[]{
                     serviceChecking(), healthChecking(), refresh(), startService(), stopService(), restartService(),
-                    copyPreferredAddress(), copyLocalAddress(), openFiles(), openLogs(), editConfig(), exitTray()
+                    connectionGuideTitle(), copyPreferredAddress(), copyLocalAddress(), openFiles(), openLogs(), editConfig(), stopAndExit(), exitTray()
             };
         }
 
@@ -832,7 +1014,9 @@ public final class FabMatrixTray {
                     copyPreferredAddress(), copyLocalAddress(), openFiles(), openLogs(), editConfig(), exitTray(),
                     confirmStop(), trayAddFailed("reason"), uacHelperTimedOut(), missingControlScript(Path.of("script")),
                     serviceOperationFailed("reason"), editConfigFailed("reason"), openDirectoryFailed("reason"),
-                    copied("address"), copyAddressFailed("reason")
+                    copied("address"), copyAddressFailed("reason"), connectionGuideTitle(), close(),
+                    stopAndExit(), cancel(), serviceBusy(), serviceDidNotStop(), confirmStopAndExit(),
+                    connectionGuide(ServiceState.STOPPED, false, 29090, "http://192.168.1.2:29090", "D:/FabMatrix/data")
             };
             String[] allTexts = Arrays.copyOf(texts, texts.length + (ServiceState.values().length * 2) + 2);
             int index = texts.length;

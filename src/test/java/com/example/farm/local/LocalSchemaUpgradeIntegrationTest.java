@@ -79,6 +79,8 @@ class LocalSchemaUpgradeIntegrationTest {
     @Test
     void localProfileStartsHealthyAndPreservesLegacyTaskAfterUpgrade() throws Exception {
         assertThat(applicationContext.isActive()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT must_change_password FROM farm_user WHERE id=9104", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM farm_login_session", Integer.class)).isZero();
 
         var healthRequest = java.net.http.HttpRequest.newBuilder()
                 .uri(java.net.URI.create("http://127.0.0.1:" + serverPort + "/actuator/health"))
@@ -129,7 +131,9 @@ class LocalSchemaUpgradeIntegrationTest {
     private static void createPreTc007Fixture(Path databasePath) {
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databasePath.toAbsolutePath())) {
             JdbcTemplate jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, false));
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
+            jdbc.execute("ALTER TABLE farm_user DROP COLUMN must_change_password");
+            jdbc.execute("DROP TABLE farm_login_session");
             jdbc.execute("DROP TABLE farm_print_job");
             jdbc.execute("""
                     CREATE TABLE farm_print_job (

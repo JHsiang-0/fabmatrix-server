@@ -34,6 +34,9 @@ public class LoginResultDTO {
     @Schema(description = "手机号")
     private String phone;
 
+    private Boolean mustChangePassword = false;
+    private java.util.List<String> permissions;
+
     public LoginResultDTO(String token, Long expiresIn, Long userId, String username, String role) {
         this.token = token;
         this.expiresIn = expiresIn;

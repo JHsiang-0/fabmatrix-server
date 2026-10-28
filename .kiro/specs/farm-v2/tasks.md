@@ -232,6 +232,72 @@
 - [x] 保留数据库中的单台设备监控开关，后台任务自动派单继续关闭；补充 Local 配置、生成配置和 WinSW XML 安装器契约回归。
 - [x] Windows 安装器契约、打包 Local 启动/健康探针和后端 442 项测试通过；新安装包 SHA-256 为 `F9BD0BD0E5ED23C7578D90859153C7C7C6D2C9B9A8169BE9E8BDB5AE3F82B22A`。
 
+### T16.23 [整理] 数据库初始化、升级与历史基线目录
+
+- [x] MySQL/SQLite 初始化统一放入 `db/init/`，原 `local-schema.sql` 改名为 `sqlite-schema.sql` 并同步 Local profile 和所有测试引用。
+- [x] 迁移及预检按数据库放入 `db/migration/mysql/`、`db/migration/sqlite/`；`farm.sql`、`V*.sql` 移入 `db/archive/`，40 个移动文件 SHA-256 保持不变。
+- [x] 同步 API、运维、布局迁移和协作说明，新增 `db/README.md`；`LocalSchemaMigration` 执行逻辑不变，不操作真实数据库、备份表或持久化卷。
+- [x] `mvnw.cmd clean test` 全量 768/768 通过，包含 SQLite 新库/旧库升级回归；隔离 MySQL 初始化和关键约束检查通过。未执行安装器、真实库升级或设备动作。
+
+### T16.24 [维护] 开发 MySQL 与初始化基线对齐
+
+- [x] 复核 `localhost:3306/farm` 并创建完整备份，在无网络/tmpfs MySQL 成功恢复、演练 18/21/22/23 号迁移和重复执行。
+- [x] 新增 `23-align-setup-state-and-job-default.sql`，保留原业务数据，补齐 setup 状态并对已有用户永久关闭首次入口，任务新记录默认 `QUEUED`。
+- [x] 按用户授权应用到真实开发库；原有业务、审计和备份记录逐行一致，11 张业务/系统表结构对齐。备份及环境范围见 `docs/DATABASE_INITIALIZATION.md`。
+- [x] `mvnw.cmd test` 768/768、隔离 MySQL 初始化/约束/迁移幂等及 setup 不重开回归通过；不代表已执行生产升级、设备动作或安装验收。
+
+### T16.25 [体验] Windows 中文安装向导与托盘连接说明
+
+- [x] 固定简体中文语言资源，欢迎/数据位置/安装确认/完成页面说明服务端与客户端关系、实际端口、数据保留及首次管理员流程。
+- [x] 卸载使用明确的保留/删除/取消按钮，异常返回按取消处理；保留默认“否”的二次删除确认和静默安全规则。
+- [x] 新增只读 `installation-summary.ps1`，完成页依据实际端口元数据、服务状态和健康结果显示地址；托盘新增连接说明及地址复制，文件/日志菜单中文化。
+- [x] 全量 Maven 768/768、Windows 安装器契约、Inno 实际编译、摘要端口/状态及共享 runtime/托盘 launcher/隔离 Local 启动检查通过。
+- [x] 新包统一为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`：145406559 bytes，SHA-256 `80F71087934B053FFBC965D69BE030A3FB28365127DDD9DE3BC1AE6EF8B0D2BE`。没有实际安装、升级、卸载或设备动作；Windows 原生 UI 自动化管道不可用，页面排版和交互视检为 NOT RUN。
+
+### T16.26 [整理] 单一 Windows 安装产物与临时备份清理
+
+- [x] 按用户要求移除仓库根 `backup` 和旧的安装产物至 Windows 回收站，将已验证的中文安装产物统一迁入默认 `dist/windows-installer`；不再保留语言后缀的第二套输出目录。
+- [x] 构建脚本继续使用原有默认输出路径，安装包大小及 SHA-256 不变；同步备份历史状态和产物路径说明。未操作真实数据库或已安装服务。
+
+### T16.27 [优化] 升级预检托盘退出与安装阶段进度
+
+- [x] 无主窗口旧托盘不再跳过关闭后进入 45 秒残留等待；仅在安装路径、PID 和创建时间重新核实后结束当前安装的托盘，有主窗口时保留短时正常退出机会。SCM 正常停止后台服务及原有退出检查/恢复边界不变。
+- [x] 新增 `installation-progress.ps1`，向导通过 `ExecAndLogOutput` 显示中文阶段及已用时间；等待进程释放/健康检查时持续报告，预检与服务日志记录每阶段耗时，忽略任意进程输出作为界面文案。
+- [x] 新增隔离无窗口进程回归：打包测试关闭托盘 611ms，另一安装的同名托盘及后台进程不受影响；验证心跳不会污染等待函数布尔值，验证阶段文件与日志。Maven 768/768、Windows 安装器契约、Inno 编译、共享 runtime/launcher 和隔离 Local 启动通过。
+- [x] 当前包 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`：145406420 bytes，SHA-256 `5F4F32F23410F426E10626F879AD61B05B57D99B45179C0E3E0AFDDF04D8B31E`；覆盖 T16.25 的历史包，保留唯一默认输出目录并清理 work。没有停止当前真实服务或执行真实覆盖安装/卸载、数据库变更、设备动作；实际升级总耗时和页面视检仍待验收。
+
+### T16.28 [修复] 托盘菜单焦点与明确停服退出
+
+- [x] 将无可见 Frame/Dialog owner 的不可聚焦 JWindow 菜单锚点改为无边框 JDialog；保留菜单内部焦点切换保护，失焦/外部点击/Esc 清理监听和窗口，菜单项先收起菜单再执行，延迟回调只作用于对应锚点。
+- [x] 保留普通退出不停止服务，增加默认取消的“停止服务并退出”，提示全部客户端断开且打印机不会自动停止；复用 UAC/SCM 控制并复核 Stopped 后才退出，取消或失败保留托盘，串行化服务操作。
+- [x] 原生窗口对象不显示的自测验证可聚焦性、合成失焦/Esc 清理，以及模拟停服取消/失败/成功顺序；Maven 768/768、Windows 契约、共享 runtime/launcher 和隔离 Local 启动通过。未停止当前真实服务，真实桌面点击/UAC/停服交互因 UI 管道不可用仍待人工验收。
+- [x] 当前唯一包 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`：145412578 bytes，SHA-256 `22312FC720FA295EAA393B7F0E1F03CA9463F8CECB81ECFACEFDC0B0BF814677`，覆盖历史构建产物并清理 work；未实际安装或卸载。
+
+### T16.29 [调整] Windows 程序中文显示名称
+
+- [x] 开始菜单、当前用户启动项、已安装应用、安装器属性及托盘标题/提示改为“嘉东三维服务器”；jpackage 为服务端和托盘 EXE 写入中文显示描述，构建时读取原生版本资源验证。
+- [x] 覆盖安装仅清理旧 `FabMatrixServerTray.lnk` 开始菜单和启动项快捷方式，避免重复入口；保留内部服务 ID、可执行文件名、安装路径及安装器 AppId，以兼容原安装。
+- [x] Maven 768/768、Windows 安装器契约及打包托盘自检通过。当前唯一包 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`：145415489 bytes，SHA-256 `AB47D1762D5BEF59E89E6436E2752413F7DC595070A9C5348E5564D4F3783CDE`，覆盖 T16.28 历史产物；清理生成 work。未安装/卸载或停止当前真实服务，覆盖安装后的系统显示待人工验收。
+
+### T16.30 [扩展] 单农场账号安全、岗位与登录会话
+
+- [x] 管理员重置临时密码，新建员工及重置后必须改密；BCrypt 存储，递增 token_version 并撤销旧会话。强制改密仅允许身份/本人改密/退出接口，WebSocket 拒绝连接；首个管理员自设密码不重复强制。
+- [x] 固定岗位增加 VIEWER；读取沿用公有文件/本人任务及设备共享规则，生产写接口拒绝。集中定义权限名并返回客户端；补齐文件 capability、路由、设备安全确认/启动/控制、任务和文件入口。
+- [x] farm_login_session 持久化独立登录，支持个人/管理员单会话撤销、其他全部/全部撤销和主动注销。五分钟节流活动更新；REST、WebSocket 发送/心跳共用有效性检查，事务提交后关闭撤销连接。
+- [x] 复用审计查询，增加密码、岗位前后变化和会话撤销事件；客户端增加强制改密页、密码重置弹窗、个人/管理员会话和审计动作名称。详见 docs/ACCOUNT_SECURITY.md，前端任务 AS-001。
+- [x] 更新 MySQL/SQLite 初始化及 24 号迁移；SQLite 自动补齐，MySQL 手工一次性升级。真实隔离 MySQL 8.4 空库/旧结构升级和 SQLite 旧库启动通过，原密码和已有账号默认不强制改密。
+- [x] Maven 780/780、前端 436/436、发布门禁与 Electron dist 通过。真实隔离 SQLite/JWT/API 及两个 WebSocket 验证改密、重置、越权拒绝、单会话撤销只关闭对应连接（1008）和审计无密码内容。
+- [x] 当前服务端包 dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe：145433083 bytes，SHA-256 `F97BC397D4628211024179D5C8F253FAF0067DA617F9FD3B4F9084409A74337B`。保持唯一默认目录，未安装或停止真实服务；两端应同步升级，旧 Token 需重新登录。
+- [x] 客户端全量浏览器 30 通过、4 个默认关闭的批量派发场景跳过。最终客户端包 `release/FabMatrix-Client-Setup-1.0.0.exe`：128297727 bytes，SHA-256 `72B0F79D3D9804A649034CF8FDC35E7321EAE54C4CD3D0BFE0FF521C641D322E`，ASAR 功能标记校验通过；前端本地提交 `6673688`，完整记录见 AS-001。
+
+### T16.31 [修复] Windows 错误登录导致单连接池等待
+
+- [x] 只读核对实际安装服务、端口、profile、日志和健康接口；发现登录连接等待 30001ms（total=1、active=1、idle=0、waiting=17），服务仍在运行，实际为 local/SQLite。
+- [x] 新增真实 Local 单连接池回归；修复前错误密码 HTTP 500，REQUIRES_NEW 审计无法申请第二条连接。通过隔离调试确认 active=1/idle=0，修复后进入同事务审计、返回 401/355ms、active=0。
+- [x] 引入 LoginRejectedException，只允许预期凭据拒绝提交同事务失败审计；其他数据库/迁移异常仍回滚。不增大 SQLite 连接池，不改数据库结构或 application-prod.yaml。
+- [x] 全量 782/782、安装器契约和打包启动通过；隔离真 JWT/API/双 WebSocket 冒烟加入错误密码后健康/身份仍可用检查，原有账号安全回归保持通过。所有代理断点移除，用户断点保留。
+- [x] 新包 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`：145433849 bytes，SHA-256 `A4FFB5E2C5C42992EFBF1AED47D6C012042B3668EB6817D2CD911269EA38AB33`；清理生成 work。现场服务未替换、实际业务库与网络设置未改；需覆盖安装后复核。现场防火墙 Public 当前关闭，未把规则类型不匹配作为已确认原因。完整证据见 docs/WINDOWS_LOGIN_AVAILABILITY.md。
+
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 
 **对应需求：REQ-12、REQ-13**

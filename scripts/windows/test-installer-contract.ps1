@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$SkipTrayCompile,
     [switch]$SkipExternalTools,
     [string]$PayloadPath = '',
@@ -514,7 +514,13 @@ Get-ChildItem -LiteralPath $scriptRoot -Recurse -File -Filter '*.ps1' | ForEach-
     if ($errors.Count -ne 0) { throw "PowerShell AST parse failed: $($_.FullName): $($errors[0].Message)" }
 }
 
-Assert-Contains $installer 'AppName=FabMatrix Server' 'installer brand'
+Assert-Contains $installer 'AppName=嘉东三维服务器' 'installer brand'
+Assert-Contains $installer 'UninstallDisplayName=嘉东三维服务器' 'installed application display name'
+Assert-Contains $installer 'Name: "\{group\}\\嘉东三维服务器"' 'Start menu display name'
+Assert-Contains $installer 'Name: "\{userstartup\}\\嘉东三维服务器"' 'startup display name'
+Assert-Contains $installer 'Type: files; Name: "\{group\}\\FabMatrixServerTray\.lnk"' 'old Start menu shortcut cleanup'
+Assert-Contains $installer 'Type: files; Name: "\{userstartup\}\\FabMatrixServerTray\.lnk"' 'old startup shortcut cleanup'
+Assert-Contains $build 'description=嘉东三维服务器' 'tray executable description'
 Assert-Contains $installer 'DefaultDirName=\{autopf\}\\FabMatrix' 'default install directory'
 Assert-Contains $installer 'ExtractFileDrive\(ExpandConstant\(''\{sd\}''\)\)' 'valid system drive constant'
 Assert-NotContains $installer '\{sysdrive\}' 'invalid Inno system drive constant'
@@ -526,6 +532,19 @@ if ($uninstallDeleteSection.Success -and $uninstallDeleteSection.Groups[1].Value
     throw "Contract check must not match: recursive data deletion ($installer)"
 }
 Assert-Contains $installer 'InitializeUninstall' 'uninstall mode hook'
+Assert-Contains $installer '\[Languages\][\s\S]*languages\\ChineseSimplified\.isl' 'bundled Simplified Chinese wizard'
+Assert-Contains $installer 'TaskDialogMsgBox[\s\S]*保留数据并卸载[\s\S]*删除全部数据并卸载' 'explicit uninstall action labels'
+Assert-Contains $installer 'ModeChoice <> IDYES.*ModeChoice <> IDNO' 'unrecognized uninstall result must cancel'
+Assert-Contains $installer 'InstallationDetails|UpdateReadyMemo' 'installation location and data summary'
+Assert-Contains $installer 'installation-summary\.ps1|LocalAddress|LanAddress' 'completion uses resolved service connection information'
+Assert-Contains $build 'installation-summary\.ps1' 'completion summary helper is packaged'
+$summarySelfTest = Join-Path $scriptRoot 'service\installation-summary.ps1'
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $summarySelfTest -SelfTest
+if ($LASTEXITCODE -ne 0) { throw 'Installation summary self-test failed.' }
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $scriptRoot 'test-upgrade-preflight.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Upgrade preflight performance regression failed.' }
+Assert-Contains $installer 'ExecAndLogOutput|OnInstallationProgress' 'live stage reporting from setup processes'
+Assert-Contains $build 'installation-progress\.ps1' 'shared stage reporting helper is packaged'
 Assert-Contains $installer 'MB_YESNOCANCEL|IDCANCEL' 'interactive uninstall cancellation'
 Assert-Contains $installer 'ConfirmCompleteUninstall|PurgeDataRequested' 'complete uninstall second confirmation'
 Assert-Contains $installer 'MB_YESNO or MB_DEFBUTTON2' 'irreversible confirmation defaults to No'
@@ -560,6 +579,7 @@ try {
     [IO.Directory]::CreateDirectory($innoOutput) | Out-Null
     [IO.File]::WriteAllText((Join-Path $innoPayload 'contract-placeholder.txt'), 'isolated Inno compile fixture')
     [IO.File]::WriteAllText((Join-Path $innoService 'capture-upgrade-state.ps1'), '# isolated compile fixture')
+    [IO.File]::WriteAllText((Join-Path $innoService 'installation-progress.ps1'), '# isolated compile fixture')
 $innoCompiler = $null
 try {
     $innoCompiler = Find-ContractInnoCompiler
@@ -800,12 +820,14 @@ Assert-NotContains $tray 'import java\.awt\.(PopupMenu|MenuItem);|new (PopupMenu
 Assert-Contains $tray 'JPopupMenu|JMenuItem' 'Swing tray menu components'
 Assert-Contains $tray 'addMouseListener|MouseAdapter|isPopupTrigger' 'tray popup mouse listener'
 Assert-Contains $tray 'constrainPopupLocation|getScreenDevices|getScreenInsets' 'multi-monitor usable screen bounds positioning'
-Assert-Contains $tray 'JWindow|Window\.Type\.POPUP|disposeMenuAnchor|anchor\.dispose\(\)' 'disposable lightweight menu anchor'
+Assert-Contains $tray 'JDialog|setUndecorated|Window\.Type\.POPUP|disposeMenuAnchor|anchor\.dispose\(\)' 'focusable disposable dialog owner'
 Assert-NotContains $tray 'addWindowFocusListener|windowLostFocus' 'focus-racing anchor window listener'
 Assert-Contains $tray 'addAWTEventListener|removeAWTEventListener|KeyboardFocusManager' 'focus-safe popup dismissal lifecycle'
 Assert-Contains $tray 'isPopupInteraction|hidePopupMenuIfFocusOutside|isMenuWindow' 'inside-click and focus transition guards'
 Assert-Contains $tray 'validateSwingMenuModel|menuItemTexts|invokeAndWait|outsideClick' 'headless Swing menu model and click validation'
 Assert-Contains $tray '--self-test-menu-font|runMenuFontSelfTest' 'headless Swing menu font self-test'
+Assert-Contains $tray 'addKeyEventDispatcher|removeKeyEventDispatcher|VK_ESCAPE' 'Escape dismissal lifecycle'
+Assert-Contains $tray 'runStopAndExit|ServiceState\.STOPPED|stopServiceAndExit' 'confirmed service stop before tray exit'
 Assert-Contains $build "'--add-modules'.*'ALL-MODULE-PATH'" 'jpackage complete JDK runtime module path'
 Assert-Contains $backup 'database.*farm\.db|config.*application\.yml|files' 'backup coverage'
 Assert-Contains $backup '\$\{FARM_DATA_DIR\}' 'portable backup config'
@@ -1136,7 +1158,7 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
             'maintenance\local-restore.ps1', 'maintenance\data-acl.ps1', 'maintenance\portable-config.ps1',
             'service\capture-upgrade-state.ps1', 'service\data-acl.ps1', 'service\migrate-legacy-data.ps1',
             'service\portable-config.ps1', 'service\recover-upgrade-state.ps1', 'service\service-xml.ps1',
-            'service\health-check.ps1')) {
+            'service\health-check.ps1', 'service\installation-summary.ps1', 'service\installation-progress.ps1')) {
         Assert-Exists (Join-Path $payload $relative) "payload $relative"
     }
     Invoke-PackagedLocalStartupProbe $payload $configure
@@ -1184,6 +1206,8 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
         throw "Packaged tray launcher menu font self-test failed: $($trayMenuFontProcess.ExitCode)"
     }
     Write-Host 'FabMatrix packaged tray launcher menu font self-test passed.'
+    $trayFocusProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-popup-focus' -WindowStyle Hidden -Wait -PassThru
+    if ($trayFocusProcess.ExitCode -ne 0) { throw "Packaged tray popup focus self-test failed: $($trayFocusProcess.ExitCode)" }
     $trayUacProcess = Start-Process -FilePath $trayLauncherPath -ArgumentList '--self-test-uac-command' -Wait -PassThru
     if ($trayUacProcess.ExitCode -ne 0) {
         throw "Packaged tray launcher UAC command self-test failed: $($trayUacProcess.ExitCode)"
@@ -1197,6 +1221,8 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadPath)) {
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray port config self-test failed: $LASTEXITCODE" }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray menu font self-test failed: $LASTEXITCODE" }
+    & $payloadJava.Source '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-popup-focus'
+    if ($LASTEXITCODE -ne 0) { throw "Packaged tray popup focus self-test failed: $LASTEXITCODE" }
     & $payloadJava.Source '-Djava.awt.headless=true' '-cp' $trayJarPath 'com.example.farm.tray.FabMatrixTray' '--self-test-uac-command'
     if ($LASTEXITCODE -ne 0) { throw "Packaged tray UAC command self-test failed: $LASTEXITCODE" }
 }
@@ -1231,6 +1257,8 @@ if (-not $SkipTrayCompile) {
         if ($LASTEXITCODE -ne 0) { throw "Tray UAC command self-test failed: $LASTEXITCODE" }
         & $java '-Djava.awt.headless=true' '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-menu-font'
         if ($LASTEXITCODE -ne 0) { throw "Tray menu font self-test failed: $LASTEXITCODE" }
+        & $java '-cp' $temp 'com.example.farm.tray.FabMatrixTray' '--self-test-popup-focus'
+        if ($LASTEXITCODE -ne 0) { throw "Tray popup focus self-test failed: $LASTEXITCODE" }
     } finally {
         if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force }
     }

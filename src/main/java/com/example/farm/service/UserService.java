@@ -11,6 +11,7 @@ import com.example.farm.entity.vo.UserVO;
  * 用户服务接口。
  */
 public interface UserService extends IService<User> {
+    void resetPassword(Long userId, com.example.farm.entity.dto.ResetPasswordDTO request);
 
     /**
      * 用户登录。

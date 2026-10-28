@@ -19,7 +19,7 @@
 2. 执行只读预检：
 
    ```sh
-   mysql -u <user> -p farm < src/main/resources/db/migration/dashboard-layout-precheck-mysql.sql
+   mysql -u <user> -p farm < src/main/resources/db/migration/mysql/dashboard-layout-precheck-mysql.sql
    ```
 
    结果必须为空。结果列固定为 `issueType,id,name,gridRow,gridCol`，异常类型包括半空坐标、重复槽位、非正数和默认 4×12 越界。不得跳过异常、改坐标或用 `farm.sql` 修复已有库。
@@ -27,8 +27,8 @@
 3. 预检为空后，手工执行正式编号 16 迁移，再执行编号 17 纠错迁移：
 
    ```sh
-   mysql -u <user> -p farm < src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql
-   mysql -u <user> -p farm < src/main/resources/db/migration/17-v2-dashboard-layout-default-aisle.sql
+   mysql -u <user> -p farm < src/main/resources/db/migration/mysql/16-v2-dashboard-layout-mysql.sql
+   mysql -u <user> -p farm < src/main/resources/db/migration/mysql/17-v2-dashboard-layout-default-aisle.sql
    ```
 
    脚本会在布局表任何 DDL 前再次输出并阻断异常；已有同名错误结构的布局表也会明确失败。它会核对列顺序/类型/可空性、启用的五项 CHECK 及其真实表达式、唯一主键集合和 `created_at`/`updated_at` 的默认值与更新时间语义。重复执行安全，已存在的合法单例不会覆盖版本、过道或更新时间。编号 16 使用临时例程缓存失败状态，并在成功/失败路径都先删除例程，再由客户端执行明确的失败语句终止批处理，因此不会残留 `farm_dashboard_layout_migrate`。
@@ -49,10 +49,10 @@
 
 ## SQLite
 
-Local Edition 启动时 `local-schema.sql` 只负责新库 `farm_printer` 的成对/正数坐标 CHECK，不创建布局表、partial index 或坐标触发器。partial unique index 和 INSERT/UPDATE 坐标触发器由 `LocalSchemaMigration` 在完整只读预检成功后负责创建；项目自有的同名触发器会在预检后安全重建，索引则严格核对 `unique=1`、列集合和完整 partial `WHERE` 语义。布局表及默认行同样由 `LocalSchemaMigration` 在预检成功后创建。已有 SQLite 文件也可先手工执行只读预检：
+Local Edition 启动时 `sqlite-schema.sql` 只负责新库 `farm_printer` 的成对/正数坐标 CHECK，不创建布局表、partial index 或坐标触发器。partial unique index 和 INSERT/UPDATE 坐标触发器由 `LocalSchemaMigration` 在完整只读预检成功后负责创建；项目自有的同名触发器会在预检后安全重建，索引则严格核对 `unique=1`、列集合和完整 partial `WHERE` 语义。布局表及默认行同样由 `LocalSchemaMigration` 在预检成功后创建。已有 SQLite 文件也可先手工执行只读预检：
 
 ```sh
-sqlite3 /path/to/farm.db < src/main/resources/db/migration/dashboard-layout-precheck-sqlite.sql
+sqlite3 /path/to/farm.db < src/main/resources/db/migration/sqlite/dashboard-layout-precheck-sqlite.sql
 ```
 
 结果必须为空。SQLite 额外报告非 INTEGER（包含文本和 REAL）坐标。随后启动 Local Edition，`LocalSchemaMigration` 会再次预检，创建/验证布局表和默认行，并补齐坐标部分唯一索引及 INSERT/UPDATE 触发器；重复启动无害。异常坐标或同名错误结构会在任何布局表写入前阻止启动，原坐标保持不变。
@@ -67,7 +67,7 @@ MySQL 回滚使用迁移前备份恢复到新的隔离数据库，经抽样校�
 
 ## SYNC-002.9 发布收口
 
-升级前必须保存预检输出、数据库备份和脚本版本；成功后核对 `SHOW CREATE TABLE farm_printer`、`SHOW CREATE TABLE farm_dashboard_layout`、联合唯一索引、布局单例行及时间列语义。Local Edition 必须以 `LocalSchemaMigration` 为唯一 schema 入口，不能把 `local-schema.sql` 或 partial index 手工 SQL 当作已有库迁移。
+升级前必须保存预检输出、数据库备份和脚本版本；成功后核对 `SHOW CREATE TABLE farm_printer`、`SHOW CREATE TABLE farm_dashboard_layout`、联合唯一索引、布局单例行及时间列语义。Local Edition 必须以 `LocalSchemaMigration` 为唯一 schema 入口，不能把 `sqlite-schema.sql` 或 partial index 手工 SQL 当作已有库迁移。
 
 旧 `PUT /api/v1/printers/positions` 已弃用并进入弃用窗口：ADMIN 兼容请求仍委托 `/api/v1/dashboard-layout` 的原子事务；发布后前端只使用新资源，待所有客户端升级后移除旧入口。详细请求、错误和 WebSocket 语义见 `API_HANDOFF.md` 与 `docs/DASHBOARD_LAYOUT_CONTRACT.md`。
 

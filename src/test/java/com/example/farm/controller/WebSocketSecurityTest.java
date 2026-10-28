@@ -57,6 +57,7 @@ class WebSocketSecurityTest {
         new WebSocketServer().setSnapshotService(snapshotService);
         new WebSocketServer().setLoginProtectUtil(loginProtectUtil);
         new WebSocketServer().setUserMapper(null);
+        new WebSocketServer().setLoginSessions(null);
         new WebSocketServer().setObjectMapper(new CommonObjectMapperConfig().objectMapper());
     }
 
@@ -68,6 +69,7 @@ class WebSocketSecurityTest {
         new WebSocketServer().setSnapshotService(null);
         new WebSocketServer().setLoginProtectUtil(null);
         new WebSocketServer().setUserMapper(null);
+        new WebSocketServer().setLoginSessions(null);
         new WebSocketServer().setObjectMapper(null);
     }
 
@@ -373,6 +375,49 @@ class WebSocketSecurityTest {
 
     private Session authorizedSession() {
         return authorizedSession(1L, "OPERATOR", "authorized-session");
+    }
+
+    @Test
+    void sessionRevocationClosesOnlyMatchingSocket() throws Exception {
+        var loginSessions = mock(com.example.farm.service.LoginSessionService.class);
+        new WebSocketServer().setLoginSessions(loginSessions);
+        when(loginSessions.valid("first", 1L, 0L)).thenReturn(true);
+        when(loginSessions.valid("second", 1L, 0L)).thenReturn(true);
+        Session first = authorizedSessionWithToken("socket-first", sessionToken("first"));
+        Session second = authorizedSessionWithToken("socket-second", sessionToken("second"));
+        basicRemote(first); basicRemote(second);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of());
+        new WebSocketServer().onOpen(first);
+        new WebSocketServer().onOpen(second);
+        assertThat(WebSocketServer.getOnlineCount()).isEqualTo(2);
+        WebSocketServer.revokeLoginSessions(1L, "first", null);
+        verify(first).close(any());
+        org.mockito.Mockito.verify(second, org.mockito.Mockito.never()).close(any());
+        assertThat(WebSocketServer.getOnlineCount()).isEqualTo(1);
+        new WebSocketServer().onClose(second);
+    }
+
+    @Test
+    void sessionRevokedInDatabaseIsClosedBeforeBroadcast() throws Exception {
+        var loginSessions = mock(com.example.farm.service.LoginSessionService.class);
+        new WebSocketServer().setLoginSessions(loginSessions);
+        when(loginSessions.valid("first", 1L, 0L)).thenReturn(true);
+        Session session = authorizedSessionWithToken(sessionToken("first"));
+        RemoteEndpoint.Basic remote = basicRemote(session);
+        when(snapshotService.buildSnapshot()).thenReturn(Map.of());
+        new WebSocketServer().onOpen(session);
+        clearInvocations(remote);
+        when(loginSessions.valid("first", 1L, 0L)).thenReturn(false);
+        WebSocketServer.sendMessage(session, Map.of("probe", true));
+        org.mockito.Mockito.verify(remote, org.mockito.Mockito.never()).sendText(anyString());
+        verify(session).close(any());
+    }
+
+    private String sessionToken(String sessionId) {
+        return JWT.create().withClaim("userId", 1L).withClaim("role", "VIEWER")
+                .withClaim("sessionId", sessionId).withClaim("tokenVersion", 0L)
+                .withExpiresAt(new Date(System.currentTimeMillis() + 60_000))
+                .sign(Algorithm.HMAC256("websocket-test-secret"));
     }
 
     private Session authorizedSession(Long userId, String role, String sessionId) {

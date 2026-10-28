@@ -41,6 +41,21 @@ public class LocalSchemaMigration implements CommandLineRunner {
         createPrinterExecutionTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("farm_user", "must_change_password", "INTEGER NOT NULL DEFAULT 0");
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_login_session (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    token_version BIGINT NOT NULL DEFAULT 0,
+                    ip_address VARCHAR(64),
+                    user_agent VARCHAR(256),
+                    created_at TIMESTAMP NOT NULL,
+                    last_seen_at TIMESTAMP NOT NULL,
+                    expires_at TIMESTAMP NOT NULL,
+                    revoked_at TIMESTAMP NULL
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_login_session_user ON farm_login_session(user_id, revoked_at, expires_at)");
         addColumnIfMissing("farm_dispatch_plan", "retry_key", "VARCHAR(128)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_plan_id", "VARCHAR(64)");
         addColumnIfMissing("farm_dispatch_plan_item", "source_item_id", "VARCHAR(64)");

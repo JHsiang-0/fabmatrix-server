@@ -1,5 +1,7 @@
 # Farm 前后端接口交接与契约文档
 
+2026-10-28 账号安全扩展：新增 VIEWER 固定查看岗位、管理员密码重置及首次强制改密、持久化登录会话及撤销。新端点和升级要求以 [ACCOUNT_SECURITY.md](docs/ACCOUNT_SECURITY.md) 为准；原 ADMIN/OPERATOR 写操作边界保持不变。
+
 版本：v2.2
 更新时间：2026-10-08
 适用范围：Farm 本地 3D 打印农场服务端与浏览器/客户端
@@ -37,7 +39,7 @@ queue = QUEUED；active = ASSIGNED | UPLOADING | READY | PRINTING | PAUSED | REC
 
 ### 3. 权限、操作和响应 data
 
-ADMIN 可查询全部任务；OPERATOR 仅可查询本人任务。请求中的 `userId` 不能扩大 OPERATOR 权限，权限条件必须在查询阶段生效。
+ADMIN 可查询全部任务；OPERATOR、VIEWER 仅可查询本人任务。请求中的 `userId` 不能扩大 OPERATOR 权限，权限条件必须在查询阶段生效。
 
 | 操作 | 当前状态边界 | 成功 data / 错误 |
 |---|---|---|
@@ -65,7 +67,7 @@ TC-001 只冻结契约；TC-002 已上线 queue/page/detail 的目标读模型�
 
 ## 打印历史导出契约（R100-16）
 
-`POST /api/v1/print-jobs/history/export` 由独立 `PrintJobExportController` 提供，ADMIN/OPERATOR 均可调用。管理员可导出全部或按创建人筛选；操作员固定只查询当前 JWT 用户创建的记录，提交其他 `userId` 不能扩大权限。成功直接返回二进制附件，不使用 `Result.data`；业务错误继续返回统一 JSON `Result`。
+`POST /api/v1/print-jobs/history/export` 由独立 `PrintJobExportController` 提供，ADMIN/OPERATOR/VIEWER 均可调用，资源范围不变。管理员可导出全部或按创建人筛选；操作员固定只查询当前 JWT 用户创建的记录，提交其他 `userId` 不能扩大权限。成功直接返回二进制附件，不使用 `Result.data`；业务错误继续返回统一 JSON `Result`。
 
 ```json
 {
@@ -238,7 +240,7 @@ POST /api/v1/auth/login
 }
 ```
 
-`expiresIn` 单位为秒。当前没有 refresh token、logout 黑名单或服务端会话表。第一版退出登录由客户端删除本地 Token 并清空用户状态实现，不调用不存在的 `/auth/logout`；Token 到期后必须重新登录。
+`expiresIn` 单位为秒。每次登录建立持久化登录会话，JWT 包含 sessionId；POST `/auth/logout` 撤销当前会话。登录和 /auth/me 另返回 mustChangePassword、permissions。强制改密期间只允许读取当前身份、本人改密和退出。没有 refresh token，到期重新登录。完整契约和 24 号升级见 [账号安全说明](docs/ACCOUNT_SECURITY.md)。
 
 登录失败契约：账号不存在、密码错误、账号已锁定统一返回 HTTP 401、业务码 `401`；账号被管理员禁用返回 HTTP 403、业务码 `403`。失败次数由 Redis 记录，连续失败 5 次后锁定 15 分钟；Redis 不可用时返回 HTTP 503、业务码 `5002`。Bearer Token 无效或过期返回 HTTP 401、业务码 `401`，禁用用户携带既有 Token 访问业务接口返回 HTTP 403、业务码 `403`。
 
@@ -742,14 +744,14 @@ FAILED -> 新建 QUEUED 任务（retry；原任务不可变）
 已有 Docker 数据卷不会自动执行新增 SQL。升级已有数据库前请先备份，然后手动执行：
 
 ```bash
-mysql -u root -p farm < src/main/resources/db/migration/04-normalize-print-job-status.sql
-mysql -u root -p farm < src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
-mysql -u root -p farm < src/main/resources/db/migration/06-add-printer-status-history.sql
-mysql -u root -p farm < src/main/resources/db/migration/07-v2-dispatch-plan.sql
-mysql -u root -p farm < src/main/resources/db/migration/08-v2-atomic-printer-binding.sql
-mysql -u root -p farm < src/main/resources/db/migration/09-v2-print-job-idempotency.sql
-mysql -u root -p farm < src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
-mysql -u root -p farm < src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/04-normalize-print-job-status.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/05-normalize-printer-firmware-type.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/06-add-printer-status-history.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/07-v2-dispatch-plan.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/08-v2-atomic-printer-binding.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/09-v2-print-job-idempotency.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/18-v2-print-job-query-semantics-mysql.sql
+mysql -u root -p farm < src/main/resources/db/migration/mysql/19-v2-print-job-audit-model-mysql.sql
 ```
 
 `02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。`19-v2-print-job-audit-model-mysql.sql` 会幂等补齐快照/lineage 字段、将旧任务初始化为 `root=id/attempt=1`、尽力 LEFT JOIN 回填当前资源名称并创建唯一索引；operator 快照只在 `started_at` 非空时回填，旧 READY 且未开始的任务保持 null。历史改名和已丢失字段不可恢复。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
@@ -919,34 +921,17 @@ RustFS: localhost:9000
 
 ### 9.2 数据库
 
-新 Docker 数据卷初始化脚本顺序：
+全新 MySQL 使用 `src/main/resources/db/init/mysql-schema.sql`，两份 Compose 只挂载这一入口。SQLite 使用 `db/init/sqlite-schema.sql`，随后由 `LocalSchemaMigration` 完成检查与升级。
 
-```text
-src/main/resources/db/migration/farm.sql
-src/main/resources/db/migration/02-current-schema.sql
-src/main/resources/db/migration/03-remove-customer-role.sql
-src/main/resources/db/migration/04-normalize-print-job-status.sql
-src/main/resources/db/migration/05-normalize-printer-firmware-type.sql
-src/main/resources/db/migration/06-add-printer-status-history.sql
-src/main/resources/db/migration/07-v2-dispatch-plan.sql
-src/main/resources/db/migration/08-v2-atomic-printer-binding.sql
-src/main/resources/db/migration/09-v2-print-job-idempotency.sql
-src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql
-src/main/resources/db/migration/11-printer-monitor-reliability.sql
-src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql
-src/main/resources/db/migration/12-v2-audit-log.sql
-src/main/resources/db/migration/13-v2-print-file-default-folders.sql
-src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
-src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql
-```
+已有库的增量脚本和预检分别位于 `db/migration/mysql/`、`db/migration/sqlite/`；历史 `farm.sql` 和 `V*.sql` 位于 `db/archive/`，不再参与新库初始化。完整目录分工、首次管理员和升级步骤见 `docs/DATABASE_INITIALIZATION.md`。
 
-已有数据卷不会因为修改 SQL 自动升级。升级前必须备份，并按上述顺序手工执行经过确认的增量 SQL；`11-printer-monitor-reliability.sql` 会在字段/索引缺失时补齐，允许重复执行。该迁移新增的 `monitor_enabled` 对旧打印机默认为 `0`，不会自动开始轮询；`farm.sql` 的历史种子使用显式列清单，省略的新增列由默认值填充，不会因新增列失败。迁移后应核对 8 个监控字段和 `idx_printer_monitor_enabled` 索引，并由管理员显式启用目标设备。
+已有 MySQL 数据卷不会因修改 SQL 自动升级。升级前备份并按版本缺口手工执行经过确认的增量 SQL；`11-printer-monitor-reliability.sql` 会在字段/索引缺失时补齐，允许重复执行，旧设备 `monitor_enabled` 默认 `0`，需由管理员显式启用目标设备。不能为切换脚本路径而删除数据卷。
 
 2026-09-03 已在当前开发 Docker 数据卷完成一次备份后迁移：记录数量保持为用户 2、打印机 46、文件 1、任务 3；旧任务状态 `MANUAL` 已规范为 `QUEUED`，旧协议值 `Klipper` 已规范为 `KLIPPER`，新增字段和 `farm_printer_status_history` 已核对存在。该记录不代表生产环境已迁移，生产仍须按 `OPERATIONS.md` 执行并保留备份。
 
 ### 9.2.1 Local Edition
 
-使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/migration/local-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，`LocalSchemaMigration` 会幂等补齐 TC-007 的快照/lineage 列、旧任务回填和唯一索引。旧 Local SQLite 数据库由该启动迁移按缺失字段/索引补齐，默认目录整棵子树强制为 `PRIVATE`，并执行文件目录异常诊断；孤儿、循环、超深、同级目录重名、非文件夹父级、重复默认目录或父子 visibility 冲突会在业务启动前阻断。该流程可重复执行，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
+使用 `--spring.profiles.active=local` 启动时，业务数据写入 `${FARM_DATA_DIR:./data}/farm.db`，文件写入 `${FARM_DATA_DIR:./data}/files`。Local profile 使用 `FileStorage` 的本地实现和进程内缓存/锁，不连接 Redis、RustFS 或 MySQL；初始表由 `db/init/sqlite-schema.sql` 以 `CREATE TABLE IF NOT EXISTS` 方式初始化，`LocalSchemaMigration` 会幂等补齐 TC-007 的快照/lineage 列、旧任务回填和唯一索引。旧 Local SQLite 数据库由该启动迁移按缺失字段/索引补齐，默认目录整棵子树强制为 `PRIVATE`，并执行文件目录异常诊断；孤儿、循环、超深、同级目录重名、非文件夹父级、重复默认目录或父子 visibility 冲突会在业务启动前阻断。该流程可重复执行，新增监控字段默认 `monitor_enabled=0`，不会因升级自动纳入轮询。MyBatis 自定义 SQL 已为 SQLite 提供筛选、统计、搜索和 Upsert 方言分支。REST 和 WebSocket 地址、响应字段和任务状态不因部署形态改变。Local 下载链接由受保护的 `/api/v1/print-files/storage?key=...` 提供，客户端不得把磁盘路径当作 URL。
 
 ### 9.3 测试环境
 

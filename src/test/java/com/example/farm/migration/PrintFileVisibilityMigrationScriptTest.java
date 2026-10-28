@@ -18,8 +18,8 @@ class PrintFileVisibilityMigrationScriptTest {
     @Test
     void mysqlAndSqliteVisibilityScriptsDiagnoseNonFolderParentsAndUseRealNamespaces() {
         for (String resource : new String[]{
-                "db/migration/15-v2-print-file-visibility-mysql.sql",
-                "db/migration/15-v2-print-file-visibility-sqlite.sql"
+                "db/migration/mysql/15-v2-print-file-visibility-mysql.sql",
+                "db/migration/sqlite/15-v2-print-file-visibility-sqlite.sql"
         }) {
             String sql = read(resource);
             assertThat(sql).contains("parent.is_folder = 0");
@@ -27,13 +27,13 @@ class PrintFileVisibilityMigrationScriptTest {
             assertThat(sql).contains("parent_id IS NULL AND UPPER(visibility) = 'PRIVATE'");
             assertThat(sql).contains("parent_id IS NULL THEN UPPER(visibility)");
         }
-        assertThat(read("db/migration/15-v2-print-file-visibility-sqlite.sql"))
+        assertThat(read("db/migration/sqlite/15-v2-print-file-visibility-sqlite.sql"))
                 .doesNotContain("ALTER TABLE farm_print_file ADD COLUMN");
     }
 
     @Test
     void defaultFolderMigrationExplicitlyExcludesPublicRootFiles() {
-        String sql = read("db/migration/13-v2-print-file-default-folders.sql");
+        String sql = read("db/migration/mysql/13-v2-print-file-default-folders.sql");
         assertThat(sql).contains("UPPER(COALESCE(f.visibility, 'PRIVATE')) = 'PRIVATE'");
         assertThat(sql).doesNotContain("WHERE f.parent_id IS NULL\n  AND f.is_folder = 0\n  AND f.user_id IS NOT NULL$$");
     }
@@ -66,7 +66,7 @@ class PrintFileVisibilityMigrationScriptTest {
 
             SingleConnectionDataSource dataSource = new SingleConnectionDataSource(connection, false);
             ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
-                    new ClassPathResource("db/migration/15-v2-print-file-visibility-sqlite.sql"));
+                    new ClassPathResource("db/migration/sqlite/15-v2-print-file-visibility-sqlite.sql"));
             populator.execute(dataSource);
             populator.execute(dataSource);
 

@@ -22,7 +22,6 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
 
 @Component
 @RequiredArgsConstructor
@@ -33,6 +32,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private UserMapper userMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.example.farm.service.LoginSessionService loginSessionService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -50,6 +52,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     String username = jwt.getClaim("username").asString();
                     String role = normalizeRole(jwt.getClaim("role").asString());
                     Long tokenVersion = readTokenVersion(jwt);
+                    String sessionId = jwt.getClaim("sessionId").asString();
+                    if (userId == null || com.example.farm.common.utils.RolePermissions.forRole(role).isEmpty()) {
+                        renderJson(request, response, 401, 401, "登录身份无效");
+                        return;
+                    }
+                    request.setAttribute("loginSessionId", sessionId);
 
                     if (userId != null) {
                         try {
@@ -63,6 +71,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             renderJson(request, response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, 5001,
                                     "用户状态暂时无法确认，请稍后重试");
                             return;
+                        }
+
+                        if (loginSessionService != null) {
+                            try {
+                                if (!loginSessionService.valid(sessionId, userId, tokenVersion)) {
+                                    renderJson(request, response, 401, 401, "登录会话已退出，请重新登录");
+                                    return;
+                                }
+                            } catch (RuntimeException exception) {
+                                renderJson(request, response, 503, 5001, "会话状态暂时无法确认");
+                                return;
+                            }
                         }
 
                         if (userMapper != null) {
@@ -80,13 +100,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                         "登录状态已失效，请重新登录");
                                 return;
                             }
+                            if (Boolean.TRUE.equals(currentUser.getMustChangePassword())
+                                    && !allowedDuringPasswordChange(request, userId)) {
+                                renderJson(request, response, 403, 4031, "请先修改临时密码");
+                                return;
+                            }
                         }
                     }
 
                     UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                             userId,
                             username,
-                            Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role))
+                            java.util.stream.Stream.concat(
+                                    java.util.stream.Stream.of(new SimpleGrantedAuthority("ROLE_" + role)),
+                                    com.example.farm.common.utils.RolePermissions.forRole(role).stream()
+                                            .map(SimpleGrantedAuthority::new)).toList()
                     );
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
@@ -108,6 +136,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private Long readTokenVersion(DecodedJWT jwt) {
         Long tokenVersion = jwt.getClaim("tokenVersion").asLong();
         return tokenVersion == null ? 0L : tokenVersion;
+    }
+
+    private boolean allowedDuringPasswordChange(HttpServletRequest request, Long userId) {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        return ("GET".equals(request.getMethod()) && path.equals("/api/v1/auth/me"))
+                || ("POST".equals(request.getMethod()) && (path.equals("/api/v1/auth/logout")
+                || path.equals("/api/v1/auth/" + userId + "/change-password")));
     }
 
     private String normalizeRole(String role) {

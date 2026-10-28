@@ -171,7 +171,7 @@ CREATE INDEX idx_ip_address ON farm_printer(ip_address);
 ### 1. 执行数据库迁移
 ```bash
 # 方式一：手动执行 SQL
-mysql -u root -p your_database < src/main/resources/db/migration/V2026_03_05__add_printer_fields.sql
+mysql -u root -p your_database < src/main/resources/db/archive/V2026_03_05__add_printer_fields.sql
 
 # 方式二：使用 Flyway/Liquibase（如果项目已集成）
 ```

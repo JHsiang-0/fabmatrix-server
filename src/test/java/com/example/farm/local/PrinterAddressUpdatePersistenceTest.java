@@ -550,7 +550,7 @@ class PrinterAddressUpdatePersistenceTest {
             source.setDriverClassName("org.sqlite.JDBC");
             source.setMaximumPoolSize(2);
             source.setConnectionTimeout(1000);
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/local-schema.sql")).execute(source);
+            new ResourceDatabasePopulator(new ClassPathResource("db/init/sqlite-schema.sql")).execute(source);
             return source;
         }
 

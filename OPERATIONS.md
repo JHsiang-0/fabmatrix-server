@@ -2,6 +2,8 @@
 
 ## 启动顺序
 
+全新 MySQL 的唯一初始化入口已整理为 `src/main/resources/db/init/mysql-schema.sql`，两份 Compose 不再导入历史 `farm.sql` 和逐个增量脚本。新库不预置账号；首次管理员、已有库升级及隔离验证见 [数据库初始化与历史迁移](docs/DATABASE_INITIALIZATION.md)。下文历史增量执行说明只适用于已有库升级，不是全新建库步骤。
+
 1. 启动基础设施：`docker compose up -d`。
 2. 检查 MySQL、Redis、RustFS：`docker compose ps`。
 3. 等待 Compose 中 MySQL 和 Redis 的 `healthy` 状态，再启动应用：`mvn spring-boot:run`。
@@ -111,7 +113,7 @@ farm:
 
 已有 Docker 数据卷不会重新执行 `/docker-entrypoint-initdb.d` 下的 SQL。执行增量迁移前先备份 MySQL、Redis 和 RustFS 数据；不要使用 `docker compose down -v`，该命令会删除命名数据卷。
 
-当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/04...06...sql` 手工升级；TC-003 使用 `18-v2-print-job-query-semantics-mysql.sql`（MySQL）或 `18-v2-print-job-query-semantics-sqlite.sql`（SQLite）回填旧任务状态并建立查询索引；TC-007 使用 `19-v2-print-job-audit-model-mysql.sql` 或 `19-v2-print-job-audit-model-sqlite.sql` 补齐历史快照/重试 lineage 字段、旧任务 `root=id/attempt=1`、当前资源尽力回填和唯一索引。operator 快照只对 `started_at` 非空、具备实际开始证据的旧任务回填；旧 READY 且 `started_at` 为空时保持 null。19 号脚本及 LocalSchemaMigration 均支持重复执行；SQLite 离线脚本要求列已由 LocalSchemaMigration 或 fresh local-schema 补齐。历史改名和已丢失字段不可恢复。`02-current-schema.sql` 的新增列/索引检查已支持重复执行。任务时间契约冻结为 Asia/Shanghai 的不带偏移 wall-clock，不提供可覆盖时区配置：MySQL 使用服务器/JDBC `+08:00`，SQLite fresh 及 assign/root/retry Mapper 写入使用 `datetime('now', '+8 hours')`，应用查询直接绑定 local datetime，不转换已存时间。
+当前项目没有 Flyway。任务状态、协议类型和状态历史使用 `src/main/resources/db/migration/mysql/04...06...sql` 手工升级；TC-003 使用 `18-v2-print-job-query-semantics-mysql.sql`（MySQL）或 `18-v2-print-job-query-semantics-sqlite.sql`（SQLite）回填旧任务状态并建立查询索引；TC-007 使用 `19-v2-print-job-audit-model-mysql.sql` 或 `19-v2-print-job-audit-model-sqlite.sql` 补齐历史快照/重试 lineage 字段、旧任务 `root=id/attempt=1`、当前资源尽力回填和唯一索引。operator 快照只对 `started_at` 非空、具备实际开始证据的旧任务回填；旧 READY 且 `started_at` 为空时保持 null。19 号脚本及 LocalSchemaMigration 均支持重复执行；SQLite 离线脚本要求列已由 LocalSchemaMigration 或 fresh sqlite-schema 补齐。历史改名和已丢失字段不可恢复。`02-current-schema.sql` 的新增列/索引检查已支持重复执行。任务时间契约冻结为 Asia/Shanghai 的不带偏移 wall-clock，不提供可覆盖时区配置：MySQL 使用服务器/JDBC `+08:00`，SQLite fresh 及 assign/root/retry Mapper 写入使用 `datetime('now', '+8 hours')`，应用查询直接绑定 local datetime，不转换已存时间。
 
 SYNC-002 动态布局必须先执行 `dashboard-layout-precheck-mysql.sql`，确认没有半空、重复、非正数、非整数或超出默认
 4×12 的坐标，再执行 `16-v2-dashboard-layout-mysql.sql`。`farm.sql` 和 `02-current-schema.sql` 不创建或写入
@@ -119,7 +121,7 @@ SYNC-002 动态布局必须先执行 `dashboard-layout-precheck-mysql.sql`，确
 [`docs/DASHBOARD_LAYOUT_MIGRATION.md`](docs/DASHBOARD_LAYOUT_MIGRATION.md)。
 
 Local Edition 不直接把 SQLite 手工 SQL 当作 schema 迁移入口：`LocalSchemaMigration` 先预检，成功后才安装布局表、
-partial unique index 和项目自有坐标触发器；`local-schema.sql` 只描述新库表级 CHECK。不要在启动迁移前手工创建同名
+partial unique index 和项目自有坐标触发器；`sqlite-schema.sql` 只描述新库表级 CHECK。不要在启动迁移前手工创建同名
 索引或触发器，错误同名对象必须保留并阻断启动。
 
 `11-printer-monitor-reliability.sql` 使用 MySQL 8 元数据检查，监控字段和 `idx_printer_monitor_enabled` 索引缺失时才添加，可安全重复执行。旧 `farm_printer` 记录新增 `monitor_enabled` 时默认值为 `0`，不会因迁移自动纳入轮询；管理员确认设备后再通过监控 API 启用。
@@ -164,26 +166,26 @@ docker compose ps
 # SYNC-002：先执行只读预检；输出必须为空，否则停止并保留现场
 docker compose exec -T mysql sh -c \
   'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' \
-  < src/main/resources/db/migration/dashboard-layout-precheck-mysql.sql
+  < src/main/resources/db/migration/mysql/dashboard-layout-precheck-mysql.sql
 
 for migration in \
-  src/main/resources/db/migration/02-current-schema.sql \
-  src/main/resources/db/migration/03-remove-customer-role.sql \
-  src/main/resources/db/migration/04-normalize-print-job-status.sql \
-  src/main/resources/db/migration/05-normalize-printer-firmware-type.sql \
-  src/main/resources/db/migration/06-add-printer-status-history.sql \
-  src/main/resources/db/migration/07-v2-dispatch-plan.sql \
-  src/main/resources/db/migration/08-v2-atomic-printer-binding.sql \
-  src/main/resources/db/migration/09-v2-print-job-idempotency.sql \
-  src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql \
-  src/main/resources/db/migration/11-printer-monitor-reliability.sql \
-  src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql \
-  src/main/resources/db/migration/12-v2-audit-log.sql \
-  src/main/resources/db/migration/13-v2-print-file-default-folders.sql \
-  src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql \
-  src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql \
-  src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql \
-  src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql; do
+  src/main/resources/db/migration/mysql/02-current-schema.sql \
+  src/main/resources/db/migration/mysql/03-remove-customer-role.sql \
+  src/main/resources/db/migration/mysql/04-normalize-print-job-status.sql \
+  src/main/resources/db/migration/mysql/05-normalize-printer-firmware-type.sql \
+  src/main/resources/db/migration/mysql/06-add-printer-status-history.sql \
+  src/main/resources/db/migration/mysql/07-v2-dispatch-plan.sql \
+  src/main/resources/db/migration/mysql/08-v2-atomic-printer-binding.sql \
+  src/main/resources/db/migration/mysql/09-v2-print-job-idempotency.sql \
+  src/main/resources/db/migration/mysql/10-v2-dispatch-resource-fingerprint.sql \
+  src/main/resources/db/migration/mysql/11-printer-monitor-reliability.sql \
+  src/main/resources/db/migration/mysql/11-v2-user-status-and-batch-recovery.sql \
+  src/main/resources/db/migration/mysql/12-v2-audit-log.sql \
+  src/main/resources/db/migration/mysql/13-v2-print-file-default-folders.sql \
+  src/main/resources/db/migration/mysql/15-v2-print-file-visibility-mysql.sql \
+  src/main/resources/db/migration/mysql/16-v2-dashboard-layout-mysql.sql \
+  src/main/resources/db/migration/mysql/18-v2-print-job-query-semantics-mysql.sql \
+  src/main/resources/db/migration/mysql/19-v2-print-job-audit-model-mysql.sql; do
   docker compose exec -T mysql sh -c \
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < "$migration"
 done
@@ -194,7 +196,7 @@ TC-003 任务查询迁移必须在上述脚本之后执行：
 ```bash
 docker compose exec -T mysql sh -c \
   'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' \
-  < src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql
+  < src/main/resources/db/migration/mysql/18-v2-print-job-query-semantics-mysql.sql
 ```
 
 18 号脚本将 `PENDING/MANUAL` 回填为 `QUEUED`、将 `CANCELED` 回填为 `CANCELLED`，并创建活动/历史分页索引；19 号脚本补齐快照和重试 lineage。执行前先备份；Local Edition 启动时由 `LocalSchemaMigration` 执行相同的幂等补齐、回填和索引创建，手工 SQLite 脚本仅用于离线升级或核对。不要对真实数据库自动执行迁移。

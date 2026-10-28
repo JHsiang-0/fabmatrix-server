@@ -1,9 +1,12 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$StateFile,
-    [Parameter(Mandatory = $true)][string]$InstallDir
+    [Parameter(Mandatory = $true)][string]$InstallDir,
+    [string]$ProgressFile = '',
+    [string]$LogPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'installation-progress.ps1')
 $serviceNames = @('FabMatrixServer', 'Farm')
 $trayExecutableNames = @('FabMatrixTray.exe', 'FarmTray.exe')
 $maxRecoveryAttempts = 3
@@ -112,9 +115,28 @@ function Request-FabMatrixTrayExit([string]$Root) {
         $process = Get-Process -Id ([int]$processInfo.ProcessId) -ErrorAction SilentlyContinue
         if ($null -eq $process) { continue }
         try {
-            if (-not $process.HasExited -and $process.MainWindowHandle -ne 0) {
+            if ($process.HasExited) { continue }
+            if ($process.MainWindowHandle -ne 0) {
                 [void]$process.CloseMainWindow()
-                [void]$process.WaitForExit(10000)
+                [void]$process.WaitForExit(2000)
+            }
+            if (-not $process.HasExited) {
+                # A tray without a main window cannot handle CloseMainWindow.
+                # It owns no production tasks. Recheck PID/path before ending
+                # only this installation's tray; services still stop via SCM.
+                $current = Get-CimInstance Win32_Process -Filter "ProcessId=$($processInfo.ProcessId)" -ErrorAction Stop
+                if ($null -ne $current) {
+                    $currentPath = [string]$current.ExecutablePath
+                    if (-not (Test-FabMatrixExecutablePath $currentPath $Root) -or
+                        [IO.Path]::GetFileName($currentPath) -notin $trayExecutableNames -or
+                        -not [string]::Equals($currentPath, [string]$processInfo.ExecutablePath, [StringComparison]::OrdinalIgnoreCase) -or
+                        $current.CreationDate -ne $processInfo.CreationDate) {
+                        throw 'Tray identity changed during upgrade; refusing to terminate it.'
+                    }
+                    Write-FabMatrixInstallEvent $LogPath "Closing verified tray PID=$($processInfo.ProcessId) path=$currentPath"
+                    Stop-Process -InputObject $process -Force -ErrorAction Stop
+                    if (-not $process.WaitForExit(3000)) { throw 'Tray did not exit after bounded cleanup.' }
+                }
             }
         } finally {
             $process.Dispose()
@@ -137,6 +159,7 @@ function Stop-FabMatrixResidualProcesses([string]$Root) {
 function Wait-FabMatrixProcessesExited([string]$Root, [int]$TimeoutSeconds) {
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
+        Write-FabMatrixInstallHeartbeat
         $remaining = @(Get-FabMatrixProcessSnapshot $Root)
         if ($remaining.Count -eq 0) { return $true }
         Start-Sleep -Milliseconds 250
@@ -171,6 +194,7 @@ function Restore-ServiceSnapshotBestEffort($Snapshot) {
 $installRoot = Get-NormalizedFullPath $InstallDir
 $statePath = [IO.Path]::GetFullPath($StateFile)
 $stateParent = Split-Path -Parent $statePath
+Set-FabMatrixInstallStage 'capture service state' $ProgressFile $LogPath
 $snapshots = @($serviceNames | ForEach-Object { Get-ServiceSnapshot $_ } | Where-Object { $null -ne $_ })
 $snapshot = $snapshots | Select-Object -First 1
 if ($null -eq $snapshot) {
@@ -190,12 +214,16 @@ try {
         Disable-ServiceStartDuringUpgrade ([string]$serviceSnapshot.ExistingServiceName)
     }
 
+    Set-FabMatrixInstallStage 'close previous tray' $ProgressFile $LogPath
     Request-FabMatrixTrayExit $installRoot
     foreach ($name in $serviceNames) {
+        Set-FabMatrixInstallStage ('stop service ' + $name) $ProgressFile $LogPath
         Stop-ServiceReliably $name
     }
 
+    Set-FabMatrixInstallStage 'wait for previous processes' $ProgressFile $LogPath
     if (Wait-FabMatrixProcessesExited $installRoot 45) {
+        Set-FabMatrixInstallStage 'preflight complete' $ProgressFile $LogPath
         Write-Output "FabMatrix upgrade preflight completed for install directory: $installRoot"
         return
     }
@@ -203,6 +231,7 @@ try {
     # Normal shutdown had a bounded grace period. Any fallback termination is
     # restricted to verified FabMatrix executables under this exact {app} path.
     for ($attempt = 1; $attempt -le $maxRecoveryAttempts; $attempt++) {
+        Set-FabMatrixInstallStage ('recover previous processes ' + $attempt) $ProgressFile $LogPath
         foreach ($serviceSnapshot in $snapshots) {
             Disable-ServiceStartDuringUpgrade ([string]$serviceSnapshot.ExistingServiceName)
         }
@@ -211,6 +240,7 @@ try {
         }
         [void](Stop-FabMatrixResidualProcesses $installRoot)
         if (Wait-FabMatrixProcessesExited $installRoot 15) {
+            Set-FabMatrixInstallStage 'preflight complete' $ProgressFile $LogPath
             Write-Output "FabMatrix upgrade preflight completed after bounded recovery attempt $attempt."
             return
         }
@@ -220,6 +250,7 @@ try {
     $remainingNames = @($remaining | ForEach-Object { "PID $($_.ProcessId) $($_.ExecutablePath)" }) -join '; '
     throw "FabMatrix processes remain under install directory after $maxRecoveryAttempts bounded attempts: $remainingNames"
 } catch {
+    Write-FabMatrixInstallEvent $LogPath "FAILED stage=$installStage error=$($_.Exception.Message)"
     Restore-ServiceSnapshotBestEffort $snapshot
     throw "Upgrade preflight failed before file copy: $($_.Exception.Message)"
 }

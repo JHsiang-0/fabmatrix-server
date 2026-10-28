@@ -57,6 +57,13 @@ public class UserController {
 
     private final UserService userService;
 
+    @PostMapping("/admin/users/{userId}/reset-password")
+    public Result<Void> resetPassword(@PathVariable Long userId,
+            @Valid @RequestBody com.example.farm.entity.dto.ResetPasswordDTO request) {
+        userService.resetPassword(userId, request);
+        return Result.success(null);
+    }
+
     @Value("${admin.secret-key}")
     private String adminSecretKey;
 

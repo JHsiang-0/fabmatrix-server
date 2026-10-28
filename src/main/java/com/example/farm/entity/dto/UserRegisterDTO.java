@@ -37,6 +37,9 @@ public class UserRegisterDTO {
     @Schema(description = "手机号", example = "13800138000")
     private String phone;
 
+    @Pattern(regexp = "OPERATOR|VIEWER", message = "新建员工角色只能为 OPERATOR 或 VIEWER")
+    private String role;
+
     /**
      * Local Edition 首次初始化凭据。普通管理员创建操作员时不使用该字段，
      * 也不会在任何用户 VO 中返回。

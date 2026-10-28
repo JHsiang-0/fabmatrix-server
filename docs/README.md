@@ -11,6 +11,8 @@
 
 ## 文档分工
 
+MySQL/SQLite 初始化分别使用 `db/init/mysql-schema.sql`、`db/init/sqlite-schema.sql`；升级脚本按数据库放在 `db/migration/mysql/`、`db/migration/sqlite/`，历史基线位于 `db/archive/`。入口与验证方式见 [数据库初始化与历史迁移](./DATABASE_INITIALIZATION.md)。
+
 | 文档 | 用途 | 当前地位 |
 | --- | --- | --- |
 | [`../AGENTS.md`](../AGENTS.md) | 后端协作、配置、安全和验证规则 | 工作规则 |

@@ -26,11 +26,14 @@ public class UserVO implements Serializable {
     @Schema(description = "登录账号")
     private String username;
 
-    @Schema(description = "角色：ADMIN 或 OPERATOR")
+    @Schema(description = "角色：ADMIN、OPERATOR 或 VIEWER")
     private String role;
 
     @Schema(description = "账号是否启用")
     private Boolean enabled;
+
+    private Boolean mustChangePassword;
+    private java.util.List<String> permissions;
 
     @Schema(description = "邮箱")
     private String email;
@@ -53,6 +56,8 @@ public class UserVO implements Serializable {
         vo.username = user.getUsername();
         vo.role = user.getRole();
         vo.enabled = user.getEnabled() == null || user.getEnabled();
+        vo.mustChangePassword = Boolean.TRUE.equals(user.getMustChangePassword());
+        vo.permissions = com.example.farm.common.utils.RolePermissions.forRole(user.getRole());
         vo.email = user.getEmail();
         vo.phone = user.getPhone();
         vo.createdAt = user.getCreatedAt();

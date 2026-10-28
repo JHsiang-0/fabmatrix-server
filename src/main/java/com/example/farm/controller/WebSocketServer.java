@@ -40,6 +40,13 @@ public class WebSocketServer {
     private static volatile LoginProtectUtil loginProtectUtil;
     private static volatile UserMapper userMapper;
 
+    private static volatile com.example.farm.service.LoginSessionService loginSessions;
+
+    @Autowired
+    public void setLoginSessions(com.example.farm.service.LoginSessionService service) {
+        loginSessions = service;
+    }
+
     /**
      * Jakarta Endpoint 由容器创建，使用 setter 将 Spring 快照服务注册到端点。
      */
@@ -84,11 +91,16 @@ public class WebSocketServer {
             Long userId = jwt.getClaim("userId").asLong();
             String role = normalizeRole(jwt.getClaim("role").asString());
             Long tokenVersion = readTokenVersion(jwt);
+            String loginSessionId = jwt.getClaim("sessionId").asString();
             if (userId == null || role == null || role.isBlank()) {
                 closeForPolicy(session, "Token 缺少用户身份");
                 return;
             }
             try {
+                if (loginSessions != null && !loginSessions.valid(loginSessionId, userId, tokenVersion)) {
+                    closeForPolicy(session, "登录会话已退出");
+                    return;
+                }
                 if (!isCurrentSessionValid(userId, jwt.getClaim("username").asString(), role, tokenVersion)) {
                     closeForPolicy(session, "会话已失效");
                     return;
@@ -99,7 +111,7 @@ public class WebSocketServer {
                 closeForPolicy(session, "鉴权服务暂不可用");
                 return;
             }
-            SessionContext context = new SessionContext(session, userId, role, tokenVersion, jwt.getExpiresAt());
+            SessionContext context = new SessionContext(session, userId, role, tokenVersion, jwt.getExpiresAt(), loginSessionId);
             synchronized (sessions) {
                 if (sessions.size() >= maxConnections) {
                     closeForPolicy(session, "WebSocket 连接数已达上限");
@@ -299,6 +311,10 @@ public class WebSocketServer {
     }
 
     private static void sendLocked(SessionContext context, Object data) throws Exception {
+        if (loginSessions != null && !isCurrentSessionValid(context)) {
+            closeForSessionInvalidation(context.session);
+            return;
+        }
         ObjectMapper mapper = objectMapper;
         if (mapper == null) {
             throw new IllegalStateException("WebSocket 全局 ObjectMapper 尚未注入");
@@ -319,22 +335,34 @@ public class WebSocketServer {
         if (context != null) sessions.remove(context);
     }
 
+    public static void revokeLoginSessions(Long userId, String id, String exceptId) {
+        for (SessionContext context : sessions) {
+            if (java.util.Objects.equals(userId, context.userId)
+                    && (id == null || java.util.Objects.equals(id, context.loginSessionId))
+                    && (exceptId == null || !java.util.Objects.equals(exceptId, context.loginSessionId))) {
+                synchronized (context.lock) { closeForSessionInvalidation(context.session); }
+            }
+        }
+    }
+
     private static final class SessionContext {
         private final Session session;
         private final Long userId;
         private final String role;
         private final Long tokenVersion;
         private final Date expiresAt;
+        private final String loginSessionId;
         private final Object lock = new Object();
         private final AtomicLong sequence = new AtomicLong();
         private volatile boolean ready;
 
-        private SessionContext(Session session, Long userId, String role, Long tokenVersion, Date expiresAt) {
+        private SessionContext(Session session, Long userId, String role, Long tokenVersion, Date expiresAt, String loginSessionId) {
             this.session = session;
             this.userId = userId;
             this.role = role;
             this.tokenVersion = tokenVersion;
             this.expiresAt = expiresAt;
+            this.loginSessionId = loginSessionId;
         }
     }
 
@@ -349,6 +377,11 @@ public class WebSocketServer {
 
     private static boolean isCurrentSessionValid(SessionContext context) {
         if (context.expiresAt == null || !context.expiresAt.after(new Date())) return false;
+        try {
+            if (loginSessions != null && !loginSessions.valid(context.loginSessionId, context.userId, context.tokenVersion)) return false;
+        } catch (RuntimeException exception) {
+            return false;
+        }
         return isCurrentSessionValid(context.userId, null, context.role, context.tokenVersion);
     }
 
@@ -359,6 +392,8 @@ public class WebSocketServer {
                 User user = mapper.selectById(userId);
                 long currentVersion = user == null || user.getTokenVersion() == null ? 0L : user.getTokenVersion();
                 return user != null && !Boolean.FALSE.equals(user.getEnabled())
+                        && !Boolean.TRUE.equals(user.getMustChangePassword())
+                        && !com.example.farm.common.utils.RolePermissions.forRole(role).isEmpty()
                         && (username == null || username.equals(user.getUsername()))
                         && role.equalsIgnoreCase(user.getRole())
                         && currentVersion == tokenVersion;
@@ -383,7 +418,7 @@ public class WebSocketServer {
         if ("ADMIN".equalsIgnoreCase(role)) return true;
         Long audienceUserId = message.audienceUserId();
         Object userId = session.getUserProperties().get("userId");
-        return "OPERATOR".equalsIgnoreCase(role) && audienceUserId != null
+        return ("OPERATOR".equalsIgnoreCase(role) || "VIEWER".equalsIgnoreCase(role)) && audienceUserId != null
                 && userId != null && java.util.Objects.equals(String.valueOf(audienceUserId), String.valueOf(userId));
     }
 }

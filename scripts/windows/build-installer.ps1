@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputDir = 'dist\windows-installer',
     [ValidateSet('1.0.0')]
     [string]$Version = '1.0.0',
@@ -354,6 +354,7 @@ java-options=-Dfile.encoding=UTF-8
 java-options=-Dfabmatrix.app-id=$serverAppId
 java-options=-Dfabmatrix.app-version=$Version
 win-console=false
+description=嘉东三维服务器
 icon=$trayIconPropertyPath
 "@
     $jpackageArgs = @(
@@ -361,7 +362,7 @@ icon=$trayIconPropertyPath
         '--name', 'FabMatrixServer',
         '--app-version', $Version,
         '--vendor', 'FabMatrix',
-        '--description', 'FabMatrix Server local 3D printer farm management backend',
+        '--description', '嘉东三维服务器',
         '--input', $inputPath,
         '--main-jar', $jar.Name,
         '--dest', $imagePath,
@@ -378,6 +379,12 @@ icon=$trayIconPropertyPath
     $appImageRoot = Join-Path $imagePath 'FabMatrixServer'
     if (-not (Test-Path -LiteralPath (Join-Path $appImageRoot 'FabMatrixServer.exe'))) { throw 'jpackage did not create FabMatrixServer.exe.' }
     if (-not (Test-Path -LiteralPath (Join-Path $appImageRoot 'FabMatrixTray.exe'))) { throw 'jpackage did not create FabMatrixTray.exe.' }
+    foreach ($launcherName in @('FabMatrixServer.exe', 'FabMatrixTray.exe')) {
+        $launcherInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $appImageRoot $launcherName))
+        if ($launcherInfo.FileDescription -ne '嘉东三维服务器') {
+            throw "Unexpected Windows launcher display name: $launcherName"
+        }
+    }
     Write-Host "App image: $appImageRoot"
     if ($Mode -eq 'AppImage') { return }
 
@@ -387,7 +394,7 @@ icon=$trayIconPropertyPath
     New-Item -ItemType Directory -Force -Path (Join-Path $payloadPath 'service') | Out-Null
     foreach ($name in @('Farm-Configure.ps1', 'capture-upgrade-state.ps1', 'data-acl.ps1', 'install-service.ps1',
             'migrate-legacy-data.ps1', 'portable-config.ps1', 'recover-upgrade-state.ps1',
-            'purge-local-data.ps1', 'service-control.ps1', 'service-xml.ps1', 'health-check.ps1', 'uninstall-service.ps1')) {
+            'purge-local-data.ps1', 'service-control.ps1', 'service-xml.ps1', 'health-check.ps1', 'installation-summary.ps1', 'installation-progress.ps1', 'uninstall-service.ps1')) {
         Copy-Item -LiteralPath (Join-Path $scriptRoot "service\$name") -Destination (Join-Path $payloadPath "service\$name") -Force
     }
     Copy-Item -LiteralPath $winswPath -Destination (Join-Path $payloadPath 'service\FabMatrixServerService.exe') -Force

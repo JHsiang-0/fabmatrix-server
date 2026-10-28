@@ -221,6 +221,6 @@ Controller、请求 DTO、过道 DTO、位置 DTO、布局 VO、保存结果 VO 
 
 ## 8. 发布与弃用
 
-数据库预检和迁移职责见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`：MySQL 先执行只读预检，再执行 16 号脚本；SQLite 由 `LocalSchemaMigration` 在预检通过后安装 partial unique index 和项目自有坐标触发器。`local-schema.sql` 仅描述新库表级 CHECK，不是已有 SQLite 文件的独立迁移入口。
+数据库预检和迁移职责见 `docs/DASHBOARD_LAYOUT_MIGRATION.md`：MySQL 先执行只读预检，再执行 16 号脚本；SQLite 由 `LocalSchemaMigration` 在预检通过后安装 partial unique index 和项目自有坐标触发器。`sqlite-schema.sql` 仅描述新库表级 CHECK，不是已有 SQLite 文件的独立迁移入口。
 
 旧 `PUT /api/v1/printers/positions` 已弃用但保留 ADMIN 兼容调用；入口委托本资源的同一布局原子事务，直到弃用窗口结束再移除。前端只使用本资源的原子保存语义。

@@ -70,7 +70,8 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
     }
 
     @Override
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    // 登录拒绝会提交失败审计；复用登录事务，避免 SQLite 单连接池内申请第二个连接。
+    @Transactional
     public void recordLoginFailure(String actorUsername, Long targetId, String errorCode) {
         try {
             insert(new Actor(null, safeText(actorUsername, 50), null),

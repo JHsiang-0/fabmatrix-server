@@ -997,6 +997,14 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         boolean readable = canRead(file);
         file.setCanPrint(readable && !Boolean.TRUE.equals(file.getIsFolder()));
         file.setCanDownload(readable && !Boolean.TRUE.equals(file.getIsFolder()));
+        if ("VIEWER".equalsIgnoreCase(SecurityContextUtil.getCurrentRole())) {
+            file.setCanManage(false);
+            file.setCanUpload(false);
+            file.setCanCreate(false);
+            file.setCanDelete(false);
+            file.setCanMove(false);
+            file.setCanPrint(false);
+        }
         file.setLevel(level != null ? level : (file.getParentId() == null ? 1 : 2));
     }
 

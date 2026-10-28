@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$InstallDir = 'C:\Program Files\FabMatrix',
     [string]$DataRoot = 'C:\ProgramData\FabMatrix',
     [ValidateRange(1, 65535)][int]$Port = 28081,
@@ -7,7 +7,8 @@ param(
     [switch]$PreserveExistingState,
     [string]$StateFile = '',
     [string]$LogPath = '',
-    [string]$LegacyDataRoot = 'C:\ProgramData\Farm'
+    [string]$LegacyDataRoot = 'C:\ProgramData\Farm',
+    [string]$ProgressFile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -350,6 +351,7 @@ if ($SelfTestPortConfig) {
 . (Join-Path $serviceDir 'service-xml.ps1')
 . (Join-Path $serviceDir 'data-acl.ps1')
 . (Join-Path $serviceDir 'health-check.ps1')
+. (Join-Path $serviceDir 'installation-progress.ps1')
 
 function Set-PrivateFirewallRule([ValidateRange(1, 65535)][int]$EffectivePort) {
     if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) -or
@@ -412,6 +414,7 @@ function Wait-FabMatrixHealth {
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
+        Write-FabMatrixInstallHeartbeat
         if (Test-FabMatrixHealth -EffectivePort $EffectivePort) { return }
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -436,25 +439,25 @@ function Write-InstallLog([string]$Path, [string]$Message) {
 
 $installLogPath = Initialize-InstallLog -RequestedPath $LogPath -TargetDataRoot $DataRoot
 $migrationResultPath = Join-Path ([IO.Path]::GetTempPath()) ('FabMatrixLegacyMigrationResult-' + [guid]::NewGuid().ToString('N') + '.json')
-$installStage = 'initialize'
+Set-FabMatrixInstallStage 'initialize' $ProgressFile $installLogPath
 Write-InstallLog $installLogPath "BEGIN installDir=$InstallDir dataRoot=$DataRoot requestedPort=$Port"
 try {
-    $installStage = 'resolve preserved service state'
+    Set-FabMatrixInstallStage 'resolve preserved service state' $ProgressFile $installLogPath
     $preservedState = Read-PreservedServiceState
     $servicePlan = Resolve-FabMatrixServicePlan -PreservedState $preservedState -AutoStartRequested ([bool]$AutoStart)
 
     # The capture step normally stopped these before files were replaced; repeat the checked stop for direct invocation.
-    $installStage = 'stop existing services'
+    Set-FabMatrixInstallStage 'stop existing services' $ProgressFile $installLogPath
     Stop-ServiceIfPresent 'FabMatrixServer'
     Stop-ServiceIfPresent 'Farm'
 
     # Restore elevated installer access before reading/migrating legacy configuration.
     # The final restrictive ACL policy is applied after migration and configuration.
-    $installStage = 'repair legacy data permissions'
+    Set-FabMatrixInstallStage 'repair legacy data permissions' $ProgressFile $installLogPath
     Repair-FabMatrixInstallerDataAccess -DataRoot $DataRoot
 
     # Migration is only attempted after both legacy/new services are confirmed stopped.
-    $installStage = 'migrate legacy data'
+    Set-FabMatrixInstallStage 'migrate legacy data' $ProgressFile $installLogPath
     & (Join-Path $serviceDir 'migrate-legacy-data.ps1') -DataRoot $DataRoot -LegacyDataRoot $LegacyDataRoot `
         -ResultPath $migrationResultPath | Out-Null
     if (-not (Test-Path -LiteralPath $migrationResultPath -PathType Leaf)) {
@@ -466,19 +469,19 @@ try {
     }
     Write-InstallLog $installLogPath "Legacy migration result: migrated=$([bool]$migrationResult.Migrated) reason=$($migrationResult.Reason)"
 
-    $installStage = 'prepare data directories'
+    Set-FabMatrixInstallStage 'prepare data directories' $ProgressFile $installLogPath
     foreach ($directory in @($DataRoot, $configDir, $databaseDir, $filesDir, $logsDir, $backupsDir, (Join-Path $logsDir 'service'))) {
         New-Item -ItemType Directory -Force -Path $directory | Out-Null
     }
 
-    $installStage = 'prepare local configuration'
+    Set-FabMatrixInstallStage 'prepare local configuration' $ProgressFile $installLogPath
     if (-not (Test-Path -LiteralPath $configPath)) {
         & (Join-Path $serviceDir 'Farm-Configure.ps1') -Edition Local -ConfigDir $configDir -DataRoot $DataRoot -Port $Port
     }
     if (Ensure-FabMatrixBootstrapCredential $DataRoot) {
         Write-InstallLog $installLogPath 'Generated Local Edition bootstrap credential in protected config directory.'
     }
-    $installStage = 'migrate legacy default port'
+    Set-FabMatrixInstallStage 'migrate legacy default port' $ProgressFile $installLogPath
     if (Set-FabMatrixLegacyDefaultPortForInstallContext -ConfigPath $configPath -RequestedPort $Port `
             -IsServiceUpgrade ([bool]$servicePlan.IsUpgrade) -LegacyDataMigrated ([bool]$migrationResult.Migrated)) {
         $portMigrationContext = if ([bool]$migrationResult.Migrated) { 'after confirmed legacy Farm data migration' } else { 'during service upgrade' }
@@ -488,36 +491,36 @@ try {
     Write-InstallLog $installLogPath "Resolved effective port: $effectivePort"
     if (-not (Test-Path -LiteralPath $winSw)) { throw "WinSW service wrapper not found: $winSw" }
 
-    $installStage = 'remove previous FabMatrixServer service'
+    Set-FabMatrixInstallStage 'remove previous FabMatrixServer service' $ProgressFile $installLogPath
     if (Test-ServicePresent 'FabMatrixServer') {
         & $winSw uninstall
         if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer uninstall failed: $LASTEXITCODE" }
         Wait-ServiceAbsent 'FabMatrixServer'
     }
-    $installStage = 'remove legacy Farm service'
+    Set-FabMatrixInstallStage 'remove legacy Farm service' $ProgressFile $installLogPath
     Remove-ServiceIfPresent 'Farm'
 
-    $installStage = 'protect data directories'
+    Set-FabMatrixInstallStage 'protect data directories' $ProgressFile $installLogPath
     Set-FabMatrixDataAcl -DataRoot $DataRoot
-    $installStage = 'publish effective port metadata'
+    Set-FabMatrixInstallStage 'publish effective port metadata' $ProgressFile $installLogPath
     $portMetadataPath = Write-FabMatrixEffectivePortMetadata -TargetInstallDir $InstallDir -EffectivePort $effectivePort
     Set-FabMatrixRuntimeMetadataAcl -InstallDir $InstallDir
 
-    $installStage = 'write WinSW configuration'
+    Set-FabMatrixInstallStage 'write WinSW configuration' $ProgressFile $installLogPath
     $xml = New-FabMatrixServiceXml -InstallDir $InstallDir -DataRoot $DataRoot -Port $effectivePort -StartMode $servicePlan.StartMode
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($xmlPath, $xml.Trim() + [Environment]::NewLine, $utf8)
 
-    $installStage = 'register FabMatrixServer service'
+    Set-FabMatrixInstallStage 'register FabMatrixServer service' $ProgressFile $installLogPath
     $installAttempts = Install-WinSwServiceWithRetry -WrapperPath $winSw -Name $serviceName
     Write-InstallLog $installLogPath "Service registration succeeded on attempt $installAttempts"
     if ($servicePlan.DisableAfterInstall) {
-        $installStage = 'restore disabled start mode'
+        Set-FabMatrixInstallStage 'restore disabled start mode' $ProgressFile $installLogPath
         & sc.exe config $serviceName 'start=' 'disabled' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer Disabled start mode restoration failed: $LASTEXITCODE" }
     }
     $firewallWarning = $null
-    $installStage = 'configure private firewall rule'
+    Set-FabMatrixInstallStage 'configure private firewall rule' $ProgressFile $installLogPath
     try {
         Set-PrivateFirewallRule -EffectivePort $effectivePort
     } catch {
@@ -529,10 +532,10 @@ try {
     }
 
     if ($servicePlan.ShouldStart) {
-        $installStage = 'start FabMatrixServer service'
+        Set-FabMatrixInstallStage 'start FabMatrixServer service' $ProgressFile $installLogPath
         & $winSw start
         if ($LASTEXITCODE -ne 0) { throw "FabMatrixServer start failed: $LASTEXITCODE" }
-        $installStage = 'wait for FabMatrixServer health'
+        Set-FabMatrixInstallStage 'wait for FabMatrixServer health' $ProgressFile $installLogPath
         Wait-FabMatrixHealth -EffectivePort $effectivePort
         Write-InstallLog $installLogPath "Health check succeeded on port $effectivePort"
     } else {
@@ -544,6 +547,7 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($firewallWarning)) {
         $successMessage += "; WARNING: private firewall rule was not created ($firewallWarning)"
     }
+    Set-FabMatrixInstallStage 'service install complete' $ProgressFile $installLogPath
     Write-InstallLog $installLogPath "SUCCESS $successMessage"
     Write-Output $successMessage
 } catch {

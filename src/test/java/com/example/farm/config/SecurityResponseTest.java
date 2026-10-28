@@ -40,6 +40,28 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class SecurityResponseTest {
 
+    @Test
+    void viewerCannotWriteOrManageAccounts() throws Exception {
+        for (String path : java.util.List.of("/api/v1/control/1/pause", "/api/v1/print-jobs/create",
+                "/api/v1/print-files/folder/create", "/api/v1/auth/admin/users/2/reset-password",
+                "/api/v1/auth/admin/users/2/sessions/revoke-all")) {
+            mockMvc.perform(post(path).with(user("viewer").roles("VIEWER"))
+                    .contentType("application/json").content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void viewerCanReadOwnJobQueueButNotAuditOrScanning() throws Exception {
+        when(printJobService.getQueuedJobsForCurrentUser()).thenReturn(java.util.List.of());
+        mockMvc.perform(get("/api/v1/print-jobs/queue").with(user("viewer").roles("VIEWER")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/printers/scan").with(user("viewer").roles("VIEWER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/auth/admin/audit-logs").with(user("viewer").roles("VIEWER")))
+                .andExpect(status().isForbidden());
+    }
+
     @Autowired
     private MockMvc mockMvc;
 

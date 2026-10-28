@@ -41,6 +41,45 @@ import static org.mockito.Mockito.inOrder;
 @ExtendWith(MockitoExtension.class)
 class UserAuthenticationTest {
 
+    @Test
+    void adminResetUsesHashAndForcesPasswordChangeAndRevokesSessions() {
+        var sessions = mock(com.example.farm.service.LoginSessionService.class);
+        ReflectionTestUtils.setField(userService, "loginSessionService", sessions);
+        User admin = user(9L, "admin", "hash"); admin.setRole("ADMIN");
+        User worker = user(2L, "worker", "old-hash"); worker.setRole("OPERATOR");
+        when(userMapper.selectById(9L)).thenReturn(admin);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(worker);
+        when(userMapper.updateById(worker)).thenReturn(1);
+        when(passwordEncoder.encode("Temporary1")).thenReturn("bcrypt-temporary");
+        var request = new com.example.farm.entity.dto.ResetPasswordDTO();
+        request.setPassword("Temporary1"); request.setConfirmPassword("Temporary1");
+        var context = org.springframework.security.core.context.SecurityContextHolder.getContext();
+        context.setAuthentication(new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                9L, "admin", java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN"))));
+        try {
+            userService.resetPassword(2L, request);
+            assertThat(worker.getPasswordHash()).isEqualTo("bcrypt-temporary");
+            assertThat(worker.getMustChangePassword()).isTrue();
+            assertThat(worker.getTokenVersion()).isEqualTo(1L);
+            verify(sessions).revokeAll(2L, null);
+        } finally { org.springframework.security.core.context.SecurityContextHolder.clearContext(); }
+    }
+
+    @Test
+    void changingTemporaryPasswordClearsFlag() {
+        User worker = user(2L, "worker", "$2a$10$stored-hash");
+        worker.setMustChangePassword(true);
+        when(userMapper.selectById(2L)).thenReturn(worker);
+        when(passwordEncoder.matches("OldPass1", worker.getPasswordHash())).thenReturn(true);
+        when(passwordEncoder.encode("NewPass1")).thenReturn("new-hash");
+        when(userMapper.updateById(worker)).thenReturn(1);
+        ChangePasswordDTO change = new ChangePasswordDTO();
+        change.setOldPassword("OldPass1"); change.setNewPassword("NewPass1"); change.setConfirmPassword("NewPass1");
+        userService.changePassword(2L, change);
+        assertThat(worker.getMustChangePassword()).isFalse();
+        assertThat(worker.getTokenVersion()).isEqualTo(1L);
+    }
+
     @Mock
     private UserMapper userMapper;
     @Mock

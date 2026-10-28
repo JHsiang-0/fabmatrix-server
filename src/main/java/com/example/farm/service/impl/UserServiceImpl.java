@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
+import com.example.farm.common.exception.LoginRejectedException;
 import com.example.farm.common.api.ResultCode;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
@@ -71,6 +72,39 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AuditLogService auditLogService;
 
+    @Autowired(required = false)
+    private com.example.farm.service.LoginSessionService loginSessionService;
+
+    private String issueToken(User user) {
+        String sessionId = loginSessionService == null ? null : loginSessionService.create(user);
+        return JwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), currentTokenVersion(user), sessionId);
+    }
+
+    private void invalidateSessions(User user) {
+        if (loginSessionService != null) loginSessionService.revokeAll(user.getId(), null);
+    }
+
+    @Override
+    @Transactional
+    public void resetPassword(Long userId, com.example.farm.entity.dto.ResetPasswordDTO request) {
+        assertAdmin(com.example.farm.common.utils.SecurityContextUtil.getCurrentUserId());
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException(400, "两次输入的密码不一致");
+        }
+        if (userId.equals(com.example.farm.common.utils.SecurityContextUtil.getCurrentUserId())) {
+            throw new BusinessException(409, "请在个人中心修改自己的密码");
+        }
+        User user = getUserForUpdate(userId);
+        if (user == null) throw new BusinessException(404, "用户不存在");
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setMustChangePassword(true);
+        incrementTokenVersion(user);
+        updateUserOrThrow(user, "重置密码失败");
+        invalidateSessions(user);
+        loginProtectUtil.clearLoginFail(user.getUsername());
+        recordSuccess("USER_PASSWORD_RESET", "USER", userId, user.getUsername());
+    }
+
     /**
      * Local Edition 首次安装允许初始化管理员；Server Edition 使用初始化 SQL 中的管理员账号。
      */
@@ -86,7 +120,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private Long jwtExpireTime;
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = LoginRejectedException.class)
     public LoginResultDTO login(UserLoginDTO loginDTO) {
         String username = loginDTO.getUsername();
 
@@ -111,7 +145,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (Boolean.FALSE.equals(user.getEnabled())
                 || (user.getEnabled() == null && loginProtectUtil.isUserDisabled(user.getId()))) {
             recordLoginFailure(user.getUsername(), user.getId(), "ACCOUNT_DISABLED");
-            throw new BusinessException(ResultCode.FORBIDDEN.getCode(), "用户已被禁用，请联系管理员");
+            throw new LoginRejectedException(ResultCode.FORBIDDEN.getCode(), "用户已被禁用，请联系管理员");
         }
 
         PasswordMigrationUtil.MigrateResult verifyResult = PasswordMigrationUtil.matchesAndMigrate(
@@ -136,7 +170,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             log.info("用户密码已自动迁移为加密存储: username={}", user.getUsername());
         }
 
-        String token = JwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), currentTokenVersion(user));
+        String token = issueToken(user);
         LoginResultDTO result = new LoginResultDTO(
                 token,
                 jwtExpireTime / 1000,
@@ -146,6 +180,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         );
         result.setEmail(user.getEmail());
         result.setPhone(user.getPhone());
+        result.setMustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()));
+        result.setPermissions(com.example.farm.common.utils.RolePermissions.forRole(user.getRole()));
 
         recordLoginSuccess(user.getId(), user.getUsername(), user.getRole());
         log.info("用户登录成功: username={}", user.getUsername());
@@ -216,7 +252,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             invalidateBootstrapTokenAfterCommit();
 
             LoginResultDTO result = new LoginResultDTO(
-                    JwtUtils.generateToken(admin.getId(), admin.getUsername(), admin.getRole(), currentTokenVersion(admin)),
+                    issueToken(admin),
                     jwtExpireTime / 1000,
                     admin.getId(),
                     admin.getUsername(),
@@ -224,6 +260,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             );
             result.setEmail(admin.getEmail());
             result.setPhone(admin.getPhone());
+            result.setPermissions(com.example.farm.common.utils.RolePermissions.forRole(admin.getRole()));
             recordLoginSuccess(admin.getId(), admin.getUsername(), admin.getRole());
             log.info("首次管理员初始化成功: userId={}, username={}", admin.getId(), admin.getUsername());
             return result;
@@ -248,7 +285,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         newUser.setPasswordHash(passwordEncoder.encode(registerDTO.getPassword()));
         newUser.setEmail(registerDTO.getEmail());
         newUser.setPhone(registerDTO.getPhone());
-        newUser.setRole(ROLE_OPERATOR);
+        String role = registerDTO.getRole() == null ? ROLE_OPERATOR : normalizeRole(registerDTO.getRole());
+        if (ROLE_ADMIN.equals(role)) throw new BusinessException(400, "新建员工角色只能为操作员或查看员");
+        newUser.setRole(role);
+        newUser.setMustChangePassword(true);
         newUser.setEnabled(true);
 
         if (!save(newUser)) {
@@ -303,8 +343,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         user.setPasswordHash(passwordEncoder.encode(changePasswordDTO.getNewPassword()));
+        boolean forced = Boolean.TRUE.equals(user.getMustChangePassword());
+        user.setMustChangePassword(false);
         incrementTokenVersion(user);
         updateUserOrThrow(user, "用户修改密码失败");
+        invalidateSessions(user);
+        recordSuccess(forced ? "USER_FIRST_PASSWORD_CHANGE" : "USER_PASSWORD_CHANGE", "USER", userId, user.getUsername());
         log.info("用户修改密码成功: username={}", user.getUsername());
     }
 
@@ -330,6 +374,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             user.setPhone(updateDTO.getPhone());
         }
 
+        String previousRole = user.getRole();
         boolean roleChanged = false;
         if (StringUtils.isNotBlank(updateDTO.getRole())) {
             String nextRole = normalizeRole(updateDTO.getRole());
@@ -345,6 +390,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (roleChanged) incrementTokenVersion(user);
 
         updateUserOrThrow(user, "用户信息更新失败");
+        if (roleChanged) {
+            invalidateSessions(user);
+            recordSuccess("USER_ROLE_CHANGE", "USER", user.getId(), previousRole + " -> " + user.getRole());
+        }
         recordSuccess("USER_UPDATE", "USER", user.getId(), user.getUsername());
         log.info("用户信息更新成功: username={}", user.getUsername());
     }
@@ -406,6 +455,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             user.setEnabled(false);
             incrementTokenVersion(user);
             updateUserOrThrow(user, "用户禁用失败");
+            invalidateSessions(user);
         }
         loginProtectUtil.disableUser(userId);
         loginProtectUtil.clearLoginFail(user.getUsername());
@@ -500,7 +550,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     private BusinessException authenticationFailure(String message) {
-        return new BusinessException(ResultCode.UNAUTHORIZED.getCode(), message);
+        return new LoginRejectedException(ResultCode.UNAUTHORIZED.getCode(), message);
     }
 
     private void recordSuccess(String action, String targetType, Object targetId, String targetLabel) {
@@ -607,7 +657,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private String normalizeRole(String role) {
         String normalized = role == null ? null : role.trim().toUpperCase();
-        if (ROLE_ADMIN.equals(normalized) || ROLE_OPERATOR.equals(normalized)) {
+        if (ROLE_ADMIN.equals(normalized) || ROLE_OPERATOR.equals(normalized) || "VIEWER".equals(normalized)) {
             return normalized;
         }
         throw new BusinessException("非法角色: " + role);

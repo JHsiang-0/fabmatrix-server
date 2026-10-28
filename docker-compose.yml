@@ -13,28 +13,7 @@ services:
       - "3306:3306"
     volumes:
       - farm_mysql_data:/var/lib/mysql
-      - ./src/main/resources/db/migration/farm.sql:/docker-entrypoint-initdb.d/01-farm.sql:ro
-      - ./src/main/resources/db/migration/02-current-schema.sql:/docker-entrypoint-initdb.d/02-current-schema.sql:ro
-      - ./src/main/resources/db/migration/03-remove-customer-role.sql:/docker-entrypoint-initdb.d/03-remove-customer-role.sql:ro
-      - ./src/main/resources/db/migration/04-normalize-print-job-status.sql:/docker-entrypoint-initdb.d/04-normalize-print-job-status.sql:ro
-      - ./src/main/resources/db/migration/05-normalize-printer-firmware-type.sql:/docker-entrypoint-initdb.d/05-normalize-printer-firmware-type.sql:ro
-      - ./src/main/resources/db/migration/06-add-printer-status-history.sql:/docker-entrypoint-initdb.d/06-add-printer-status-history.sql:ro
-      - ./src/main/resources/db/migration/07-v2-dispatch-plan.sql:/docker-entrypoint-initdb.d/07-v2-dispatch-plan.sql:ro
-      - ./src/main/resources/db/migration/08-v2-atomic-printer-binding.sql:/docker-entrypoint-initdb.d/08-v2-atomic-printer-binding.sql:ro
-      - ./src/main/resources/db/migration/09-v2-print-job-idempotency.sql:/docker-entrypoint-initdb.d/09-v2-print-job-idempotency.sql:ro
-      - ./src/main/resources/db/migration/10-v2-dispatch-resource-fingerprint.sql:/docker-entrypoint-initdb.d/10-v2-dispatch-resource-fingerprint.sql:ro
-      - ./src/main/resources/db/migration/11-printer-monitor-reliability.sql:/docker-entrypoint-initdb.d/11-printer-monitor-reliability.sql:ro
-      - ./src/main/resources/db/migration/11-v2-user-status-and-batch-recovery.sql:/docker-entrypoint-initdb.d/11-v2-user-status-and-batch-recovery.sql:ro
-      - ./src/main/resources/db/migration/12-v2-audit-log.sql:/docker-entrypoint-initdb.d/12-v2-audit-log.sql:ro
-      - ./src/main/resources/db/migration/13-v2-print-file-default-folders.sql:/docker-entrypoint-initdb.d/13-v2-print-file-default-folders.sql:ro
-      - ./src/main/resources/db/migration/14-v2-user-default-folder-names-mysql.sql:/docker-entrypoint-initdb.d/14-v2-user-default-folder-names-mysql.sql:ro
-      - ./src/main/resources/db/migration/15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro
-      - ./src/main/resources/db/migration/16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro
-      - ./src/main/resources/db/migration/17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro
-      - ./src/main/resources/db/migration/18-v2-print-job-query-semantics-mysql.sql:/docker-entrypoint-initdb.d/18-v2-print-job-query-semantics-mysql.sql:ro
-      - ./src/main/resources/db/migration/19-v2-print-job-audit-model-mysql.sql:/docker-entrypoint-initdb.d/19-v2-print-job-audit-model-mysql.sql:ro
-      - ./src/main/resources/db/migration/21-printer-task-observation-mysql.sql:/docker-entrypoint-initdb.d/21-printer-task-observation-mysql.sql:ro
-      - ./src/main/resources/db/migration/22-printer-execution-mysql.sql:/docker-entrypoint-initdb.d/22-printer-execution-mysql.sql:ro
+      - ./src/main/resources/db/init/mysql-schema.sql:/docker-entrypoint-initdb.d/01-mysql-schema.sql:ro
     command:
       - --default-time-zone=+08:00
       - --character-set-server=utf8mb4

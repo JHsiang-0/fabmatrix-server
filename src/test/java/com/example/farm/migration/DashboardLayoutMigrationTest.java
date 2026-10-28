@@ -26,23 +26,23 @@ class DashboardLayoutMigrationTest {
     @Test
     void precheckScriptsAreReadOnlyAndExposeStableIssueColumns() {
         for (String resource : List.of(
-                "db/migration/dashboard-layout-precheck-mysql.sql",
-                "db/migration/dashboard-layout-precheck-sqlite.sql")) {
+                "db/migration/mysql/dashboard-layout-precheck-mysql.sql",
+                "db/migration/sqlite/dashboard-layout-precheck-sqlite.sql")) {
             String sql = stripComments(read(resource)).toUpperCase();
             assertThat(sql).contains("ISSUETYPE", "GRIDROW", "GRIDCOL", "ORDER BY ISSUETYPE, ID");
             assertThat(sql).doesNotContain("CREATE ", "ALTER ", "INSERT ", "UPDATE ", "DELETE ",
                     "DROP ", "TRIGGER ", "CALL ");
         }
-        assertThat(read("db/migration/dashboard-layout-precheck-mysql.sql"))
+        assertThat(read("db/migration/mysql/dashboard-layout-precheck-mysql.sql"))
                 .contains("PARTIAL_COORDINATE", "DUPLICATE_SLOT", "NON_POSITIVE_COORDINATE",
                         "DEFAULT_LAYOUT_OUT_OF_BOUNDS");
-        assertThat(read("db/migration/dashboard-layout-precheck-sqlite.sql"))
+        assertThat(read("db/migration/sqlite/dashboard-layout-precheck-sqlite.sql"))
                 .contains("NON_INTEGER_COORDINATE", "typeof(p.grid_row)");
     }
 
     @Test
     void mysqlScriptsAndComposeKeepMigrationContractStatic() {
-        String migration = read("db/migration/16-v2-dashboard-layout-mysql.sql");
+        String migration = read("db/migration/mysql/16-v2-dashboard-layout-mysql.sql");
         assertThat(migration).contains("DROP PROCEDURE IF EXISTS farm_dashboard_layout_migrate$$",
                 "farm_dashboard_layout_migration_abort", "farm_dashboard_layout",
                 "ck_farm_dashboard_layout_singleton", "row_count BETWEEN 1 AND 30",
@@ -50,22 +50,19 @@ class DashboardLayoutMigrationTest {
                 "version > 0", "ON DUPLICATE KEY UPDATE");
         assertThat(migration).doesNotContain("SIGNAL SQLSTATE");
         assertThat(migration).doesNotContain("UPDATE farm_printer", "machine_number");
-        assertThat(read("db/migration/farm.sql")).contains("ck_farm_printer_grid_pair",
+        assertThat(read("db/archive/farm.sql")).contains("ck_farm_printer_grid_pair",
                 "ck_farm_printer_grid_positive", "uk_farm_printer_grid_position",
                 "grid_row", "grid_col")
                 .doesNotContain("farm_dashboard_layout");
-        assertThat(read("db/migration/02-current-schema.sql")).contains("ck_farm_printer_grid_pair",
+        assertThat(read("db/migration/mysql/02-current-schema.sql")).contains("ck_farm_printer_grid_pair",
                 "ck_farm_printer_grid_positive", "uk_farm_printer_grid_position",
                 "grid_row", "grid_col")
                 .doesNotContain("farm_dashboard_layout", "CREATE TABLE farm_dashboard_layout",
                         "INSERT INTO farm_dashboard_layout");
         for (String compose : List.of("docker-compose.yml", "docker-compose.server.yml")) {
             String yaml = readWorkspaceFile(compose);
-            assertThat(yaml).contains("14-v2-user-default-folder-names-mysql.sql:/docker-entrypoint-initdb.d/14-v2-user-default-folder-names-mysql.sql:ro",
-                    "15-v2-print-file-visibility-mysql.sql:/docker-entrypoint-initdb.d/15-v2-print-file-visibility-mysql.sql:ro",
-                    "16-v2-dashboard-layout-mysql.sql:/docker-entrypoint-initdb.d/16-v2-dashboard-layout-mysql.sql:ro",
-                    "17-v2-dashboard-layout-default-aisle.sql:/docker-entrypoint-initdb.d/17-v2-dashboard-layout-default-aisle.sql:ro",
-                    "21-printer-task-observation-mysql.sql:/docker-entrypoint-initdb.d/21-printer-task-observation-mysql.sql:ro");
+            assertThat(yaml).contains("db/init/mysql-schema.sql:/docker-entrypoint-initdb.d/01-mysql-schema.sql:ro")
+                    .doesNotContain("db/migration/");
         }
     }
 
@@ -73,7 +70,7 @@ class DashboardLayoutMigrationTest {
     void sqliteCorrectsOnlyTheLegacyDefaultAndPreservesCorrectOrCustomizedLayouts() throws Exception {
         try (Connection connection = connection("default-aisle-correction")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
 
@@ -96,7 +93,7 @@ class DashboardLayoutMigrationTest {
 
     @Test
     void mysqlMigrationScopesInformationSchemaQueriesToActualTables() {
-        String migration = stripComments(read("db/migration/16-v2-dashboard-layout-mysql.sql"))
+        String migration = stripComments(read("db/migration/mysql/16-v2-dashboard-layout-mysql.sql"))
                 .replaceAll("\\s+", " ")
                 .toLowerCase(Locale.ROOT);
 
@@ -117,7 +114,7 @@ class DashboardLayoutMigrationTest {
     void newSqliteSchemaAndLocalMigrationAreRepeatable() throws Exception {
         try (Connection connection = connection("new-schema")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
 
             migration.run();
@@ -142,7 +139,7 @@ class DashboardLayoutMigrationTest {
     void existingValidSqliteDatabaseMigrationIsRepeatable() throws Exception {
         try (Connection connection = connection("existing-valid")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.update("INSERT INTO farm_printer (id, name, grid_row, grid_col) "
                     + "VALUES (11, 'legacy-valid', 4, 12)");
@@ -162,7 +159,7 @@ class DashboardLayoutMigrationTest {
     void existingSqliteAnomaliesBlockBeforeLayoutWriteAndPreserveCoordinates() throws Exception {
         try (Connection connection = connection("anomalies")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.update("INSERT INTO farm_printer (id, name, grid_row, grid_col) VALUES "
                     + "(1, 'partial', 1, NULL), (2, 'duplicate-a', 2, 2), "
@@ -191,7 +188,7 @@ class DashboardLayoutMigrationTest {
     void existingWrongNamedLayoutTableIsRejected() throws Exception {
         try (Connection connection = connection("wrong-layout")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             jdbc.execute("CREATE TABLE farm_dashboard_layout (id INTEGER PRIMARY KEY, row_count INTEGER)");
             LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
 
@@ -207,7 +204,7 @@ class DashboardLayoutMigrationTest {
     void sqliteCoordinateGuardsRejectHalfEmptyNonPositiveAndDuplicateSlots() throws Exception {
         try (Connection connection = connection("constraints")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             new LocalSchemaMigration(jdbc).run();
             jdbc.update("INSERT INTO farm_printer (id, name, grid_row, grid_col) VALUES (1, 'valid', 1, 1)");
             assertThatThrownBy(() -> jdbc.update("INSERT INTO farm_printer (id, name, grid_row, grid_col) "
@@ -223,7 +220,7 @@ class DashboardLayoutMigrationTest {
     void sqliteWrongIndexAndSameNamedPseudoObjectsAreRejected() throws Exception {
         try (Connection connection = connection("wrong-index")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.execute("CREATE INDEX uk_farm_printer_grid_position "
                     + "ON farm_printer(grid_row, grid_col)");
@@ -235,7 +232,7 @@ class DashboardLayoutMigrationTest {
 
         try (Connection connection = connection("index-pseudo-object")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.execute("CREATE TABLE uk_farm_printer_grid_position (id INTEGER)");
 
@@ -246,7 +243,7 @@ class DashboardLayoutMigrationTest {
 
         try (Connection connection = connection("trigger-pseudo-object")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.execute("CREATE TABLE trg_farm_printer_grid_position_insert (id INTEGER)");
 
@@ -260,7 +257,7 @@ class DashboardLayoutMigrationTest {
     void sqliteProjectOwnedWrongTriggersAreRebuiltAfterPrecheck() throws Exception {
         try (Connection connection = connection("wrong-trigger")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.execute("""
                     CREATE TRIGGER trg_farm_printer_grid_position_insert
@@ -289,7 +286,7 @@ class DashboardLayoutMigrationTest {
     void sqliteSameNamedInsertTriggerOnOtherTableIsRejectedAndPreserved() throws Exception {
         try (Connection connection = connection("insert-trigger-other-table")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.execute("CREATE TABLE other_trigger_table (id INTEGER PRIMARY KEY)");
             jdbc.execute("""
@@ -317,7 +314,7 @@ class DashboardLayoutMigrationTest {
     void sqliteSameNamedUpdateTriggerOnOtherTableIsRejectedAndPreserved() throws Exception {
         try (Connection connection = connection("update-trigger-other-table")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             makeLegacyPrinterTable(jdbc);
             jdbc.execute("CREATE TABLE other_trigger_table (id INTEGER PRIMARY KEY, value TEXT)");
             jdbc.update("INSERT INTO other_trigger_table (id, value) VALUES (1, 'before')");

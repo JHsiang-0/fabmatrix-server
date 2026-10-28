@@ -113,6 +113,36 @@ class JwtAuthenticationFilterSessionTest {
                 .sign(Algorithm.HMAC256(SECRET));
     }
 
+    @Test
+    void forcedPasswordChangeAllowsOnlyIdentityOwnPasswordAndLogout() throws Exception {
+        User current = user(1L, "operator", "OPERATOR", 0L, true);
+        current.setMustChangePassword(true);
+        when(userMapper.selectById(1L)).thenReturn(current);
+        String token = token(1L, "operator", "OPERATOR", 0L);
+        for (String path : java.util.List.of("/api/v1/printers/page", "/api/v1/auth/sessions", "/api/v1/auth/2/change-password")) {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            MockHttpServletRequest request = request(token); request.setMethod("POST"); request.setRequestURI(path);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.filterForTest(request, response, new MockFilterChain());
+            assertThat(response.getStatus()).isEqualTo(403);
+            assertThat(response.getContentAsString()).contains("4031");
+        }
+        for (String path : java.util.List.of("/api/v1/auth/1/change-password", "/api/v1/auth/logout")) {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            MockHttpServletRequest request = request(token); request.setMethod("POST"); request.setRequestURI(path);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.filterForTest(request, response, new MockFilterChain());
+            assertThat(response.getStatus()).isEqualTo(200);
+        }
+    }
+
+    @Test
+    void revokedSessionIsRejectedBeforeController() throws Exception {
+        var sessions = Mockito.mock(com.example.farm.service.LoginSessionService.class);
+        ReflectionTestUtils.setField(filter, "loginSessionService", sessions);
+        assertThat(execute(token(1L, "operator", "OPERATOR", 0L)).getStatus()).isEqualTo(401);
+    }
+
     private User user(Long id, String username, String role, Long tokenVersion, boolean enabled) {
         User user = new User();
         user.setId(id);

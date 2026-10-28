@@ -64,7 +64,7 @@ public class SecurityConfig {
 
                         // 动态看板布局：读取供管理员和操作员使用，保存仅限管理员（保存接口由 SYNC-002.3 提供）
                         .requestMatchers(HttpMethod.GET, "/api/v1/dashboard-layout")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/dashboard-layout")
                         .hasRole("ADMIN")
 
@@ -73,23 +73,23 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/printers/scan")
                         .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/printers/**")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers("/api/v1/printers/**").hasRole("ADMIN")
 
                         // 文件：所有登录用户可以查看和下载，操作员及管理员可以上传、建目录、删除
                         .requestMatchers(HttpMethod.GET, "/api/v1/print-files/**")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers(HttpMethod.POST, "/api/v1/print-files/page")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers("/api/v1/print-files/**").hasAnyRole("ADMIN", "OPERATOR")
 
                         // 任务：所有登录用户可以查看队列，操作员及管理员负责提交和控制任务
                         .requestMatchers(HttpMethod.GET, "/api/v1/print-jobs/**")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers(HttpMethod.POST, "/api/v1/print-jobs/page")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers(HttpMethod.POST, "/api/v1/print-jobs/history/export")
-                        .hasAnyRole("ADMIN", "OPERATOR")
+                        .hasAnyRole("ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers("/api/v1/print-jobs/**").hasAnyRole("ADMIN", "OPERATOR")
 
                         // 物理控制属于生产操作，管理员和操作员均可执行

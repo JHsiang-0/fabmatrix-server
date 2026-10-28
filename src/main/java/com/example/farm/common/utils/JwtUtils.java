@@ -44,6 +44,10 @@ public class JwtUtils {
 
     /** 根据用户身份和当前会话版本生成 Token。 */
     public static String generateToken(Long userId, String username, String role, Long tokenVersion) {
+        return generateToken(userId, username, role, tokenVersion, null);
+    }
+
+    public static String generateToken(Long userId, String username, String role, Long tokenVersion, String sessionId) {
         Date expireDate = new Date(System.currentTimeMillis() + STATIC_EXPIRE_TIME);
 
         // 设置头部信息
@@ -57,6 +61,7 @@ public class JwtUtils {
                 .withClaim("username", username)
                 .withClaim("role", role)
                 .withClaim("tokenVersion", tokenVersion == null ? 0L : tokenVersion)
+                .withClaim("sessionId", sessionId)
                 .withExpiresAt(expireDate)
                 .sign(Algorithm.HMAC256(STATIC_SECRET_KEY));
     }

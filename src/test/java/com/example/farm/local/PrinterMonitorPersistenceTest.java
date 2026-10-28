@@ -384,7 +384,7 @@ class PrinterMonitorPersistenceTest {
             source.setDriverClassName("org.sqlite.JDBC");
             source.setMaximumPoolSize(1);
             source.setConnectionTimeout(1000);
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/local-schema.sql"))
+            new ResourceDatabasePopulator(new ClassPathResource("db/init/sqlite-schema.sql"))
                     .execute(source);
             return source;
         }

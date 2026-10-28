@@ -1,2 +1,3 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+/scripts/test-mysql-initialization.sh text eol=lf

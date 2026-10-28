@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS farm_user (
     role VARCHAR(20) NOT NULL DEFAULT 'OPERATOR',
     enabled INTEGER NOT NULL DEFAULT 1,
     token_version INTEGER NOT NULL DEFAULT 0,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
     email VARCHAR(100), phone VARCHAR(20),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -181,3 +182,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_actor ON farm_audit_log(actor_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON farm_audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_target ON farm_audit_log(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_audit_result ON farm_audit_log(result);
+
+-- 单农场登录会话；不存储 JWT 或密码。
+CREATE TABLE IF NOT EXISTS farm_login_session (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token_version BIGINT NOT NULL DEFAULT 0,
+    ip_address VARCHAR(64),
+    user_agent VARCHAR(256),
+    created_at TIMESTAMP NOT NULL,
+    last_seen_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    revoked_at TIMESTAMP NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_session_user ON farm_login_session(user_id, revoked_at, expires_at);

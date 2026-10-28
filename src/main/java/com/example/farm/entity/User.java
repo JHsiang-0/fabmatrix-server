@@ -53,10 +53,10 @@ public class User implements Serializable {
     private String passwordHash;
 
     /**
-     * 角色权限：ADMIN, OPERATOR
+     * 角色权限：ADMIN, OPERATOR, VIEWER
      */
     @TableField("role")
-    @Schema(description = "角色权限：ADMIN(管理员), OPERATOR(操作员)")
+    @Schema(description = "角色权限：ADMIN(管理员), OPERATOR(操作员), VIEWER(查看员)")
     private String role;
 
     /** 持久化的账号启用状态；数据库是授权真源。 */
@@ -68,6 +68,9 @@ public class User implements Serializable {
     @TableField("token_version")
     @Schema(description = "会话版本")
     private Long tokenVersion = 0L;
+
+    @TableField("must_change_password")
+    private Boolean mustChangePassword = false;
 
     /**
      * 邮箱

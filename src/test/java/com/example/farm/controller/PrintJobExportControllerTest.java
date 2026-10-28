@@ -87,7 +87,7 @@ class PrintJobExportControllerTest {
 
     @Test
     void unsupportedRoleIsDeniedBeforeExport() throws Exception {
-        mvc.perform(post(URL).with(user("10").roles("VIEWER"))
+        mvc.perform(post(URL).with(user("10").roles("AUDITOR"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"format\":\"PDF\"}"))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(403));
         verifyNoInteractions(service);

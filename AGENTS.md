@@ -43,7 +43,10 @@ src/main/java/com/example/farm/
 src/main/resources/
 ├── application*.yaml       基础、dev、prod 配置
 ├── mapper/                  MyBatis XML
-├── db/migration/             建表、升级和 Docker 初始化 SQL
+├── db/init/                  MySQL / SQLite 初始化 SQL
+├── db/migration/mysql/       MySQL 增量升级及只读预检
+├── db/migration/sqlite/      SQLite 离线升级及只读预检
+├── db/archive/               历史基线，不参与当前初始化
 └── logback-spring.xml       日志配置
 ```
 
@@ -127,16 +130,11 @@ docker compose down
 
 `down` 不会删除命名数据卷；不要在没有明确授权时使用 `docker compose down -v`，因为它会删除 MySQL、Redis 和 RustFS 数据。
 
-MySQL 初始化脚本按挂载顺序执行：
+MySQL 全新数据库统一使用 `src/main/resources/db/init/mysql-schema.sql`，两份 Compose 均只挂载此入口。它创建完整当前结构及必要系统状态，不导入历史账号、设备、文件或任务；新库首个管理员的受控初始化见 `docs/DATABASE_INITIALIZATION.md`。
 
-1. `src/main/resources/db/migration/farm.sql`
-2. `src/main/resources/db/migration/02-current-schema.sql`
-3. `src/main/resources/db/migration/03-remove-customer-role.sql`
-4. `src/main/resources/db/migration/04-normalize-print-job-status.sql`
+该初始化脚本只会在全新的 MySQL 数据卷初始化时自动执行。已有数据卷不会因为修改脚本而重新执行；升级已有数据库前先备份，再手动执行对应 SQL。
 
-这些脚本只会在全新的 MySQL 数据卷初始化时自动执行。已有数据卷不会因为修改脚本而重新执行；升级已有数据库前先备份，再手动执行对应 SQL。
-
-仓库没有配置 Flyway 依赖，不能假设 `src/main/resources/db/migration/` 下的 `V*.sql` 会被 Spring 自动执行。`V1__init_schema.sql` 等文件是历史/手工迁移脚本，当前 Docker 启动实际使用的是 `farm.sql` 和显式挂载的增量脚本。已有数据卷不会自动执行新增脚本，升级前需备份并手动执行对应 SQL。
+仓库没有配置 Flyway 依赖。`db/migration/mysql/` 保存已有 MySQL 库的增量脚本，`db/migration/sqlite/` 保存 SQLite 离线脚本及预检，不会自动扫描执行。`farm.sql`、`V1__init_schema.sql` 等历史基线位于 `db/archive/`，不参与当前初始化。已有 MySQL 数据卷升级前需备份并手动执行所需 SQL，不能为切换初始化入口删除数据卷。Local Edition 先执行 `db/init/sqlite-schema.sql`（原 `db/migration/local-schema.sql`），再由 `LocalSchemaMigration` 完成检查与升级，执行顺序和行为不变。
 
 ## 7. 数据模型与数据库注意事项
 
@@ -156,23 +154,26 @@ MySQL 初始化脚本按挂载顺序执行：
 1. `POST /api/v1/auth/login` 校验用户名和密码。
 2. `UserServiceImpl` 使用 BCrypt 或兼容的密码迁移逻辑验证密码。
 3. 登录响应返回 JWT、用户 ID、用户名和 `role`。
-4. `JwtAuthenticationFilter` 从 `Authorization: Bearer <token>` 读取 JWT，并创建 `ROLE_ADMIN` 或 `ROLE_OPERATOR` 权限。
+4. `JwtAuthenticationFilter` 从 `Authorization: Bearer <token>` 读取 JWT，并检查持久化 sessionId、当前账号与会话版本，再创建岗位及对应 permission authority。
 
-当前只保留两个角色：
+当前保留三个固定角色（详见 `docs/ACCOUNT_SECURITY.md`）：
 
 - `ADMIN`：管理员，管理本地账号、打印机配置、任务调度和全部运营操作。
+- `VIEWER`：查看员，仅能读取共享设备状态、公有文件及本人资源，不能执行生产写操作。
 - `OPERATOR`：操作员，查看设备、上传文件、创建和控制打印任务，能够执行现场暂停/急停和安全确认流程。
 
 账号规则：
 
-- 新账号由管理员创建，服务层固定创建为 `OPERATOR`。
+- 新员工账号由管理员创建，可选 `OPERATOR` 或 `VIEWER`，默认操作员，首次登录必须修改临时密码。
 - `POST /api/v1/auth/register` 仍然存在，但已经不是匿名注册，只允许 `ADMIN` 调用。
 - 推荐管理员使用 `POST /api/v1/auth/admin/users` 创建操作员。
-- 管理员用户更新接口只能设置 `ADMIN` 或 `OPERATOR`。
+- 管理员用户更新接口可设置 `ADMIN`、`OPERATOR` 或 `VIEWER`；改角色使旧登录失效，最后有效管理员保护保持启用。
 - 密码由后端校验：长度 6-20 位，仅限制长度；仍必须填写、确认密码一致，并使用 BCrypt 存储。前端校验只能改善提示，不能代替后端校验。
 - 不要重新引入 CUSTOMER、手机号验证、邮箱验证或公开注册，除非用户明确改变产品目标。
 
-当前路由级权限：
+当前路由级权限：VIEWER 具备下表中的业务读取权限及历史导出权限，写操作均拒绝。强制改密账号仅可访问身份、本人改密和退出接口（HTTP 403 / 业务码 4031）。会话管理、密码重置与迁移细节见 `docs/ACCOUNT_SECURITY.md`。
+
+原有 ADMIN/OPERATOR 权限：
 
 | 接口范围 | ADMIN | OPERATOR |
 |---|---:|---:|

@@ -23,8 +23,8 @@ class PrintJobQueryMigrationTest {
 
     @Test
     void mysqlAndSqliteMigrationScriptsDeclareRepeatableStatusAndQueryIndexSteps() {
-        String mysql = read("db/migration/18-v2-print-job-query-semantics-mysql.sql");
-        String sqlite = read("db/migration/18-v2-print-job-query-semantics-sqlite.sql");
+        String mysql = read("db/migration/mysql/18-v2-print-job-query-semantics-mysql.sql");
+        String sqlite = read("db/migration/sqlite/18-v2-print-job-query-semantics-sqlite.sql");
 
         assertThat(mysql).contains("status = 'QUEUED'", "status = 'CANCELLED'",
                 "information_schema.statistics", "idx_print_job_history_status_completed_id",
@@ -36,8 +36,8 @@ class PrintJobQueryMigrationTest {
 
     @Test
     void auditModelMigrationDeclaresSnapshotsLineageAndNoSelfReference() {
-        String mysql = read("db/migration/19-v2-print-job-audit-model-mysql.sql");
-        String sqlite = read("db/migration/19-v2-print-job-audit-model-sqlite.sql");
+        String mysql = read("db/migration/mysql/19-v2-print-job-audit-model-mysql.sql");
+        String sqlite = read("db/migration/sqlite/19-v2-print-job-audit-model-sqlite.sql");
         for (String migration : List.of(mysql, sqlite)) {
             assertThat(migration).contains("file_name_snapshot", "printer_name_snapshot",
                     "machine_number_snapshot", "creator_username_snapshot",
@@ -59,8 +59,8 @@ class PrintJobQueryMigrationTest {
 
     @Test
     void migrationEntrypointsAndFreshSchemasKeepStatusIndexAndLocalTimeContractsAligned() {
-        String farmSchema = read("db/migration/farm.sql");
-        String localSchema = read("db/migration/local-schema.sql");
+        String farmSchema = read("db/init/mysql-schema.sql");
+        String localSchema = read("db/init/sqlite-schema.sql");
         for (String schema : List.of(farmSchema, localSchema)) {
             assertThat(schema).contains("status", "DEFAULT 'QUEUED'",
                     "idx_print_job_history_status_completed_id",
@@ -79,16 +79,16 @@ class PrintJobQueryMigrationTest {
         assertThat(jobTable).contains("created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', '+8 hours'))",
                 "updated_at TIMESTAMP NOT NULL DEFAULT (datetime('now', '+8 hours'))");
         assertThat(jobTable).doesNotContain("uk_print_job_retry_of_job", "uk_print_job_root_attempt");
-        assertThat(read("db/migration/18-v2-print-job-query-semantics-mysql.sql"))
+        assertThat(read("db/migration/mysql/18-v2-print-job-query-semantics-mysql.sql"))
                 .contains("PREPARE farm_index_stmt", "DEALLOCATE PREPARE farm_index_stmt");
-        assertThat(read("db/migration/18-v2-print-job-query-semantics-sqlite.sql"))
+        assertThat(read("db/migration/sqlite/18-v2-print-job-query-semantics-sqlite.sql"))
                 .contains("CREATE INDEX IF NOT EXISTS");
 
         String migrationSource = readWorkspaceFile("src/main/java/com/example/farm/config/LocalSchemaMigration.java");
         assertThat(migrationSource).contains("migratePrintJobQuerySemantics();",
                 "idx_print_job_history_status_completed_id",
                 "idx_print_job_active_status_created_id");
-        String mount = "18-v2-print-job-query-semantics-mysql.sql:/docker-entrypoint-initdb.d/18-v2-print-job-query-semantics-mysql.sql:ro";
+        String mount = "db/init/mysql-schema.sql:/docker-entrypoint-initdb.d/01-mysql-schema.sql:ro";
         assertThat(readWorkspaceFile("docker-compose.yml")).contains(mount,
                 "--default-time-zone=+08:00");
         assertThat(readWorkspaceFile("docker-compose.server.yml")).contains(mount,
@@ -116,8 +116,8 @@ class PrintJobQueryMigrationTest {
                     + "completed_at TIMESTAMP, created_at TIMESTAMP)");
             jdbc.update("INSERT INTO farm_print_job(id, status) VALUES (1, 'PENDING'), (2, 'MANUAL'), (3, 'CANCELED')");
 
-            runResource(jdbc, "db/migration/18-v2-print-job-query-semantics-sqlite.sql");
-            runResource(jdbc, "db/migration/18-v2-print-job-query-semantics-sqlite.sql");
+            runResource(jdbc, "db/migration/sqlite/18-v2-print-job-query-semantics-sqlite.sql");
+            runResource(jdbc, "db/migration/sqlite/18-v2-print-job-query-semantics-sqlite.sql");
 
             assertThat(jdbc.queryForList("SELECT status FROM farm_print_job ORDER BY id", String.class))
                     .containsExactly("QUEUED", "QUEUED", "CANCELLED");
@@ -131,7 +131,7 @@ class PrintJobQueryMigrationTest {
         try (Connection connection = DriverManager.getConnection(
                 "jdbc:sqlite:file:print-job-audit-model-script?mode=memory&cache=shared")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             jdbc.update("INSERT INTO farm_user(id, username, password_hash) VALUES (1, 'creator-now', 'hash'), "
                     + "(2, 'operator-now', 'hash')");
             jdbc.update("INSERT INTO farm_print_file(id, user_id, original_name, safe_name) "
@@ -142,8 +142,8 @@ class PrintJobQueryMigrationTest {
                     + "VALUES (100, 20, 403, 1, 2, 'FAILED', NULL, 1, '2026-09-12 10:00:00'), "
                     + "(101, 20, 403, 1, 2, 'READY', NULL, 1, NULL)");
 
-            runResource(jdbc, "db/migration/19-v2-print-job-audit-model-sqlite.sql");
-            runResource(jdbc, "db/migration/19-v2-print-job-audit-model-sqlite.sql");
+            runResource(jdbc, "db/migration/sqlite/19-v2-print-job-audit-model-sqlite.sql");
+            runResource(jdbc, "db/migration/sqlite/19-v2-print-job-audit-model-sqlite.sql");
 
             Map<String, Object> row = jdbc.queryForMap("SELECT root_job_id, attempt_number, "
                     + "file_name_snapshot, printer_name_snapshot, machine_number_snapshot, "
@@ -168,7 +168,7 @@ class PrintJobQueryMigrationTest {
         try (Connection connection = DriverManager.getConnection(
                 "jdbc:sqlite:file:print-job-query-local-schema?mode=memory&cache=shared")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             replaceWithPreTc007PrintJobTable(jdbc);
             jdbc.update("INSERT INTO farm_user(id, username, password_hash) "
                     + "VALUES (91, 'local-operator', 'hash')");
@@ -184,7 +184,7 @@ class PrintJobQueryMigrationTest {
             // This is the Spring sql.init bootstrap step against an existing database.
             // Before T16.17 the TC-007 indexes fail here because the legacy table has no
             // retry_of_job_id/root_job_id columns.
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
 
             LocalSchemaMigration migration = new LocalSchemaMigration(jdbc);
             migration.run();
@@ -226,7 +226,7 @@ class PrintJobQueryMigrationTest {
         try (Connection connection = DriverManager.getConnection(
                 "jdbc:sqlite:file:print-job-query-fresh-schema?mode=memory&cache=shared")) {
             JdbcTemplate jdbc = jdbc(connection);
-            runResource(jdbc, "db/migration/local-schema.sql");
+            runResource(jdbc, "db/init/sqlite-schema.sql");
             jdbc.update("INSERT INTO farm_user(username, password_hash) VALUES ('fresh-user', 'hash')");
             jdbc.update("INSERT INTO farm_print_job(user_id, status) VALUES (1, 'QUEUED')");
 

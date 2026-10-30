@@ -61,6 +61,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/check-username").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/check-email").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/cloud/**").hasRole("ADMIN")
 
                         // 动态看板布局：读取供管理员和操作员使用，保存仅限管理员（保存接口由 SYNC-002.3 提供）
                         .requestMatchers(HttpMethod.GET, "/api/v1/dashboard-layout")

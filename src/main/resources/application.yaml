@@ -94,6 +94,14 @@ server:
 
 # 应用自定义配置
 farm:
+  cloud:
+    enabled: ${FARM_CLOUD_ENABLED:false}
+    api-url: ${FARM_CLOUD_API_URL:}
+    mqtt-url: ${FARM_CLOUD_MQTT_URL:}
+    ca-certificate: ${FARM_CLOUD_CA_CERTIFICATE:}
+    credential-file: ${FARM_CLOUD_CREDENTIAL_FILE:${FARM_DATA_DIR:${user.home}/FarmData}/config/cloud-gateway.json}
+    binding-token-file: ${FARM_CLOUD_BINDING_TOKEN_FILE:}
+    state-directory: ${FARM_CLOUD_STATE_DIRECTORY:${FARM_DATA_DIR:${user.home}/FarmData}/cloud-agent}
   features:
     batch-dispatch:
       # V1 准正式版默认关闭；V3 验收完成后通过环境变量显式开启。

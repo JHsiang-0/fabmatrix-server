@@ -41,6 +41,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SecurityResponseTest {
 
     @Test
+    void cloudAgentStatusIsAdminOnlyAndDisabledByDefault() throws Exception {
+        mockMvc.perform(get("/api/v1/cloud/status")).andExpect(status().isUnauthorized());
+        for (String role : java.util.List.of("OPERATOR", "VIEWER")) {
+            mockMvc.perform(get("/api/v1/cloud/status").with(user("staff").roles(role)))
+                    .andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get("/api/v1/cloud/status").with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.state").value("DISABLED"));
+    }
+
+    @Test
     void viewerCannotWriteOrManageAccounts() throws Exception {
         for (String path : java.util.List.of("/api/v1/control/1/pause", "/api/v1/print-jobs/create",
                 "/api/v1/print-files/folder/create", "/api/v1/auth/admin/users/2/reset-password",

@@ -1,0 +1,21 @@
+package com.example.farm.cloud;
+
+import java.time.Instant;
+import java.util.List;
+
+public final class CloudWire {
+    private CloudWire() { }
+    public record Credential(String gatewayId, String organizationId, String farmId, long bindingVersion,
+                             String credential, long expiresAt, String mqttClientId, String mqttUsername, String topicPrefix) {
+        @Override public String toString() { return "CloudCredential[gatewayId=" + gatewayId + "]"; }
+    }
+    public record Printer(String localPrinterId, String name, String firmwareType, String connectionStatus,
+                          String printState, boolean monitorEnabled, Instant observedAt, Double progress,
+                          Double toolTemperature, Double bedTemperature) { }
+    public record Payload(String agentVersion, int printerCount, List<Printer> printers) { }
+    public record Packet(int schemaVersion, String messageId, String type, String gatewayId, long bindingVersion,
+                         String bootId, long epoch, long sequence, Instant observedAt, Payload payload) { }
+    public record Ack(String messageId, long epoch, long sequence, String result, String code) { }
+    public record Session(long epoch, long lastSequence) { }
+    public record Boot(String gatewayId, long bindingVersion, String bootId) { }
+}

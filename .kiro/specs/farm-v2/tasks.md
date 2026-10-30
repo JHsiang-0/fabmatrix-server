@@ -298,6 +298,14 @@
 - [x] 全量 782/782、安装器契约和打包启动通过；隔离真 JWT/API/双 WebSocket 冒烟加入错误密码后健康/身份仍可用检查，原有账号安全回归保持通过。所有代理断点移除，用户断点保留。
 - [x] 新包 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`：145433849 bytes，SHA-256 `A4FFB5E2C5C42992EFBF1AED47D6C012042B3668EB6817D2CD911269EA38AB33`；清理生成 work。现场服务未替换、实际业务库与网络设置未改；需覆盖安装后复核。现场防火墙 Public 当前关闭，未把规则类型不匹配作为已确认原因。完整证据见 docs/WINDOWS_LOGIN_AVAILABILITY.md。
 
+### T16.32 [整理] Server 安全依赖与工程规范
+
+- [x] 会话/账号校验和设备身份核验改为必需构造器依赖，测试显式提供替身；保留业务事务和设备执行流程。
+- [x] 排除敏感字段的对象日志输出；清理生成器硬编码凭据并将输出隔离到 target/codegen，生成依赖仅用于 test。
+- [x] 开发凭据移入忽略提交的本机 YAML，公共 profile 使用占位符；恢复 Wrapper、生产模板和测试资源的版本管理入口。
+- [x] 新增 EditorConfig、CODE_CONVENTIONS 和统一检查脚本，同步 AGENTS 中的结构与配置说明。
+- [x] 统一检查入口通过，Maven 794/794、0 跳过；打包成功，JAR 不包含生成器/FreeMarker 或本机凭据文件，包含生产环境模板；文档链接和新增文本凭据扫描通过。本轮未执行真实库迁移、凭据轮换、部署或设备动作。
+
 ## T17 [发布] v1 Server Edition：Docker Compose 正式部署
 
 **对应需求：REQ-12、REQ-13**

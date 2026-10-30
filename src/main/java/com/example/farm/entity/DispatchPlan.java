@@ -3,6 +3,7 @@ package com.example.farm.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.ToString;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -18,6 +19,7 @@ public class DispatchPlan {
     private String action;
     private String status;
     private Long version;
+    @ToString.Exclude
     private String confirmationTokenHash;
     /** 失败项恢复请求的幂等键摘要；普通预览为空。 */
     private String retryKey;

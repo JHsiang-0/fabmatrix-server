@@ -71,6 +71,7 @@ public class Printer implements Serializable {
     @TableField("api_key")
     @Schema(description = "上位机 API 通信密钥")
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     private String apiKey;
 
     /**

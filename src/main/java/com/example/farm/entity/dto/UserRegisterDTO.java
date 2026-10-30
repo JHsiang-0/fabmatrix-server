@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import lombok.ToString;
 import lombok.Data;
 
 /**
@@ -23,10 +24,12 @@ public class UserRegisterDTO {
     @NotBlank(message = "密码不能为空")
     @Size(min = 6, max = 20, message = "密码长度必须在 6-20 个字符之间")
     @Schema(description = "密码（6-20位，仅限制长度）", requiredMode = Schema.RequiredMode.REQUIRED, example = "Admin123")
+    @ToString.Exclude
     private String password;
 
     @NotBlank(message = "确认密码不能为空")
     @Schema(description = "确认密码", requiredMode = Schema.RequiredMode.REQUIRED, example = "Admin123")
+    @ToString.Exclude
     private String confirmPassword;
 
     @Email(message = "邮箱格式不正确")
@@ -46,6 +49,7 @@ public class UserRegisterDTO {
      */
     @Schema(description = "Local Edition 首次初始化一次性凭据，仅 setup/admin 使用",
             accessMode = Schema.AccessMode.WRITE_ONLY, example = "bootstrap-token")
+    @ToString.Exclude
     private String bootstrapToken;
 
     /**

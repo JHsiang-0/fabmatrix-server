@@ -8,8 +8,6 @@
 
 # Maven
 .mvn/wrapper/maven-wrapper.jar
-mvnw
-mvnw.cmd
 HELP.md
 
 # IDE - IntelliJ IDEA
@@ -37,11 +35,12 @@ HELP.md
 # IDE - VS Code
 .vscode/
 
-# Configuration files with sensitive data
-# 注意：生产环境应该使用 application-prod.yaml 并通过环境变量注入
+# Local configuration with sensitive data; shared profiles use placeholders.
 /src/main/resources/application-local.yml
-/src/main/resources/application-dev.yaml
-/src/main/resources/application-prod.yaml
+/config/*.local.yaml
+/config/*.local.yml
+/config/*.local.properties
+/src/main/resources/application-*.local.yaml
 .env.server
 
 # Temporary files
@@ -65,6 +64,4 @@ Thumbs.db
 cleanup_*.sql
 db_cleanup.sql
 
-# Test generated files
-/src/test/resources/
-!/src/test/java/
+# Generated test output belongs in target/; test fixtures are versioned.

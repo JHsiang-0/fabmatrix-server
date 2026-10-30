@@ -50,6 +50,7 @@ public class User implements Serializable {
     @TableField("password_hash")
     @Schema(description = "加密后的密码")
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     private String passwordHash;
 
     /**

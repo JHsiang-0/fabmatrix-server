@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import lombok.ToString;
 import lombok.Data;
 
 import java.util.List;
@@ -33,5 +34,6 @@ public class BatchDispatchConfirmRequest {
     @Schema(description = "一次性确认令牌", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotBlank(message = "确认令牌不能为空")
     @Size(max = 256, message = "确认令牌长度不能超过 256")
+    @ToString.Exclude
     private String confirmationToken;
 }

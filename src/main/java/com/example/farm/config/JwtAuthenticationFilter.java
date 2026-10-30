@@ -3,6 +3,7 @@ package com.example.farm.config;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.auth0.jwt.interfaces.DecodedJWT;
+import com.example.farm.service.LoginSessionService;
 import com.example.farm.common.api.Result;
 import com.example.farm.common.utils.JwtUtils;
 import com.example.farm.common.utils.LoginProtectUtil;
@@ -13,6 +14,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -30,11 +32,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final LoginProtectUtil loginProtectUtil;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private UserMapper userMapper;
+    @NonNull
+    private final UserMapper userMapper;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.example.farm.service.LoginSessionService loginSessionService;
+    @NonNull
+    private final LoginSessionService loginSessionService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -73,38 +75,34 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             return;
                         }
 
-                        if (loginSessionService != null) {
-                            try {
-                                if (!loginSessionService.valid(sessionId, userId, tokenVersion)) {
-                                    renderJson(request, response, 401, 401, "登录会话已退出，请重新登录");
-                                    return;
-                                }
-                            } catch (RuntimeException exception) {
-                                renderJson(request, response, 503, 5001, "会话状态暂时无法确认");
+                        try {
+                            if (!loginSessionService.valid(sessionId, userId, tokenVersion)) {
+                                renderJson(request, response, 401, 401, "登录会话已退出，请重新登录");
                                 return;
                             }
+                        } catch (RuntimeException exception) {
+                            renderJson(request, response, 503, 5001, "会话状态暂时无法确认");
+                            return;
                         }
 
-                        if (userMapper != null) {
-                            User currentUser;
-                            try {
-                                currentUser = userMapper.selectById(userId);
-                            } catch (RuntimeException exception) {
-                                logger.warn("访问被拒绝：用户会话状态校验不可用，userId=" + userId, exception);
-                                renderJson(request, response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, 5001,
-                                        "用户状态暂时无法确认，请稍后重试");
-                                return;
-                            }
-                            if (!isCurrentSessionValid(currentUser, username, role, tokenVersion)) {
-                                renderJson(request, response, HttpServletResponse.SC_UNAUTHORIZED, 401,
-                                        "登录状态已失效，请重新登录");
-                                return;
-                            }
-                            if (Boolean.TRUE.equals(currentUser.getMustChangePassword())
-                                    && !allowedDuringPasswordChange(request, userId)) {
-                                renderJson(request, response, 403, 4031, "请先修改临时密码");
-                                return;
-                            }
+                        User currentUser;
+                        try {
+                            currentUser = userMapper.selectById(userId);
+                        } catch (RuntimeException exception) {
+                            logger.warn("访问被拒绝：用户会话状态校验不可用，userId=" + userId, exception);
+                            renderJson(request, response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, 5001,
+                                    "用户状态暂时无法确认，请稍后重试");
+                            return;
+                        }
+                        if (!isCurrentSessionValid(currentUser, username, role, tokenVersion)) {
+                            renderJson(request, response, HttpServletResponse.SC_UNAUTHORIZED, 401,
+                                    "登录状态已失效，请重新登录");
+                            return;
+                        }
+                        if (Boolean.TRUE.equals(currentUser.getMustChangePassword())
+                                && !allowedDuringPasswordChange(request, userId)) {
+                            renderJson(request, response, 403, 4031, "请先修改临时密码");
+                            return;
                         }
                     }
 

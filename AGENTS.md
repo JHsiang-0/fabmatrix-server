@@ -35,6 +35,9 @@ src/main/java/com/example/farm/
 ├── config/       Spring、安全、Redis、WebSocket、日志配置
 ├── controller/   HTTP API、WebSocket、Moonraker 模拟接口
 ├── service/      服务接口及 impl 实现
+├── protocol/     Klipper / RRF 协议适配与设备客户端
+├── cloud/        默认关闭的只读云代理
+├── tray/         Windows 托盘
 ├── mapper/       MyBatis-Plus Mapper
 ├── entity/       数据实体、DTO、VO
 ├── task/         打印机监控和任务调度定时任务
@@ -83,15 +86,15 @@ mvn spring-boot:run
 mvn clean
 ```
 
-修改 Java、SecurityConfig、配置绑定或 SQL 后，至少运行 `mvn test`。当前测试数量很少，测试通过只能说明上下文基本可以启动，不能替代接口权限和真实设备测试。
+修改 Java、SecurityConfig、配置绑定或 SQL 后，至少运行 `mvn test`。测试已覆盖权限、会话、资源归属、协议、迁移和本地持久化等路径；测试通过仍不能替代真实设备及安装验收。统一检查入口为 `pwsh -File scripts/check-code.ps1`，具体代码约定见 [CODE_CONVENTIONS.md](docs/CODE_CONVENTIONS.md)。
 
 ## 5. Spring Profile 与端口
 
 - `application.yaml` 默认激活 `dev`。
-- `dev` 使用本机映射的 MySQL、Redis、RustFS，HTTP/WebSocket 默认端口为 `28081`，可由 `SERVER_PORT` 覆盖。
+- `dev` 可选导入被 Git 忽略的 `config/application-dev.local.yaml`，环境变量优先；使用本机映射的 MySQL、Redis、RustFS，HTTP/WebSocket 默认端口为 `28081`，可由 `SERVER_PORT` 覆盖。
 - `dev` 中 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，没有真实打印机时不要打开监控，否则会轮询不存在的设备并产生错误日志。Windows Local Edition 则默认启用监控组件，并继续通过每台设备的 `monitor_enabled` 开关决定是否轮询；后台自动派单仍保持关闭。
 - `test` 使用 H2，关闭调度任务和 WebSocket，服务端口为随机端口。
-- `prod` 使用环境变量配置敏感信息，端口默认为 `28081`（可由 `SERVER_PORT` 覆盖），生产环境调度任务默认会启用（任务条件缺省时 `matchIfMissing=true`）。
+- `prod` 使用环境变量配置敏感信息，端口默认为 `28081`（可由 `SERVER_PORT` 覆盖），继承基础配置时后台调度保持关闭；仅在显式删除相关配置时才涉及任务注解的 `matchIfMissing=true` 行为。
 
 生产环境至少需要提供：
 
@@ -212,7 +215,7 @@ Authorization: Bearer <token>
 - 任务：`/print-jobs/queue`、`page`、`create`、`/{id}`、`safe/assign`、`safe/confirm`、`safe/start`
 - 控制：`/control/{id}/emergency-stop`、`/control/{id}/pause`
 
-SpringDoc 默认可访问：`http://localhost:28081/swagger-ui.html`。Swagger 和 `/v3/api-docs` 当前公开，生产环境是否公开应根据局域网边界另行决定。
+dev 的 SpringDoc 默认可访问：`http://localhost:28081/swagger-ui.html`。路由规则允许访问 Swagger/OpenAPI，但 local 默认关闭其端点；prod 需通过 ProductionSafetyValidator，不能将路由放行等同端点已启用。
 
 `API_HANDOFF.md` 是当前接口交接文档；接口以 Controller、`SecurityConfig` 和 `/v3/api-docs` 为准。历史 API 文档不再维护。
 

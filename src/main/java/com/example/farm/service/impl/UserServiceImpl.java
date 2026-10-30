@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.example.farm.service.LoginSessionService;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.exception.LoginRejectedException;
 import com.example.farm.common.api.ResultCode;
@@ -29,6 +30,7 @@ import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.BootstrapTokenService;
 import com.example.farm.service.UserService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -72,16 +74,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AuditLogService auditLogService;
 
-    @Autowired(required = false)
-    private com.example.farm.service.LoginSessionService loginSessionService;
+    @NonNull
+    private final LoginSessionService loginSessionService;
 
     private String issueToken(User user) {
-        String sessionId = loginSessionService == null ? null : loginSessionService.create(user);
+        String sessionId = loginSessionService.create(user);
         return JwtUtils.generateToken(user.getId(), user.getUsername(), user.getRole(), currentTokenVersion(user), sessionId);
     }
 
     private void invalidateSessions(User user) {
-        if (loginSessionService != null) loginSessionService.revokeAll(user.getId(), null);
+        loginSessionService.revokeAll(user.getId(), null);
     }
 
     @Override

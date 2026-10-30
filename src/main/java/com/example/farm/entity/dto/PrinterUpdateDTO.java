@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import lombok.ToString;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -42,6 +43,7 @@ public class PrinterUpdateDTO {
     private String firmwareType;
 
     @Schema(description = "上位机 API 通信密钥")
+    @ToString.Exclude
     private String apiKey;
 
     @Schema(description = "当前装载耗材 (如 PLA, PETG, ABS)")

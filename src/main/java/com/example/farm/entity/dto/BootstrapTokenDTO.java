@@ -1,6 +1,7 @@
 package com.example.farm.entity.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.ToString;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -11,6 +12,7 @@ import lombok.Data;
 public class BootstrapTokenDTO {
 
     @Schema(description = "一次性初始化凭据；仅供本机 setup/admin 请求使用")
+    @ToString.Exclude
     private String token;
 
     @Schema(description = "凭据过期时间（Unix 毫秒）")

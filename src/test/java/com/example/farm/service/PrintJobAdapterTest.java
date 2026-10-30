@@ -57,6 +57,9 @@ class PrintJobAdapterTest {
     @Mock
     private InputStreamResource resource;
 
+    @Mock
+    private PrinterIdentityVerifier identityVerifier;
+
     @InjectMocks
     private PrintJobServiceImpl printJobService;
 

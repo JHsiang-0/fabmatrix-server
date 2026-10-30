@@ -43,8 +43,6 @@ class UserAuthenticationTest {
 
     @Test
     void adminResetUsesHashAndForcesPasswordChangeAndRevokesSessions() {
-        var sessions = mock(com.example.farm.service.LoginSessionService.class);
-        ReflectionTestUtils.setField(userService, "loginSessionService", sessions);
         User admin = user(9L, "admin", "hash"); admin.setRole("ADMIN");
         User worker = user(2L, "worker", "old-hash"); worker.setRole("OPERATOR");
         when(userMapper.selectById(9L)).thenReturn(admin);
@@ -93,11 +91,15 @@ class UserAuthenticationTest {
     @Mock
     private JdbcTemplate jdbcTemplate;
 
+    @Mock
+    private LoginSessionService sessions;
+
     @InjectMocks
     private UserServiceImpl userService;
 
     @BeforeEach
     void injectMyBatisMapper() {
+        org.mockito.Mockito.lenient().when(sessions.create(any(User.class))).thenReturn("test-session");
         ReflectionTestUtils.setField(userService, "baseMapper", userMapper);
         ReflectionTestUtils.setField(userService, "printFileMapper", printFileMapper);
         ReflectionTestUtils.setField(userService, "bootstrapTokenService", bootstrapTokenService);

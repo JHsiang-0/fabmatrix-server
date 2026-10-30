@@ -37,6 +37,7 @@ import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterIdentityVerifier;
 import com.example.farm.service.PrinterExecutionService;
 import com.example.farm.service.WebSocketEventPublisher;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -84,8 +85,8 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Autowired(required = false)
     private RedisUtil redisUtil;
 
-    @Autowired(required = false)
-    private PrinterIdentityVerifier identityVerifier;
+    @NonNull
+    private final PrinterIdentityVerifier identityVerifier;
 
     @Override
     public PrintJobMapper getBaseMapper() {
@@ -1336,9 +1337,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw new BusinessException(10001, "打印机没有可用的网络地址");
         }
         PrinterLock.ensureValid(printer.getId());
-        if (identityVerifier != null) {
-            identityVerifier.verifyFresh(printer);
-        }
+        identityVerifier.verifyFresh(printer);
         return new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(), protocolType);
     }
 

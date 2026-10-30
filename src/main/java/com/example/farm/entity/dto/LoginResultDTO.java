@@ -3,6 +3,7 @@ package com.example.farm.entity.dto;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.ToString;
 import lombok.Data;
 
 /**
@@ -13,6 +14,7 @@ import lombok.Data;
 public class LoginResultDTO {
 
     @Schema(description = "JWT Token")
+    @ToString.Exclude
     private String token;
 
     @Schema(description = "Token 有效期（秒）")

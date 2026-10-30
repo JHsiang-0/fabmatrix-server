@@ -29,14 +29,16 @@ class JwtAuthenticationFilterSessionTest {
 
     private final LoginProtectUtil loginProtectUtil = Mockito.mock(LoginProtectUtil.class);
     private final UserMapper userMapper = Mockito.mock(UserMapper.class);
+    private final com.example.farm.service.LoginSessionService sessions =
+            Mockito.mock(com.example.farm.service.LoginSessionService.class);
     private TestJwtAuthenticationFilter filter;
 
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_SECRET_KEY", SECRET);
         ReflectionTestUtils.setField(JwtUtils.class, "STATIC_EXPIRE_TIME", 60_000L);
-        filter = new TestJwtAuthenticationFilter(new ObjectMapper(), loginProtectUtil);
-        ReflectionTestUtils.setField(filter, "userMapper", userMapper);
+        filter = new TestJwtAuthenticationFilter(new ObjectMapper(), loginProtectUtil, userMapper, sessions);
+        when(sessions.valid(Mockito.anyString(), Mockito.anyLong(), Mockito.anyLong())).thenReturn(true);
     }
 
     @AfterEach
@@ -109,6 +111,7 @@ class JwtAuthenticationFilterSessionTest {
                 .withClaim("username", username)
                 .withClaim("role", role)
                 .withClaim("tokenVersion", tokenVersion)
+                .withClaim("sessionId", "test-session")
                 .withExpiresAt(new Date(System.currentTimeMillis() + 60_000L))
                 .sign(Algorithm.HMAC256(SECRET));
     }
@@ -138,9 +141,31 @@ class JwtAuthenticationFilterSessionTest {
 
     @Test
     void revokedSessionIsRejectedBeforeController() throws Exception {
-        var sessions = Mockito.mock(com.example.farm.service.LoginSessionService.class);
-        ReflectionTestUtils.setField(filter, "loginSessionService", sessions);
+        when(sessions.valid(Mockito.anyString(), Mockito.anyLong(), Mockito.anyLong())).thenReturn(false);
         assertThat(execute(token(1L, "operator", "OPERATOR", 0L)).getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void unavailableSessionStoreRejectsRequestInsteadOfSkippingValidation() throws Exception {
+        when(sessions.valid(Mockito.anyString(), Mockito.anyLong(), Mockito.anyLong()))
+                .thenThrow(new IllegalStateException("fixture session store unavailable"));
+
+        MockHttpServletResponse response = execute(token(1L, "operator", "OPERATOR", 0L));
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())
+                .isNull();
+    }
+
+    @Test
+    void unavailableUserStoreRejectsRequestInsteadOfSkippingValidation() throws Exception {
+        when(userMapper.selectById(1L)).thenThrow(new IllegalStateException("fixture user store unavailable"));
+
+        MockHttpServletResponse response = execute(token(1L, "operator", "OPERATOR", 0L));
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication())
+                .isNull();
     }
 
     private User user(Long id, String username, String role, Long tokenVersion, boolean enabled) {
@@ -154,8 +179,9 @@ class JwtAuthenticationFilterSessionTest {
     }
 
     private static class TestJwtAuthenticationFilter extends JwtAuthenticationFilter {
-        private TestJwtAuthenticationFilter(ObjectMapper objectMapper, LoginProtectUtil loginProtectUtil) {
-            super(objectMapper, loginProtectUtil);
+        private TestJwtAuthenticationFilter(ObjectMapper objectMapper, LoginProtectUtil loginProtectUtil,
+                UserMapper userMapper, com.example.farm.service.LoginSessionService sessions) {
+            super(objectMapper, loginProtectUtil, userMapper, sessions);
         }
 
         private void filterForTest(MockHttpServletRequest request, MockHttpServletResponse response,

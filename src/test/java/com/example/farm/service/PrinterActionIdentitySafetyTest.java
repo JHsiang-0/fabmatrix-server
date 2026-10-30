@@ -83,10 +83,8 @@ class PrinterActionIdentitySafetyTest {
         properties = new PrinterRediscoveryProperties();
         properties.setEnabled(true);
         PrinterIdentityVerifier verifier = new PrinterIdentityVerifier(discovery, new MacAddressUtil(), properties);
-        jobs = new PrintJobServiceImpl(jobMapper, fileMapper, printers, storage, adapters, events);
-        control = new PrinterControlServiceImpl(printers, adapters, jobs, events);
-        ReflectionTestUtils.setField(jobs, "identityVerifier", verifier);
-        ReflectionTestUtils.setField(control, "identityVerifier", verifier);
+        jobs = new PrintJobServiceImpl(jobMapper, fileMapper, printers, storage, adapters, events, verifier);
+        control = new PrinterControlServiceImpl(printers, adapters, jobs, events, verifier);
 
         printer = new Printer();
         printer.setId(PRINTER_ID);

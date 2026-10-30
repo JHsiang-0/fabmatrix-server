@@ -18,6 +18,7 @@ import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.WebSocketEventPublisher;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,8 +47,8 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     @Autowired(required = false)
     private RedisUtil redisUtil;
 
-    @Autowired(required = false)
-    private PrinterIdentityVerifier identityVerifier;
+    @NonNull
+    private final PrinterIdentityVerifier identityVerifier;
 
     @Autowired(required = false)
     private PlatformTransactionManager transactionManager;
@@ -235,9 +236,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     private PrinterEndpoint endpointOf(Printer printer, PrinterOperation operation) {
         PrinterProtocolType protocolType = PrinterProtocolType.normalize(printer.getFirmwareType());
         PrinterLock.ensureValid(printer.getId());
-        if (identityVerifier != null) {
-            identityVerifier.verifyFresh(printer);
-        }
+        identityVerifier.verifyFresh(printer);
         return new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(), protocolType);
     }
 

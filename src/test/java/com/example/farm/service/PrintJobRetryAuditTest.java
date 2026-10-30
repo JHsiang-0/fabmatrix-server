@@ -58,6 +58,9 @@ class PrintJobRetryAuditTest {
     @Mock
     private AuditLogService auditLogService;
 
+    @Mock
+    private PrinterIdentityVerifier identityVerifier;
+
     @InjectMocks
     private PrintJobServiceImpl printJobService;
 

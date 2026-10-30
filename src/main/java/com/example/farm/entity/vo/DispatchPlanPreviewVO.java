@@ -1,6 +1,7 @@
 package com.example.farm.entity.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.ToString;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -22,6 +23,7 @@ public class DispatchPlanPreviewVO {
     @Schema(description = "执行动作")
     private String action;
     @Schema(description = "确认令牌，过期后不可使用")
+    @ToString.Exclude
     private String confirmationToken;
     @Schema(description = "预览过期时间")
     private LocalDateTime expiresAt;

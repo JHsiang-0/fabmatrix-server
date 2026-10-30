@@ -62,6 +62,9 @@ class PrintJobOwnershipTest {
     @Mock
     private WebSocketEventPublisher eventPublisher;
 
+    @Mock
+    private PrinterIdentityVerifier identityVerifier;
+
     @InjectMocks
     private PrintJobServiceImpl printJobService;
 

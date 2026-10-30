@@ -15,6 +15,7 @@ MySQL/SQLite 初始化分别使用 `db/init/mysql-schema.sql`、`db/init/sqlite-
 
 | 文档 | 用途 | 当前地位 |
 | --- | --- | --- |
+| [`CODE_CONVENTIONS.md`](./CODE_CONVENTIONS.md) | 分层、必需依赖、日志脱敏、配置和检查入口 | 当前代码规范 |
 | [`../AGENTS.md`](../AGENTS.md) | 后端协作、配置、安全和验证规则 | 工作规则 |
 | [`VERSION_AND_ROADMAP.md`](./VERSION_AND_ROADMAP.md) | 产品版本、历史规格和发布范围的唯一映射 | 当前权威索引 |
 | [`../API_HANDOFF.md`](../API_HANDOFF.md) | 前后端 HTTP/WebSocket 契约 | 当前接口依据 |

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.v3.oas.annotations.media.Schema;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.ToString;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -76,6 +77,7 @@ public class PrintFile {
     @TableField("rustfs_key")
     @Schema(description = "对象存储真实路径")
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     private String rustfsKey;
 
     @Schema(description = "原始文件名")
@@ -83,10 +85,12 @@ public class PrintFile {
 
     @Schema(description = "安全文件名（带时间戳）")
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     private String safeName;
 
     @Schema(description = "文件存储URL")
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     private String fileUrl;
 
     @Schema(description = "文件大小（字节）")

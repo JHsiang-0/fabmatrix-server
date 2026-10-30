@@ -36,6 +36,8 @@ class PrinterControlServiceTest {
     private PrintJobService printJobService;
     @Mock
     private WebSocketEventPublisher eventPublisher;
+    @Mock
+    private PrinterIdentityVerifier identityVerifier;
 
     @Test
     void routesPauseThroughAdapterWithoutMoonrakerDependency() {
@@ -44,7 +46,7 @@ class PrinterControlServiceTest {
         when(adapterFactory.getAdapter("KLIPPER")).thenReturn(adapter);
         when(printerService.updateById(printer)).thenReturn(true);
 
-        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).pause(403L);
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).pause(403L);
 
         ArgumentCaptor<PrinterEndpoint> endpoint = ArgumentCaptor.forClass(PrinterEndpoint.class);
         verify(adapter).pause(endpoint.capture());
@@ -58,7 +60,7 @@ class PrinterControlServiceTest {
         printer.setStatus("OFFLINE");
         when(printerService.getById(403L)).thenReturn(printer);
 
-        assertThatThrownBy(() -> new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).emergencyStop(403L))
+        assertThatThrownBy(() -> new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).emergencyStop(403L))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getCode()).isEqualTo(10001));
     }
@@ -78,7 +80,7 @@ class PrinterControlServiceTest {
         when(printJobService.updateById(job)).thenReturn(true);
         when(printerService.updateById(printer)).thenReturn(true);
 
-        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).resume(403L);
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).resume(403L);
 
         verify(adapter).resume(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
         assertThat(job.getStatus()).isEqualTo("PRINTING");
@@ -100,7 +102,7 @@ class PrinterControlServiceTest {
         when(printJobService.updateById(job)).thenReturn(true);
         when(printerService.updateById(printer)).thenReturn(true);
 
-        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher).pause(403L);
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).pause(403L);
 
         verify(adapter).pause(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
         assertThat(job.getStatus()).isEqualTo("PAUSED");
@@ -122,7 +124,7 @@ class PrinterControlServiceTest {
         when(printJobService.updateById(job)).thenReturn(true);
         when(printerService.updateById(printer)).thenReturn(true);
 
-        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher)
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher, identityVerifier)
                 .emergencyStop(403L);
 
         verify(adapter).emergencyStop(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class));
@@ -147,7 +149,7 @@ class PrinterControlServiceTest {
         when(printerService.updateById(printer)).thenReturn(false);
 
         assertThatThrownBy(() -> new PrinterControlServiceImpl(
-                printerService, adapterFactory, printJobService, eventPublisher).resume(403L))
+                printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).resume(403L))
                 .hasMessage("恢复打印后更新打印机状态失败");
 
         org.mockito.Mockito.verify(eventPublisher, org.mockito.Mockito.never()).publishJobStatus(job);
@@ -159,7 +161,7 @@ class PrinterControlServiceTest {
         when(printerService.getById(403L)).thenReturn(printer);
 
         assertThatThrownBy(() -> new PrinterControlServiceImpl(
-                printerService, adapterFactory, printJobService, eventPublisher).resume(403L))
+                printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).resume(403L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("打印机当前没有绑定任务");
     }
@@ -180,7 +182,7 @@ class PrinterControlServiceTest {
         when(printerService.updateById(org.mockito.ArgumentMatchers.any(Printer.class))).thenReturn(true);
 
         assertThatThrownBy(() -> new PrinterControlServiceImpl(
-                printerService, adapterFactory, printJobService, eventPublisher).pause(403L))
+                printerService, adapterFactory, printJobService, eventPublisher, identityVerifier).pause(403L))
                 .extracting("code").isEqualTo(503L);
 
         verify(printJobService).markReconciliation(1001L, "暂停设备动作结果未知: 设备响应超时");
@@ -198,7 +200,7 @@ class PrinterControlServiceTest {
         when(printerService.getById(403L)).thenReturn(printer);
         when(printJobService.getById(1001L)).thenReturn(job);
 
-        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher)
+        new PrinterControlServiceImpl(printerService, adapterFactory, printJobService, eventPublisher, identityVerifier)
                 .cancelCurrentJob(403L);
 
         org.mockito.Mockito.verify(printJobService).cancelJob(1001L);

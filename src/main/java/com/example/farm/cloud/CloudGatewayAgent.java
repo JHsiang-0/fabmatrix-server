@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.List;
+import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -55,6 +56,10 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private List<CloudWire.CanonicalPacket> inventoryPlan;
     private int inventoryPartIndex;
     private boolean inventoryComplete;
+    private List<CloudWire.CanonicalDescriptorPacket> descriptorPlan;
+    private int descriptorIndex;
+    private long lastDescriptorScan;
+    private final Map<String, Long> acknowledgedDescriptorRevisions = new HashMap<>();
     private boolean terminal;
     private Pending pending;
     private long lastCapture;
@@ -72,7 +77,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
 
     public record Status(String state, boolean connected, String gatewayId, Long lastAckAt, String errorCode, boolean pending) { }
     private record Pending(String messageId, long epoch, long sequence, Instant observedAt, String type,
-                           String raw, long lastSentAt) { }
+                           String localPrinterId, long descriptorRevision, String raw, long lastSentAt) { }
     public Status status() { return status; }
 
     @Override public void start() {
@@ -107,6 +112,13 @@ public class CloudGatewayAgent implements SmartLifecycle {
             if (protocol.selectedSchemaVersion() == 3 && !inventoryComplete) {
                 prepareInventoryPending();
             }
+            if (protocol.selectedSchemaVersion() == 3 && inventoryComplete && pending == null
+                    && descriptorPlan == null && now - lastDescriptorScan >= 30000) {
+                prepareDescriptorPlan();
+            }
+            if (protocol.selectedSchemaVersion() == 3 && inventoryComplete && descriptorPlan != null) {
+                prepareDescriptorPending();
+            }
             int legacySchemaVersion = protocol.selectedSchemaVersion() == 3
                     ? (properties.isObservationV2Enabled() ? 2 : 1) : protocol.selectedSchemaVersion();
             if (pending == null && inventoryComplete && now - lastCapture >= 5000) {
@@ -125,15 +137,15 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) { throw new RemoteFailure("SNAPSHOT_TOO_LARGE"); }
                     CloudAgentFiles.write(pendingFile(), raw);
                     pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(),
-                            packet.type(), raw, 0);
+                            packet.type(), null, 0, raw, 0);
                     if (snapshot) { lastSnapshot = now; lastSnapshotBody = body; }
                 }
             }
             if (pending != null && now - pending.lastSentAt() >= 5000) {
-                String topic = credential.topicPrefix() + "up/" + pending.type().toLowerCase(java.util.Locale.ROOT);
+                String topic = credential.topicPrefix() + "up/" + topicSegment(pending.type());
                 mqtt.publish(topic, pending.raw().getBytes(StandardCharsets.UTF_8), 1, false);
                 pending = new Pending(pending.messageId(), pending.epoch(), pending.sequence(), pending.observedAt(),
-                        pending.type(), pending.raw(), now);
+                        pending.type(), pending.localPrinterId(), pending.descriptorRevision(), pending.raw(), now);
             }
             retrySeconds = 1;
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
@@ -304,6 +316,14 @@ public class CloudGatewayAgent implements SmartLifecycle {
             inventoryPartIndex++;
             if (inventoryPlan != null && inventoryPartIndex >= inventoryPlan.size()) { inventoryComplete = true; }
         }
+        if ("PRINTER_DESCRIPTOR".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
+            acknowledgedDescriptorRevisions.put(pending.localPrinterId(), pending.descriptorRevision());
+            descriptorIndex++;
+            if (descriptorPlan != null && descriptorIndex >= descriptorPlan.size()) {
+                descriptorPlan = null;
+                lastDescriptorScan = System.currentTimeMillis();
+            }
+        }
         clearPending();
     }
 
@@ -322,7 +342,54 @@ public class CloudGatewayAgent implements SmartLifecycle {
         var packet = inventoryPlan.get(inventoryPartIndex);
         String raw = json.writeValueAsString(packet);
         CloudAgentFiles.write(pendingFile(), raw);
-        pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(), raw, 0);
+        pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
+                null, 0, raw, 0);
+    }
+
+    private void prepareDescriptorPlan() throws Exception {
+        String sourceInstanceId = source.sourceInstanceId();
+        var plan = new java.util.ArrayList<CloudWire.CanonicalDescriptorPacket>();
+        for (var asset : source.captureCanonical()) {
+            var model = asset.model();
+            if (model == null) { continue; }
+            if (!sourceInstanceId.equals(model.identity().sourceInstanceId().toString())
+                    || !asset.deviceUid().equals(model.identity().deviceUid().toString())
+                    || !asset.localPrinterId().equals(model.identity().localPrinterId())) {
+                throw new RemoteFailure("LOCAL_CANONICAL_IDENTITY_MISMATCH");
+            }
+            long revision = model.descriptor().revision();
+            if (revision <= acknowledgedDescriptorRevisions.getOrDefault(asset.localPrinterId(), 0L)) { continue; }
+            var payload = new CloudWire.DescriptorPayload(model.identity(), model.descriptor());
+            var packet = new CloudWire.CanonicalDescriptorPacket(3, UUID.randomUUID().toString(),
+                    "PRINTER_DESCRIPTOR", credential.gatewayId(), credential.bindingVersion(), bootId, epoch,
+                    ++sequence, Instant.now(), payload);
+            if (json.writeValueAsBytes(packet).length > protocol.maxMessageBytes()) {
+                throw new RemoteFailure("DESCRIPTOR_TOO_LARGE");
+            }
+            plan.add(packet);
+        }
+        descriptorPlan = plan.isEmpty() ? null : List.copyOf(plan);
+        descriptorIndex = 0;
+        lastDescriptorScan = System.currentTimeMillis();
+    }
+
+    private void prepareDescriptorPending() throws Exception {
+        if (pending != null) { return; }
+        if (descriptorIndex >= descriptorPlan.size()) {
+            descriptorPlan = null;
+            return;
+        }
+        var packet = descriptorPlan.get(descriptorIndex);
+        String raw = json.writeValueAsString(packet);
+        String localPrinterId = packet.payload().identity().localPrinterId();
+        long revision = packet.payload().descriptor().revision();
+        CloudAgentFiles.write(pendingFile(), raw);
+        pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
+                localPrinterId, revision, raw, 0);
+    }
+
+    private String topicSegment(String type) {
+        return "PRINTER_DESCRIPTOR".equals(type) ? "descriptor" : type.toLowerCase(java.util.Locale.ROOT);
     }
 
     private Path pendingFile() { return Path.of(properties.getStateDirectory()).resolve("cloud-snapshot-pending.json"); }

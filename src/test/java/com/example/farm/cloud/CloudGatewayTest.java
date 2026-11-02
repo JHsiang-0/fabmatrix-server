@@ -62,6 +62,31 @@ class CloudGatewayTest {
                 sourceId, 1, devices, 65536, 200, 2, 524288)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test void canonicalDescriptorPacketUsesCloudV3EnvelopeAndPrivacyFilteredModel() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        Printer printer = asset(42L);
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        printer.setApiKey("must-not-be-published");
+        var at = Instant.now();
+        var observation = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        var model = CanonicalPrinterModelMapper.map(printer, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, observation, null, true, at);
+        var packet = new CloudWire.CanonicalDescriptorPacket(3, UUID.randomUUID().toString(),
+                "PRINTER_DESCRIPTOR", UUID.randomUUID().toString(), 1, UUID.randomUUID().toString(),
+                1, 1, at, new CloudWire.DescriptorPayload(model.identity(), model.descriptor()));
+
+        var root = json.readTree(json.writeValueAsBytes(packet));
+        var payloadKeys = new java.util.HashSet<String>();
+        root.path("payload").fieldNames().forEachRemaining(payloadKeys::add);
+        assertThat(root.path("schemaVersion").asInt()).isEqualTo(3);
+        assertThat(root.path("type").asText()).isEqualTo("PRINTER_DESCRIPTOR");
+        assertThat(payloadKeys).containsExactlyInAnyOrder("identity", "descriptor");
+        assertThat(root.path("payload").path("descriptor").path("revision").asLong()).isEqualTo(1);
+        assertThat(json.writeValueAsString(packet)).doesNotContain("must-not-be-published");
+    }
+
     @Test void fileWritesAreAtomicBoundedAndOwnerProtected() throws Exception {
         Path file = temp.resolve("nested/credential.json");
         CloudAgentFiles.verifyWritable(file);

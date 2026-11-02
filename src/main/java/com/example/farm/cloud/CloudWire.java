@@ -3,6 +3,7 @@ package com.example.farm.cloud;
 import java.time.Instant;
 import java.util.List;
 import java.math.BigDecimal;
+import com.example.farm.protocol.model.CanonicalPrinterModel;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 public final class CloudWire {
@@ -47,4 +48,9 @@ public final class CloudWire {
     public record CanonicalPacket(int schemaVersion, String messageId, String type, String gatewayId,
                                   long bindingVersion, String bootId, long epoch, long sequence,
                                   Instant observedAt, InventoryPayload payload) { }
+    public record DescriptorPayload(CanonicalPrinterModel.Identity identity,
+                                    CanonicalPrinterModel.Descriptor descriptor) { }
+    public record CanonicalDescriptorPacket(int schemaVersion, String messageId, String type, String gatewayId,
+                                            long bindingVersion, String bootId, long epoch, long sequence,
+                                            Instant observedAt, DescriptorPayload payload) { }
 }

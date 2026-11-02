@@ -106,6 +106,38 @@ class CanonicalPrinterModelMapperTest {
     }
 
     @Test
+    void mapsOnlyPersistedTerminalEvidenceIntoLastExecutionResult() {
+        Instant endedAt = Instant.parse("2026-11-02T10:10:00Z");
+        Printer printer = new Printer();
+        printer.setId(12L);
+        printer.setDeviceUid("d3a64af8-b6d4-46c4-9a34-d2eb2c71f9a4");
+        PrinterExecution completed = new PrinterExecution();
+        completed.setExecutionUid("f5875710-91fa-4e8d-a8c6-300495d6c71a");
+        completed.setState("COMPLETED");
+        completed.setLastRawState("complete");
+        completed.setHasSeenProcessing(true);
+        completed.setEndedAt(java.time.LocalDateTime.of(2026, 11, 2, 18, 10));
+
+        var completedModel = CanonicalPrinterModelMapper.map(printer, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, null, null, completed, false, endedAt);
+        assertEquals(UUID.fromString(completed.getExecutionUid()),
+                completedModel.observation().lastExecutionResult().executionId());
+        assertEquals(CanonicalPrinterModel.ExecutionOutcome.COMPLETED,
+                completedModel.observation().lastExecutionResult().outcome());
+        assertEquals(CanonicalPrinterModel.ExecutionEvidence.DEVICE_EXPLICIT,
+                completedModel.observation().lastExecutionResult().evidence());
+
+        completed.setState("UNKNOWN");
+        completed.setLastRawState("idle");
+        var unknownModel = CanonicalPrinterModelMapper.map(printer, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, null, null, completed, false, endedAt);
+        assertEquals(CanonicalPrinterModel.ExecutionOutcome.UNKNOWN,
+                unknownModel.observation().lastExecutionResult().outcome());
+        assertEquals(CanonicalPrinterModel.ExecutionEvidence.UNCONFIRMED,
+                unknownModel.observation().lastExecutionResult().evidence());
+    }
+
+    @Test
     void mapsDiscoveredFansAxesAndSensorsWithDescriptorReferences() throws Exception {
         Instant captured = Instant.parse("2026-11-02T10:00:00Z");
         Printer printer = new Printer();

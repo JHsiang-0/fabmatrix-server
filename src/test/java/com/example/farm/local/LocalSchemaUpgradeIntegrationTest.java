@@ -211,6 +211,16 @@ class LocalSchemaUpgradeIntegrationTest {
         new com.example.farm.config.LocalSchemaMigration(jdbcTemplate).run();
         assertThat(jdbcTemplate.queryForObject("SELECT execution_uid FROM farm_printer_execution "
                 + "WHERE printer_id = 9103", String.class)).isEqualTo(executionUid);
+        jdbcTemplate.update("UPDATE farm_printer_execution SET state = 'UNKNOWN', last_raw_state = 'idle', "
+                        + "ended_at = ? WHERE printer_id = 9103",
+                java.sql.Timestamp.valueOf("2026-11-02 10:00:00"));
+        assertThat(restartedStateService.persist(printer, observation)).isTrue();
+        var withUnconfirmedResult = restartedStateService.findLatest(9103L).observation().lastExecutionResult();
+        assertThat(withUnconfirmedResult.executionId()).isEqualTo(UUID.fromString(executionUid));
+        assertThat(withUnconfirmedResult.outcome())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionOutcome.UNKNOWN);
+        assertThat(withUnconfirmedResult.evidence())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionEvidence.UNCONFIRMED);
     }
 
     private static void createPreTc007Fixture(Path databasePath) {

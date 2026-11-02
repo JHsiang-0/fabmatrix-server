@@ -10,6 +10,8 @@ public interface PrinterExecutionService {
 
     PrinterExecution findActive(Long printerId);
 
+    PrinterExecution findLastFinished(Long printerId);
+
     PrinterExecution beginFarmExecution(Long printerId, Long jobId, String expectedFilename,
                                         PrinterDeviceStatus confirmedStatus);
 

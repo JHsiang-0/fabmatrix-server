@@ -44,6 +44,20 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
     }
 
     @Override
+    public PrinterExecution findLastFinished(Long printerId) {
+        if (printerId == null) {
+            return null;
+        }
+        return executionMapper.selectOne(new LambdaQueryWrapper<PrinterExecution>()
+                .eq(PrinterExecution::getPrinterId, printerId)
+                .ne(PrinterExecution::getState, ACTIVE)
+                .isNotNull(PrinterExecution::getEndedAt)
+                .orderByDesc(PrinterExecution::getEndedAt)
+                .orderByDesc(PrinterExecution::getId)
+                .last("LIMIT 1"));
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public PrinterExecution beginFarmExecution(Long printerId, Long jobId, String expectedFilename,
                                                PrinterDeviceStatus confirmedStatus) {

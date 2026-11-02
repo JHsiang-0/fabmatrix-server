@@ -51,15 +51,16 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
         UUID sourceInstanceId = UUID.fromString(jdbcTemplate.queryForObject(
                 "SELECT source_instance_id FROM farm_installation_identity WHERE id = 1", String.class));
         var activeExecution = executionService.findActive(current.getId());
+        var lastFinishedExecution = executionService.findLastFinished(current.getId());
         CanonicalPrinterModel model = CanonicalPrinterModelMapper.map(current, sourceInstanceId,
                 deviceBootId, observationRevision, descriptorRevision, observation, activeExecution,
-                continuityUnknown, Instant.now());
+                lastFinishedExecution, continuityUnknown, Instant.now());
         String descriptorJson = serialize(model.descriptor());
         if (previous != null && !descriptorJson.equals(previous.get("descriptor_json"))) {
             descriptorRevision++;
             model = CanonicalPrinterModelMapper.map(current, sourceInstanceId, deviceBootId,
                     observationRevision, descriptorRevision, observation, activeExecution,
-                    continuityUnknown, Instant.now());
+                    lastFinishedExecution, continuityUnknown, Instant.now());
             descriptorJson = serialize(model.descriptor());
         }
         String modelJson = serialize(model);

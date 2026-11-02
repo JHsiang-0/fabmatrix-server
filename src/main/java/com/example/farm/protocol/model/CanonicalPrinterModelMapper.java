@@ -21,6 +21,15 @@ public final class CanonicalPrinterModelMapper {
                                             UUID deviceBootId, long observationRevision, long descriptorRevision,
                                             PrinterObservation observation, PrinterExecution activeExecution,
                                             boolean continuityUnknown, Instant capturedAt) {
+        return map(printer, sourceInstanceId, deviceBootId, observationRevision, descriptorRevision,
+                observation, activeExecution, null, continuityUnknown, capturedAt);
+    }
+
+    public static CanonicalPrinterModel map(Printer printer, UUID sourceInstanceId,
+                                            UUID deviceBootId, long observationRevision, long descriptorRevision,
+                                            PrinterObservation observation, PrinterExecution activeExecution,
+                                            PrinterExecution lastFinishedExecution,
+                                            boolean continuityUnknown, Instant capturedAt) {
         if (printer == null || printer.getId() == null || printer.getDeviceUid() == null
                 || sourceInstanceId == null || deviceBootId == null || observationRevision < 1
                 || descriptorRevision < 1 || capturedAt == null) {
@@ -33,8 +42,8 @@ public final class CanonicalPrinterModelMapper {
             throw new IllegalArgumentException("Printer deviceUid must be a UUID", invalidUid);
         }
         Descriptor descriptor = descriptor(printer, observation, descriptorRevision);
-        Observation mappedObservation = observation(printer, observation, activeExecution, capturedAt, deviceBootId,
-                observationRevision, descriptor.revision(), continuityUnknown);
+        Observation mappedObservation = observation(printer, observation, activeExecution, lastFinishedExecution,
+                capturedAt, deviceBootId, observationRevision, descriptor.revision(), continuityUnknown);
         CanonicalPrinterModel result = new CanonicalPrinterModel(CURRENT_MODEL_VERSION,
                 new Identity(sourceInstanceId, deviceUid, printer.getId().toString()), descriptor, mappedObservation);
         CanonicalPrinterModelValidator.validate(result);
@@ -103,7 +112,8 @@ public final class CanonicalPrinterModelMapper {
     }
 
     private static Observation observation(Printer printer, PrinterObservation source,
-                                           PrinterExecution activeExecution, Instant capturedAt,
+                                           PrinterExecution activeExecution, PrinterExecution lastFinishedExecution,
+                                           Instant capturedAt,
                                            UUID deviceBootId, long observationRevision, long descriptorRevision,
                                            boolean continuityUnknown) {
         Instant started = source == null || source.captureStartedAt() == null ? capturedAt : source.captureStartedAt();
@@ -144,7 +154,37 @@ public final class CanonicalPrinterModelMapper {
                 source == null ? SystemState.UNKNOWN : SystemState.valueOf(source.systemState().name()),
                 source == null ? OperationState.UNKNOWN : OperationState.valueOf(source.operationState().name()),
                 source == null ? null : source.currentToolId(), heaters, fans, motion, sensors, execution,
-                null, issues);
+                lastExecutionResult(lastFinishedExecution), issues);
+    }
+
+    private static LastExecutionResult lastExecutionResult(PrinterExecution execution) {
+        if (execution == null || execution.getExecutionUid() == null || execution.getEndedAt() == null
+                || "ACTIVE".equalsIgnoreCase(execution.getState())) {
+            return null;
+        }
+        UUID executionId = UUID.fromString(execution.getExecutionUid());
+        String state = execution.getState() == null ? "" : execution.getState().trim().toUpperCase(Locale.ROOT);
+        String rawState = execution.getLastRawState() == null ? ""
+                : execution.getLastRawState().trim().toLowerCase(Locale.ROOT);
+        ExecutionOutcome outcome = switch (state) {
+            case "COMPLETED" -> ExecutionOutcome.COMPLETED;
+            case "CANCELLED", "CANCELED" -> ExecutionOutcome.CANCELLED;
+            case "FAILED" -> ExecutionOutcome.FAILED;
+            default -> ExecutionOutcome.UNKNOWN;
+        };
+        ExecutionEvidence evidence = outcome == ExecutionOutcome.UNKNOWN ? ExecutionEvidence.UNCONFIRMED
+                : outcome == ExecutionOutcome.COMPLETED && !"complete".equals(rawState)
+                ? ExecutionEvidence.RECONCILED : ExecutionEvidence.DEVICE_EXPLICIT;
+        ExecutionKind kind = Boolean.TRUE.equals(execution.getHasSeenProcessing())
+                ? ExecutionKind.PRINT : ExecutionKind.UNKNOWN;
+        String reasonCode = switch (outcome) {
+            case COMPLETED -> "complete".equals(rawState) ? "DEVICE_REPORTED_COMPLETE" : "STABLE_IDLE_AFTER_EXECUTION";
+            case CANCELLED -> "DEVICE_REPORTED_CANCELLED";
+            case FAILED -> "DEVICE_REPORTED_FAILED";
+            case UNKNOWN -> "TERMINAL_UNCONFIRMED";
+        };
+        Instant endedAt = execution.getEndedAt().atZone(ZoneId.systemDefault()).toInstant();
+        return new LastExecutionResult(executionId, outcome, kind, evidence, endedAt, endedAt, reasonCode);
     }
 
     private static Execution execution(PrinterObservation.Execution source, PrinterExecution persisted,

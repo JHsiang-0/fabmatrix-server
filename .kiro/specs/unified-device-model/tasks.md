@@ -29,7 +29,7 @@ T2.1 验收记录：`CanonicalPrinterModelMapperTest` 的 6 项测试通过；�
 
 T2.5 进度：SQLite 集成测试现通过重建 `CanonicalPrinterStateServiceImpl` 实例模拟进程重启，验证旧模型可恢复，新设备 boot ID 和 observation revision 前进，descriptor revision 保持稳定，并标记 `CONTINUITY_UNKNOWN`。这只覆盖状态快照重启恢复；执行当前/最后结果的持久化边界及缓存/LAN 回归仍未验收，因此 T2.5 不勾选。
 
-T2.4 进度：现场执行行已有稳定 UUID、来源、首次观测时间和既有 Farm 任务关联。新增外部执行稳定空闲后无明确终态证据时记为 `UNKNOWN`，明确取消/中止分别保留对应终态；设备重启判定以最近已观测 uptime 为准并兼容旧记录回退到开始 uptime。新增回归测试；Server 全量 `mvnw.cmd test`（820 项）通过。T2.4 仍未完成：重启后仍在执行时的生命周期、同文件重复执行切分，以及当前/最后执行结果模型联动需继续验收；本次未连接真实设备。
+T2.4 进度：现场执行行已有稳定 UUID、来源、首次观测时间和既有 Farm 任务关联。新增外部执行稳定空闲后无明确终态证据时记为 `UNKNOWN`，明确取消/中止分别保留对应终态；设备重启判定以最近已观测 uptime 为准并兼容旧记录回退到开始 uptime。新增回归测试覆盖同名文件在前一会话结束后获得新 UUID；Server 全量 `mvnw.cmd test`（821 项）通过。T2.4 仍未完成：重启后仍在执行时的生命周期、同一活动会话内无法观测到空闲的重复启动识别，以及当前/最后执行结果模型联动需继续验收；本次未连接真实设备。
 
 T2.2 验收记录：Moonraker 按对象白名单请求已加载的基础状态、多个 extruder/加热器、风扇、轴及 filament sensor 对象；无动态对象列表时，回退查询只依赖 `webhooks`、`print_stats`、`display_status`，允许缺少独立 extruder/热床。解析测试覆盖多通道与缺失值；对象选择测试覆盖允许类别及无关/超长对象拒绝。Server 全量 `mvnw.cmd test` 共 816 项通过。未连接真实 Klipper 设备。
 

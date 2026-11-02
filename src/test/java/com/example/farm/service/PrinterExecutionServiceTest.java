@@ -86,6 +86,18 @@ class PrinterExecutionServiceTest {
         assertThat(service.deviceRestarted(execution, statusWithUptime(800))).isFalse();
     }
 
+    @Test
+    void detectsRestartAgainstLatestUptimeEvenWhenItExceedsExecutionStartUptime() {
+        PrinterExecutionServiceImpl service = new PrinterExecutionServiceImpl(
+                executionMapper, printJobMapper, printerMapper);
+        PrinterExecution execution = new PrinterExecution();
+        execution.setDeviceUptimeAtStart(100L);
+        execution.setDeviceUptimeLast(1_000L);
+
+        assertThat(service.deviceRestarted(execution, statusWithUptime(500))).isTrue();
+        assertThat(service.deviceRestarted(execution, statusWithUptime(1_200))).isFalse();
+    }
+
     private PrinterDeviceStatus processingStatus() {
         return new PrinterDeviceStatus(
                 PrinterStatus.PRINTING, "processing", null, "0:/gcodes/part.gcode",

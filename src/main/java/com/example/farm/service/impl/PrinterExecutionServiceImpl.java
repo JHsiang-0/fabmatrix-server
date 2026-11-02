@@ -105,11 +105,12 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
 
     @Override
     public boolean deviceRestarted(PrinterExecution execution, PrinterDeviceStatus status) {
-        if (execution == null || status == null || status.deviceUptime() == null
-                || execution.getDeviceUptimeAtStart() == null) {
+        if (execution == null || status == null || status.deviceUptime() == null) {
             return false;
         }
-        return status.deviceUptime().longValue() < execution.getDeviceUptimeAtStart();
+        Long lastKnownUptime = execution.getDeviceUptimeLast() == null
+                ? execution.getDeviceUptimeAtStart() : execution.getDeviceUptimeLast();
+        return lastKnownUptime != null && status.deviceUptime().longValue() < lastKnownUptime;
     }
 
     @Override

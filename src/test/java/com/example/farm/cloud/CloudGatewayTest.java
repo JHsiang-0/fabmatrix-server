@@ -6,6 +6,9 @@ import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.example.farm.protocol.observation.PrinterObservationView;
+import com.example.farm.protocol.observation.PrinterObservation;
+import com.example.farm.protocol.model.CanonicalPrinterModelMapper;
+import com.example.farm.service.CanonicalPrinterStateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -101,6 +104,37 @@ class CloudGatewayTest {
         String v2 = json.writeValueAsString(source.captureV2());
         assertThat(v2).contains("PARTIAL", "currentC", "GOOD").doesNotContain("private.gcode", "filename");
         assertThat(json.writeValueAsString(source.capture())).doesNotContain("observation");
+    }
+
+    @Test void canonicalCaptureKeepsAssetIdentityAndReadsOnlyPersistedFullModels() {
+        PrinterService printers = mock(PrinterService.class);
+        PrinterCacheService cache = mock(PrinterCacheService.class);
+        CanonicalPrinterStateService states = mock(CanonicalPrinterStateService.class);
+        var provider = mock(org.springframework.beans.factory.ObjectProvider.class);
+        Printer first = asset(1L);
+        first.setDeviceUid(java.util.UUID.randomUUID().toString());
+        first.setName("Canonical printer");
+        first.setMachineNumber("M-1");
+        when(printers.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(List.of(first, asset(2L)));
+        var at = java.time.Instant.now();
+        var observation = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        var model = CanonicalPrinterModelMapper.map(first, java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                1, 1, observation, null, true, at);
+        when(states.findLatest(1L)).thenReturn(model);
+        when(provider.getIfAvailable()).thenReturn(states);
+
+        var captured = new CloudSnapshotSource(printers, cache, provider).captureCanonical();
+        assertThat(captured).hasSize(2);
+        assertThat(captured.getFirst().localPrinterId()).isEqualTo("1");
+        assertThat(captured.getFirst().deviceUid()).isEqualTo(first.getDeviceUid());
+        assertThat(captured.getFirst().name()).isEqualTo("Canonical printer");
+        assertThat(captured.getFirst().model()).isSameAs(model);
+        assertThat(captured.get(1).model()).isNull();
+        verify(states).findLatest(1L);
+        verify(states).findLatest(2L);
     }
 
     @Test void rejectsOversizedFarmWithoutSilentlyDroppingDevices() {

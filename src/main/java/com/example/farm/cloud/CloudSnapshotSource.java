@@ -4,9 +4,13 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.vo.PrinterVO;
+import com.example.farm.protocol.model.CanonicalPrinterModel;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.protocol.observation.PrinterObservation;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -22,7 +26,37 @@ import java.util.Locale;
 public class CloudSnapshotSource {
     private final PrinterService printers;
     private final PrinterCacheService cache;
-    public CloudSnapshotSource(PrinterService printers, PrinterCacheService cache) { this.printers = printers; this.cache = cache; }
+    private final ObjectProvider<CanonicalPrinterStateService> canonicalStateServices;
+
+    @Autowired
+    public CloudSnapshotSource(PrinterService printers, PrinterCacheService cache,
+                               ObjectProvider<CanonicalPrinterStateService> canonicalStateServices) {
+        this.printers = printers;
+        this.cache = cache;
+        this.canonicalStateServices = canonicalStateServices;
+    }
+
+    CloudSnapshotSource(PrinterService printers, PrinterCacheService cache) {
+        this.printers = printers;
+        this.cache = cache;
+        this.canonicalStateServices = null;
+    }
+
+    public record CanonicalAsset(String localPrinterId, String deviceUid, String name, String machineNumber,
+                                 String firmwareType, CanonicalPrinterModel model) { }
+
+    /** Captures the privacy-filtered asset identity and the last locally persisted full model. */
+    public List<CanonicalAsset> captureCanonical() {
+        var assets = printers.list(Wrappers.<Printer>lambdaQuery().orderByAsc(Printer::getId).last("LIMIT 201"));
+        if (assets.size() > 200) { throw new IllegalStateException("Cloud gateway currently supports at most 200 printers"); }
+        CanonicalPrinterStateService canonicalStates = canonicalStateServices == null
+                ? null : canonicalStateServices.getIfAvailable();
+        return assets.stream().map(asset -> new CanonicalAsset(asset.getId() == null ? null : asset.getId().toString(),
+                asset.getDeviceUid(), limited(asset.getName(), 100, "Unnamed printer"),
+                limited(asset.getMachineNumber(), 50, null), limited(asset.getFirmwareType(), 32, "UNKNOWN"),
+                canonicalStates == null || asset.getId() == null ? null : canonicalStates.findLatest(asset.getId())))
+                .toList();
+    }
 
     public List<CloudWire.Printer> capture() {
         return capture(false);

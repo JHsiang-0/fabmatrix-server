@@ -690,6 +690,19 @@ public class PrinterMonitorTask implements SmartLifecycle {
                     executionSource = "FARM";
                 }
             }
+            PrinterExecution active = printerExecutionService.findActive(printer.getId());
+            if (active != null && printerExecutionService.deviceRestarted(active, status)) {
+                log.warn("打印机运行时间回退，设备重启后执行连续性需核对: printerId={}, executionId={}",
+                        printer.getId(), active.getId());
+                if ("FARM".equals(active.getSource()) && context.farmJob() != null
+                        && java.util.Objects.equals(active.getFarmJobId(), context.farmJob().getId())
+                        && reconcileIdleJob(context.farmJob(),
+                        "设备运行时间重置，打印机重启后的任务连续性需人工核对")) {
+                    if (printJobService.updateById(context.farmJob())) {
+                        eventPublisher.publishJobStatus(context.farmJob());
+                    }
+                }
+            }
             printerExecutionService.observeExecuting(
                     printer.getId(), farmJobId, executionSource,
                     expectedFilename(context.farmJob()), status);

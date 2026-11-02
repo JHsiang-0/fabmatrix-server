@@ -116,6 +116,53 @@ class PrinterMonitorAdapterTest {
     }
 
     @Test
+    void marksFarmJobForReconciliationWhenPrinterRebootsDuringExecution() {
+        Printer printer = printer("RRF");
+        printer.setCurrentJobId(1001L);
+        PrintJob job = new PrintJob();
+        job.setId(1001L);
+        job.setPrinterId(403L);
+        job.setFileId(3001L);
+        job.setStatus("PRINTING");
+        PrintFile expectedFile = new PrintFile();
+        expectedFile.setId(3001L);
+        expectedFile.setOriginalName("demo.gcode");
+        PrinterExecution execution = new PrinterExecution();
+        execution.setId(7004L);
+        execution.setPrinterId(403L);
+        execution.setFarmJobId(1001L);
+        execution.setSource("FARM");
+        execution.setState("ACTIVE");
+
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("RRF")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(
+                PrinterStatus.PRINTING, "processing", null, "demo.gcode", BigDecimal.valueOf(35),
+                null, null, null, null, null, null, null));
+        when(printJobService.getById(1001L)).thenReturn(job);
+        when(printJobService.updateById(any(PrintJob.class))).thenReturn(true);
+        when(printFileMapper.selectById(3001L)).thenReturn(expectedFile);
+        when(printerExecutionService.findActive(403L)).thenReturn(execution);
+        when(printerExecutionService.deviceRestarted(eq(execution), any())).thenReturn(true);
+        when(printerExecutionService.observeExecuting(eq(403L), eq(1001L), eq("FARM"),
+                eq("demo.gcode"), any())).thenReturn(execution);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrintFileMapper();
+        installPrinterExecutionService();
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printJobService, timeout(1000)).updateById(job);
+        verify(eventPublisher, timeout(1000)).publishJobStatus(job);
+        assertThat(job.getStatus()).isEqualTo("RECONCILING");
+        assertThat(job.getErrorReason()).isEqualTo("设备运行时间重置，打印机重启后的任务连续性需人工核对");
+        verify(printerExecutionService, timeout(1000)).observeExecuting(
+                eq(403L), eq(1001L), eq("FARM"), eq("demo.gcode"), any());
+    }
+
+    @Test
     void treatsAdapterFailureAsOfflineAndClearsCachedStatus() {
         Printer printer = printer("RRF");
         when(printerService.listByIds(anyList())).thenReturn(List.of(printer));

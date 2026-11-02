@@ -4,6 +4,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.model.CanonicalPrinterModel;
 import com.example.farm.protocol.model.CanonicalPrinterModelMapper;
+import com.example.farm.protocol.model.CanonicalPrinterModelValidator;
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.service.PrinterExecutionService;
@@ -77,6 +78,26 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
                 """, current.getId(), deviceBootId.toString(), observationRevision,
                 descriptorRevision, descriptorJson, modelJson);
         return true;
+    }
+
+    @Override
+    public CanonicalPrinterModel findLatest(long printerId) {
+        if (printerId <= 0) return null;
+        String modelJson;
+        try {
+            modelJson = jdbcTemplate.queryForObject(
+                    "SELECT model_json FROM farm_printer_canonical_state WHERE printer_id = ?",
+                    String.class, printerId);
+        } catch (EmptyResultDataAccessException missing) {
+            return null;
+        }
+        try {
+            CanonicalPrinterModel model = objectMapper.readValue(modelJson, CanonicalPrinterModel.class);
+            CanonicalPrinterModelValidator.validate(model);
+            return model;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
+            throw new IllegalStateException("Stored canonical printer model is invalid", invalid);
+        }
     }
 
     private Map<String, Object> previous(Long printerId) {

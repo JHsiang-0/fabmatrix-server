@@ -163,6 +163,7 @@ class LocalSchemaUpgradeIntegrationTest {
                 List.of(), List.of(), null, null);
         Printer printer = new Printer();
         printer.setId(9103L);
+        assertThat(canonicalPrinterStateService.findLatest(9103L)).isNull();
         assertThat(canonicalPrinterStateService.persist(printer, observation)).isTrue();
         assertThat(jdbcTemplate.queryForObject("SELECT observation_revision FROM farm_printer_canonical_state "
                 + "WHERE printer_id = 9103", Integer.class)).isEqualTo(1);
@@ -170,6 +171,11 @@ class LocalSchemaUpgradeIntegrationTest {
                 + "WHERE printer_id = 9103", Integer.class)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT model_json FROM farm_printer_canonical_state "
                 + "WHERE printer_id = 9103", String.class)).contains("\"modelVersion\":2", "deviceUid");
+        var storedModel = canonicalPrinterStateService.findLatest(9103L);
+        assertThat(storedModel.modelVersion()).isEqualTo(2);
+        assertThat(storedModel.identity().localPrinterId()).isEqualTo("9103");
+        assertThat(storedModel.observation().revision()).isEqualTo(1);
+        assertThat(canonicalPrinterStateService.findLatest(0)).isNull();
         assertThat(canonicalPrinterStateService.persist(printer, observation)).isTrue();
         assertThat(jdbcTemplate.queryForObject("SELECT observation_revision FROM farm_printer_canonical_state "
                 + "WHERE printer_id = 9103", Integer.class)).isEqualTo(2);

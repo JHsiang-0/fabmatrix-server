@@ -41,4 +41,10 @@ public final class CloudWire {
     public record ProtocolRequest(String gatewayId, long bindingVersion, List<Integer> supportedSchemaVersions) { }
     public record Protocol(int selectedSchemaVersion, int modelVersion, List<String> capabilities,
                            int maxMessageBytes, int maxPrinters, int maxInventoryParts, int maxInventoryBytes) { }
+    public record InventoryPayload(String inventoryId, long revision, String sourceInstanceId,
+                                   int partIndex, int partCount,
+                                   List<CloudSnapshotSource.InventoryDevice> devices) { }
+    public record CanonicalPacket(int schemaVersion, String messageId, String type, String gatewayId,
+                                  long bindingVersion, String bootId, long epoch, long sequence,
+                                  Instant observedAt, InventoryPayload payload) { }
 }

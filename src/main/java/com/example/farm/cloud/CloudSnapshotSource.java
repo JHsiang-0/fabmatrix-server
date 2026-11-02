@@ -9,6 +9,7 @@ import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.protocol.observation.PrinterObservation;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,23 +28,38 @@ public class CloudSnapshotSource {
     private final PrinterService printers;
     private final PrinterCacheService cache;
     private final ObjectProvider<CanonicalPrinterStateService> canonicalStateServices;
+    private final JdbcTemplate jdbcTemplate;
 
     @Autowired
     public CloudSnapshotSource(PrinterService printers, PrinterCacheService cache,
-                               ObjectProvider<CanonicalPrinterStateService> canonicalStateServices) {
+                               ObjectProvider<CanonicalPrinterStateService> canonicalStateServices,
+                               JdbcTemplate jdbcTemplate) {
         this.printers = printers;
         this.cache = cache;
         this.canonicalStateServices = canonicalStateServices;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     CloudSnapshotSource(PrinterService printers, PrinterCacheService cache) {
         this.printers = printers;
         this.cache = cache;
         this.canonicalStateServices = null;
+        this.jdbcTemplate = null;
+    }
+
+    CloudSnapshotSource(PrinterService printers, PrinterCacheService cache,
+                       ObjectProvider<CanonicalPrinterStateService> canonicalStateServices) {
+        this.printers = printers;
+        this.cache = cache;
+        this.canonicalStateServices = canonicalStateServices;
+        this.jdbcTemplate = null;
     }
 
     public record CanonicalAsset(String localPrinterId, String deviceUid, String name, String machineNumber,
                                  String firmwareType, CanonicalPrinterModel model) { }
+    public record InventoryIdentity(String sourceInstanceId, String deviceUid, String localPrinterId) { }
+    public record InventoryDescriptorSummary(String name, String machineNumber, String firmwareFamily) { }
+    public record InventoryDevice(InventoryIdentity identity, InventoryDescriptorSummary descriptorSummary) { }
 
     /** Captures the privacy-filtered asset identity and the last locally persisted full model. */
     public List<CanonicalAsset> captureCanonical() {
@@ -56,6 +72,29 @@ public class CloudSnapshotSource {
                 limited(asset.getMachineNumber(), 50, null), limited(asset.getFirmwareType(), 32, "UNKNOWN"),
                 canonicalStates == null || asset.getId() == null ? null : canonicalStates.findLatest(asset.getId())))
                 .toList();
+    }
+
+    public String sourceInstanceId() {
+        if (jdbcTemplate == null) { throw new IllegalStateException("Cloud source identity is unavailable"); }
+        return jdbcTemplate.queryForObject(
+                "SELECT source_instance_id FROM farm_installation_identity WHERE id = 1", String.class);
+    }
+
+    public List<InventoryDevice> captureInventoryDevices(String sourceInstanceId) {
+        java.util.UUID.fromString(sourceInstanceId);
+        return captureCanonical().stream().map(asset -> {
+            if (asset.localPrinterId() == null || !asset.localPrinterId().matches("[A-Za-z0-9._:-]{1,64}")) {
+                throw new IllegalStateException("Cloud inventory contains an invalid local printer ID");
+            }
+            java.util.UUID.fromString(asset.deviceUid());
+            String family = asset.firmwareType().toUpperCase(Locale.ROOT).contains("RRF")
+                    || asset.firmwareType().toUpperCase(Locale.ROOT).contains("REPRAP") ? "RRF"
+                    : asset.firmwareType().toUpperCase(Locale.ROOT).contains("KLIPPER") ? "KLIPPER" : null;
+            if (family == null) { throw new IllegalStateException("Cloud inventory contains an unsupported firmware family"); }
+            return new InventoryDevice(new InventoryIdentity(sourceInstanceId, asset.deviceUid(), asset.localPrinterId()),
+                    new InventoryDescriptorSummary(limited(asset.name(), 100, "Unnamed printer"),
+                            limited(asset.machineNumber(), 64, null), family));
+        }).toList();
     }
 
     public List<CloudWire.Printer> capture() {

@@ -16,6 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
@@ -30,6 +32,34 @@ class CloudGatewayTest {
         assertThat(CloudGatewayAgent.supportedSchemaVersions(true)).containsExactly(1, 2);
         assertThat(CloudGatewayAgent.legacyFallback(false).selectedSchemaVersion()).isEqualTo(1);
         assertThat(CloudGatewayAgent.legacyFallback(true).selectedSchemaVersion()).isEqualTo(2);
+    }
+
+    @Test void canonicalInventoryPlanPartitionsAndBoundsEveryV3Message() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        String gatewayId = UUID.randomUUID().toString();
+        String bootId = UUID.randomUUID().toString();
+        String sourceId = UUID.randomUUID().toString();
+        var devices = java.util.stream.IntStream.range(0, 51).mapToObj(index ->
+                new CloudSnapshotSource.InventoryDevice(
+                        new CloudSnapshotSource.InventoryIdentity(sourceId, UUID.randomUUID().toString(), "" + (index + 1)),
+                        new CloudSnapshotSource.InventoryDescriptorSummary("Printer " + index, null, "KLIPPER")))
+                .toList();
+
+        var plan = CloudInventoryPlan.build(json, gatewayId, 1, bootId, 1, 1, Instant.now(), sourceId,
+                1, devices, 65536, 200, 8, 524288);
+
+        assertThat(plan).hasSize(3);
+        assertThat(plan).extracting(CloudWire.CanonicalPacket::type).containsOnly("INVENTORY");
+        assertThat(plan).extracting(CloudWire.CanonicalPacket::schemaVersion).containsOnly(3);
+        assertThat(plan).extracting(CloudWire.CanonicalPacket::sequence).containsExactly(1L, 2L, 3L);
+        assertThat(plan).allSatisfy(part -> {
+            assertThat(part.payload().partCount()).isEqualTo(3);
+            assertThat(part.payload().devices()).hasSizeLessThanOrEqualTo(25);
+            assertThat(json.writeValueAsBytes(part)).hasSizeLessThanOrEqualTo(65536);
+        });
+        assertThat(plan).extracting(part -> part.payload().inventoryId()).containsOnly(plan.getFirst().payload().inventoryId());
+        assertThatThrownBy(() -> CloudInventoryPlan.build(json, gatewayId, 1, bootId, 1, 1, Instant.now(),
+                sourceId, 1, devices, 65536, 200, 2, 524288)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test void fileWritesAreAtomicBoundedAndOwnerProtected() throws Exception {
@@ -142,6 +172,27 @@ class CloudGatewayTest {
         assertThat(captured.get(1).model()).isNull();
         verify(states).findLatest(1L);
         verify(states).findLatest(2L);
+    }
+
+    @Test void inventoryCaptureUsesStableIdsAndRejectsUnknownFirmwareWithoutDroppingDevices() {
+        PrinterService printers = mock(PrinterService.class);
+        Printer asset = asset(1L);
+        asset.setDeviceUid(UUID.randomUUID().toString());
+        asset.setFirmwareType("RRF");
+        asset.setMachineNumber("M-1");
+        when(printers.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(asset));
+        var provider = mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        var source = new CloudSnapshotSource(printers, mock(PrinterCacheService.class), provider);
+        String sourceId = UUID.randomUUID().toString();
+
+        var inventory = source.captureInventoryDevices(sourceId);
+
+        assertThat(inventory).containsExactly(new CloudSnapshotSource.InventoryDevice(
+                new CloudSnapshotSource.InventoryIdentity(sourceId, asset.getDeviceUid(), "1"),
+                new CloudSnapshotSource.InventoryDescriptorSummary("Printer 1", "M-1", "RRF")));
+        asset.setFirmwareType("UNKNOWN");
+        assertThatThrownBy(() -> source.captureInventoryDevices(sourceId)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test void rejectsOversizedFarmWithoutSilentlyDroppingDevices() {

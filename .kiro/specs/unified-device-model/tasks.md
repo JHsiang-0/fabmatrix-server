@@ -31,6 +31,8 @@ T2.5 验收记录：SQLite 集成测试重建状态服务，验证已持久化�
 
 T2.6 进度：新增 `CanonicalPrinterEvent` 受限不可变事件对象，与 Cloud V3 事件词汇对齐；校验 UUID/设备身份、事件枚举、严重级别、代码格式和安全摘要上限，拒绝任意固件事件名及控制字符。SQLite `farm_printer_event_outbox` 已加入新库入口和旧库幂等升级，按入队顺序读取；相同事件 UUID 与内容幂等、相同 UUID 不同内容冲突；容量默认 10,000 条且可配置，满时拒绝并明确报错，只有显式 ACK 才删除。监控现于 ONLINE/OFFLINE 健康边界变化时记录 `DEVICE_CONNECTED`/`DEVICE_DISCONNECTED`，重复轮询不重复产生活动事件；消息含来源、设备和本地执行 UUID，不带通信错误原文。旧库迁移、outbox 行为、事件生成定向测试及 Server 全量 `mvnw.cmd test`（827 项）通过。Cloud 发送与事务 ACK 集成、满队列运维告警、其他执行事件生产者、Cloud 告警实例及遥测采样仍未完成，T2.6 不勾选。
 
+T2.7 验收记录：Klipper/RRF 合成 fixture、测量边界、采集期间任务切换、canonical SQLite 生命周期/恢复及旧 VO/REST/WebSocket 契约已有测试覆盖；字段范围及未支持/未实测信息见 Server `docs/UNIFIED_DEVICE_MODEL.md` 的 T2.7 表。Server 全量 `mvnw.cmd test`（827 项）通过。未连接真实 Klipper/RRF 打印机；真实只读验收保留在 T6.3。
+
 T2.4 进度：现场执行行已有稳定 UUID、来源、首次观测时间和既有 Farm 任务关联。外部执行稳定空闲后无明确终态证据时记为 `UNKNOWN`，明确取消/中止分别保留对应终态；设备重启判定以最近已观测 uptime 为准并兼容旧记录回退到开始 uptime。Farm 执行重启后若仍报告打印中，保留执行会话/设备绑定并将任务置为 `RECONCILING`，后续仅由设备明确终态完成核验。canonical 观测现映射最近一条已结束执行结果，未知结果为 `UNKNOWN/UNCONFIRMED`。回归覆盖同名文件在前一会话结束后获得新 UUID、来源切换关闭旧会话，以及 SQLite 旧库中未知终态的查询/映射；Server 全量 `mvnw.cmd test`（824 项）通过。T2.4 acceptance completed; indistinguishable same-file restarts without a firmware-observable boundary remain intentionally unsegmented; no real printer was connected.
 
 T2.2 验收记录：Moonraker 按对象白名单请求已加载的基础状态、多个 extruder/加热器、风扇、轴及 filament sensor 对象；无动态对象列表时，回退查询只依赖 `webhooks`、`print_stats`、`display_status`，允许缺少独立 extruder/热床。解析测试覆盖多通道与缺失值；对象选择测试覆盖允许类别及无关/超长对象拒绝。Server 全量 `mvnw.cmd test` 共 816 项通过。未连接真实 Klipper 设备。
@@ -43,7 +45,7 @@ T2.2 验收记录：Moonraker 按对象白名单请求已加载的基础状态�
 - [x] T2.4 实现统一执行标识及现场 `farm_printer_execution` 的兼容扩展，处理外部打印、重启、同文件重复、过渡和未知结果。对应 R4、R5。
 - [x] T2.5 实现描述/最新观测/执行的持久化、版本和重启恢复；区分当前与最后已知值，保护原有缓存、锁、任务与安全流程。对应 R4、R5。验收：SQLite 新旧库集成测试验证 latest snapshot、revision/boot 代次及当前/最后执行恢复；连接投影测试覆盖在线、离线、监控关闭、观测过期和设备删除；Server 全量 `mvnw.cmd test`（824 项）通过。
 - [ ] T2.6 增加事件、告警、采样及有界存储/清理所需现场模型；约定断网事件可靠性和状态合并规则。对应 R4。
-- [ ] T2.7 执行 Klipper/RRF fixture、边界、SQLite 生命周期及旧 LAN API/WebSocket 回归；输出字段覆盖与无法获取的证据。对应 R3、R5、R8。
+- [x] T2.7 执行 Klipper/RRF fixture、边界、SQLite 生命周期及旧 LAN API/WebSocket 回归；输出字段覆盖与无法获取的证据。对应 R3、R5、R8。验收：fixture/生命周期/旧契约测试及字段缺口表见 Server `docs/UNIFIED_DEVICE_MODEL.md` T2.7 节；全量 `mvnw.cmd test`（827 项）通过。真实设备仍待 T6.3。
 
 ## T3 Cloud 模型、查询与兼容
 

@@ -23,13 +23,13 @@ T1.3 进度：Server SQLite 旧库 fixture 校验 source/device UUID 回填、�
 
 T1.2 追加进度：Cloud 新增 `GET /api/v1/farms/{farmId}/printer-identities/unverified` 遗留身份审核列表、`POST /api/v1/farms/{farmId}/printers/{printerId}/identity/transfer` 同农场受控身份迁移，以及 `GET /api/v1/farms/{farmId}/printers/{printerId}/identity/conflicts` 冲突记录。详情见 Cloud `docs/C2_IMPLEMENTATION.md` 和提交 `55665e6`、`1475092`。Cloud 身份管理和审计交付完成，后续真实迁移/恢复验收列入 T1.3。
 
-T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限能力声明和 Printer + observation + 持久执行记录映射；SQLite 旧库升级增加执行 UUID/首次观测时间；本地监控将最新模型写入 SQLite，并保存模型进程代次、观测 revision 和 descriptor revision。Canonical 状态服务现可按设备 ID 读取并重新校验最新完整模型；Cloud 采集边界新增隐私过滤的 canonical snapshot，保留设备稳定身份、描述摘要和可空的已持久化完整模型，不改变现有 V1/V2 发送路径。SQLite 集成测试覆盖首次无记录、持久化后读取身份/版本/revision；Cloud 采集测试覆盖缺少 canonical 观测时仍保留资产。执行 ID 来自持久本地记录，外部执行不伪造开始时间；不一致观测不覆盖已保存值。Klipper 当前按 Moonraker 已加载对象白名单采集多加热器、风扇、轴和耗材传感器；RRF 解析响应中提供的风扇、轴和耗材监测器，并通过 `flags=f` 请求实时状态对象字段。动态能力完整性、固件版本/连接模式、RRF 多请求任务切换检测、终态结果映射、事件 outbox、Cloud V3 上报及 LAN 完整模型读取仍未完成，T2.1、T2.2 已完成；T2.3–T2.7 均不勾选。全量 `mvnw.cmd test` 816 项通过。真实固件与安装版未验证。
+T2 进度：canonical 类型、字段质量校验、能力声明、Printer/observation/持久执行映射、SQLite 旧库升级、最新模型恢复以及 Klipper/RRF 合成采集与 LAN 兼容均已实现。执行 ID 稳定且未知终态不会伪装为完成；采集不一致不覆盖已保存观测。事件/告警/遥测数据契约、SQLite 有界事件 outbox、Cloud 历史查询和受控采样策略已实现；执行与监控关闭事件和业务事务原子写入。T2.1–T2.7 的代码/合成测试工作已完成，Server 全量 `mvnw.cmd test` 831 项通过。完整模型 MQTT 发布与提交 ACK 属于 T5，真实固件与安装版验收属于 T6，均未完成。
 
 T2.1 验收记录：`CanonicalPrinterModelMapperTest` 的 6 项测试通过；正例覆盖完整模型映射，反例覆盖错误版本、缺失设备 UID、时间倒置以及质量为 GOOD 但数值缺失。Server 全量 `mvnw.cmd test` 共 816 项通过。真实固件采集属于后续 T2.2/T2.3/T2.7，不包含在此项完成声明中。
 
 T2.5 验收记录：SQLite 集成测试重建状态服务，验证已持久化快照恢复、新 boot ID/观测 revision、稳定的 descriptor revision 及 `CONTINUITY_UNKNOWN`。执行生命周期回归验证 `currentExecution` 可跨服务重建恢复，执行结束后转入 `lastExecutionResult`；未知结果仍为 `UNKNOWN/UNCONFIRMED`。查询时将打印机当前连接健康覆盖到最新持久快照：监控关闭或最近成功采集超过 30 秒为 `UNKNOWN`，明确离线为 `OFFLINE`，同时保留最后测量及其采样时间，已删除设备不返回旧模型。SQLite 集成测试覆盖上述边界；Server 全量 `mvnw.cmd test`（824 项）通过，包含现有缓存、监控、任务/控制、权限和 WebSocket 回归。未连接真实打印机。
 
-T2.6 进度：新增 `CanonicalPrinterEvent` 受限不可变事件对象，与 Cloud V3 事件词汇对齐；校验 UUID/设备身份、事件枚举、严重级别、代码格式和安全摘要上限，拒绝任意固件事件名及控制字符。SQLite `farm_printer_event_outbox` 已加入新库入口和旧库幂等升级，按入队顺序读取；相同事件 UUID 与内容幂等、相同 UUID 不同内容冲突；容量默认 10,000 条且可配置，满时拒绝并明确报错，只有显式 ACK 才删除。监控现于 ONLINE/OFFLINE 健康边界变化时记录 `DEVICE_CONNECTED`/`DEVICE_DISCONNECTED`，监控关闭和执行开始、暂停、恢复、完成/取消/失败及来源切换会关联稳定 execution UUID 记录事件。执行生命周期和监控关闭事件现在在各自业务事务内写入 outbox；outbox 使用当前 SQLite 事务，回滚时事件行一并回滚。容量满或事件写入异常仍被事件记录层捕获，避免改变现场业务结果。SQLite 集成测试验证外层事务回滚同时撤销 outbox 行。监控连接边界事件来自已完成的监控状态更新，不处在同一业务事务。本地容量检查每分钟运行一次，积压达到容量 80% 发出一次警告，降至 60% 以下记录恢复，使用迟滞避免日志刷屏；重复轮询不重复产生连接事件，消息不含通信错误原文。定向 22 项及 Server 全量 `mvnw.cmd test` 831 项通过。Cloud 发送与 ACK 集成、Cloud 告警模型/API、遥测采样策略及断网/恢复实链路验收仍未完成，T2.6 不勾选。
+T2.6 进度：新增 `CanonicalPrinterEvent` 受限不可变事件对象，与 Cloud V3 事件词汇对齐；校验 UUID/设备身份、事件枚举、严重级别、代码格式和安全摘要上限，拒绝任意固件事件名及控制字符。SQLite `farm_printer_event_outbox` 已加入新库入口和旧库幂等升级，按入队顺序读取；相同事件 UUID 与内容幂等、相同 UUID 不同内容冲突；容量默认 10,000 条且可配置，满时拒绝并明确报错，只有显式 ACK 才删除。监控现于 ONLINE/OFFLINE 健康边界变化时记录 `DEVICE_CONNECTED`/`DEVICE_DISCONNECTED`，监控关闭和执行开始、暂停、恢复、完成/取消/失败及来源切换会关联稳定 execution UUID 记录事件。执行生命周期和监控关闭事件现在在各自业务事务内写入 outbox；outbox 使用当前 SQLite 事务，回滚时事件行一并回滚。容量满或事件写入异常仍被事件记录层捕获，避免改变现场业务结果。SQLite 集成测试验证外层事务回滚同时撤销 outbox 行。监控连接边界事件来自已完成的监控状态更新，不处在同一业务事务。本地容量检查每分钟运行一次，积压达到容量 80% 发出一次警告，降至 60% 以下记录恢复，使用迟滞避免日志刷屏；重复轮询不重复产生连接事件，消息不含通信错误原文。Cloud 告警/遥测模型和有界查询已完成，采样默认关闭且有保留/清理策略。定向 22 项及 Server 全量 `mvnw.cmd test` 831 项通过。T2.6 完成；完整 MQTT 发布、Cloud 提交 ACK 和断网恢复端到端验证归入 T5/T6。
 
 T2.7 验收记录：Klipper/RRF 合成 fixture、测量边界、采集期间任务切换、canonical SQLite 生命周期/恢复及旧 VO/REST/WebSocket 契约已有测试覆盖；字段范围及未支持/未实测信息见 Server `docs/UNIFIED_DEVICE_MODEL.md` 的 T2.7 表。Server 全量 `mvnw.cmd test`（827 项）通过。未连接真实 Klipper/RRF 打印机；真实只读验收保留在 T6.3。
 
@@ -44,7 +44,7 @@ T2.2 验收记录：Moonraker 按对象白名单请求已加载的基础状态�
 - [x] T2.3 RRF 按对象模型和可用字段发现能力并采集字段矩阵；多请求期间的执行切换、部分帧及目标温度按冻结语义处理。对应 R3。验收：RRF 客户端读取 state/job/heat/tools 字段矩阵；采集前后复读 state/job 稳定身份，状态、当前工具、文件名/大小或最近文件身份变化时标记 `INCONSISTENT`，operation 置 `UNKNOWN` 且不发布执行摘要；复读失败保留旧状态接口并将 canonical 帧降级为不一致；稳定帧保持 `PARTIAL`。RRF 客户端覆盖活动目标温度和任务摘要，Parser 测试覆盖 OFF/standby/缺失测量语义。Server 全量 `mvnw.cmd test`（818 项）通过。未连接真实 RRF 设备，采集多两次轻量模型查询的现场延迟仍需设备验收。
 - [x] T2.4 实现统一执行标识及现场 `farm_printer_execution` 的兼容扩展，处理外部打印、重启、同文件重复、过渡和未知结果。对应 R4、R5。
 - [x] T2.5 实现描述/最新观测/执行的持久化、版本和重启恢复；区分当前与最后已知值，保护原有缓存、锁、任务与安全流程。对应 R4、R5。验收：SQLite 新旧库集成测试验证 latest snapshot、revision/boot 代次及当前/最后执行恢复；连接投影测试覆盖在线、离线、监控关闭、观测过期和设备删除；Server 全量 `mvnw.cmd test`（824 项）通过。
-- [ ] T2.6 增加事件、告警、采样及有界存储/清理所需现场模型；约定断网事件可靠性和状态合并规则。对应 R4。
+- [x] T2.6 增加事件、告警、采样及有界存储/清理所需现场模型；约定断网事件可靠性和状态合并规则。对应 R4。
 - [x] T2.7 执行 Klipper/RRF fixture、边界、SQLite 生命周期及旧 LAN API/WebSocket 回归；输出字段覆盖与无法获取的证据。对应 R3、R5、R8。验收：fixture/生命周期/旧契约测试及字段缺口表见 Server `docs/UNIFIED_DEVICE_MODEL.md` T2.7 节；全量 `mvnw.cmd test`（827 项）通过。真实设备仍待 T6.3。
 
 ## T3 Cloud 模型、查询与兼容

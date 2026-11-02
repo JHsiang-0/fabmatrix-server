@@ -171,7 +171,7 @@ public class MoonrakerApiClient {
     }
 
     private String fixedStatusQuery(String ipAddress) {
-        String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&extruder&heater_bed&display_status", ipAddress);
+        String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&display_status", ipAddress);
         return restClient.get().uri(url).retrieve().body(String.class);
     }
 
@@ -201,7 +201,8 @@ public class MoonrakerApiClient {
         }
     }
 
-    private boolean isObservationObject(String name) {
+    static boolean isObservationObject(String name) {
+        if (name == null || name.length() > 128) return false;
         String normalized = name.toLowerCase(Locale.ROOT);
         return BASE_OBJECTS.contains(normalized) || normalized.equals("extruder")
                 || normalized.matches("extruder[0-9]+") || normalized.equals("heater_bed")

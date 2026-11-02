@@ -94,7 +94,7 @@ public final class PrinterObservationParser {
                     number(stats, "total_duration", end, ZERO, DURATION_MAX), unknown(end), unknown(end), unknown(end),
                     number(stats, "filament_used", end, ZERO, FILAMENT_MAX));
         }
-        // 当前查询仅覆盖固定的主喷嘴与热床，尚未发现完整设备通道。
+        // 只映射本次查询实际返回的对象；缺失通道保持缺失，不构造虚拟通道。
         boolean inconsistent = end.isBefore(start);
         return new PrinterObservation(start, end, inconsistent ? Completeness.INCONSISTENT : Completeness.PARTIAL,
                 systemState, inconsistent ? OperationState.UNKNOWN : operation,

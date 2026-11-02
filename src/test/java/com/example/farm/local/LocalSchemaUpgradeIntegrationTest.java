@@ -6,6 +6,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.service.CanonicalPrinterStateService;
+import com.example.farm.service.PrinterEventRecorder;
 import com.example.farm.service.PrinterExecutionService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -331,6 +332,16 @@ class LocalSchemaUpgradeIntegrationTest {
         outbox.acknowledge(eventId2);
         outbox.acknowledge(eventId3);
         assertThat(outbox.pendingCount()).isZero();
+
+        var eventRecorder = new PrinterEventRecorder(jdbcTemplate, outbox, printerExecutionService);
+        assertThat(eventRecorder.record(printerHealth,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Type.DEVICE_CONNECTED,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Severity.INFO, "DEVICE_CONNECTED")).isTrue();
+        var recordedEvent = outbox.findPending(1).getFirst();
+        assertThat(recordedEvent.sourceInstanceId()).isEqualTo(sourceUid);
+        assertThat(recordedEvent.deviceUid()).isEqualTo(deviceUidUuid);
+        assertThat(recordedEvent.localPrinterId()).isEqualTo("9103");
+        outbox.acknowledge(recordedEvent.eventId());
     }
 
     private static void createPreTc007Fixture(Path databasePath) {

@@ -25,6 +25,8 @@ import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterExecutionService;
 import com.example.farm.service.CanonicalPrinterStateService;
+import com.example.farm.service.PrinterEventRecorder;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.mapper.PrintFileMapper;
 import jakarta.annotation.PreDestroy;
@@ -81,6 +83,9 @@ public class PrinterMonitorTask implements SmartLifecycle {
 
     @Autowired(required = false)
     private CanonicalPrinterStateService canonicalPrinterStateService;
+
+    @Autowired(required = false)
+    private PrinterEventRecorder printerEventRecorder;
 
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService;
@@ -1023,6 +1028,7 @@ public class PrinterMonitorTask implements SmartLifecycle {
 
     private void recordCommunicationSuccess(Printer printer, PrinterDeviceStatus status) {
         long now = System.currentTimeMillis();
+        String previousConnectionStatus = printer.getConnectionStatus();
         boolean legacyWithoutHealthFields = printer.getConnectionStatus() == null
                 && printer.getConsecutiveFailureCount() == null;
         int previousFailures = printer.getConsecutiveFailureCount() == null
@@ -1059,10 +1065,15 @@ public class PrinterMonitorTask implements SmartLifecycle {
         }
         if (recovered) {
             printerCacheService.markPrinterOnline(printer.getId());
+            if (!"ONLINE".equalsIgnoreCase(previousConnectionStatus)) {
+                recordPrinterEvent(printer, CanonicalPrinterEvent.Type.DEVICE_CONNECTED,
+                        CanonicalPrinterEvent.Severity.INFO, "DEVICE_CONNECTED");
+            }
         }
     }
 
     private void handleCommunicationFailure(Printer printer, String errorMessage) {
+        String previousConnectionStatus = printer.getConnectionStatus();
         int failures = (printer.getConsecutiveFailureCount() == null ? 0 : printer.getConsecutiveFailureCount()) + 1;
         int threshold = Math.max(1, monitorProperties.getFailureThreshold());
         boolean legacyWithoutHealthFields = printer.getConnectionStatus() == null
@@ -1099,6 +1110,21 @@ public class PrinterMonitorTask implements SmartLifecycle {
         if (offline) {
             printerCacheService.markPrinterOffline(printer.getId());
             printerCacheService.clearStatusCache(printer.getId());
+            if (!"OFFLINE".equalsIgnoreCase(previousConnectionStatus)) {
+                recordPrinterEvent(printer, CanonicalPrinterEvent.Type.DEVICE_DISCONNECTED,
+                        CanonicalPrinterEvent.Severity.WARNING, "DEVICE_DISCONNECTED");
+            }
+        }
+    }
+
+    private void recordPrinterEvent(Printer printer, CanonicalPrinterEvent.Type type,
+                                    CanonicalPrinterEvent.Severity severity, String code) {
+        if (printerEventRecorder == null) return;
+        try {
+            printerEventRecorder.record(printer, type, severity, code);
+        } catch (RuntimeException failure) {
+            log.warn("设备状态事件写入 outbox 失败: printerId={}, type={}, category={}",
+                    printer.getId(), type, failure.getClass().getSimpleName());
         }
     }
 

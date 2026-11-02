@@ -20,6 +20,8 @@ import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterExecutionService;
+import com.example.farm.service.PrinterEventRecorder;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import com.example.farm.service.WebSocketEventPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -67,6 +69,8 @@ class PrinterMonitorAdapterTest {
     private PrintFileMapper printFileMapper;
     @Mock
     private PrinterExecutionService printerExecutionService;
+    @Mock
+    private PrinterEventRecorder printerEventRecorder;
 
     private PrinterMonitorTask monitorTask;
 
@@ -249,6 +253,29 @@ class PrinterMonitorAdapterTest {
         assertThat(updateCaptor.getValue().getConnectionStatus()).isEqualTo("UNKNOWN");
         assertThat(updateCaptor.getValue().getConsecutiveFailureCount()).isEqualTo(1);
         verify(printerCacheService, never()).markPrinterOffline(403L);
+    }
+
+    @Test
+    void recordsConnectionEventsOnlyWhenHealthCrossesOfflineBoundary() {
+        Printer printer = printer("RRF");
+        printer.setConnectionStatus("ONLINE");
+        printer.setConsecutiveFailureCount(0);
+        PrinterMonitorProperties properties = monitorProperties();
+        properties.setFailureThreshold(1);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, properties);
+        ReflectionTestUtils.setField(monitorTask, "printerEventRecorder", printerEventRecorder);
+
+        ReflectionTestUtils.invokeMethod(monitorTask, "handleCommunicationFailure", printer, "连接超时");
+        ReflectionTestUtils.invokeMethod(monitorTask, "handleCommunicationFailure", printer, "连接超时");
+        assertThat(printer.getConnectionStatus()).isEqualTo("OFFLINE");
+        verify(printerEventRecorder).record(printer, CanonicalPrinterEvent.Type.DEVICE_DISCONNECTED,
+                CanonicalPrinterEvent.Severity.WARNING, "DEVICE_DISCONNECTED");
+
+        ReflectionTestUtils.invokeMethod(monitorTask, "recordCommunicationSuccess", printer, idleStatus());
+        ReflectionTestUtils.invokeMethod(monitorTask, "recordCommunicationSuccess", printer, idleStatus());
+        verify(printerEventRecorder).record(printer, CanonicalPrinterEvent.Type.DEVICE_CONNECTED,
+                CanonicalPrinterEvent.Severity.INFO, "DEVICE_CONNECTED");
     }
 
     @Test

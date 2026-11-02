@@ -42,6 +42,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         createAuditLogTableIfMissing();
         createPrinterExecutionTableIfMissing();
         createCanonicalPrinterStateTableIfMissing();
+        createPrinterEventOutboxTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("farm_user", "must_change_password", "INTEGER NOT NULL DEFAULT 0");
@@ -373,6 +374,36 @@ public class LocalSchemaMigration implements CommandLineRunner {
             throw new IllegalStateException(
                     "SYNC-002.1 blocked: existing farm_dashboard_layout has incompatible structure");
         }
+    }
+
+    /** Persist immutable device events independently from replaceable current-state snapshots. */
+    private void createPrinterEventOutboxTableIfMissing() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_printer_event_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id VARCHAR(36) NOT NULL UNIQUE,
+                    source_instance_id VARCHAR(36) NOT NULL,
+                    device_uid VARCHAR(36) NOT NULL,
+                    local_printer_id VARCHAR(64) NOT NULL,
+                    execution_id VARCHAR(36),
+                    event_type VARCHAR(32) NOT NULL,
+                    occurred_at TIMESTAMP NOT NULL,
+                    severity VARCHAR(16) NOT NULL,
+                    code VARCHAR(64) NOT NULL,
+                    safe_message VARCHAR(256),
+                    correlation_id VARCHAR(36),
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_attempt_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (event_type IN ('DEVICE_CONNECTED', 'DEVICE_DISCONNECTED', 'SYSTEM_FAULT',
+                        'EXECUTION_STARTED', 'EXECUTION_PAUSED', 'EXECUTION_RESUMED', 'EXECUTION_ENDED',
+                        'MATERIAL_WARNING', 'MONITOR_DISABLED', 'GATEWAY_LOST')),
+                    CHECK (severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')),
+                    CHECK (attempt_count >= 0)
+                )
+                """);
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_event_outbox_order "
+                + "ON farm_printer_event_outbox(source_instance_id, id)");
     }
 
     private boolean columnMatches(List<Map<String, Object>> columns, String name,

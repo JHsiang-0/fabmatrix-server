@@ -157,6 +157,31 @@ CREATE TABLE IF NOT EXISTS farm_printer_canonical_state (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS farm_printer_event_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id VARCHAR(36) NOT NULL UNIQUE,
+    source_instance_id VARCHAR(36) NOT NULL,
+    device_uid VARCHAR(36) NOT NULL,
+    local_printer_id VARCHAR(64) NOT NULL,
+    execution_id VARCHAR(36),
+    event_type VARCHAR(32) NOT NULL,
+    occurred_at TIMESTAMP NOT NULL,
+    severity VARCHAR(16) NOT NULL,
+    code VARCHAR(64) NOT NULL,
+    safe_message VARCHAR(256),
+    correlation_id VARCHAR(36),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (event_type IN ('DEVICE_CONNECTED', 'DEVICE_DISCONNECTED', 'SYSTEM_FAULT',
+        'EXECUTION_STARTED', 'EXECUTION_PAUSED', 'EXECUTION_RESUMED', 'EXECUTION_ENDED',
+        'MATERIAL_WARNING', 'MONITOR_DISABLED', 'GATEWAY_LOST')),
+    CHECK (severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')),
+    CHECK (attempt_count >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_printer_event_outbox_order
+    ON farm_printer_event_outbox(source_instance_id, id);
+
 CREATE TABLE IF NOT EXISTS farm_dispatch_plan (
     id VARCHAR(64) PRIMARY KEY, mode VARCHAR(20) NOT NULL, strategy VARCHAR(30) NOT NULL,
     action VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, version INTEGER NOT NULL DEFAULT 1,

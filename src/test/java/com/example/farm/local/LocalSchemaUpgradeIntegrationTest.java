@@ -165,6 +165,9 @@ class LocalSchemaUpgradeIntegrationTest {
                 .map(column -> String.valueOf(column.get("name"))))
                 .contains("printer_id", "device_boot_id", "observation_revision", "descriptor_revision",
                         "descriptor_json", "model_json");
+        assertThat(jdbcTemplate.queryForList("PRAGMA table_info(farm_printer_event_outbox)").stream()
+                .map(column -> String.valueOf(column.get("name"))))
+                .contains("event_id", "source_instance_id", "device_uid", "event_type", "attempt_count");
 
         Instant observedAt = Instant.now();
         var observation = new PrinterObservation(observedAt, observedAt, PrinterObservation.Completeness.PARTIAL,
@@ -287,12 +290,54 @@ class LocalSchemaUpgradeIntegrationTest {
                 .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionOutcome.COMPLETED);
         assertThat(finishedModel.lastExecutionResult().evidence())
                 .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionEvidence.DEVICE_EXPLICIT);
+
+        var outbox = new com.example.farm.service.impl.PrinterEventOutboxImpl(jdbcTemplate, 2);
+        UUID eventId1 = UUID.fromString("096c88f6-a2e4-4828-a3fb-cc449985107e");
+        UUID eventId2 = UUID.fromString("ac0b350a-9487-48aa-9fc2-14f0238406a6");
+        UUID eventId3 = UUID.fromString("e27b098e-57af-4a89-aa83-dfc5529495f0");
+        UUID sourceUid = UUID.fromString(sourceInstanceId);
+        UUID deviceUidUuid = UUID.fromString(deviceUid);
+        Instant eventAt = Instant.parse("2026-11-02T12:00:00Z");
+        var firstEvent = new com.example.farm.protocol.model.CanonicalPrinterEvent(eventId1, sourceUid,
+                deviceUidUuid, "9103", null,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Type.DEVICE_DISCONNECTED, eventAt,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Severity.WARNING, "DEVICE_TIMEOUT", null, null);
+        var secondEvent = new com.example.farm.protocol.model.CanonicalPrinterEvent(eventId2, sourceUid,
+                deviceUidUuid, "9103", null,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Type.DEVICE_CONNECTED, eventAt.plusSeconds(1),
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Severity.INFO, "DEVICE_RECOVERED", null, null);
+        var thirdEvent = new com.example.farm.protocol.model.CanonicalPrinterEvent(eventId3, sourceUid,
+                deviceUidUuid, "9103", null,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Type.SYSTEM_FAULT, eventAt.plusSeconds(2),
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Severity.ERROR, "DEVICE_FAULT", null, null);
+        assertThat(outbox.enqueue(firstEvent)).isTrue();
+        assertThat(outbox.enqueue(firstEvent)).isFalse();
+        var conflictingDuplicate = new com.example.farm.protocol.model.CanonicalPrinterEvent(eventId1, sourceUid,
+                deviceUidUuid, "9103", null,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Type.DEVICE_DISCONNECTED, eventAt,
+                com.example.farm.protocol.model.CanonicalPrinterEvent.Severity.ERROR, "DEVICE_TIMEOUT", null, null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> outbox.enqueue(conflictingDuplicate))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(outbox.enqueue(secondEvent)).isTrue();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> outbox.enqueue(thirdEvent))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("outbox is full");
+        assertThat(outbox.findPending(1)).containsExactly(firstEvent);
+        outbox.recordAttempt(eventId1);
+        assertThat(jdbcTemplate.queryForObject("SELECT attempt_count FROM farm_printer_event_outbox "
+                + "WHERE event_id = ?", Integer.class, eventId1.toString())).isEqualTo(1);
+        outbox.acknowledge(eventId1);
+        assertThat(outbox.enqueue(thirdEvent)).isTrue();
+        assertThat(outbox.findPending(2)).containsExactly(secondEvent, thirdEvent);
+        outbox.acknowledge(eventId2);
+        outbox.acknowledge(eventId3);
+        assertThat(outbox.pendingCount()).isZero();
     }
 
     private static void createPreTc007Fixture(Path databasePath) {
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databasePath.toAbsolutePath())) {
             JdbcTemplate jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, false));
             runResource(jdbc, "db/init/sqlite-schema.sql");
+            jdbc.execute("DROP TABLE IF EXISTS farm_printer_event_outbox");
             jdbc.execute("ALTER TABLE farm_printer DROP COLUMN device_uid");
             jdbc.execute("ALTER TABLE farm_user DROP COLUMN must_change_password");
             jdbc.execute("DROP TABLE farm_login_session");

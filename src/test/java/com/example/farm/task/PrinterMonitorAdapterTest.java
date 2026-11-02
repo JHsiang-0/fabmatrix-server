@@ -95,6 +95,27 @@ class PrinterMonitorAdapterTest {
     }
 
     @Test
+    void doesNotTreatIdleAfterExternalExecutionAsConfirmedCompletion() {
+        Printer printer = printer("RRF");
+        PrinterExecution execution = new PrinterExecution();
+        execution.setId(7003L);
+        execution.setPrinterId(403L);
+        execution.setSource("EXTERNAL");
+        execution.setState("ACTIVE");
+        execution.setIdleObservationCount(2);
+        when(printerExecutionService.findActive(403L)).thenReturn(execution);
+        when(printerExecutionService.observeIdle(eq(403L), any())).thenReturn(execution);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        ReflectionTestUtils.setField(monitorTask, "printerExecutionService", printerExecutionService);
+
+        ReflectionTestUtils.invokeMethod(monitorTask, "closeNonFarmExecutionAfterIdle", printer, idleStatus());
+
+        verify(printerExecutionService).finishNonFarmExecution(execution, "UNKNOWN",
+                "设备由执行态稳定返回空闲，但没有明确的完成/取消/中止证据");
+    }
+
+    @Test
     void treatsAdapterFailureAsOfflineAndClearsCachedStatus() {
         Printer printer = printer("RRF");
         when(printerService.listByIds(anyList())).thenReturn(List.of(printer));

@@ -760,9 +760,11 @@ public class PrinterMonitorTask implements SmartLifecycle {
                 return;
             }
             String terminal = Boolean.TRUE.equals(status.lastFileCancelled()) ? "CANCELLED"
-                    : Boolean.TRUE.equals(status.lastFileAborted()) ? "FAILED" : "COMPLETED";
+                    : Boolean.TRUE.equals(status.lastFileAborted()) ? "FAILED" : "UNKNOWN";
             printerExecutionService.finishNonFarmExecution(execution, terminal,
-                    "设备由执行态稳定返回空闲");
+                    "CANCELLED".equals(terminal) ? "设备报告最近一次文件已取消"
+                            : "FAILED".equals(terminal) ? "设备报告最近一次文件已中止"
+                            : "设备由执行态稳定返回空闲，但没有明确的完成/取消/中止证据");
         } catch (Exception exception) {
             log.error("关闭外部设备执行会话失败，将在下次巡检重试: printerId={}",
                     printer.getId(), exception);

@@ -221,6 +221,38 @@ class LocalSchemaUpgradeIntegrationTest {
                 .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionOutcome.UNKNOWN);
         assertThat(withUnconfirmedResult.evidence())
                 .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionEvidence.UNCONFIRMED);
+
+        String activeExecutionUid = "5d0e04b5-55bd-4ba9-a3d6-29091b32d83f";
+        jdbcTemplate.update("INSERT INTO farm_printer_execution(execution_uid, printer_id, source, state, "
+                        + "has_seen_processing, started_at, first_observed_at, last_seen_at) "
+                        + "VALUES (?, 9103, 'FARM', 'ACTIVE', 1, ?, ?, ?)", activeExecutionUid,
+                java.sql.Timestamp.valueOf("2026-11-02 11:00:00"),
+                java.sql.Timestamp.valueOf("2026-11-02 11:00:00"),
+                java.sql.Timestamp.valueOf("2026-11-02 11:01:00"));
+        var unavailable = new PrinterObservation.Measurement(null,
+                PrinterObservation.Quality.UNAVAILABLE, null);
+        var executionObservation = new PrinterObservation.Execution("part.gcode", false, unavailable,
+                unavailable, unavailable, unavailable, unavailable, unavailable, unavailable);
+        var printingObservation = new PrinterObservation(observedAt, observedAt,
+                PrinterObservation.Completeness.PARTIAL, PrinterObservation.SystemState.READY,
+                PrinterObservation.OperationState.PRINTING, List.of(), List.of(), null, executionObservation);
+        assertThat(restartedStateService.persist(printer, printingObservation)).isTrue();
+        var currentModel = restartedStateService.findLatest(9103L).observation();
+        assertThat(currentModel.currentExecution().id()).isEqualTo(UUID.fromString(activeExecutionUid));
+        assertThat(currentModel.lastExecutionResult().outcome())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionOutcome.UNKNOWN);
+
+        jdbcTemplate.update("UPDATE farm_printer_execution SET state = 'COMPLETED', last_raw_state = 'complete', "
+                        + "ended_at = ? WHERE execution_uid = ?",
+                java.sql.Timestamp.valueOf("2026-11-02 11:05:00"), activeExecutionUid);
+        assertThat(restartedStateService.persist(printer, observation)).isTrue();
+        var finishedModel = restartedStateService.findLatest(9103L).observation();
+        assertThat(finishedModel.currentExecution()).isNull();
+        assertThat(finishedModel.lastExecutionResult().executionId()).isEqualTo(UUID.fromString(activeExecutionUid));
+        assertThat(finishedModel.lastExecutionResult().outcome())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionOutcome.COMPLETED);
+        assertThat(finishedModel.lastExecutionResult().evidence())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ExecutionEvidence.DEVICE_EXPLICIT);
     }
 
     private static void createPreTc007Fixture(Path databasePath) {

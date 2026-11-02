@@ -82,7 +82,7 @@ T4.3 进度：手机设备详情页提供历史入口；独立历史页按标签
 - [x] T5.1 核对 T0–T3 前置模型、Schema、存储、Cloud 双读和权限测试通过；未经门禁不得开启完整上报。对应 R6。证据：Cloud V1→V16 迁移、旧 V1/受限 V2 与 canonical V3 双读、Cloud 农场授权等全量 69 项验证及 C1 20 项真实 MySQL/EMQX 验收通过；Server 完整 V3 发布者仍未实现，现有上报默认关闭。
 - [ ] T5.2 实现版本协商、低频库存和描述、单设备观测/执行及事件 outbox；限制大小、并发、带宽、内存与磁盘。对应 R6。
 
-T5.2 进度：Cloud 新增 `POST /api/v1/gateway/protocol`，以网关凭证和绑定代次协商最高共同 schemaVersion，并返回 canonical modelVersion、能力及消息/设备/库存上限；保留旧 session 和 V1/V2 行为。Cloud 提交 `a7eb63e`，全量 69 项和隔离 C1 20 项通过。Server 尚未调用协商接口或发布 V3；下一步实现 Server 协商消费，仍只声明当前实际具备的 V1/V2 能力。
+T5.2 进度：Cloud 新增 `POST /api/v1/gateway/protocol`，以网关凭证和绑定代次协商最高共同 schemaVersion，并返回 canonical modelVersion、能力及消息/设备/库存上限；保留旧 session 和 V1/V2 行为，Cloud 提交 `a7eb63e`。Server 提交 `dc22380` 在 MQTT 会话前使用当前网关凭证协商，只申报已实现的 V1/V2，依据选择的 schema 构造快照并执行协商消息/设备上限校验；旧 Cloud 仅在返回 404/405 时回退原配置，其它错误保留重试路径。Server 全量 832 项测试、Cloud 全量 69 项测试通过；WSL 隔离 C1/C2 共 21 项通过，包含真实 EMQX 和 Server Local Edition JAR 的 SQLite→MQTT→Cloud 重连/撤销验证。T5.2 仍未完成：Server canonical V3 发布、库存/描述/观测/执行/事件 outbox 与资源边界尚待实现；本次未连接现场 Server 或打印机。
 - [ ] T5.3 落实分片全量提交、事务 ACK、幂等去重、重复/乱序/重连、旧绑定隔离和配置回退；空库存只影响对应网关。对应 R6、R8。
 - [ ] T5.4 验证单机上限、复杂多通道包、慢网和 Cloud 不可用时现场业务持续运行；核对隐私白名单与脱敏。对应 R6、R8。
 - [ ] T5.5 在隔离环境串联真实 Server 构建、Cloud MySQL/EMQX 和客户端，核对完整对象与可用质量，不依赖模拟结果声称现场通过。对应 R6–R8。

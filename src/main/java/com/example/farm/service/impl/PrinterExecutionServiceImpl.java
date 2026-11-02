@@ -10,11 +10,16 @@ import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.mapper.PrinterExecutionMapper;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.PrinterDeviceStatus;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import com.example.farm.service.PrinterExecutionService;
+import com.example.farm.service.PrinterEventRecorder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -30,6 +35,9 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
     private final PrinterExecutionMapper executionMapper;
     private final PrintJobMapper printJobMapper;
     private final PrinterMapper printerMapper;
+
+    @Autowired(required = false)
+    private PrinterEventRecorder printerEventRecorder;
 
     @Override
     public PrinterExecution findActive(Long printerId) {
@@ -62,16 +70,27 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
     public PrinterExecution beginFarmExecution(Long printerId, Long jobId, String expectedFilename,
                                                PrinterDeviceStatus confirmedStatus) {
         PrinterExecution active = findActive(printerId);
+        PrinterExecution replaced = null;
         if (active != null && (!"FARM".equals(active.getSource())
                 || !Objects.equals(jobId, active.getFarmJobId()))) {
+            replaced = active;
             close(active, "UNKNOWN", "新的平台任务取代未关闭的设备执行会话");
             active = null;
         }
+        boolean created = active == null;
         if (active == null) {
             active = newExecution(printerId, jobId, "FARM", expectedFilename);
         }
         mergeStatus(active, confirmedStatus);
         save(active);
+        if (replaced != null) {
+            recordExecutionEventAfterCommit(replaced, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+                    CanonicalPrinterEvent.Severity.WARNING, "EXECUTION_SOURCE_CHANGED");
+        }
+        if (created) {
+            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
+                    CanonicalPrinterEvent.Severity.INFO, "EXECUTION_STARTED");
+        }
         return active;
     }
 
@@ -81,11 +100,15 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
                                              String expectedFilename, PrinterDeviceStatus status) {
         String normalizedSource = normalizeSource(source);
         PrinterExecution active = findActive(printerId);
+        PrinterExecution replaced = null;
         if (active != null && (!Objects.equals(active.getFarmJobId(), farmJobId)
                 || !Objects.equals(active.getSource(), normalizedSource))) {
+            replaced = active;
             close(active, "UNKNOWN", "设备执行来源或任务发生变化");
             active = null;
         }
+        boolean created = active == null;
+        String previousRawState = active == null ? null : normalize(active.getLastRawState());
         if (active == null) {
             active = newExecution(printerId, farmJobId, normalizedSource, expectedFilename);
         }
@@ -95,6 +118,22 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         mergeStatus(active, status);
         active.setIdleObservationCount(0);
         save(active);
+        if (replaced != null) {
+            recordExecutionEventAfterCommit(replaced, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+                    CanonicalPrinterEvent.Severity.WARNING, "EXECUTION_SOURCE_CHANGED");
+        }
+        if (created) {
+            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
+                    CanonicalPrinterEvent.Severity.INFO, "EXECUTION_STARTED");
+        } else if (isPausedState(normalize(status == null ? null : status.rawState()))
+                && !isPausedState(previousRawState)) {
+            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_PAUSED,
+                    CanonicalPrinterEvent.Severity.INFO, "EXECUTION_PAUSED");
+        } else if (isExecutingState(normalize(status == null ? null : status.rawState()))
+                && isPausedState(previousRawState)) {
+            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_RESUMED,
+                    CanonicalPrinterEvent.Severity.INFO, "EXECUTION_RESUMED");
+        }
         return active;
     }
 
@@ -163,6 +202,9 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         }
         close(execution, target.name(), reason);
 
+        recordExecutionEventAfterCommit(execution, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+                severity(target), endCode(target));
+
         job.setStatus(persistedJob.getStatus());
         job.setProgress(persistedJob.getProgress());
         job.setCompletedAt(persistedJob.getCompletedAt());
@@ -180,7 +222,75 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
             return false;
         }
         close(execution, state == null || state.isBlank() ? "COMPLETED" : state, reason);
+        recordExecutionEventAfterCommit(execution, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+                severity(execution.getState()), endCode(execution.getState()));
         return true;
+    }
+
+    private void recordExecutionEventAfterCommit(PrinterExecution execution,
+                                                 CanonicalPrinterEvent.Type type,
+                                                 CanonicalPrinterEvent.Severity severity, String code) {
+        if (printerEventRecorder == null || execution == null || execution.getPrinterId() == null
+                || execution.getExecutionUid() == null) return;
+        Runnable record = () -> {
+            try {
+                Printer printer = printerMapper.selectById(execution.getPrinterId());
+                if (printer != null) {
+                    printerEventRecorder.record(printer, type, severity, code,
+                            java.util.UUID.fromString(execution.getExecutionUid()));
+                }
+            } catch (RuntimeException failure) {
+                log.warn("执行生命周期事件写入 outbox 失败: printerId={}, eventType={}, category={}",
+                        execution.getPrinterId(), type, failure.getClass().getSimpleName());
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    record.run();
+                }
+            });
+        } else {
+            record.run();
+        }
+    }
+
+    private CanonicalPrinterEvent.Severity severity(PrintJobStatus status) {
+        return switch (status) {
+            case COMPLETED -> CanonicalPrinterEvent.Severity.INFO;
+            case CANCELLED -> CanonicalPrinterEvent.Severity.WARNING;
+            case FAILED -> CanonicalPrinterEvent.Severity.ERROR;
+            default -> CanonicalPrinterEvent.Severity.WARNING;
+        };
+    }
+
+    private CanonicalPrinterEvent.Severity severity(String state) {
+        return switch (normalize(state)) {
+            case "completed" -> CanonicalPrinterEvent.Severity.INFO;
+            case "cancelled", "canceled" -> CanonicalPrinterEvent.Severity.WARNING;
+            case "failed" -> CanonicalPrinterEvent.Severity.ERROR;
+            default -> CanonicalPrinterEvent.Severity.WARNING;
+        };
+    }
+
+    private String endCode(PrintJobStatus status) {
+        return switch (status) {
+            case COMPLETED -> "EXECUTION_COMPLETED";
+            case CANCELLED -> "EXECUTION_CANCELLED";
+            case FAILED -> "EXECUTION_FAILED";
+            default -> "EXECUTION_UNKNOWN";
+        };
+    }
+
+    private String endCode(String state) {
+        return switch (normalize(state)) {
+            case "completed" -> "EXECUTION_COMPLETED";
+            case "cancelled", "canceled" -> "EXECUTION_CANCELLED";
+            case "failed" -> "EXECUTION_FAILED";
+            default -> "EXECUTION_UNKNOWN";
+        };
     }
 
     private PrinterExecution newExecution(Long printerId, Long farmJobId, String source, String expectedFilename) {
@@ -265,6 +375,14 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private boolean isPausedState(String state) {
+        return "paused".equals(state) || "pausing".equals(state);
+    }
+
+    private boolean isExecutingState(String state) {
+        return "processing".equals(state) || "printing".equals(state);
     }
 
     private String truncate(String value) {

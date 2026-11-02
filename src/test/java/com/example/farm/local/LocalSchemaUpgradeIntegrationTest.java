@@ -333,7 +333,7 @@ class LocalSchemaUpgradeIntegrationTest {
         outbox.acknowledge(eventId3);
         assertThat(outbox.pendingCount()).isZero();
 
-        var eventRecorder = new PrinterEventRecorder(jdbcTemplate, outbox, printerExecutionService);
+        var eventRecorder = new PrinterEventRecorder(jdbcTemplate, outbox);
         assertThat(eventRecorder.record(printerHealth,
                 com.example.farm.protocol.model.CanonicalPrinterEvent.Type.DEVICE_CONNECTED,
                 com.example.farm.protocol.model.CanonicalPrinterEvent.Severity.INFO, "DEVICE_CONNECTED")).isTrue();

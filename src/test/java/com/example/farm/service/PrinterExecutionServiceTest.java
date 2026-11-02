@@ -4,6 +4,7 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrinterExecution;
 import com.example.farm.entity.enums.PrintJobStatus;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.mapper.PrinterExecutionMapper;
 import com.example.farm.mapper.PrinterMapper;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 
@@ -148,6 +150,44 @@ class PrinterExecutionServiceTest {
         assertThat(current.getExecutionUid()).isNotEqualTo(previous.getExecutionUid());
     }
 
+    @Test
+    void recordsExecutionLifecycleEventsWithStableUidAfterDatabaseCommitBoundary() {
+        PrinterExecutionServiceImpl service = new PrinterExecutionServiceImpl(
+                executionMapper, printJobMapper, printerMapper);
+        PrinterEventRecorder recorder = org.mockito.Mockito.mock(PrinterEventRecorder.class);
+        ReflectionTestUtils.setField(service, "printerEventRecorder", recorder);
+        Printer printer = new Printer();
+        printer.setId(4L);
+        printer.setDeviceUid("772fb4da-37dd-4dab-b6a9-afca1b035946");
+        when(printerMapper.selectById(4L)).thenReturn(printer);
+        java.util.concurrent.atomic.AtomicReference<PrinterExecution> active = new java.util.concurrent.atomic.AtomicReference<>();
+        when(executionMapper.selectOne(any())).thenAnswer(invocation -> active.get());
+        when(executionMapper.insert(any(PrinterExecution.class))).thenAnswer(invocation -> {
+            PrinterExecution inserted = invocation.getArgument(0);
+            inserted.setId(71L);
+            active.set(inserted);
+            return 1;
+        });
+        when(executionMapper.updateById(any(PrinterExecution.class))).thenReturn(1);
+
+        PrinterExecution execution = service.observeExecuting(
+                4L, null, "EXTERNAL", "part.gcode", processingStatus());
+        service.observeExecuting(4L, null, "EXTERNAL", "part.gcode", status("paused"));
+        service.observeExecuting(4L, null, "EXTERNAL", "part.gcode", processingStatus());
+        assertThat(service.finishNonFarmExecution(execution, "COMPLETED", null)).isTrue();
+
+        java.util.UUID executionUid = java.util.UUID.fromString(execution.getExecutionUid());
+        var ordered = org.mockito.Mockito.inOrder(recorder);
+        ordered.verify(recorder).record(printer, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
+                CanonicalPrinterEvent.Severity.INFO, "EXECUTION_STARTED", executionUid);
+        ordered.verify(recorder).record(printer, CanonicalPrinterEvent.Type.EXECUTION_PAUSED,
+                CanonicalPrinterEvent.Severity.INFO, "EXECUTION_PAUSED", executionUid);
+        ordered.verify(recorder).record(printer, CanonicalPrinterEvent.Type.EXECUTION_RESUMED,
+                CanonicalPrinterEvent.Severity.INFO, "EXECUTION_RESUMED", executionUid);
+        ordered.verify(recorder).record(printer, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+                CanonicalPrinterEvent.Severity.INFO, "EXECUTION_COMPLETED", executionUid);
+    }
+
     private PrinterDeviceStatus processingStatus() {
         return new PrinterDeviceStatus(
                 PrinterStatus.PRINTING, "processing", null, "0:/gcodes/part.gcode",
@@ -161,5 +201,11 @@ class PrinterExecutionServiceTest {
                 PrinterStatus.IDLE, "idle", null, "part.gcode",
                 null, null, null, null, null, null, null, null,
                 null, null, null, false, false, null, BigDecimal.valueOf(uptime));
+    }
+
+    private PrinterDeviceStatus status(String state) {
+        PrinterStatus status = "paused".equals(state) ? PrinterStatus.PAUSED : PrinterStatus.PRINTING;
+        return new PrinterDeviceStatus(status, state, null, "part.gcode", null,
+                null, null, null, null, null, null, null);
     }
 }

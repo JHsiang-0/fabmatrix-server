@@ -79,6 +79,7 @@ farm:
   cloud:
     enabled: ${FARM_CLOUD_ENABLED:false}
     observation-v2-enabled: ${FARM_CLOUD_OBSERVATION_V2_ENABLED:false}
+    observation-v3-enabled: ${FARM_CLOUD_OBSERVATION_V3_ENABLED:false}
     api-url: ${FARM_CLOUD_API_URL:}
     mqtt-url: ${FARM_CLOUD_MQTT_URL:}
     ca-certificate: ${FARM_CLOUD_CA_CERTIFICATE:}

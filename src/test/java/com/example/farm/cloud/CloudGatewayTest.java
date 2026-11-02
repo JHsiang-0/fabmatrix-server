@@ -157,6 +157,52 @@ class CloudGatewayTest {
         assertThat(json.writeValueAsString(packet)).doesNotContain("must-not-be-published");
     }
 
+    @Test void canonicalStateWaitsForDescriptorAndIsSentOnceAfterCommitAcknowledgement() throws Exception {
+        var properties = new CloudGatewayProperties();
+        properties.setStateDirectory(temp.resolve("canonical-state").toString());
+        properties.setObservationV3Enabled(true);
+        var source = mock(CloudSnapshotSource.class);
+        var mqtt = mock(MqttClient.class);
+        var agent = connectedAgent(properties, source, mqtt, 3);
+        var printer = asset(42L);
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        printer.setApiKey("private-fixture-key");
+        var sourceId = UUID.randomUUID();
+        var at = Instant.now();
+        var raw = new ObjectMapper().readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"standby"},
+                 "extruder":{"temperature":0,"target":210}}
+                """);
+        var observation = PrinterObservationParser.klipper(raw, at, at);
+        var model = CanonicalPrinterModelMapper.map(printer, sourceId, UUID.randomUUID(),
+                1, 1, observation, null, true, at);
+        var asset = new CloudSnapshotSource.CanonicalAsset("42", printer.getDeviceUid(), printer.getName(),
+                null, "KLIPPER", model);
+        when(source.captureCanonical()).thenReturn(List.of(asset));
+        ReflectionTestUtils.setField(agent, "inventoryComplete", true);
+        ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId.toString());
+        ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "lastDescriptorScan", System.currentTimeMillis());
+
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+        verify(mqtt, never()).publish(endsWith("up/printer-state"), any(byte[].class), eq(1), eq(false));
+        @SuppressWarnings("unchecked")
+        var descriptorRevisions = (java.util.Map<String, Long>) ReflectionTestUtils.getField(agent, "acknowledgedDescriptorRevisions");
+        descriptorRevisions.put("42", 1L);
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+
+        var bytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt).publish(endsWith("up/printer-state"), bytes.capture(), eq(1), eq(false));
+        var packet = new ObjectMapper().readTree(bytes.getValue());
+        assertThat(packet.path("payload").path("observation").path("heaters").get(0)
+                .path("pwmRatio").path("quality").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(new String(bytes.getValue(), java.nio.charset.StandardCharsets.UTF_8)).doesNotContain("private-fixture-key");
+        ReflectionTestUtils.setField(agent, "receivedAck", new CloudWire.Ack(packet.path("messageId").asText(),
+                packet.path("epoch").asLong(), packet.path("sequence").asLong(), "ACCEPTED", "OK"));
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+        verify(mqtt, times(1)).publish(endsWith("up/printer-state"), any(byte[].class), eq(1), eq(false));
+    }
+
     @Test void fileWritesAreAtomicBoundedAndOwnerProtected() throws Exception {
         Path file = temp.resolve("nested/credential.json");
         CloudAgentFiles.verifyWritable(file);

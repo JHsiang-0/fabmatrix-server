@@ -60,6 +60,11 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private int descriptorIndex;
     private long lastDescriptorScan;
     private final Map<String, Long> acknowledgedDescriptorRevisions = new HashMap<>();
+    private final Map<String, String> acknowledgedObservations = new HashMap<>();
+    private List<CloudSnapshotSource.CanonicalAsset> canonicalAssets = List.of();
+    private long lastCanonicalScan;
+    private int canonicalCursor;
+    private String canonicalSourceInstanceId;
     private boolean terminal;
     private Pending pending;
     private long lastCapture;
@@ -77,13 +82,15 @@ public class CloudGatewayAgent implements SmartLifecycle {
 
     public record Status(String state, boolean connected, String gatewayId, Long lastAckAt, String errorCode, boolean pending) { }
     private record Pending(String messageId, long epoch, long sequence, Instant observedAt, String type,
-                           String localPrinterId, long descriptorRevision, String raw, long lastSentAt) { }
+                           String localPrinterId, long descriptorRevision, String observationId,
+                           String raw, long lastSentAt) { }
     public Status status() { return status; }
 
     @Override public void start() {
         running = true;
         executor = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("farm-cloud-gateway").factory());
-        executor.scheduleWithFixedDelay(this::tick, 1, 1, TimeUnit.SECONDS);
+        long intervalMillis = properties.isObservationV3Enabled() ? 100 : 1000;
+        executor.scheduleWithFixedDelay(this::tick, 1000, intervalMillis, TimeUnit.MILLISECONDS);
     }
 
     private void tick() {
@@ -138,15 +145,20 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) { throw new RemoteFailure("SNAPSHOT_TOO_LARGE"); }
                     CloudAgentFiles.write(pendingFile(), raw);
                     pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(),
-                            packet.type(), null, 0, raw, 0);
+                            packet.type(), null, 0, null, raw, 0);
                     if (snapshot) { lastSnapshot = now; lastSnapshotBody = body; }
                 }
+            }
+            if (pending == null && protocol.selectedSchemaVersion() == 3 && inventoryComplete
+                    && descriptorPlan == null && properties.isObservationV3Enabled()) {
+                prepareCanonicalStatePending(now);
             }
             if (pending != null && now - pending.lastSentAt() >= 5000) {
                 String topic = credential.topicPrefix() + "up/" + topicSegment(pending.type());
                 mqtt.publish(topic, pending.raw().getBytes(StandardCharsets.UTF_8), 1, false);
                 pending = new Pending(pending.messageId(), pending.epoch(), pending.sequence(), pending.observedAt(),
-                        pending.type(), pending.localPrinterId(), pending.descriptorRevision(), pending.raw(), now);
+                        pending.type(), pending.localPrinterId(), pending.descriptorRevision(), pending.observationId(),
+                        pending.raw(), now);
             }
             retrySeconds = 1;
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
@@ -328,6 +340,9 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 lastDescriptorScan = System.currentTimeMillis();
             }
         }
+        if ("PRINTER_STATE".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
+            acknowledgedObservations.put(pending.localPrinterId(), pending.observationId());
+        }
         clearPending();
     }
 
@@ -340,6 +355,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     epoch, sequence + 1, Instant.now(), sourceInstanceId, System.currentTimeMillis(), devices,
                     protocol.maxMessageBytes(), protocol.maxPrinters(), protocol.maxInventoryParts(), protocol.maxInventoryBytes());
             sequence += inventoryPlan.size();
+            canonicalSourceInstanceId = sourceInstanceId;
             inventoryPartIndex = 0;
         }
         if (inventoryPartIndex >= inventoryPlan.size()) { inventoryComplete = true; return; }
@@ -347,7 +363,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
         String raw = json.writeValueAsString(packet);
         CloudAgentFiles.write(pendingFile(), raw);
         pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
-                null, 0, raw, 0);
+                null, 0, null, raw, 0);
     }
 
     private void prepareDescriptorPlan() throws Exception {
@@ -389,11 +405,57 @@ public class CloudGatewayAgent implements SmartLifecycle {
         long revision = packet.payload().descriptor().revision();
         CloudAgentFiles.write(pendingFile(), raw);
         pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
-                localPrinterId, revision, raw, 0);
+                localPrinterId, revision, null, raw, 0);
+    }
+
+    private void prepareCanonicalStatePending(long now) throws Exception {
+        if (now - lastCanonicalScan >= 5000) {
+            canonicalAssets = source.captureCanonical();
+            lastCanonicalScan = now;
+            if (!canonicalAssets.isEmpty()) { canonicalCursor %= canonicalAssets.size(); }
+        }
+        int count = canonicalAssets.size();
+        for (int scanned = 0; scanned < count; scanned++) {
+            var asset = canonicalAssets.get(canonicalCursor);
+            canonicalCursor = (canonicalCursor + 1) % count;
+            var model = asset.model();
+            if (model == null) { continue; }
+            var observation = model.observation();
+            if (!canonicalSourceInstanceId.equals(model.identity().sourceInstanceId().toString())
+                    || !asset.deviceUid().equals(model.identity().deviceUid().toString())
+                    || !asset.localPrinterId().equals(model.identity().localPrinterId())) {
+                throw new RemoteFailure("LOCAL_CANONICAL_IDENTITY_MISMATCH");
+            }
+            if (acknowledgedDescriptorRevisions.getOrDefault(asset.localPrinterId(), 0L) != model.descriptor().revision()
+                    || observation.connection().status() != com.example.farm.protocol.model.CanonicalPrinterModel.ConnectionStatus.ONLINE
+                    || !observation.connection().monitorEnabled()
+                    || observation.completeness() == com.example.farm.protocol.model.CanonicalPrinterModel.Completeness.INCONSISTENT
+                    || observation.observedAt().toEpochMilli() < now - 30000
+                    || observation.observedAt().toEpochMilli() > now + 5000
+                    || observation.id().toString().equals(acknowledgedObservations.get(asset.localPrinterId()))) {
+                continue;
+            }
+            var payload = CloudCanonicalStateMapper.project(model);
+            var packet = new CloudWire.CanonicalStatePacket(3, UUID.randomUUID().toString(), "PRINTER_STATE",
+                    credential.gatewayId(), credential.bindingVersion(), bootId, epoch, ++sequence,
+                    observation.observedAt(), payload);
+            String raw = json.writeValueAsString(packet);
+            if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) {
+                throw new RemoteFailure("CANONICAL_STATE_TOO_LARGE");
+            }
+            CloudAgentFiles.write(pendingFile(), raw);
+            pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(),
+                    packet.type(), asset.localPrinterId(), model.descriptor().revision(), observation.id().toString(), raw, 0);
+            return;
+        }
     }
 
     private String topicSegment(String type) {
-        return "PRINTER_DESCRIPTOR".equals(type) ? "descriptor" : type.toLowerCase(java.util.Locale.ROOT);
+        return switch (type) {
+            case "PRINTER_DESCRIPTOR" -> "descriptor";
+            case "PRINTER_STATE" -> "printer-state";
+            default -> type.toLowerCase(java.util.Locale.ROOT);
+        };
     }
 
     private Path pendingFile() { return Path.of(properties.getStateDirectory()).resolve("cloud-snapshot-pending.json"); }

@@ -53,4 +53,7 @@ public final class CloudWire {
     public record CanonicalDescriptorPacket(int schemaVersion, String messageId, String type, String gatewayId,
                                             long bindingVersion, String bootId, long epoch, long sequence,
                                             Instant observedAt, DescriptorPayload payload) { }
+    public record CanonicalStatePacket(int schemaVersion, String messageId, String type, String gatewayId,
+                                       long bindingVersion, String bootId, long epoch, long sequence,
+                                       Instant observedAt, CanonicalPrinterModel payload) { }
 }

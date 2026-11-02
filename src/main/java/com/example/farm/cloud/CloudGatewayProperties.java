@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 public class CloudGatewayProperties {
     private boolean enabled;
     private boolean observationV2Enabled;
+    private boolean observationV3Enabled;
     private String apiUrl = "";
     private String mqttUrl = "";
     private String caCertificate = "";

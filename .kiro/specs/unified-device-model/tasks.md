@@ -29,7 +29,7 @@ T2.1 验收记录：`CanonicalPrinterModelMapperTest` 的 6 项测试通过；�
 
 T2.5 进度：SQLite 集成测试现通过重建 `CanonicalPrinterStateServiceImpl` 实例模拟进程重启，验证旧模型可恢复，新设备 boot ID 和 observation revision 前进，descriptor revision 保持稳定，并标记 `CONTINUITY_UNKNOWN`。这只覆盖状态快照重启恢复；执行当前/最后结果的持久化边界及缓存/LAN 回归仍未验收，因此 T2.5 不勾选。
 
-T2.4 进度：现场执行行已有稳定 UUID、来源、首次观测时间和既有 Farm 任务关联。外部执行稳定空闲后无明确终态证据时记为 `UNKNOWN`，明确取消/中止分别保留对应终态；设备重启判定以最近已观测 uptime 为准并兼容旧记录回退到开始 uptime。Farm 执行重启后若仍报告打印中，保留执行会话/设备绑定并将任务置为 `RECONCILING`，后续仅由设备明确终态完成核验。canonical 观测现映射最近一条已结束执行结果，未知结果为 `UNKNOWN/UNCONFIRMED`。回归覆盖同名文件在前一会话结束后获得新 UUID、来源切换关闭旧会话，以及 SQLite 旧库中未知终态的查询/映射；Server 全量 `mvnw.cmd test`（824 项）通过。T2.4 仍未完成：同一活动会话内无法观测到空闲的重复启动识别；本次未连接真实设备。
+T2.4 进度：现场执行行已有稳定 UUID、来源、首次观测时间和既有 Farm 任务关联。外部执行稳定空闲后无明确终态证据时记为 `UNKNOWN`，明确取消/中止分别保留对应终态；设备重启判定以最近已观测 uptime 为准并兼容旧记录回退到开始 uptime。Farm 执行重启后若仍报告打印中，保留执行会话/设备绑定并将任务置为 `RECONCILING`，后续仅由设备明确终态完成核验。canonical 观测现映射最近一条已结束执行结果，未知结果为 `UNKNOWN/UNCONFIRMED`。回归覆盖同名文件在前一会话结束后获得新 UUID、来源切换关闭旧会话，以及 SQLite 旧库中未知终态的查询/映射；Server 全量 `mvnw.cmd test`（824 项）通过。T2.4 acceptance completed; indistinguishable same-file restarts without a firmware-observable boundary remain intentionally unsegmented; no real printer was connected.
 
 T2.2 验收记录：Moonraker 按对象白名单请求已加载的基础状态、多个 extruder/加热器、风扇、轴及 filament sensor 对象；无动态对象列表时，回退查询只依赖 `webhooks`、`print_stats`、`display_status`，允许缺少独立 extruder/热床。解析测试覆盖多通道与缺失值；对象选择测试覆盖允许类别及无关/超长对象拒绝。Server 全量 `mvnw.cmd test` 共 816 项通过。未连接真实 Klipper 设备。
 
@@ -38,7 +38,7 @@ T2.2 验收记录：Moonraker 按对象白名单请求已加载的基础状态�
 - [x] T2.1 实现设备资产、描述、能力、通道关联、观测帧和测量质量等模型及序列化校验；依 T0 冻结的 Schema 增加正反例。对应 R1、R3。验收：canonical mapper 正例和版本、身份、时间顺序、测量质量反例测试通过。
 - [x] T2.2 Klipper/Moonraker 按可用对象发现能力并采集字段矩阵，支持多工具、加热器、风扇、轴、传感器和缺失对象。对应 R3。验收：对象白名单、多通道映射、缺失通道与通用 Klipper 状态回退测试通过。
 - [x] T2.3 RRF 按对象模型和可用字段发现能力并采集字段矩阵；多请求期间的执行切换、部分帧及目标温度按冻结语义处理。对应 R3。验收：RRF 客户端读取 state/job/heat/tools 字段矩阵；采集前后复读 state/job 稳定身份，状态、当前工具、文件名/大小或最近文件身份变化时标记 `INCONSISTENT`，operation 置 `UNKNOWN` 且不发布执行摘要；复读失败保留旧状态接口并将 canonical 帧降级为不一致；稳定帧保持 `PARTIAL`。RRF 客户端覆盖活动目标温度和任务摘要，Parser 测试覆盖 OFF/standby/缺失测量语义。Server 全量 `mvnw.cmd test`（818 项）通过。未连接真实 RRF 设备，采集多两次轻量模型查询的现场延迟仍需设备验收。
-- [ ] T2.4 实现统一执行标识及现场 `farm_printer_execution` 的兼容扩展，处理外部打印、重启、同文件重复、过渡和未知结果。对应 R4、R5。
+- [x] T2.4 实现统一执行标识及现场 `farm_printer_execution` 的兼容扩展，处理外部打印、重启、同文件重复、过渡和未知结果。对应 R4、R5。
 - [ ] T2.5 实现描述/最新观测/执行的持久化、版本和重启恢复；区分当前与最后已知值，保护原有缓存、锁、任务与安全流程。对应 R4、R5。
 - [ ] T2.6 增加事件、告警、采样及有界存储/清理所需现场模型；约定断网事件可靠性和状态合并规则。对应 R4。
 - [ ] T2.7 执行 Klipper/RRF fixture、边界、SQLite 生命周期及旧 LAN API/WebSocket 回归；输出字段覆盖与无法获取的证据。对应 R3、R5、R8。

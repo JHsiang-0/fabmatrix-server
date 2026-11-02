@@ -135,4 +135,52 @@ class CanonicalPrinterModelMapperTest {
         assertEquals(1, model.descriptor().sensors().size());
         assertEquals("runout", model.descriptor().sensors().getFirst().id().substring("filament_switch_sensor_".length()));
     }
+
+    @Test
+    void rejectsVersionIdentityTimestampAndMeasurementQualityViolations() {
+        Instant captured = Instant.parse("2026-11-02T10:00:00Z");
+        Printer printer = new Printer();
+        printer.setId(11L);
+        printer.setDeviceUid("40df3ec3-b809-4a1c-b245-42f244aebba5");
+        printer.setName("Validated printer");
+        var good = new PrinterObservation.Measurement(new BigDecimal("0"), PrinterObservation.Quality.GOOD, captured);
+        var heater = new PrinterObservation.Heater("extruder", PrinterObservation.HeaterRole.TOOL,
+                PrinterObservation.HeaterMode.ACTIVE, good, good, good, good);
+        var observation = new PrinterObservation(captured, captured, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(heater), List.of(new PrinterObservation.Tool("extruder", List.of("extruder"))),
+                "extruder", null);
+        var model = CanonicalPrinterModelMapper.map(printer, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, observation, null, false, captured);
+
+        assertThrows(IllegalArgumentException.class, () -> CanonicalPrinterModelValidator.validate(
+                new CanonicalPrinterModel(3, model.identity(), model.descriptor(), model.observation())));
+        assertThrows(IllegalArgumentException.class, () -> CanonicalPrinterModelValidator.validate(
+                new CanonicalPrinterModel(2,
+                        new CanonicalPrinterModel.Identity(model.identity().sourceInstanceId(), null, "11"),
+                        model.descriptor(), model.observation())));
+
+        var current = model.observation();
+        var reversedTime = new CanonicalPrinterModel.Observation(current.id(), current.deviceBootId(), current.revision(),
+                current.descriptorRevision(), captured.plusSeconds(1), captured, current.completeness(),
+                current.connection(), current.systemState(), current.operationState(), current.currentToolId(),
+                current.heaters(), current.fans(), current.motion(), current.sensors(), current.currentExecution(),
+                current.lastExecutionResult(), current.issues());
+        assertThrows(IllegalArgumentException.class, () -> CanonicalPrinterModelValidator.validate(
+                new CanonicalPrinterModel(2, model.identity(), model.descriptor(), reversedTime)));
+
+        var currentHeater = current.heaters().getFirst();
+        var invalidGoodMeasurement = new CanonicalPrinterModel.Measurement<BigDecimal>(null,
+                CanonicalPrinterModel.Quality.GOOD, captured, CanonicalPrinterModel.MeasurementSource.DEVICE);
+        var invalidHeater = new CanonicalPrinterModel.HeaterState(currentHeater.id(), invalidGoodMeasurement,
+                currentHeater.effectiveTargetC(), currentHeater.activeTargetC(), currentHeater.standbyTargetC(),
+                currentHeater.pwmRatio(), currentHeater.mode());
+        var invalidMeasurementObservation = new CanonicalPrinterModel.Observation(current.id(), current.deviceBootId(),
+                current.revision(), current.descriptorRevision(), current.captureStartedAt(), current.observedAt(),
+                current.completeness(), current.connection(), current.systemState(), current.operationState(),
+                current.currentToolId(), List.of(invalidHeater), current.fans(), current.motion(), current.sensors(),
+                current.currentExecution(), current.lastExecutionResult(), current.issues());
+        assertThrows(IllegalArgumentException.class, () -> CanonicalPrinterModelValidator.validate(
+                new CanonicalPrinterModel(2, model.identity(), model.descriptor(), invalidMeasurementObservation)));
+    }
 }

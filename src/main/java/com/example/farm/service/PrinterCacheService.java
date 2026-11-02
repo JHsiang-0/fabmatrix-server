@@ -2,13 +2,30 @@ package com.example.farm.service;
 
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.protocol.observation.PrinterObservation;
+import com.example.farm.protocol.observation.PrinterObservationView;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 打印机缓存服务接口。
  */
 public interface PrinterCacheService {
+
+    /** 缓存带采集时间的统一观测；读取方必须检查通信和数据新鲜度。 */
+    void cachePrinterObservation(Long printerId, PrinterObservation observation);
+
+    /** 读取最后的统一观测；未命中或过期时返回 null。 */
+    PrinterObservation getCachedObservation(Long printerId);
+
+    /** 设备健康信息由调用方获取；读取缓存不会刷新观测时间或证明设备在线。 */
+    default PrinterObservationView getObservationView(Printer printer, Instant now, Duration maxAge) {
+        Objects.requireNonNull(printer, "printer");
+        return PrinterObservationView.evaluate(printer, getCachedObservation(printer.getId()), now, maxAge);
+    }
 
     /**
      * 缓存打印机实时状态。

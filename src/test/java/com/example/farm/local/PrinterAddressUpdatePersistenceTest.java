@@ -444,8 +444,8 @@ class PrinterAddressUpdatePersistenceTest {
     }
 
     @Test
-    void selectsLockingSqlOnlyOnMySql() throws Exception {
-        for (String dialect : new String[] {null, "sqlite", "mysql"}) {
+    void sqliteAddressSelectionUsesTransactionInsteadOfForUpdate() throws Exception {
+        for (String dialect : new String[] {null, "sqlite"}) {
             MybatisConfiguration configuration = new MybatisConfiguration();
             configuration.setDatabaseId(dialect);
             try (var stream = new ClassPathResource("mapper/PrinterMapper.xml").getInputStream()) {
@@ -457,11 +457,7 @@ class PrinterAddressUpdatePersistenceTest {
                     .getBoundSql(Map.of("ids", List.of(1L), "ipAddresses", List.of("192.168.10.21"),
                             "macIdentities", List.of("001122334401"))).getSql();
             assertThat(sql).contains("LOWER(REPLACE(REPLACE(TRIM(mac_address)");
-            if ("mysql".equals(dialect)) {
-                assertThat(sql).contains("FOR UPDATE");
-            } else {
-                assertThat(sql).doesNotContain("FOR UPDATE");
-            }
+            assertThat(sql).doesNotContain("FOR UPDATE");
         }
     }
 

@@ -11,7 +11,9 @@
 
 ## 文档分工
 
-MySQL/SQLite 初始化分别使用 `db/init/mysql-schema.sql`、`db/init/sqlite-schema.sql`；升级脚本按数据库放在 `db/migration/mysql/`、`db/migration/sqlite/`，历史基线位于 `db/archive/`。入口与验证方式见 [数据库初始化与历史迁移](./DATABASE_INITIALIZATION.md)。
+[统一设备模型设计](UNIFIED_DEVICE_MODEL.md) 定义 Klipper/RRF 现场适配与 Cloud 对象契约；Server 已实现部分内部观测基础，现有对外接口和云端运行协议尚未切换。
+
+当前运行时使用 SQLite 和本地文件；`db/init/sqlite-schema.sql` 配合 `LocalSchemaMigration` 完成初始化与升级。旧 MySQL 初始化及迁移脚本已移除。Windows/IDEA 单机运行说明见 [单机运行模式](./SINGLE_MACHINE.md)。
 
 | 文档 | 用途 | 当前地位 |
 | --- | --- | --- |
@@ -33,4 +35,4 @@ MySQL/SQLite 初始化分别使用 `db/init/mysql-schema.sql`、`db/init/sqlite-
 - [`print-history-export`](../.kiro/specs/print-history-export/requirements.md)：打印历史 Excel/PDF 导出、权限/筛选口径与公共文档生成模块，配套前端 R100-16。
 - 前端 `.kiro/specs/farm-v3-batch-dispatch/`：后续后台自动派单规划，1.0.0 不发布。
 
-历史文档不直接删除或重命名，避免破坏任务引用和提交历史；新增任务必须先在版本地图中登记归属。
+新增任务应在版本地图中登记归属；历史资料以版本控制记录为准。

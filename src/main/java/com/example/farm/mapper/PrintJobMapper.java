@@ -42,13 +42,13 @@ public interface PrintJobMapper extends BaseMapper<PrintJob> {
                               @Param("targetStatus") String targetStatus,
                               @Param("errorReason") String errorReason);
 
-    /** 锁定重试来源行；MySQL 使用当前读串行化跨实例的同源重试。 */
+    /** 在当前事务读取重试来源。 */
     Long lockRetrySource(@Param("jobId") Long jobId);
 
-    /** 查询直接来源的重试子任务；MySQL 使用当前读避免 RR 快照看不到并发提交。 */
+    /** 查询直接来源的重试子任务。 */
     PrintJob selectRetryChild(@Param("sourceJobId") Long sourceJobId);
 
-    /** 查询根链尝试冲突；MySQL 使用当前读覆盖并发提交和历史脏链。 */
+    /** 查询根链尝试冲突。 */
     PrintJob selectRetryChildByLineage(@Param("rootJobId") Long rootJobId,
                                        @Param("attemptNumber") Integer attemptNumber);
 

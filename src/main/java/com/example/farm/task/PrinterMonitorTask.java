@@ -1,7 +1,7 @@
 package com.example.farm.task;
 
 import com.example.farm.common.utils.LogUtil;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.Printer;
@@ -15,6 +15,8 @@ import com.example.farm.protocol.PrinterDeviceStatus;
 import com.example.farm.protocol.PrinterEndpoint;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.PrinterProtocolException;
+import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterIdentityVerifier;
@@ -29,6 +31,7 @@ import com.example.farm.config.PrinterMonitorProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -51,7 +54,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "farm.monitor", name = "enabled", havingValue = "true", matchIfMissing = false)
-public class PrinterMonitorTask {
+public class PrinterMonitorTask implements SmartLifecycle {
 
     @Autowired(required = false)
     private PrinterIdentityVerifier identityVerifier;
@@ -70,7 +73,7 @@ public class PrinterMonitorTask {
     private PrintFileMapper printFileMapper;
 
     @Autowired(required = false)
-    private RedisUtil redisUtil;
+    private CacheStore cacheStore;
 
     @Autowired(required = false)
     private PrinterExecutionService printerExecutionService;
@@ -78,6 +81,8 @@ public class PrinterMonitorTask {
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService;
     private final AtomicBoolean scanInProgress = new AtomicBoolean();
+    private final AtomicBoolean stopping = new AtomicBoolean();
+    private final Object lifecycleLock = new Object();
     private final Map<Long, Boolean> lastOnlineStates = new ConcurrentHashMap<>();
     private final Map<Long, String> lastPublishedConnectionStatuses = new ConcurrentHashMap<>();
     private final Map<Long, PrinterDeviceStatus> lastPublishedStatuses = new ConcurrentHashMap<>();
@@ -112,19 +117,39 @@ public class PrinterMonitorTask {
 
     @PreDestroy
     public void destroy() {
+        stop();
+    }
+
+    @Override
+    public void start() {
+        // Executor is created with the bean; a stopped context creates a new bean on restart.
+    }
+
+    @Override
+    public boolean isRunning() {
+        return !stopping.get();
+    }
+
+    @Override
+    public int getPhase() {
+        // LettuceConnectionFactory uses phase 0; higher phases stop first.
+        return 1;
+    }
+
+    @Override
+    public void stop() {
+        synchronized (lifecycleLock) {
+            if (!stopping.compareAndSet(false, true)) return;
+            executorService.shutdownNow();
+        }
         LogUtil.shutdown("PrinterMonitorTask");
-        // 优雅关闭线程池：先停止接受新任务，然后等待现有任务完成
-        executorService.shutdown();
         try {
-            // 等待最多 5 秒让正在执行的任务完成
-            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-                // 如果超时，强制关闭
-                executorService.shutdownNow();
+            if (!executorService.awaitTermination(15, TimeUnit.SECONDS)) {
+                log.warn("打印机监控线程未在关闭时限内退出，部分设备请求可能仍在结束");
             }
         } catch (InterruptedException e) {
-            // 如果被中断，强制关闭
-            executorService.shutdownNow();
             Thread.currentThread().interrupt();
+            log.warn("等待打印机监控线程退出时被中断");
         }
     }
 
@@ -133,6 +158,7 @@ public class PrinterMonitorTask {
      */
     @Scheduled(fixedRateString = "${farm.monitor.interval:5s}")
     public void checkPrinterStatus() {
+        if (stopping.get()) return;
         if (!scanInProgress.compareAndSet(false, true)) {
             log.debug("跳过重叠的打印机状态巡检");
             return;
@@ -148,14 +174,21 @@ public class PrinterMonitorTask {
             }
 
             // 并行查询打印机状态
-            List<CompletableFuture<PrinterStatusResult>> futures = printers.stream()
+            List<CompletableFuture<PrinterStatusResult>> futures;
+            synchronized (lifecycleLock) {
+                if (stopping.get()) {
+                    scanInProgress.set(false);
+                    return;
+                }
+                futures = printers.stream()
                             .map(printer -> CompletableFuture.supplyAsync(
                                     () -> fetchAndUpdateStatus(printer), executorService)
                             .thenApply(result -> {
-                                publishStatusEvent(result);
+                                if (!stopping.get()) publishStatusEvent(result);
                                 return result;
                             }))
                     .toList();
+            }
 
             // 异步统计
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
@@ -164,7 +197,7 @@ public class PrinterMonitorTask {
 
         } catch (Exception e) {
             scanInProgress.set(false);
-            log.error("打印机状态巡检失败", e);
+            if (!stopping.get()) log.error("打印机状态巡检失败", e);
         }
     }
 
@@ -186,7 +219,7 @@ public class PrinterMonitorTask {
     private PrinterStatusResult fetchAndUpdateStatus(Printer printer) {
         AtomicBoolean actionStarted = new AtomicBoolean();
         try {
-            return PrinterLock.execute(printer.getId(), redisUtil, () -> {
+            return PrinterLock.execute(printer.getId(), cacheStore, () -> {
                 PrinterLock.ensureValid(printer.getId());
                 actionStarted.set(true);
                 PrinterStatusResult fetched = doFetchAndUpdateStatus(printer, null, null);
@@ -226,6 +259,7 @@ public class PrinterMonitorTask {
             }
             PrinterDeviceStatus status = adapterFactory.getAdapter(printer.getFirmwareType())
                     .getStatus(endpointOf(printer));
+            if (stopping.get()) return stoppedResult(printer);
             long duration = System.currentTimeMillis() - startTime;
 
             if (status != null) {
@@ -243,6 +277,7 @@ public class PrinterMonitorTask {
                         printer.getConsecutiveFailureCount(), false, null);
             }
         } catch (Exception e) {
+            if (stopping.get()) return stoppedResult(printer);
             logOfflineQueryFailure(printerId, printerName, e);
             handleFailureAndRecoverAddress(printer, summarizeException(e));
             return new PrinterStatusResult(printerId, null, false, "设备状态查询失败",
@@ -250,6 +285,12 @@ public class PrinterMonitorTask {
                     printer.getLastSeenAt(), printer.getLastCommunicationError(),
                     printer.getConsecutiveFailureCount(), false, null);
         }
+    }
+
+    private PrinterStatusResult stoppedResult(Printer printer) {
+        return new PrinterStatusResult(printer.getId(), null, false, "监控正在停止",
+                printer.getConnectionStatus(), printer.getLastKnownStatus(), printer.getLastSeenAt(),
+                printer.getLastCommunicationError(), printer.getConsecutiveFailureCount(), true, null);
     }
 
     private void handleFailureAndRecoverAddress(Printer printer, String message) {
@@ -336,6 +377,13 @@ public class PrinterMonitorTask {
         MoonrakerStatusDTO legacyStatus = toLegacyStatus(status, taskObservation);
         // 缓存状态
         printerCacheService.cachePrinterStatus(printerId, legacyStatus);
+        if (status.observation() != null) {
+            try {
+                printerCacheService.cachePrinterObservation(printerId, status.observation());
+            } catch (RuntimeException exception) {
+                log.warn("统一观测缓存失败，不影响现场监控: printerId={}", printerId);
+            }
+        }
         printerCacheService.recordStatusHistory(printerId, legacyStatus);
         printerCacheService.markPrinterOnline(printerId);
         logTaskObservationChange(printer, taskObservation);
@@ -1046,8 +1094,24 @@ public class PrinterMonitorTask {
         });
 
         if (shouldLog.get()) {
-            log.warn("获取打印机状态失败（离线日志已限频）: printerId={}, name={}",
-                    printerId, printerName, exception);
+            if (exception instanceof PrinterProtocolException protocolException
+                    && protocolException.getCategory() != null
+                    && protocolException.getCategory() != FailureCategory.UNKNOWN
+                    && protocolException.getCategory() != FailureCategory.PROTOCOL_ERROR) {
+                String reason = switch (protocolException.getCategory()) {
+                    case OFFLINE -> "设备连接失败";
+                    case TIMEOUT -> "设备响应超时";
+                    case REJECTED -> "设备拒绝请求";
+                    case UNSUPPORTED -> "设备不支持请求";
+                    case PROTOCOL_ERROR -> "设备协议响应异常";
+                    case UNKNOWN -> "未知异常";
+                };
+                log.warn("获取打印机状态失败（离线日志已限频）: printerId={}, name={}, protocol={}, 原因={}",
+                        printerId, printerName, protocolException.getProtocolType(), reason);
+            } else {
+                log.warn("获取打印机状态失败（离线日志已限频）: printerId={}, name={}",
+                        printerId, printerName, exception);
+            }
         } else {
             log.debug("打印机仍处于离线状态: printerId={}, name={}", printerId, printerName);
         }
@@ -1105,10 +1169,11 @@ public class PrinterMonitorTask {
             return;
         }
 
-        PrinterDeviceStatus previous = lastPublishedStatuses.put(result.printerId, result.status);
+        PrinterDeviceStatus comparableStatus = result.status.withoutObservation();
+        PrinterDeviceStatus previous = lastPublishedStatuses.put(result.printerId, comparableStatus);
         TaskObservation previousObservation = result.taskObservation == null ? null
                 : lastPublishedTaskObservations.put(result.printerId, result.taskObservation);
-        if (!result.status.equals(previous)
+        if (!comparableStatus.equals(previous)
                 || !java.util.Objects.equals(result.taskObservation, previousObservation)) {
             TaskObservation observation = result.taskObservation;
             eventPublisher.publishPrinterStatus(result.printerId, result.status,

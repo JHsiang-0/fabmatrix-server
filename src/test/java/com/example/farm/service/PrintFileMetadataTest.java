@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.mapper.PrintFileMapper;
@@ -43,13 +43,13 @@ class PrintFileMetadataTest {
     private PrintFileMapper printFileMapper;
 
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
 
     private PrintFileServiceImpl printFileService;
 
     @BeforeEach
     void setUp() {
-        printFileService = new PrintFileServiceImpl(rustFsClient, new FileUploadProperties());
+        printFileService = new PrintFileServiceImpl(fileStorage, new FileUploadProperties());
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
         lenient().when(printFileMapper.selectList(any())).thenReturn(List.of(defaultFolder(10L)));
         lenient().when(printFileMapper.selectById(10L)).thenReturn(defaultFolder(10L));
@@ -66,7 +66,7 @@ class PrintFileMetadataTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "short.gcode", "text/plain",
                 "; filament used [mm] = 500\n".getBytes(StandardCharsets.UTF_8));
-        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        when(fileStorage.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
         doAnswer(invocation -> {
             PrintFile saved = invocation.getArgument(0);
             saved.setId(20L);
@@ -83,14 +83,14 @@ class PrintFileMetadataTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "database-failure.gcode", "text/plain",
                 "G1 X1\n".getBytes(StandardCharsets.UTF_8));
-        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        when(fileStorage.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
         doThrow(new IllegalStateException("database unavailable"))
                 .when(printFileMapper).insert(any(PrintFile.class));
 
         assertThatThrownBy(() -> printFileService.uploadAndParseFile(file))
                 .hasMessage("database unavailable");
 
-        verify(rustFsClient).deleteFile(anyString());
+        verify(fileStorage).deleteFile(anyString());
     }
 
     @Test
@@ -107,7 +107,7 @@ class PrintFileMetadataTest {
                 "files", "valid.gcode", "text/plain", "G1 X1\n".getBytes(StandardCharsets.UTF_8));
         MockMultipartFile invalid = new MockMultipartFile(
                 "files", "invalid.txt", "text/plain", "not supported".getBytes(StandardCharsets.UTF_8));
-        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        when(fileStorage.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
         doAnswer(invocation -> {
             PrintFile saved = invocation.getArgument(0);
             saved.setId(21L);
@@ -128,7 +128,7 @@ class PrintFileMetadataTest {
     void batchUploadRejectsTooManyFilesBeforeProcessing() {
         FileUploadProperties properties = new FileUploadProperties();
         properties.setBatchMaxFiles(1);
-        printFileService = new PrintFileServiceImpl(rustFsClient, properties);
+        printFileService = new PrintFileServiceImpl(fileStorage, properties);
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
 
         MockMultipartFile first = new MockMultipartFile("files", "a.gcode", "text/plain", "G1 X1".getBytes());
@@ -138,14 +138,14 @@ class PrintFileMetadataTest {
                 .hasMessage("单次最多上传1个文件")
                 .extracting("code")
                 .isEqualTo(400L);
-        verify(rustFsClient, org.mockito.Mockito.never()).uploadFile(anyString(), any());
+        verify(fileStorage, org.mockito.Mockito.never()).uploadFile(anyString(), any());
     }
 
     @Test
     void acceptsOneGigabyteFileAndUsesSamplingWithoutReadingFullContent() throws Exception {
         MultipartFile file = sizedFile("boundary.gcode", 1024L * 1024 * 1024);
         stubSmallInput(file);
-        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        when(fileStorage.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
         doAnswer(invocation -> {
             PrintFile saved = invocation.getArgument(0);
             saved.setId(22L);
@@ -167,7 +167,7 @@ class PrintFileMetadataTest {
                 .hasMessage("文件大小不能超过1GB")
                 .extracting("code")
                 .isEqualTo(400L);
-        verify(rustFsClient, never()).uploadFile(anyString(), any());
+        verify(fileStorage, never()).uploadFile(anyString(), any());
     }
 
     @Test
@@ -176,7 +176,7 @@ class PrintFileMetadataTest {
         MultipartFile second = sizedFile("second.gcode", 600L * 1024 * 1024);
         stubSmallInput(first);
         stubSmallInput(second);
-        when(rustFsClient.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
+        when(fileStorage.uploadFile(anyString(), any())).thenReturn("http://rustfs/internal");
         doAnswer(invocation -> {
             PrintFile saved = invocation.getArgument(0);
             saved.setId((long) (30 + invocation.getArgument(0, PrintFile.class).getOriginalName().length()));

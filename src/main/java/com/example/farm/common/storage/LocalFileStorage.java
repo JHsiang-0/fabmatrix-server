@@ -4,7 +4,6 @@ import com.example.farm.common.exception.StorageException;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
@@ -24,7 +23,6 @@ import java.time.Duration;
 /** 单进程 Local Edition 文件存储，文件不会暴露为本地绝对路径。 */
 @Slf4j
 @Component
-@Profile("local")
 public class LocalFileStorage implements FileStorage {
     private static final String URL_PREFIX = "/api/v1/print-files/storage?key=";
 

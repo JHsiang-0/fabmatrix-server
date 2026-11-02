@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
@@ -45,7 +45,7 @@ class PrintJobAdapterTest {
     @Mock
     private PrinterService printerService;
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
     @Mock
     private PrinterProtocolAdapterFactory adapterFactory;
     @Mock
@@ -84,7 +84,7 @@ class PrintJobAdapterTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(printFileMapper.selectById(20L)).thenReturn(file);
-        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(fileStorage.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
         when(printerService.updateById(any(Printer.class))).thenReturn(true);
@@ -110,7 +110,7 @@ class PrintJobAdapterTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(printFileMapper.selectById(20L)).thenReturn(file());
-        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(fileStorage.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
         when(printerService.updateById(any(Printer.class))).thenReturn(true);
@@ -142,7 +142,7 @@ class PrintJobAdapterTest {
 
         verify(adapter).startFile(any(PrinterEndpoint.class), org.mockito.ArgumentMatchers.eq("demo.gcode"));
         verify(adapter, never()).uploadFile(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
-        verify(rustFsClient, never()).getFileStream(any());
+        verify(fileStorage, never()).getFileStream(any());
         assertThat(job.getStatus()).isEqualTo("PRINTING");
     }
 
@@ -220,7 +220,7 @@ class PrintJobAdapterTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(printFileMapper.selectById(20L)).thenReturn(file());
-        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(fileStorage.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
         when(printJobMapper.updateStatusIfCurrent(org.mockito.ArgumentMatchers.eq(1001L),
@@ -246,7 +246,7 @@ class PrintJobAdapterTest {
         when(printJobMapper.selectById(1001L)).thenReturn(job);
         when(printerService.getById(403L)).thenReturn(printer);
         when(printFileMapper.selectById(20L)).thenReturn(file());
-        when(rustFsClient.getFileStream("safe-demo.gcode")).thenReturn(resource);
+        when(fileStorage.getFileStream("safe-demo.gcode")).thenReturn(resource);
         when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
         when(printJobMapper.updateById(any(PrintJob.class))).thenReturn(1);
         when(printJobMapper.updateStatusIfCurrent(org.mockito.ArgumentMatchers.eq(1001L),

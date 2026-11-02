@@ -5,6 +5,9 @@
 spring:
   profiles:
     active: dev  # 默认激活开发环境
+    group:
+      dev: local
+      prod: local
 
   application:
     name: fabmatrix-server
@@ -21,23 +24,6 @@ spring:
       max-request-size: 1288490189B  # 单个 HTTP 请求最大限制，约 1.2GB（含 multipart 开销）
       file-size-threshold: 10MB
       resolve-lazily: true
-
-  # 数据源基础配置（环境特定配置会覆盖详细参数）
-  datasource:
-    type: com.zaxxer.hikari.HikariDataSource
-    driver-class-name: com.mysql.cj.jdbc.Driver
-
-  # Redis基础配置（环境特定配置会覆盖详细参数）
-  data:
-    redis:
-      timeout: 5s
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-          max-wait: 5s
-        shutdown-timeout: 2s
 
 # MyBatis-Plus配置
 mybatis-plus:
@@ -61,10 +47,6 @@ admin:
   # 管理员操作密钥（用于密码批量迁移等敏感操作）
   # 生产环境请通过环境变量注入复杂随机字符串
   secret-key: ${ADMIN_SECRET_KEY:FarmAdmin2024}
-
-# RustFS基础配置（环境特定配置会覆盖）
-rustfs:
-  bucket: farm
 
 # 日志基础配置
 logging:
@@ -96,6 +78,7 @@ server:
 farm:
   cloud:
     enabled: ${FARM_CLOUD_ENABLED:false}
+    observation-v2-enabled: ${FARM_CLOUD_OBSERVATION_V2_ENABLED:false}
     api-url: ${FARM_CLOUD_API_URL:}
     mqtt-url: ${FARM_CLOUD_MQTT_URL:}
     ca-certificate: ${FARM_CLOUD_CA_CERTIFICATE:}

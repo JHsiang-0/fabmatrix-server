@@ -1,6 +1,6 @@
 package com.example.farm.common.utils;
 
-import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.constant.CacheKeyConstant;
 import com.example.farm.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,12 +16,14 @@ import java.util.function.Supplier;
 /**
  * 打印机控制边界锁。
  *
- * <p>Local Edition 依靠进程内锁保证单进程互斥，Server Edition 在此基础上使用
- * Redis 同名锁保证跨实例互斥。Redis 锁由守护续租线程延长，避免上传或协议调用
- * 超过固定 TTL 后被第二个请求插入。</p>
+ * <p>设备操作在单个 Server 进程内互斥；数据库实例锁防止多个进程使用同一数据。</p>
  */
 @Slf4j
 public final class PrinterLock {
+
+    public static final class BusyException extends BusinessException {
+        public BusyException() { super(409, "设备操作繁忙，请稍后重试"); }
+    }
 
     private static final long LOCK_TTL_SECONDS = 60;
     private static final long RENEW_INTERVAL_SECONDS = 20;
@@ -42,7 +44,7 @@ public final class PrinterLock {
         return printerId != null && HELD_LOCKS.get().containsKey(printerId);
     }
 
-    /** 在即将执行下一阶段动作前检查 Redis 租约是否仍由当前请求持有。 */
+    /** 在即将执行下一阶段动作前检查租约是否仍有效。 */
     public static void ensureValid(Long printerId) {
         Lease lease = printerId == null ? null : HELD_LOCKS.get().get(printerId);
         if (lease != null && lease.lost) {
@@ -50,7 +52,11 @@ public final class PrinterLock {
         }
     }
 
-    public static <T> T execute(Long printerId, RedisUtil redisUtil, Supplier<T> action) {
+    public static <T> T execute(Long printerId, CacheStore cacheStore, Supplier<T> action) {
+        return execute(printerId, cacheStore, action, 0);
+    }
+
+    private static <T> T execute(Long printerId, CacheStore cacheStore, Supplier<T> action, long lockWaitMillis) {
         requirePrinterId(printerId);
         Lease existing = HELD_LOCKS.get().get(printerId);
         if (existing != null) {
@@ -66,19 +72,29 @@ public final class PrinterLock {
         localLock.lock();
         Lease lease = null;
         try {
-            String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
+            String lockKey = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_LOCK, printerId);
             String lockValue = UUID.randomUUID().toString();
-            if (redisUtil != null) {
+            if (cacheStore != null) {
                 boolean acquired;
-                try {
-                    acquired = redisUtil.tryLock(lockKey, lockValue, LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-                } catch (RuntimeException exception) {
-                    throw new BusinessException(503, "打印机锁服务暂不可用，请稍后重试");
-                }
+                long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(lockWaitMillis);
+                do {
+                    try {
+                        acquired = cacheStore.tryLock(lockKey, lockValue, LOCK_TTL_SECONDS, TimeUnit.SECONDS);
+                    } catch (RuntimeException exception) {
+                        throw new BusinessException(503, "打印机锁服务暂不可用，请稍后重试");
+                    }
+                    if (acquired || System.nanoTime() >= deadline) break;
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(50);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new BusinessException(503, "等待打印机锁时被中断");
+                    }
+                } while (true);
                 if (!acquired) {
-                    throw new BusinessException(409, "打印机正在被其他请求操作");
+                    throw new BusyException();
                 }
-                lease = new Lease(printerId, lockKey, lockValue, redisUtil);
+                lease = new Lease(printerId, lockKey, lockValue, cacheStore);
                 lease.renewTask = RENEWER.scheduleAtFixedRate(lease::renew,
                         RENEW_INTERVAL_SECONDS, RENEW_INTERVAL_SECONDS, TimeUnit.SECONDS);
             } else {
@@ -100,6 +116,31 @@ public final class PrinterLock {
         }
     }
 
+    /** 短暂等待本进程中的操作完成，避免轮询导致删除立即失败。 */
+    public static <T> T tryExecute(Long printerId, CacheStore cacheStore, Supplier<T> action) {
+        return tryExecute(printerId, cacheStore, action, 500);
+    }
+
+    public static <T> T tryExecute(Long printerId, CacheStore cacheStore, Supplier<T> action, long waitMillis) {
+        requirePrinterId(printerId);
+        ReentrantLock localLock = LOCAL_LOCKS.computeIfAbsent(printerId, ignored -> new ReentrantLock());
+        boolean acquired;
+        try {
+            acquired = localLock.tryLock(waitMillis, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(503, "等待打印机锁时被中断");
+        }
+        if (!acquired) {
+            throw new BusyException();
+        }
+        try {
+            return execute(printerId, cacheStore, action, waitMillis);
+        } finally {
+            localLock.unlock();
+        }
+    }
+
     private static void requirePrinterId(Long printerId) {
         if (printerId == null || printerId <= 0) {
             throw new BusinessException(400, "打印机 ID 必须为正数");
@@ -110,24 +151,24 @@ public final class PrinterLock {
         private final Long printerId;
         private final String lockKey;
         private final String lockValue;
-        private final RedisUtil redisUtil;
+        private final CacheStore cacheStore;
         private volatile boolean lost;
         private volatile int depth = 1;
         private volatile java.util.concurrent.ScheduledFuture<?> renewTask;
 
-        private Lease(Long printerId, String lockKey, String lockValue, RedisUtil redisUtil) {
+        private Lease(Long printerId, String lockKey, String lockValue, CacheStore cacheStore) {
             this.printerId = printerId;
             this.lockKey = lockKey;
             this.lockValue = lockValue;
-            this.redisUtil = redisUtil;
+            this.cacheStore = cacheStore;
         }
 
         private void renew() {
-            if (redisUtil == null || lost) {
+            if (cacheStore == null || lost) {
                 return;
             }
             try {
-                if (!redisUtil.renewLockIfOwned(lockKey, lockValue, LOCK_TTL_SECONDS, TimeUnit.SECONDS)) {
+                if (!cacheStore.renewLockIfOwned(lockKey, lockValue, LOCK_TTL_SECONDS, TimeUnit.SECONDS)) {
                     lost = true;
                 }
             } catch (RuntimeException exception) {
@@ -139,11 +180,11 @@ public final class PrinterLock {
             if (renewTask != null) {
                 renewTask.cancel(false);
             }
-            if (redisUtil != null && !lost) {
+            if (cacheStore != null && !lost) {
                 try {
-                    redisUtil.releaseLockIfOwned(lockKey, lockValue);
+                    cacheStore.releaseLockIfOwned(lockKey, lockValue);
                 } catch (RuntimeException exception) {
-                    // 操作已完成，释放故障不能误报为未提交；Redis 租约会自然过期。
+                    // 操作已完成，释放故障不能误报为未提交；租约会自然过期。
                     log.warn("打印机锁释放失败，等待租约过期: printerId={}", printerId);
                 }
             }

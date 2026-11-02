@@ -119,9 +119,13 @@ class LocalEditionMapperTest {
         printer.setMacAddress("aa:bb:cc:dd:ee:ff");
         printer.setFirmwareType("RRF");
         printer.setStatus("IDLE");
+        printer.setMonitorEnabled(true);
         printerMapper.upsertByMacAddress(printer);
 
-        assertThat(printerMapper.selectByMacAddress("aa:bb:cc:dd:ee:ff")).isNotNull();
+        assertThat(printerMapper.selectByMacAddress("aa:bb:cc:dd:ee:ff").getMonitorEnabled()).isTrue();
+        jdbcTemplate.update("UPDATE farm_printer SET monitor_enabled=0 WHERE mac_address=?", printer.getMacAddress());
+        printerMapper.upsertByMacAddress(printer);
+        assertThat(printerMapper.selectByMacAddress(printer.getMacAddress()).getMonitorEnabled()).isFalse();
     }
 
     @Test

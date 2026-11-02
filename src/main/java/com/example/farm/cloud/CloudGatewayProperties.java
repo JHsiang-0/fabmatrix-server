@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "farm.cloud")
 public class CloudGatewayProperties {
     private boolean enabled;
+    private boolean observationV2Enabled;
     private String apiUrl = "";
     private String mqttUrl = "";
     private String caCertificate = "";

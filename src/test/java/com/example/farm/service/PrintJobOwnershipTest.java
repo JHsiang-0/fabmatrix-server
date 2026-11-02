@@ -14,7 +14,7 @@ import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.service.impl.PrintJobServiceImpl;
 import com.example.farm.service.PrinterService;
 import com.example.farm.common.utils.MoonrakerApiClient;
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,7 +54,7 @@ class PrintJobOwnershipTest {
     private PrinterService printerService;
 
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
 
     @Mock
     private MoonrakerApiClient moonrakerApiClient;

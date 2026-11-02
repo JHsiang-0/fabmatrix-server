@@ -1,91 +1,7 @@
-# ===========================================
-# 3D打印农场管理系统 - 生产环境配置
-# ===========================================
-# 安全警告：本文件使用环境变量占位符
-# 请勿在此文件中直接填写真实密码！
-# ===========================================
-
 spring:
   config:
     activate:
       on-profile: prod
-
-  # 生产环境数据源配置 - 使用环境变量
-  datasource:
-    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=true&verifyServerCertificate=false}
-    username: ${MYSQL_USERNAME:farm}
-    password: ${MYSQL_PASSWORD:}
-    hikari:
-      pool-name: FarmHikariPool-Prod
-      # DATETIME/LocalDateTime 使用农场 wall-clock，不做 UTC 转换。
-      connection-init-sql: SET time_zone = '+08:00'
-      # ===========================================
-      # HikariCP 连接池生产级配置
-      # 针对 WebSocket 多打印机并发场景优化
-      # ===========================================
-      # 最小空闲连接数 - 保持一定数量的空闲连接以应对突发流量
-      minimum-idle: ${HIKARI_MIN_IDLE:10}
-      # 最大连接数 - 根据数据库服务器能力和并发需求设置
-      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:50}
-      # 连接超时时间 - 等待连接池返回连接的最大时间
-      connection-timeout: ${HIKARI_CONNECTION_TIMEOUT:30000}
-      # 空闲连接超时时间 - 连接在池中保持空闲的最长时间
-      idle-timeout: ${HIKARI_IDLE_TIMEOUT:600000}
-      # 连接最大生命周期 - 连接在池中的最大存活时间
-      max-lifetime: ${HIKARI_MAX_LIFETIME:1800000}
-      # 连接测试语句
-      connection-test-query: SELECT 1
-      # 验证超时时间
-      validation-timeout: ${HIKARI_VALIDATION_TIMEOUT:5000}
-      # 连接泄漏检测阈值 - 超过此时间未归还的连接会被记录为泄漏
-      leak-detection-threshold: ${HIKARI_LEAK_DETECTION_THRESHOLD:60000}
-      # 注册MBeans以支持监控
-      register-mbeans: true
-
-  # 生产环境Redis配置 - 使用环境变量
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      database: ${REDIS_DATABASE:0}
-      timeout: ${REDIS_TIMEOUT:10s}
-      lettuce:
-        # ===========================================
-        # Lettuce 连接池生产级配置
-        # 针对 WebSocket 多打印机并发状态更新优化
-        # ===========================================
-        pool:
-          # 最大活跃连接数 - 支持更多并发Redis操作
-          max-active: ${LETTUCE_POOL_MAX_ACTIVE:32}
-          # 最大空闲连接数 - 保持一定数量的空闲连接
-          max-idle: ${LETTUCE_POOL_MAX_IDLE:16}
-          # 最小空闲连接数 - 确保始终有可用的连接
-          min-idle: ${LETTUCE_POOL_MIN_IDLE:8}
-          # 最大等待时间 - 获取连接的最大等待时间
-          max-wait: ${LETTUCE_POOL_MAX_WAIT:10s}
-          # 连接测试时是否阻塞
-          test-on-borrow: true
-          # 归还连接时是否测试
-          test-on-return: true
-          # 空闲时是否测试连接
-          test-while-idle: true
-          # 测试连接的间隔时间
-          time-between-eviction-runs: 30s
-        # 关闭超时时间
-        shutdown-timeout: ${LETTUCE_SHUTDOWN_TIMEOUT:5s}
-        # 集群拓扑刷新配置（如果使用Redis集群）
-      cluster:
-        refresh:
-          period: 60s
-          adaptive: true
-
-# RustFS生产环境配置 - 使用环境变量
-rustfs:
-  endpoint: ${RUSTFS_ENDPOINT:http://localhost:9000}
-  access-key: ${RUSTFS_ACCESS_KEY:}
-  secret-key: ${RUSTFS_SECRET_KEY:}
-  bucket: ${RUSTFS_BUCKET:farm}
 
 # JWT生产环境配置 - 使用环境变量，无默认值以确保安全
 jwt:
@@ -117,7 +33,6 @@ logging:
     org.apache.ibatis: WARN
     io.lettuce.core: WARN
     com.zaxxer.hikari: WARN
-    com.mysql.cj: WARN
 
 # 生产环境服务器配置
 server:

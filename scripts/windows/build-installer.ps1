@@ -368,6 +368,7 @@ icon=$trayIconPropertyPath
         '--dest', $imagePath,
         '--add-modules', 'ALL-MODULE-PATH',
         '--java-options', '-Dfile.encoding=UTF-8',
+        '--java-options', '--enable-native-access=ALL-UNNAMED',
         '--java-options', '-Dspring.profiles.active=local',
         '--java-options', "-Dfabmatrix.app-id=$serverAppId",
         '--java-options', "-Dfabmatrix.app-version=$Version",

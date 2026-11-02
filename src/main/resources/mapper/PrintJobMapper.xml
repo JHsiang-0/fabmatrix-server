@@ -70,63 +70,10 @@
         ORDER BY j.priority DESC, j.created_at ASC, j.id ASC
     </select>
 
-    <select id="selectPageSummaries" resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
-        SELECT
-        <include refid="jobSummaryColumns"/>
-        <include refid="jobSummaryJoins"/>
-        WHERE 1 = 1
-        <if test="statuses != null and statuses.size() > 0">
-            AND j.status IN
-            <foreach collection="statuses" item="status" open="(" separator="," close=")">
-                #{status}
-            </foreach>
-        </if>
-        <if test="printerId != null">
-            AND j.printer_id = #{printerId}
-        </if>
-        <if test="admin and userId != null">
-            AND j.user_id = #{userId}
-        </if>
-        <if test="!admin">
-            AND j.user_id = #{currentUserId}
-        </if>
-        <if test="fileName != null and fileName != ''">
-            AND LOWER(COALESCE(f.original_name, j.file_name_snapshot))
-                LIKE CONCAT('%', LOWER(#{fileName}), '%') ESCAPE CHAR(92)
-        </if>
-        <if test="startTime != null">
-            <choose>
-                <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
-                    AND j.completed_at <![CDATA[>=]]> #{startTime}
-                </when>
-                <otherwise>
-                    AND j.created_at <![CDATA[>=]]> #{startTime}
-                </otherwise>
-            </choose>
-        </if>
-        <if test="endTime != null">
-            <choose>
-                <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
-                    AND j.completed_at <![CDATA[<=]]> #{endTime}
-                </when>
-                <otherwise>
-                    AND j.created_at <![CDATA[<=]]> #{endTime}
-                </otherwise>
-            </choose>
-        </if>
-        <choose>
-            <when test="timeField != null and timeField.name() == 'COMPLETED_AT'">
-                ORDER BY CASE WHEN j.completed_at IS NULL THEN 1 ELSE 0 END ASC,
-                         j.completed_at DESC, j.id DESC
-            </when>
-            <otherwise>
-                ORDER BY j.created_at DESC, j.id DESC
-            </otherwise>
-        </choose>
-    </select>
 
-    <!-- SQLite 不支持 MySQL CONCAT；保留与默认查询相同的 JOIN、过滤和排序语义。 -->
-    <select id="selectPageSummaries" databaseId="sqlite"
+
+    <!-- SQLite 的分页查询保持既有 JOIN、过滤和排序语义。 -->
+    <select id="selectPageSummaries"
             resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
         SELECT
         <include refid="jobSummaryColumns"/>
@@ -230,19 +177,9 @@
         LIMIT #{limit}
     </sql>
 
-    <select id="selectHistoryForExport" resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
-        SELECT
-        <include refid="jobSummaryColumns"/>
-        <include refid="jobSummaryJoins"/>
-        <include refid="historyExportFilters"/>
-        <if test="fileName != null and fileName != ''">
-            AND LOWER(COALESCE(f.original_name, j.file_name_snapshot))
-                LIKE CONCAT('%', LOWER(#{fileName}), '%') ESCAPE CHAR(92)
-        </if>
-        <include refid="historyExportOrderAndLimit"/>
-    </select>
 
-    <select id="selectHistoryForExport" databaseId="sqlite"
+
+    <select id="selectHistoryForExport"
             resultType="com.example.farm.entity.vo.PrintJobSummaryVO">
         SELECT
         <include refid="jobSummaryColumns"/>
@@ -273,86 +210,52 @@
         LIMIT 1
     </select>
 
+
+
     <update id="assignJobIfQueued">
         UPDATE farm_print_job
         SET printer_id = #{printerId},
             printer_name_snapshot = #{printerName},
             machine_number_snapshot = #{machineNumber},
             status = 'ASSIGNED',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = #{jobId}
-          AND printer_id IS NULL
-          AND status IN ('QUEUED', 'PENDING', 'MANUAL')
-    </update>
-
-    <update id="assignJobIfQueued" databaseId="sqlite">
-        UPDATE farm_print_job
-        SET printer_id = #{printerId},
-            printer_name_snapshot = #{printerName},
-            machine_number_snapshot = #{machineNumber},
-            status = 'ASSIGNED',
             updated_at = datetime('now', '+8 hours')
         WHERE id = #{jobId}
           AND printer_id IS NULL
           AND status IN ('QUEUED', 'PENDING', 'MANUAL')
     </update>
+
+
 
     <update id="initializeRootJobId">
         UPDATE farm_print_job
         SET root_job_id = id,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = #{jobId}
-          AND root_job_id IS NULL
-    </update>
-
-    <update id="initializeRootJobId" databaseId="sqlite">
-        UPDATE farm_print_job
-        SET root_job_id = id,
             updated_at = datetime('now', '+8 hours')
         WHERE id = #{jobId}
           AND root_job_id IS NULL
     </update>
+
+
 
     <update id="updateStatusIfCurrent">
         UPDATE farm_print_job
         SET status = #{targetStatus},
             error_reason = #{errorReason},
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = #{jobId}
-          AND status = #{expectedStatus}
-    </update>
-
-    <update id="updateStatusIfCurrent" databaseId="sqlite">
-        UPDATE farm_print_job
-        SET status = #{targetStatus},
-            error_reason = #{errorReason},
             updated_at = datetime('now', '+8 hours')
         WHERE id = #{jobId}
           AND status = #{expectedStatus}
     </update>
 
+
+
     <select id="lockRetrySource" resultType="java.lang.Long">
         SELECT id
         FROM farm_print_job
         WHERE id = #{jobId}
-        FOR UPDATE
     </select>
 
-    <select id="lockRetrySource" databaseId="sqlite" resultType="java.lang.Long">
-        SELECT id
-        FROM farm_print_job
-        WHERE id = #{jobId}
-    </select>
 
-    <select id="selectRetryChild" resultType="com.example.farm.entity.PrintJob">
-        SELECT *
-        FROM farm_print_job
-        WHERE retry_of_job_id = #{sourceJobId}
-        LIMIT 1
-        FOR UPDATE
-    </select>
 
-    <select id="selectRetryChild" databaseId="sqlite"
+    <select id="selectRetryChild"
             resultType="com.example.farm.entity.PrintJob">
         SELECT *
         FROM farm_print_job
@@ -360,16 +263,9 @@
         LIMIT 1
     </select>
 
-    <select id="selectRetryChildByLineage" resultType="com.example.farm.entity.PrintJob">
-        SELECT *
-        FROM farm_print_job
-        WHERE root_job_id = #{rootJobId}
-          AND attempt_number = #{attemptNumber}
-        LIMIT 1
-        FOR UPDATE
-    </select>
 
-    <select id="selectRetryChildByLineage" databaseId="sqlite"
+
+    <select id="selectRetryChildByLineage"
             resultType="com.example.farm.entity.PrintJob">
         SELECT *
         FROM farm_print_job
@@ -378,23 +274,9 @@
         LIMIT 1
     </select>
 
-    <insert id="insertRetryIfAbsent" useGeneratedKeys="true" keyProperty="id">
-        INSERT IGNORE INTO farm_print_job (
-            file_id, printer_id, user_id, operator_id,
-            idempotency_key, file_name_snapshot, printer_name_snapshot,
-            machine_number_snapshot, creator_username_snapshot, operator_username_snapshot,
-            retry_of_job_id, root_job_id, attempt_number, priority, status, progress,
-            started_at, completed_at, error_reason, created_at, updated_at
-        ) VALUES (
-            #{fileId}, NULL, #{userId}, NULL,
-            NULL, #{fileNameSnapshot}, NULL,
-            NULL, #{creatorUsernameSnapshot}, NULL,
-            #{retryOfJobId}, #{rootJobId}, #{attemptNumber}, #{priority}, 'QUEUED', #{progress},
-            NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-        )
-    </insert>
 
-    <insert id="insertRetryIfAbsent" databaseId="sqlite"
+
+    <insert id="insertRetryIfAbsent"
             useGeneratedKeys="true" keyProperty="id">
         INSERT OR IGNORE INTO farm_print_job (
             file_id, printer_id, user_id, operator_id,
@@ -423,41 +305,9 @@
     </select>
 
     <!-- 按任务创建时间统计指定打印机的任务；时长仅统计有开始和完成时间的已结束任务。 -->
-    <select id="selectPrinterStatistics" resultType="com.example.farm.entity.vo.PrinterStatisticsVO">
-        SELECT
-            #{printerId} AS printer_id,
-            COUNT(*) AS total_jobs,
-            COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS completed_jobs,
-            COALESCE(SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END), 0) AS failed_jobs,
-            COALESCE(SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelled_jobs,
-            COALESCE(SUM(CASE WHEN status IN ('ASSIGNED', 'READY', 'PRINTING', 'PAUSED') THEN 1 ELSE 0 END), 0) AS active_jobs,
-            COALESCE(ROUND(
-                100.0 * SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)
-                / NULLIF(SUM(CASE WHEN status IN ('COMPLETED', 'FAILED') THEN 1 ELSE 0 END), 0), 2
-            ), 0.00) AS success_rate,
-            COALESCE(SUM(CASE
-                WHEN status IN ('COMPLETED', 'FAILED', 'CANCELLED')
-                     AND started_at IS NOT NULL AND completed_at IS NOT NULL
-                THEN TIMESTAMPDIFF(SECOND, started_at, completed_at)
-                ELSE 0
-            END), 0) AS total_print_seconds,
-            COALESCE(ROUND(AVG(CASE
-                WHEN status IN ('COMPLETED', 'FAILED', 'CANCELLED')
-                     AND started_at IS NOT NULL AND completed_at IS NOT NULL
-                THEN TIMESTAMPDIFF(SECOND, started_at, completed_at)
-                ELSE NULL
-            END), 2), 0.00) AS average_print_seconds
-        FROM farm_print_job
-        WHERE printer_id = #{printerId}
-        <if test="from != null">
-            AND created_at <![CDATA[>=]]> #{from}
-        </if>
-        <if test="to != null">
-            AND created_at <![CDATA[<=]]> #{to}
-        </if>
-    </select>
 
-    <select id="selectPrinterStatistics" databaseId="sqlite"
+
+    <select id="selectPrinterStatistics"
             resultType="com.example.farm.entity.vo.PrinterStatisticsVO">
         SELECT
             #{printerId} AS printer_id,

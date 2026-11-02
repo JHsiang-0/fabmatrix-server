@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
@@ -45,7 +45,7 @@ class PrintJobCreateTest {
     @Mock
     private PrinterService printerService;
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
     @Mock
     private PrinterProtocolAdapterFactory adapterFactory;
     @Mock

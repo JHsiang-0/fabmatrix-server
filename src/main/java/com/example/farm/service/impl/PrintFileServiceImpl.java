@@ -57,7 +57,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     private static final int MAX_BATCH_SIZE = 100;
     private static final int MAX_FILENAME_LENGTH = 255;
 
-    private final FileStorage rustFsClient;
+    private final FileStorage fileStorage;
     private final FileUploadProperties fileUploadProperties;
 
     @Autowired(required = false)
@@ -346,7 +346,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Transactional(rollbackFor = Exception.class)
     public PrintFile uploadAndParseFile(MultipartFile file, Long parentId) {
         validateUpload(file);
-        rustFsClient.ensureCapacity(file.getSize());
+        fileStorage.ensureCapacity(file.getSize());
         Long userId = SecurityContextUtil.getCurrentUserId();
         Long resolvedParentId = resolveUploadParent(parentId, userId).getId();
         requireUploadParent(resolvedParentId);
@@ -389,7 +389,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         log.debug("耗材调试 - filamentUsedG={}, filamentUsedMM={}, filamentWeight={}, filamentLength={}",
                 meta.getFilamentUsedG(), meta.getFilamentUsedMM(), meta.getFilamentWeight(), meta.getFilamentLength());
 
-        String fileUrl = rustFsClient.uploadFile(safeName, file);
+        String fileUrl = fileStorage.uploadFile(safeName, file);
 
         PrintFile printFile = new PrintFile();
         printFile.setOriginalName(originalName);
@@ -564,7 +564,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             throw new BusinessException("文件记录删除失败");
         }
         recordSuccess("FILE_DELETE", "FILE", target.getId(), target.getOriginalName());
-        log.info("print file deleted from rustfs and db: fileId={}, userId={}", id, userId);
+        log.info("print file deleted from local storage and database: fileId={}, userId={}", id, userId);
     }
 
     @Override
@@ -604,7 +604,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     public String getPresignedDownloadUrl(Long id, Integer expirationMinutes) {
         PrintFile file = getAccessibleFile(id);
 
-        return rustFsClient.getPresignedUrl(file.getSafeName(), resolvePresignedExpiration(expirationMinutes));
+        return fileStorage.getPresignedUrl(file.getSafeName(), resolvePresignedExpiration(expirationMinutes));
     }
 
     @Override
@@ -613,7 +613,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (file.getThumbnailUrl() == null || file.getThumbnailUrl().isBlank()) {
             return null;
         }
-        return rustFsClient.getPresignedUrlForObjectUrl(
+        return fileStorage.getPresignedUrlForObjectUrl(
                 file.getThumbnailUrl(), resolvePresignedExpiration(expirationMinutes));
     }
 
@@ -630,7 +630,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     @Override
     public org.springframework.core.io.InputStreamResource downloadFile(Long id) {
         PrintFile file = getAccessibleFile(id);
-        return rustFsClient.getFileStream(file.getSafeName());
+        return fileStorage.getFileStream(file.getSafeName());
     }
 
     @Override
@@ -652,7 +652,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
         if (!canRead(file)) {
             throw new BusinessException(404, "文件不存在");
         }
-        return rustFsClient.getFileStream(thumbnailKey ? safeName : file.getSafeName());
+        return fileStorage.getFileStream(thumbnailKey ? safeName : file.getSafeName());
     }
 
     @Override
@@ -1051,7 +1051,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private void deleteStoredFile(String key) {
         try {
-            rustFsClient.deleteFile(key);
+            fileStorage.deleteFile(key);
         } catch (StorageException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -1061,7 +1061,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     private void deleteStoredFileByObjectUrl(String objectUrl) {
         try {
-            rustFsClient.deleteFileByObjectUrl(objectUrl);
+            fileStorage.deleteFileByObjectUrl(objectUrl);
         } catch (StorageException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -1346,7 +1346,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
     }
 
     /**
-     * 将 Base64 缩略图解码并上传到 RustFS。
+     * 将 Base64 缩略图解码并保存到本地文件存储。
      *
      * @param base64Data Base64 编码的图片数据
      * @param safeName   原文件的安全名称（用于生成缩略图 key）
@@ -1357,7 +1357,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Data);
             ThumbnailFormat format = detectThumbnailFormat(imageBytes);
             String thumbnailKey = "thumbnails/" + UUID.randomUUID() + "." + format.extension();
-            return rustFsClient.uploadBytes(thumbnailKey, imageBytes, format.contentType());
+            return fileStorage.uploadBytes(thumbnailKey, imageBytes, format.contentType());
         } catch (Exception e) {
             log.warn("缩略图上传失败: safeName={}, error={}", safeName, e.getMessage());
             return null;

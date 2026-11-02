@@ -4,15 +4,9 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.farm.mapper.DashboardLayoutMapper">
 
-    <select id="selectForUpdate" resultType="com.example.farm.entity.DashboardLayout">
-        SELECT id, row_count AS rowCount, column_count AS columnCount, aisles_json AS aislesJson,
-               version, updated_by AS updatedBy, created_at AS createdAt, updated_at AS updatedAt
-        FROM farm_dashboard_layout
-        WHERE id = #{id}
-        FOR UPDATE
-    </select>
 
-    <select id="selectForUpdate" databaseId="sqlite"
+
+    <select id="selectForUpdate"
             resultType="com.example.farm.entity.DashboardLayout">
         SELECT id, row_count AS rowCount, column_count AS columnCount, aisles_json AS aislesJson,
                version, updated_by AS updatedBy, created_at AS createdAt, updated_at AS updatedAt
@@ -20,13 +14,9 @@
         WHERE id = #{id}
     </select>
 
-    <select id="selectPrintersForUpdate" resultType="com.example.farm.entity.Printer">
-        SELECT id, name, grid_row AS gridRow, grid_col AS gridCol
-        FROM farm_printer
-        FOR UPDATE
-    </select>
 
-    <select id="selectPrintersForUpdate" databaseId="sqlite"
+
+    <select id="selectPrintersForUpdate"
             resultType="com.example.farm.entity.Printer">
         SELECT id, name, grid_row AS gridRow, grid_col AS gridCol
         FROM farm_printer

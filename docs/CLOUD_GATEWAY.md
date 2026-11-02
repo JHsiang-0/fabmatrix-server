@@ -7,6 +7,7 @@
 | 环境变量 | 说明 |
 |---|---|
 | FARM_CLOUD_ENABLED | 默认 false，配置完成后显式 true |
+| FARM_CLOUD_OBSERVATION_V2_ENABLED | 默认 false；确认云端已升级并应用 V5 后设为 true，启用 V2 受限观测快照 |
 | FARM_CLOUD_API_URL | 云 HTTPS 根地址，无路径/查询；HTTP 仅允许字面 loopback 调试 |
 | FARM_CLOUD_MQTT_URL | ssl://域名:8883，强制验证证书和主机名 |
 | FARM_CLOUD_CA_CERTIFICATE | 可选 CA PEM 路径，空使用系统信任 |
@@ -24,8 +25,12 @@ FarmData 根优先 FARM_DATA_DIR，未设置使用 user.home/FarmData。云端 O
 
 代理自己的后台线程捕获已有 PrinterService/缓存数据，不直接调用打印机，不订阅命令。每 5 秒采样，变化或 30 秒发完整快照，约 15 秒心跳。最多 200 台、单包 64 KiB；超限报错且不截断上传。只上报设备 ID/名称/固件/状态/监控开关/观测时间/温度/进度，不上传 IP/MAC/API Key、账号、文件或任务内容。
 
+V2 可选上报统一观测的采集时间、质量、加热器、工具和不含文件名的执行摘要。只有监控开启、通信健康且观测不超过 30 秒时才发送当前观测；缺失或失效时发送空观测。仍使用既有完整快照 topic 和 64 KiB 限额，设备多或通道多可能超限并暂停该快照；尚未实现分片、动态能力发现或完整 canonical 设备对象。先升级 Cloud 并按要求备份与迁移，再重启 Server 启用；不支持自动版本协商，旧 Cloud 不接受 V2。
+
 pending 文件只有一个，云端事务提交回执才删除；5 秒重发，60 秒后合并为当前状态。启动用新 bootId 登记云 epoch，丢弃上个进程待发快照；断网保留最新状态，不提供历史事件队列。网络失败 1–30 秒退避且不阻塞局域网线程，配置错误也不阻止本地服务启动。旧 boot 被取代显示 SUPERSEDED，需排查重复运行的网关实例。
 
 ## 验证边界
+
+2026-11-01 本机联调：常驻开发 Cloud 已从 V4 升至 V5，升级前数据库备份已在隔离 MySQL 中恢复验证；IDEA 开发 Server 已通过本机私有配置启用 V2。授权 API 当次返回 8 台设备的当前观测、16 个加热通道；已在连接的 Android 手机上查看在线设备的统一观测和温度。该记录只覆盖本机开发环境，不等同生产部署或所有设备/打印阶段验收。
 
 后端 `mvnw test` 验证开关、权限、白名单、受保护文件及错误隔离；云仓库的 `scripts/c1-integration.py --backend-jar …` 运行真实现场 JAR、临时 SQLite、云 MySQL 和真实 EMQX TLS，设备状态使用模拟观测，不连接真实打印机。公网双现场、真实设备、Windows 安装包和实际运维凭证轮换仍须单独验收。

@@ -26,44 +26,14 @@ class DashboardLayoutMigrationTest {
     @Test
     void precheckScriptsAreReadOnlyAndExposeStableIssueColumns() {
         for (String resource : List.of(
-                "db/migration/mysql/dashboard-layout-precheck-mysql.sql",
                 "db/migration/sqlite/dashboard-layout-precheck-sqlite.sql")) {
             String sql = stripComments(read(resource)).toUpperCase();
             assertThat(sql).contains("ISSUETYPE", "GRIDROW", "GRIDCOL", "ORDER BY ISSUETYPE, ID");
             assertThat(sql).doesNotContain("CREATE ", "ALTER ", "INSERT ", "UPDATE ", "DELETE ",
                     "DROP ", "TRIGGER ", "CALL ");
         }
-        assertThat(read("db/migration/mysql/dashboard-layout-precheck-mysql.sql"))
-                .contains("PARTIAL_COORDINATE", "DUPLICATE_SLOT", "NON_POSITIVE_COORDINATE",
-                        "DEFAULT_LAYOUT_OUT_OF_BOUNDS");
         assertThat(read("db/migration/sqlite/dashboard-layout-precheck-sqlite.sql"))
                 .contains("NON_INTEGER_COORDINATE", "typeof(p.grid_row)");
-    }
-
-    @Test
-    void mysqlScriptsAndComposeKeepMigrationContractStatic() {
-        String migration = read("db/migration/mysql/16-v2-dashboard-layout-mysql.sql");
-        assertThat(migration).contains("DROP PROCEDURE IF EXISTS farm_dashboard_layout_migrate$$",
-                "farm_dashboard_layout_migration_abort", "farm_dashboard_layout",
-                "ck_farm_dashboard_layout_singleton", "row_count BETWEEN 1 AND 30",
-                "column_count BETWEEN 1 AND 60", "row_count * column_count <= 1800",
-                "version > 0", "ON DUPLICATE KEY UPDATE");
-        assertThat(migration).doesNotContain("SIGNAL SQLSTATE");
-        assertThat(migration).doesNotContain("UPDATE farm_printer", "machine_number");
-        assertThat(read("db/archive/farm.sql")).contains("ck_farm_printer_grid_pair",
-                "ck_farm_printer_grid_positive", "uk_farm_printer_grid_position",
-                "grid_row", "grid_col")
-                .doesNotContain("farm_dashboard_layout");
-        assertThat(read("db/migration/mysql/02-current-schema.sql")).contains("ck_farm_printer_grid_pair",
-                "ck_farm_printer_grid_positive", "uk_farm_printer_grid_position",
-                "grid_row", "grid_col")
-                .doesNotContain("farm_dashboard_layout", "CREATE TABLE farm_dashboard_layout",
-                        "INSERT INTO farm_dashboard_layout");
-        for (String compose : List.of("docker-compose.yml", "docker-compose.server.yml")) {
-            String yaml = readWorkspaceFile(compose);
-            assertThat(yaml).contains("db/init/mysql-schema.sql:/docker-entrypoint-initdb.d/01-mysql-schema.sql:ro")
-                    .doesNotContain("db/migration/");
-        }
     }
 
     @Test
@@ -89,25 +59,6 @@ class DashboardLayoutMigrationTest {
             assertThat(jdbc.queryForObject("SELECT aisles_json FROM farm_dashboard_layout WHERE id = 1",
                     String.class)).contains("\"afterIndex\":6", "用户过道");
         }
-    }
-
-    @Test
-    void mysqlMigrationScopesInformationSchemaQueriesToActualTables() {
-        String migration = stripComments(read("db/migration/mysql/16-v2-dashboard-layout-mysql.sql"))
-                .replaceAll("\\s+", " ")
-                .toLowerCase(Locale.ROOT);
-
-        assertThat(migration).doesNotContain("cc.table_name");
-        assertThat(migration).contains(
-                "on cc.constraint_schema = tc.constraint_schema and cc.constraint_name = tc.constraint_name",
-                "on tc.constraint_schema = cc.constraint_schema and tc.constraint_name = cc.constraint_name",
-                "where tc.table_schema = database() and tc.table_name = 'farm_dashboard_layout'",
-                "where tc.table_schema = database() and tc.table_name = 'farm_printer'");
-        assertThat(countOccurrences(migration,
-                "from information_schema.statistics where table_schema = database() "
-                        + "and table_name = 'farm_printer' "
-                        + "and index_name = 'uk_farm_printer_grid_position'"))
-                .isEqualTo(2);
     }
 
     @Test

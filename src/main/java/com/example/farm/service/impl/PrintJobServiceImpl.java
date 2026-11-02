@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.LogUtil;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.common.storage.FileStorage;
 import com.example.farm.common.utils.SecurityContextUtil;
@@ -64,7 +64,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     private final PrintJobMapper farmPrintJobMapper;
     private final PrintFileMapper printFileMapper;
     private final PrinterService printerService;
-    private final FileStorage rustFsClient;
+    private final FileStorage fileStorage;
     private final PrinterProtocolAdapterFactory adapterFactory;
     private final WebSocketEventPublisher eventPublisher;
 
@@ -81,9 +81,9 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     @Autowired(required = false)
     private PrinterExecutionService printerExecutionService;
 
-    /** 单元测试可不提供 Redis；正式运行由 Server Edition 注入并作为跨客户端占用锁。 */
+    /** 单元测试可不提供缓存；正式运行使用进程内锁保护设备操作。 */
     @Autowired(required = false)
-    private RedisUtil redisUtil;
+    private CacheStore cacheStore;
 
     @NonNull
     private final PrinterIdentityVerifier identityVerifier;
@@ -411,7 +411,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
 
         LogUtil.bizInfo("任务派发", "任务ID", jobId, "打印机ID", printerId, "文件名", filename);
 
-        org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
+        org.springframework.core.io.Resource fileStream = fileStorage.getFileStream(safeName);
         if (fileStream == null) {
             throw new BusinessException("无法从对象存储中读取切片文件");
         }
@@ -617,7 +617,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
                 deviceActionStarted = true;
                 deviceAdapter.startFile(deviceEndpoint, filename);
             } else {
-                org.springframework.core.io.Resource fileStream = rustFsClient.getFileStream(safeName);
+                org.springframework.core.io.Resource fileStream = fileStorage.getFileStream(safeName);
                 if (fileStream == null) {
                     throw new BusinessException("无法从对象存储中读取切片文件");
                 }
@@ -886,7 +886,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
             throw exception;
         }
 
-        // MySQL 的 FOR UPDATE 是当前读：同一来源的跨实例请求会串行，并看到已提交 child。
+        // SQLite 单连接事务保证同一来源请求串行，并看到已提交的子任务。
         farmPrintJobMapper.lockRetrySource(jobId);
         PrintJob existing = farmPrintJobMapper.selectRetryChild(jobId);
         if (existing != null) {
@@ -1263,7 +1263,7 @@ public class PrintJobServiceImpl extends ServiceImpl<PrintJobMapper, PrintJob> i
     }
 
     private <T> T withPrinterLock(Long printerId, Supplier<T> action) {
-        return PrinterLock.execute(printerId, redisUtil, action);
+        return PrinterLock.execute(printerId, cacheStore, action);
     }
 
     @Override

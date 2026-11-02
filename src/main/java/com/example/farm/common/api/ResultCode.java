@@ -17,8 +17,8 @@ public enum ResultCode {
     PRINTER_PROTOCOL_UNSUPPORTED(10003, "打印机协议不支持当前操作"),
 
     // 中间件错误码 (5xxx)
-    MYSQL_ERROR(5001, "数据库连接异常"),
-    REDIS_ERROR(5002, "缓存服务异常"),
+    DATABASE_ERROR(5001, "数据库连接异常"),
+    CACHE_ERROR(5002, "缓存服务异常"),
     STORAGE_ERROR(5003, "存储服务异常"),
     NETWORK_ERROR(5004, "网络连接异常");
 

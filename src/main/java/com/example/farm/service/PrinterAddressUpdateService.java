@@ -3,7 +3,7 @@ package com.example.farm.service;
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.MacAddressUtil;
 import com.example.farm.common.utils.PrinterLock;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.entity.Printer;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.PrinterProtocolType;
@@ -36,7 +36,7 @@ public class PrinterAddressUpdateService {
     private final TransactionTemplate transactionTemplate;
 
     @Autowired(required = false)
-    private RedisUtil redisUtil;
+    private CacheStore cacheStore;
 
     public PrinterAddressUpdateService(PrinterMapper printerMapper, PrinterCacheService printerCacheService,
                                        PlatformTransactionManager transactionManager) {
@@ -97,7 +97,7 @@ public class PrinterAddressUpdateService {
             return action.get();
         }
         Long id = ids.get(index);
-        return PrinterLock.execute(id, redisUtil, () -> withLocks(ids, index + 1, action));
+        return PrinterLock.execute(id, cacheStore, () -> withLocks(ids, index + 1, action));
     }
 
     private List<Long> updateInTransaction(List<Change> changes, List<Long> ids) {
@@ -131,7 +131,7 @@ public class PrinterAddressUpdateService {
         }
         for (Long id : ids) {
             PrinterLock.ensureValid(id);
-            // 原地址已经为空时无需清空；MySQL 对 NULL -> NULL 的写入可能返回 0。
+            // 原地址已经为空时无需重复清空。
             if (printers.get(id).getIpAddress() != null
                     && printerMapper.clearIpAddressIfUnchanged(printers.get(id)) != 1) {
                 throw conflict("打印机配置已变化，IP 同步已回滚");

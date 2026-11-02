@@ -14,12 +14,6 @@ spring:
     password:
     driver-class-name: org.h2.Driver
 
-  # 禁用 Redis，测试时需要 Mock
-  data:
-    redis:
-      host: localhost
-      port: 6379
-
   # 禁用 Flyway，测试使用 schema.sql 初始化
   flyway:
     enabled: false
@@ -49,14 +43,6 @@ jwt:
 admin:
   secret-key: test-admin-key
 
-# RustFS 测试配置（Mock）
-rustfs:
-  endpoint: http://127.0.0.1:1
-  access-key: test-key
-  secret-key: test-secret
-  bucket: test-bucket
-  startup-check-enabled: false
-
 # 日志配置 - 减少输出
 logging:
   level:
@@ -72,6 +58,8 @@ server:
 
 # 测试环境应用配置
 farm:
+  local:
+    storage-path: target/test-farm-files
   features:
     batch-dispatch:
       enabled: false

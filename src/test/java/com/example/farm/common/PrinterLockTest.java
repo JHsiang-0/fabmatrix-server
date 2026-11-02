@@ -2,7 +2,7 @@ package com.example.farm.common;
 
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.PrinterLock;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -27,6 +27,56 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PrinterLockTest {
+
+    @Test
+    void tryExecuteWaitsForLocalLockToBeReleased() throws Exception {
+        var entered = new CountDownLatch(1);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var holder = executor.submit(() -> PrinterLock.execute(990007L, null, () -> {
+                entered.countDown();
+                try { TimeUnit.MILLISECONDS.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                return null;
+            }));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(PrinterLock.tryExecute(990007L, null, () -> "ok")).isEqualTo("ok");
+            holder.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void tryExecuteRetriesDistributedLockAndSucceeds() {
+        CacheStore redis = mock(CacheStore.class);
+        when(redis.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS)))
+                .thenReturn(false, true);
+        assertThat(PrinterLock.tryExecute(990006L, redis, () -> "ok")).isEqualTo("ok");
+        verify(redis, org.mockito.Mockito.times(2)).tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void tryExecuteRejectsDeviceAfterBoundedWait() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var holder = executor.submit(() -> PrinterLock.execute(990005L, null, () -> {
+                entered.countDown();
+                waitFor(release);
+                return null;
+            }));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> PrinterLock.tryExecute(990005L, null, () -> "unexpected"))
+                    .isInstanceOf(BusinessException.class);
+            release.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            assertThat(PrinterLock.tryExecute(990005L, null, () -> "ok")).isEqualTo("ok");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
 
     @Test
     @SuppressWarnings("unchecked")
@@ -135,26 +185,26 @@ class PrinterLockTest {
 
     @Test
     void redisEditionUsesLongLeaseAndOwnedRelease() {
-        RedisUtil redisUtil = mock(RedisUtil.class);
-        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        CacheStore cacheStore = mock(CacheStore.class);
+        when(cacheStore.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
 
-        PrinterLock.execute(403L, redisUtil, () -> {
+        PrinterLock.execute(403L, cacheStore, () -> {
             PrinterLock.ensureValid(403L);
             return null;
         });
 
-        verify(redisUtil).tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
-        verify(redisUtil).releaseLockIfOwned(anyString(), anyString());
+        verify(cacheStore).tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+        verify(cacheStore).releaseLockIfOwned(anyString(), anyString());
     }
 
     @Test
     void redisCleanupFailureKeepsTheActionResultAndReleasesTheLocalMutex() throws Exception {
-        RedisUtil redisUtil = mock(RedisUtil.class);
-        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
-        when(redisUtil.releaseLockIfOwned(anyString(), anyString()))
+        CacheStore cacheStore = mock(CacheStore.class);
+        when(cacheStore.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(cacheStore.releaseLockIfOwned(anyString(), anyString()))
                 .thenThrow(new IllegalStateException("isolated release failure"));
 
-        assertThat(PrinterLock.execute(990004L, redisUtil, () -> "committed")).isEqualTo("committed");
+        assertThat(PrinterLock.execute(990004L, cacheStore, () -> "committed")).isEqualTo("committed");
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<String> next = executor.submit(() -> PrinterLock.execute(990004L, null, () -> "next"));
@@ -167,12 +217,12 @@ class PrinterLockTest {
     @Test
     @SuppressWarnings("unchecked")
     void lostRedisLeaseIsRejectedBeforeTheNextDeviceStage() throws Exception {
-        RedisUtil redisUtil = mock(RedisUtil.class);
-        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
-        when(redisUtil.renewLockIfOwned(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS)))
+        CacheStore cacheStore = mock(CacheStore.class);
+        when(cacheStore.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS))).thenReturn(true);
+        when(cacheStore.renewLockIfOwned(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS)))
                 .thenReturn(false);
 
-        assertThatThrownBy(() -> PrinterLock.execute(403L, redisUtil, () -> {
+        assertThatThrownBy(() -> PrinterLock.execute(403L, cacheStore, () -> {
             try {
                 Field heldLocks = PrinterLock.class.getDeclaredField("HELD_LOCKS");
                 heldLocks.setAccessible(true);
@@ -190,7 +240,7 @@ class PrinterLockTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("code").isEqualTo(503L);
 
-        verify(redisUtil, org.mockito.Mockito.never()).releaseLockIfOwned(anyString(), anyString());
+        verify(cacheStore, org.mockito.Mockito.never()).releaseLockIfOwned(anyString(), anyString());
     }
 
     @Test

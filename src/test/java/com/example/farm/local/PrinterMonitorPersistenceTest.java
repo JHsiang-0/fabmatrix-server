@@ -190,8 +190,8 @@ class PrinterMonitorPersistenceTest {
     }
 
     @Test
-    void monitorReadChoosesLockingSqlOnlyForMySql() throws Exception {
-        for (String dialect : new String[] {null, "sqlite", "mysql"}) {
+    void monitorReadUsesSqliteCompatibleSql() throws Exception {
+        for (String dialect : new String[] {null, "sqlite"}) {
             MybatisConfiguration configuration = new MybatisConfiguration();
             configuration.setDatabaseId(dialect);
             try (var stream = new ClassPathResource("mapper/PrinterMapper.xml").getInputStream()) {
@@ -201,11 +201,7 @@ class PrinterMonitorPersistenceTest {
             String sql = configuration.getMappedStatement(
                     PrinterMapper.class.getName() + ".selectMonitorEnabledForUpdate")
                     .getBoundSql(Map.of("id", 1L)).getSql();
-            if ("mysql".equals(dialect)) {
-                assertThat(sql).contains("FOR UPDATE");
-            } else {
-                assertThat(sql).doesNotContain("FOR UPDATE");
-            }
+            assertThat(sql).doesNotContain("FOR UPDATE");
         }
     }
 
@@ -421,6 +417,11 @@ class PrinterMonitorPersistenceTest {
         @Bean
         PrinterCacheService printerCacheService() {
             return mock(PrinterCacheService.class);
+        }
+
+        @Bean
+        com.example.farm.service.PrinterBatchDeletionService printerBatchDeletionService() {
+            return mock(com.example.farm.service.PrinterBatchDeletionService.class);
         }
 
         @Bean

@@ -21,14 +21,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
-import java.sql.Connection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,11 +35,15 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** 以 H2 MySQL 方言、真实 Mapper 和双连接事务验证跨实例重试锁定读语义。 */
+/** SQLite 单连接下，并发重试必须复用同一个已提交的子任务。 */
 @SpringBootTest(classes = FarmApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@ActiveProfiles("test")
-@TestPropertySource(properties =
-        "spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ")
+@ActiveProfiles("local")
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:sqlite:target/retry-concurrency/farm.db",
+        "FARM_DATA_DIR=target/retry-concurrency",
+        "farm.monitor.enabled=false",
+        "farm.websocket.enabled=false"
+})
 class PrintJobRetryConcurrencyIntegrationTest {
 
     @Autowired
@@ -69,7 +71,7 @@ class PrintJobRetryConcurrencyIntegrationTest {
         jdbcTemplate.execute("DROP TABLE IF EXISTS farm_print_job");
         jdbcTemplate.execute("""
                 CREATE TABLE farm_print_job (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     file_id BIGINT, printer_id BIGINT, user_id BIGINT NOT NULL, operator_id BIGINT,
                     idempotency_key VARCHAR(100), file_name_snapshot VARCHAR(255),
                     printer_name_snapshot VARCHAR(50), machine_number_snapshot VARCHAR(50),
@@ -97,9 +99,8 @@ class PrintJobRetryConcurrencyIntegrationTest {
     }
 
     @Test
-    void concurrentTransactionsUseTwoConnectionsAndReplayOneCommittedChild() throws Exception {
-        assertThat(jdbcTemplate.execute((Connection connection) -> connection.getTransactionIsolation()))
-                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+    void concurrentRequestsShareOneConnectionAndReplayOneCommittedChild() throws Exception {
+        assertThat(dataSource.getMaximumPoolSize()).isEqualTo(1);
         PrintFile sourceFile = new PrintFile();
         sourceFile.setId(20L);
         sourceFile.setUserId(1L);
@@ -124,16 +125,7 @@ class PrintJobRetryConcurrencyIntegrationTest {
             assertThat(firstTransactionReachedFileValidation.await(5, TimeUnit.SECONDS)).isTrue();
             Future<Long> second = executor.submit(() -> retryAsOperator(100L));
 
-            boolean observedTwoConnections = false;
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            while (System.nanoTime() < deadline) {
-                if (dataSource.getHikariPoolMXBean().getActiveConnections() >= 2) {
-                    observedTwoConnections = true;
-                    break;
-                }
-                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
-            }
-            assertThat(observedTwoConnections).isTrue();
+            assertThat(dataSource.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
             allowFirstTransactionToInsert.countDown();
 
             assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(101L);

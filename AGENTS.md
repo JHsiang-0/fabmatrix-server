@@ -1,5 +1,7 @@
 # FabMatrix Server 项目协作指南
 
+> 当前为 Windows 单机 SQLite 运行时：`dev`、`prod` 自动包含 `local`，文件写入本地目录，缓存与互斥锁在进程内。MySQL、Redis 和 RustFS 不再是运行依赖；下方涉及这些组件和 Server Edition 的旧段落已过期，请以实际代码及 [单机运行模式](./docs/SINGLE_MACHINE.md) 为准。禁止多个 Server 使用同一个 SQLite 文件；数据库文件锁用于防止误启动第二个实例。
+
 当前产品发布基线为 `1.0.0` 准正式版。版本、Kiro 规格和文档状态的统一解释见 [`docs/VERSION_AND_ROADMAP.md`](./docs/VERSION_AND_ROADMAP.md)。
 
 本文档是 Codex 及其他代码代理在本仓库中工作的依据。用户的明确要求优先于本文档；涉及数据删除、重建 Docker 数据卷、修改生产数据或其他不可逆操作时，必须先确认目标和影响范围。
@@ -49,7 +51,6 @@ src/main/resources/
 ├── db/init/                  MySQL / SQLite 初始化 SQL
 ├── db/migration/mysql/       MySQL 增量升级及只读预检
 ├── db/migration/sqlite/      SQLite 离线升级及只读预检
-├── db/archive/               历史基线，不参与当前初始化
 └── logback-spring.xml       日志配置
 ```
 
@@ -92,7 +93,7 @@ mvn clean
 
 - `application.yaml` 默认激活 `dev`。
 - `dev` 可选导入被 Git 忽略的 `config/application-dev.local.yaml`，环境变量优先；使用本机映射的 MySQL、Redis、RustFS，HTTP/WebSocket 默认端口为 `28081`，可由 `SERVER_PORT` 覆盖。
-- `dev` 中 `farm.monitor.enabled=false`、`farm.scheduler.enabled=false`，没有真实打印机时不要打开监控，否则会轮询不存在的设备并产生错误日志。Windows Local Edition 则默认启用监控组件，并继续通过每台设备的 `monitor_enabled` 开关决定是否轮询；后台自动派单仍保持关闭。
+- `dev` 中 `farm.monitor.enabled` 默认开启，可通过 `FARM_MONITOR_ENABLED=false` 关闭；后台自动派单 `farm.scheduler.enabled` 保持关闭。Windows Local Edition 默认启用监控组件。两种环境均通过每台设备的 `monitor_enabled` 开关决定是否轮询；没有真实打印机时可关闭 dev 全局监控，避免轮询和错误日志。
 - `test` 使用 H2，关闭调度任务和 WebSocket，服务端口为随机端口。
 - `prod` 使用环境变量配置敏感信息，端口默认为 `28081`（可由 `SERVER_PORT` 覆盖），继承基础配置时后台调度保持关闭；仅在显式删除相关配置时才涉及任务注解的 `matchIfMissing=true` 行为。
 
@@ -137,7 +138,7 @@ MySQL 全新数据库统一使用 `src/main/resources/db/init/mysql-schema.sql`�
 
 该初始化脚本只会在全新的 MySQL 数据卷初始化时自动执行。已有数据卷不会因为修改脚本而重新执行；升级已有数据库前先备份，再手动执行对应 SQL。
 
-仓库没有配置 Flyway 依赖。`db/migration/mysql/` 保存已有 MySQL 库的增量脚本，`db/migration/sqlite/` 保存 SQLite 离线脚本及预检，不会自动扫描执行。`farm.sql`、`V1__init_schema.sql` 等历史基线位于 `db/archive/`，不参与当前初始化。已有 MySQL 数据卷升级前需备份并手动执行所需 SQL，不能为切换初始化入口删除数据卷。Local Edition 先执行 `db/init/sqlite-schema.sql`（原 `db/migration/local-schema.sql`），再由 `LocalSchemaMigration` 完成检查与升级，执行顺序和行为不变。
+仓库没有配置 Flyway 依赖。`db/migration/sqlite/` 保存 SQLite 离线脚本及预检，不会自动扫描执行。Server 先执行 `db/init/sqlite-schema.sql`，再由 `LocalSchemaMigration` 完成检查与升级。
 
 ## 7. 数据模型与数据库注意事项
 

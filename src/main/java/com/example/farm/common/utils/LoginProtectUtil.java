@@ -1,6 +1,6 @@
 package com.example.farm.common.utils;
 
-import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.constant.CacheKeyConstant;
 import com.example.farm.entity.User;
 import com.example.farm.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -17,16 +17,16 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class LoginProtectUtil {
 
-    private final RedisUtil redisUtil;
+    private final CacheStore cacheStore;
     private final UserMapper userMapper;
 
-    public LoginProtectUtil(RedisUtil redisUtil) {
-        this(redisUtil, null);
+    public LoginProtectUtil(CacheStore cacheStore) {
+        this(cacheStore, null);
     }
 
     @Autowired
-    public LoginProtectUtil(RedisUtil redisUtil, UserMapper userMapper) {
-        this.redisUtil = redisUtil;
+    public LoginProtectUtil(CacheStore cacheStore, UserMapper userMapper) {
+        this.cacheStore = cacheStore;
         this.userMapper = userMapper;
     }
 
@@ -42,15 +42,15 @@ public class LoginProtectUtil {
      * @return 当前失败次数
      */
     public int recordLoginFail(String username) {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.LOGIN_FAIL_COUNT, username);
-        Long count = redisUtil.increment(key, 1, LOCK_TIME_MINUTES, TimeUnit.MINUTES);
-        
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.LOGIN_FAIL_COUNT, username);
+        Long count = cacheStore.increment(key, 1, LOCK_TIME_MINUTES, TimeUnit.MINUTES);
+
         int failCount = count != null ? count.intValue() : 1;
-        
+
         if (failCount >= MAX_FAIL_COUNT) {
             log.warn("用户登录失败次数过多，账号已锁定: username={}, 锁定时长={}分钟", username, LOCK_TIME_MINUTES);
         }
-        
+
         return failCount;
     }
 
@@ -61,13 +61,13 @@ public class LoginProtectUtil {
      * @return true-已锁定
      */
     public boolean isLocked(String username) {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.LOGIN_FAIL_COUNT, username);
-        String countStr = redisUtil.getString(key);
-        
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.LOGIN_FAIL_COUNT, username);
+        String countStr = cacheStore.getString(key);
+
         if (countStr == null) {
             return false;
         }
-        
+
         try {
             int count = Integer.parseInt(countStr);
             return count >= MAX_FAIL_COUNT;
@@ -86,9 +86,9 @@ public class LoginProtectUtil {
         if (!isLocked(username)) {
             return 0;
         }
-        
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.LOGIN_FAIL_COUNT, username);
-        Long expire = redisUtil.getExpire(key, TimeUnit.MINUTES);
+
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.LOGIN_FAIL_COUNT, username);
+        Long expire = cacheStore.getExpire(key, TimeUnit.MINUTES);
         return expire != null ? expire : LOCK_TIME_MINUTES;
     }
 
@@ -98,8 +98,8 @@ public class LoginProtectUtil {
      * @param username 用户名
      */
     public void clearLoginFail(String username) {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.LOGIN_FAIL_COUNT, username);
-        redisUtil.delete(key);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.LOGIN_FAIL_COUNT, username);
+        cacheStore.delete(key);
         log.debug("清除用户 [{}] 的登录失败记录", username);
     }
 
@@ -110,8 +110,8 @@ public class LoginProtectUtil {
      * @return 失败次数
      */
     public int getFailCount(String username) {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.LOGIN_FAIL_COUNT, username);
-        String countStr = redisUtil.getString(key);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.LOGIN_FAIL_COUNT, username);
+        String countStr = cacheStore.getString(key);
         if (countStr == null) {
             return 0;
         }
@@ -126,9 +126,9 @@ public class LoginProtectUtil {
      * 标记用户为禁用状态（长期生效，直到显式恢复）。
      */
     public void disableUser(Long userId) {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.USER_DISABLED, userId);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.USER_DISABLED, userId);
         try {
-            redisUtil.setString(key, "1");
+            cacheStore.setString(key, "1");
         } catch (RuntimeException exception) {
             log.warn("用户禁用缓存失效失败，数据库状态仍作为真源: userId={}", userId, exception);
         }
@@ -138,9 +138,9 @@ public class LoginProtectUtil {
      * 取消用户禁用状态。
      */
     public void enableUser(Long userId) {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.USER_DISABLED, userId);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.USER_DISABLED, userId);
         try {
-            redisUtil.delete(key);
+            cacheStore.delete(key);
         } catch (RuntimeException exception) {
             log.warn("用户启用缓存失效失败，数据库状态仍作为真源: userId={}", userId, exception);
         }
@@ -154,7 +154,7 @@ public class LoginProtectUtil {
             User user = userMapper.selectById(userId);
             return user == null || Boolean.FALSE.equals(user.getEnabled());
         }
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.USER_DISABLED, userId);
-        return redisUtil.hasKey(key);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.USER_DISABLED, userId);
+        return cacheStore.hasKey(key);
     }
 }

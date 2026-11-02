@@ -6,9 +6,7 @@
         SELECT monitor_enabled FROM farm_printer WHERE id = #{id}
     </select>
 
-    <select id="selectMonitorEnabledForUpdate" databaseId="mysql" resultType="java.lang.Boolean">
-        SELECT monitor_enabled FROM farm_printer WHERE id = #{id} FOR UPDATE
-    </select>
+
 
     <sql id="addressSyncSelection">
         SELECT * FROM farm_printer
@@ -32,10 +30,7 @@
         <include refid="addressSyncSelection"/>
     </select>
 
-    <select id="selectAddressSyncPrintersForUpdate" databaseId="mysql"
-            resultType="com.example.farm.entity.Printer">
-        <include refid="addressSyncSelection"/> FOR UPDATE
-    </select>
+
 
     <sql id="addressSyncIdentityGuard">
         id = #{expected.id}
@@ -77,34 +72,17 @@
           AND (mac_address IS NULL OR mac_address != #{excludeMac})
     </update>
 
-    <!-- MySQL Server Edition -->
+    <!-- SQLite -->
+
+
+    <!-- SQLite -->
     <insert id="upsertByMacAddress">
         INSERT INTO farm_printer (
-            name, ip_address, mac_address, firmware_type, api_key, status,
+            name, ip_address, mac_address, firmware_type, api_key, status, monitor_enabled,
             current_material, nozzle_size, machine_number, grid_row, grid_col,
             created_at, updated_at
         ) VALUES (
-            #{name}, #{ipAddress}, #{macAddress}, #{firmwareType}, #{apiKey}, #{status},
-            #{currentMaterial}, #{nozzleSize}, #{machineNumber}, #{gridRow}, #{gridCol},
-            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-        )
-        ON DUPLICATE KEY UPDATE
-            ip_address = VALUES(ip_address),
-            status = VALUES(status),
-            firmware_type = VALUES(firmware_type),
-            api_key = VALUES(api_key),
-            machine_number = VALUES(machine_number),
-            updated_at = CURRENT_TIMESTAMP
-    </insert>
-
-    <!-- SQLite Local Edition -->
-    <insert id="upsertByMacAddress" databaseId="sqlite">
-        INSERT INTO farm_printer (
-            name, ip_address, mac_address, firmware_type, api_key, status,
-            current_material, nozzle_size, machine_number, grid_row, grid_col,
-            created_at, updated_at
-        ) VALUES (
-            #{name}, #{ipAddress}, #{macAddress}, #{firmwareType}, #{apiKey}, #{status},
+            #{name}, #{ipAddress}, #{macAddress}, #{firmwareType}, #{apiKey}, #{status}, COALESCE(#{monitorEnabled}, 0),
             #{currentMaterial}, #{nozzleSize}, #{machineNumber}, #{gridRow}, #{gridCol},
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
@@ -117,30 +95,10 @@
             updated_at = CURRENT_TIMESTAMP
     </insert>
 
-    <!-- MySQL Server Edition -->
-    <insert id="batchUpsert">
-        INSERT INTO farm_printer (
-            name, ip_address, mac_address, firmware_type, api_key, status,
-            current_material, nozzle_size, machine_number, grid_row, grid_col,
-            created_at, updated_at
-        ) VALUES
-        <foreach collection="list" item="item" separator=",">
-            (
-            #{item.name}, #{item.ipAddress}, #{item.macAddress}, #{item.firmwareType}, #{item.apiKey}, #{item.status},
-            #{item.currentMaterial}, #{item.nozzleSize}, #{item.machineNumber}, #{item.gridRow}, #{item.gridCol},
-            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-        </foreach>
-        ON DUPLICATE KEY UPDATE
-            ip_address = VALUES(ip_address),
-            status = VALUES(status),
-            firmware_type = VALUES(firmware_type),
-            api_key = VALUES(api_key),
-            machine_number = VALUES(machine_number),
-            updated_at = CURRENT_TIMESTAMP
-    </insert>
+    <!-- SQLite -->
 
-    <insert id="batchUpsert" databaseId="sqlite">
+
+    <insert id="batchUpsert">
         INSERT INTO farm_printer (
             name, ip_address, mac_address, firmware_type, api_key, status,
             current_material, nozzle_size, machine_number, grid_row, grid_col,
@@ -239,19 +197,9 @@
           AND current_job_id = #{jobId}
     </update>
 
-    <select id="selectUnallocatedPrinters" resultType="com.example.farm.entity.vo.PrinterVO">
-        SELECT id, name, machine_number AS machineNumber,
-               ip_address AS ipAddress, mac_address AS macAddress, status
-        FROM farm_printer
-        WHERE grid_row IS NULL AND grid_col IS NULL
-        <if test="keyword != null and keyword != ''">
-            AND (name LIKE CONCAT('%', #{keyword}, '%')
-                 OR machine_number LIKE CONCAT('%', #{keyword}, '%'))
-        </if>
-        ORDER BY created_at DESC
-    </select>
 
-    <select id="selectUnallocatedPrinters" databaseId="sqlite"
+
+    <select id="selectUnallocatedPrinters"
             resultType="com.example.farm.entity.vo.PrinterVO">
         SELECT id, name, machine_number AS machineNumber,
                ip_address AS ipAddress, mac_address AS macAddress, status

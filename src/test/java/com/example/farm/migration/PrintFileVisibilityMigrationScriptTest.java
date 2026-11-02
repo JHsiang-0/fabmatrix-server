@@ -16,9 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PrintFileVisibilityMigrationScriptTest {
 
     @Test
-    void mysqlAndSqliteVisibilityScriptsDiagnoseNonFolderParentsAndUseRealNamespaces() {
+    void sqliteVisibilityScriptDiagnosesNonFolderParentsAndUsesRealNamespaces() {
         for (String resource : new String[]{
-                "db/migration/mysql/15-v2-print-file-visibility-mysql.sql",
                 "db/migration/sqlite/15-v2-print-file-visibility-sqlite.sql"
         }) {
             String sql = read(resource);
@@ -29,13 +28,6 @@ class PrintFileVisibilityMigrationScriptTest {
         }
         assertThat(read("db/migration/sqlite/15-v2-print-file-visibility-sqlite.sql"))
                 .doesNotContain("ALTER TABLE farm_print_file ADD COLUMN");
-    }
-
-    @Test
-    void defaultFolderMigrationExplicitlyExcludesPublicRootFiles() {
-        String sql = read("db/migration/mysql/13-v2-print-file-default-folders.sql");
-        assertThat(sql).contains("UPPER(COALESCE(f.visibility, 'PRIVATE')) = 'PRIVATE'");
-        assertThat(sql).doesNotContain("WHERE f.parent_id IS NULL\n  AND f.is_folder = 0\n  AND f.user_id IS NOT NULL$$");
     }
 
     @Test

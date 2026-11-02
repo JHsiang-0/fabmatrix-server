@@ -1,11 +1,12 @@
 package com.example.farm.service.impl;
 
-import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.constant.CacheKeyConstant;
 import com.example.farm.common.exception.BusinessException;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterStatusHistoryService;
@@ -31,12 +32,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PrinterCacheServiceImpl implements PrinterCacheService {
 
-    private final RedisUtil redisUtil;
+    private final CacheStore cacheStore;
     private final PrinterMapper printerMapper;
     private final PrinterStatusHistoryService printerStatusHistoryService;
 
     // 缓存过期时间：10秒
     private static final long STATUS_CACHE_TTL = 10;
+    private static final long OBSERVATION_CACHE_TTL = 90;
     // 分布式锁过期时间：5秒
     private static final long LOCK_TTL = 5;
     // 历史记录保留数量
@@ -46,19 +48,33 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     private final Map<Long, PersistedStatus> lastPersistedStatuses = new ConcurrentHashMap<>();
 
     @Override
+    public void cachePrinterObservation(Long printerId, PrinterObservation observation) {
+        if (printerId == null || observation == null) return;
+        cacheStore.set(CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_OBSERVATION, printerId),
+                observation, OBSERVATION_CACHE_TTL, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public PrinterObservation getCachedObservation(Long printerId) {
+        if (printerId == null) return null;
+        return cacheStore.get(CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_OBSERVATION, printerId),
+                PrinterObservation.class);
+    }
+
+    @Override
     public void cachePrinterStatus(Long printerId, MoonrakerStatusDTO status) {
         if (printerId == null || status == null) return;
         
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_STATUS, printerId);
-        redisUtil.set(key, status, STATUS_CACHE_TTL, TimeUnit.SECONDS);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_STATUS, printerId);
+        cacheStore.set(key, status, STATUS_CACHE_TTL, TimeUnit.SECONDS);
     }
 
     @Override
     public MoonrakerStatusDTO getCachedStatus(Long printerId) {
         if (printerId == null) return null;
         
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_STATUS, printerId);
-        return redisUtil.get(key, MoonrakerStatusDTO.class);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_STATUS, printerId);
+        return cacheStore.get(key, MoonrakerStatusDTO.class);
     }
 
     @Override
@@ -76,8 +92,8 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     public void clearStatusCache(Long printerId) {
         if (printerId == null) return;
         
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_STATUS, printerId);
-        redisUtil.delete(key);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_STATUS, printerId);
+        cacheStore.delete(key);
     }
 
     @Override
@@ -86,7 +102,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
 
         Long printerId = printer.getId();
         try {
-            return PrinterLock.execute(printerId, redisUtil, () -> {
+            return PrinterLock.execute(printerId, cacheStore, () -> {
                 PrinterLock.ensureValid(printerId);
                 boolean updated = printerMapper.updateById(printer) > 0;
                 if (updated) {
@@ -110,15 +126,15 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
 
     @Override
     public boolean tryLockPrinterStatus(Long printerId) {
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
+        String lockKey = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_LOCK, printerId);
         String lockValue = UUID.randomUUID().toString();
-        return redisUtil.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
+        return cacheStore.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
     }
 
     @Override
     public void unlockPrinterStatus(Long printerId) {
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_LOCK, printerId);
-        redisUtil.unlock(lockKey);
+        String lockKey = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_LOCK, printerId);
+        cacheStore.unlock(lockKey);
     }
 
     @Override
@@ -126,15 +142,15 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         if (printerId == null || status == null) return;
         
         try {
-            String key = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_HISTORY, printerId);
-            redisUtil.listLeftPush(key, status);
-            redisUtil.listTrim(key, 0, HISTORY_KEEP_COUNT - 1);
-            redisUtil.expire(key, 24, TimeUnit.HOURS);
+            String key = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_HISTORY, printerId);
+            cacheStore.listLeftPush(key, status);
+            cacheStore.listTrim(key, 0, HISTORY_KEEP_COUNT - 1);
+            cacheStore.expire(key, 24, TimeUnit.HOURS);
         } catch (Exception e) {
             log.error("写入打印机状态历史失败: printerId={}", printerId, e);
         }
 
-        // Redis 保留高频短期数据；持久化历史只记录状态、文件或错误信息变化，
+        // 进程内缓存保留高频短期数据；持久化历史只记录状态、文件或错误信息变化，
         // 避免打印过程中每分钟重复写入同一状态，保持“状态历史”的可读性。
         PersistedStatus current = PersistedStatus.from(status);
         PersistedStatus previous = lastPersistedStatuses.get(printerId);
@@ -154,8 +170,8 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
             return new ArrayList<>();
         }
         try {
-            String key = RedisKeyConstant.getKey(RedisKeyConstant.PRINTER_HISTORY, printerId);
-            return redisUtil.listRange(key, 0, count - 1, MoonrakerStatusDTO.class);
+            String key = CacheKeyConstant.getKey(CacheKeyConstant.PRINTER_HISTORY, printerId);
+            return cacheStore.listRange(key, 0, count - 1, MoonrakerStatusDTO.class);
         } catch (Exception e) {
             log.error("读取打印机状态历史失败: printerId={}, count={}", printerId, count, e);
             return new ArrayList<>();
@@ -166,7 +182,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     public long getOnlinePrinterCount() {
         try {
             cleanupExpiredHeartbeats();
-            Long count = redisUtil.zSetSize(RedisKeyConstant.PRINTER_HEARTBEAT_ZSET);
+            Long count = cacheStore.zSetSize(CacheKeyConstant.PRINTER_HEARTBEAT_ZSET);
             return count != null ? count : 0;
         } catch (Exception e) {
             log.error("获取在线打印机数量失败", e);
@@ -177,7 +193,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     @Override
     public long getBusyPrinterCount() {
         try {
-            Long count = redisUtil.setSize(RedisKeyConstant.PRINTER_BUSY_SET);
+            Long count = cacheStore.setSize(CacheKeyConstant.PRINTER_BUSY_SET);
             return count != null ? count : 0;
         } catch (Exception e) {
             log.error("获取忙碌打印机数量失败", e);
@@ -190,7 +206,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         if (printerId == null) return;
         
         try {
-            redisUtil.zSetAdd(RedisKeyConstant.PRINTER_HEARTBEAT_ZSET, 
+            cacheStore.zSetAdd(CacheKeyConstant.PRINTER_HEARTBEAT_ZSET,
                     printerId.toString(), System.currentTimeMillis());
         } catch (Exception e) {
             log.error("标记打印机在线失败: printerId={}", printerId, e);
@@ -202,8 +218,8 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         if (printerId == null) return;
         
         try {
-            redisUtil.zSetRemove(RedisKeyConstant.PRINTER_HEARTBEAT_ZSET, printerId.toString());
-            redisUtil.setRemove(RedisKeyConstant.PRINTER_BUSY_SET, printerId.toString());
+            cacheStore.zSetRemove(CacheKeyConstant.PRINTER_HEARTBEAT_ZSET, printerId.toString());
+            cacheStore.setRemove(CacheKeyConstant.PRINTER_BUSY_SET, printerId.toString());
         } catch (Exception e) {
             log.error("标记打印机离线失败: printerId={}", printerId, e);
         }
@@ -214,7 +230,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         if (printerId == null) return;
         
         try {
-            redisUtil.setAdd(RedisKeyConstant.PRINTER_BUSY_SET, printerId.toString());
+            cacheStore.setAdd(CacheKeyConstant.PRINTER_BUSY_SET, printerId.toString());
         } catch (Exception e) {
             log.error("标记打印机忙碌失败: printerId={}", printerId, e);
         }
@@ -225,7 +241,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         if (printerId == null) return;
         
         try {
-            redisUtil.setRemove(RedisKeyConstant.PRINTER_BUSY_SET, printerId.toString());
+            cacheStore.setRemove(CacheKeyConstant.PRINTER_BUSY_SET, printerId.toString());
         } catch (Exception e) {
             log.error("标记打印机空闲失败: printerId={}", printerId, e);
         }
@@ -234,7 +250,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     private void cleanupExpiredHeartbeats() {
         try {
             long cutoffTime = System.currentTimeMillis() - (HEARTBEAT_TIMEOUT_SECONDS * 1000);
-            redisUtil.zSetRemoveRangeByScore(RedisKeyConstant.PRINTER_HEARTBEAT_ZSET, 0, cutoffTime);
+            cacheStore.zSetRemoveRangeByScore(CacheKeyConstant.PRINTER_HEARTBEAT_ZSET, 0, cutoffTime);
         } catch (Exception e) {
             log.error("清理过期打印机心跳失败", e);
         }
@@ -244,20 +260,20 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
     public void cacheSystemStats(Object stats) {
         if (stats == null) return;
         
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.SYSTEM_STATS, "overview");
-        redisUtil.set(key, stats, 60, TimeUnit.SECONDS);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.SYSTEM_STATS, "overview");
+        cacheStore.set(key, stats, 60, TimeUnit.SECONDS);
     }
 
     @Override
     public Object getSystemStats() {
-        String key = RedisKeyConstant.getKey(RedisKeyConstant.SYSTEM_STATS, "overview");
-        return redisUtil.get(key, Object.class);
+        String key = CacheKeyConstant.getKey(CacheKeyConstant.SYSTEM_STATS, "overview");
+        return cacheStore.get(key, Object.class);
     }
 
     @Override
     public List<Printer> getAllPrintersFromCache() {
-        String key = RedisKeyConstant.PRINTER_LIST;
-        return redisUtil.get(key, new TypeReference<List<Printer>>() {});
+        String key = CacheKeyConstant.PRINTER_LIST;
+        return cacheStore.get(key, new TypeReference<List<Printer>>() {});
     }
 
     @Override
@@ -267,15 +283,15 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
             return;
         }
         
-        String key = RedisKeyConstant.PRINTER_LIST;
-        redisUtil.set(key, printers, 1, TimeUnit.HOURS);
+        String key = CacheKeyConstant.PRINTER_LIST;
+        cacheStore.set(key, printers, 1, TimeUnit.HOURS);
         log.info("打印机列表缓存完成: {} 台", printers.size());
     }
 
     @Override
     public void refreshPrinterCache() {
-        String key = RedisKeyConstant.PRINTER_LIST;
-        redisUtil.delete(key);
+        String key = CacheKeyConstant.PRINTER_LIST;
+        cacheStore.delete(key);
         log.info("已刷新打印机列表缓存");
     }
 
@@ -286,7 +302,7 @@ public class PrinterCacheServiceImpl implements PrinterCacheService {
         }
         Long printerId = printer.getId();
         try {
-            return PrinterLock.execute(printerId, redisUtil, () -> {
+            return PrinterLock.execute(printerId, cacheStore, () -> {
                 PrinterLock.ensureValid(printerId);
                 boolean updated = printerMapper.updateCommunicationHealth(printer) > 0;
                 if (updated) {

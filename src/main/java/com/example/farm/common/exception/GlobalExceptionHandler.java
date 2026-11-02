@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -197,29 +196,28 @@ public class GlobalExceptionHandler {
     // ==================== 中间件异常处理 ====================
 
     /**
-     * 处理 MySQL 连接异常 - CannotGetJdbcConnectionException
+     * 处理数据库连接异常 - CannotGetJdbcConnectionException
      * 通常由 Druid/HikariCP 连接池获取连接失败时抛出
      */
     @ExceptionHandler(org.springframework.dao.DataAccessResourceFailureException.class)
     public ResponseEntity<Result<Object>> handleDataAccessResourceFailure(
             org.springframework.dao.DataAccessResourceFailureException e,
             HttpServletRequest request) {
-        log.error("MySQL连接异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
+        log.error("数据库连接异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.DATABASE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
-     * 处理 MySQL 连接异常 - SQLNonTransientConnectionException
-     * MySQL 服务器主动拒绝连接
+     * 处理数据库连接异常 - SQLNonTransientConnectionException
      */
     @ExceptionHandler(SQLNonTransientConnectionException.class)
     public ResponseEntity<Result<Object>> handleSQLNonTransientConnectionException(
             SQLNonTransientConnectionException e,
             HttpServletRequest request) {
-        log.error("MySQL连接被拒绝: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
+        log.error("数据库连接被拒绝: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.DATABASE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -229,7 +227,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleQueryTimeoutException(QueryTimeoutException e, HttpServletRequest request) {
         log.error("数据库查询超时: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.DATABASE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -239,26 +237,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<Object>> handleSQLException(SQLException e, HttpServletRequest request) {
         log.error("数据库异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.DATABASE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
-    /** 未被更具体 handler 捕获的 MyBatis/MySQL 访问异常统一归为依赖不可用。 */
+    /** 未被更具体 handler 捕获的数据库访问异常统一归为依赖不可用。 */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<Result<Object>> handleDataAccessException(DataAccessException e, HttpServletRequest request) {
         log.error("数据库访问异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
-        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.MYSQL_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
-    }
-
-    /**
-     * 处理 Redis 连接失败异常
-     */
-    @ExceptionHandler(RedisConnectionFailureException.class)
-    public ResponseEntity<Result<Object>> handleRedisConnectionFailureException(
-            RedisConnectionFailureException e,
-            HttpServletRequest request) {
-        log.error("Redis连接失败: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
-
-        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.REDIS_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
+        return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.DATABASE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
@@ -273,28 +259,22 @@ public class GlobalExceptionHandler {
 
     /**
      * 处理资源访问异常 - ResourceAccessException
-     * 通常用于 RestTemplate/Feign 访问外部服务（如 RustFS）超时或连接失败
+     * 外部设备或服务的网络访问失败。
      */
     @ExceptionHandler(ResourceAccessException.class)
     public ResponseEntity<Result<Object>> handleResourceAccessException(ResourceAccessException e, HttpServletRequest request) {
         log.error("外部服务访问异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
 
-        // 判断是否为存储服务超时（基于异常消息判断）
-        String errorMsg = e.getMessage();
-        if (errorMsg != null && (errorMsg.contains("timeout") || errorMsg.contains("Timeout"))) {
-            return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
-        }
-
         return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.NETWORK_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 
     /**
-     * 处理 RustFS/S3 对象存储访问失败。
+     * 处理本地文件存储失败。
      */
     @ExceptionHandler(StorageException.class)
     public ResponseEntity<Result<Object>> handleStorageException(StorageException e,
                                                                    HttpServletRequest request) {
-        log.error("对象存储服务异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
+        log.error("本地文件存储异常: uri={}, error={}", request.getRequestURI(), e.getMessage(), e);
         return failed(request, HttpStatus.SERVICE_UNAVAILABLE, ResultCode.STORAGE_ERROR.getCode(), SERVICE_UNAVAILABLE_MESSAGE);
     }
 

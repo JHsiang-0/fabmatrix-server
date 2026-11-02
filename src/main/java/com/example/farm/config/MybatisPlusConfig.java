@@ -22,13 +22,12 @@ import java.util.Properties;
 public class MybatisPlusConfig {
 
     /**
-     * 让自定义 Mapper SQL 可以按 MySQL/SQLite 选择方言；没有专用分支的 H2 测试继续使用默认语句。
+     * SQLite 的时间比较使用专用表达式；H2 测试仍可使用标准表达式。
      */
     @Bean
     public DatabaseIdProvider databaseIdProvider() {
         VendorDatabaseIdProvider provider = new VendorDatabaseIdProvider();
         Properties properties = new Properties();
-        properties.setProperty("MySQL", "mysql");
         properties.setProperty("SQLite", "sqlite");
         provider.setProperties(properties);
         return provider;
@@ -40,8 +39,8 @@ public class MybatisPlusConfig {
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor(Environment environment) {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        DbType dbType = environment.acceptsProfiles(org.springframework.core.env.Profiles.of("local"))
-                ? DbType.SQLITE : DbType.MYSQL;
+        DbType dbType = environment.acceptsProfiles(org.springframework.core.env.Profiles.of("test"))
+                ? DbType.H2 : DbType.SQLITE;
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(dbType));
         return interceptor;
     }

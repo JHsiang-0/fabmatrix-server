@@ -16,11 +16,11 @@ class ProductionSafetyValidatorTest {
     @Test
     void rejectsMissingRequiredProductionSecret() {
         ProductionSafetyValidator validator = validValidator();
-        set(validator, "redisPassword", "");
+        set(validator, "jwtSecretKey", "");
 
         assertThatThrownBy(validator::validate)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("REDIS_PASSWORD");
+                .hasMessageContaining("JWT_SECRET_KEY");
     }
 
     @Test
@@ -55,14 +55,6 @@ class ProductionSafetyValidatorTest {
 
     private ProductionSafetyValidator validValidator() {
         ProductionSafetyValidator validator = new ProductionSafetyValidator();
-        set(validator, "mysqlUrl", "jdbc:mysql://db:3306/farm");
-        set(validator, "mysqlUsername", "farm");
-        set(validator, "mysqlPassword", "mysql-prod-password");
-        set(validator, "redisHost", "redis");
-        set(validator, "redisPassword", "redis-prod-password");
-        set(validator, "rustfsEndpoint", "http://rustfs:9000");
-        set(validator, "rustfsAccessKey", "rustfs-access");
-        set(validator, "rustfsSecretKey", "rustfs-secret");
         set(validator, "jwtSecretKey", "jwt-production-secret");
         set(validator, "adminSecretKey", "admin-production-secret");
         set(validator, "corsAllowedOrigins", "http://localhost:3000");

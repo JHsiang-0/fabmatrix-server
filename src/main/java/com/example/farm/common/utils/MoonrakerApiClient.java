@@ -5,6 +5,7 @@ import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterOperation;
 import com.example.farm.protocol.PrinterProtocolException;
 import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.time.Instant;
 
 /**
  * 与 Klipper(Moonraker) 通信的 HTTP 客户端工具类
@@ -73,6 +75,7 @@ public class MoonrakerApiClient {
      * 单次状态查询。状态查询是幂等的，允许一次短暂重连；控制命令不自动重试，避免重复执行。
      */
     private MoonrakerStatusDTO getPrinterStatusOnce(String ipAddress) {
+        Instant captureStartedAt = Instant.now();
         // 使用新的对象级查询 URL，获取更全面的打印机数据
         String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&extruder&heater_bed&display_status", ipAddress);
 
@@ -125,6 +128,13 @@ public class MoonrakerApiClient {
                     double rawProgress = getDoubleOrDefault(displayStatus, "progress", 0.0);
                     // 将 0-1 的进度转换为 0-100 的百分比，保留两位小数
                     dto.setProgress(Math.round(rawProgress * 10000.0) / 100.0);
+
+                    try {
+                        dto.setObservation(PrinterObservationParser.klipper(statusNode, captureStartedAt, Instant.now()));
+                    } catch (RuntimeException exception) {
+                        log.warn("统一设备观测解析失败，不影响既有状态读取: errorType={}",
+                                exception.getClass().getSimpleName());
+                    }
 
                     return dto;
                 }

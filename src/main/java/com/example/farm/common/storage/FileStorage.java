@@ -6,8 +6,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.Duration;
 
 /**
- * Farm 文件存储端口。业务层只依赖该接口，Server Edition 和 Local Edition
- * 分别提供 RustFS 与本地目录实现。
+ * Farm 文件存储端口，当前使用本地目录实现。
  */
 public interface FileStorage {
     String uploadFile(String key, MultipartFile file);
@@ -22,9 +21,9 @@ public interface FileStorage {
 
     void deleteFileByObjectUrl(String objectUrl);
 
-    /** Local Edition 在落盘前执行；对象存储实现无需本地磁盘预检。 */
+    /** 落盘前检查可用磁盘空间。 */
     default void ensureCapacity(long incomingBytes) {
-        // no-op for remote object storage
+        // 未提供预检的测试替身可保持空实现。
     }
 
     String getPresignedUrl(String key, Duration expiration);

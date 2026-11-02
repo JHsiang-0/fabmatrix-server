@@ -20,22 +20,6 @@ public class ProductionSafetyValidator {
     private static final String DEV_JWT_SECRET = "Farm3DPrinterSuperSecretKey";
     private static final String DEV_ADMIN_SECRET = "FarmAdmin2024";
 
-    @Value("${spring.datasource.url:}")
-    private String mysqlUrl;
-    @Value("${spring.datasource.username:}")
-    private String mysqlUsername;
-    @Value("${spring.datasource.password:}")
-    private String mysqlPassword;
-    @Value("${spring.data.redis.host:}")
-    private String redisHost;
-    @Value("${spring.data.redis.password:}")
-    private String redisPassword;
-    @Value("${rustfs.endpoint:}")
-    private String rustfsEndpoint;
-    @Value("${rustfs.access-key:}")
-    private String rustfsAccessKey;
-    @Value("${rustfs.secret-key:}")
-    private String rustfsSecretKey;
     @Value("${jwt.secret-key:}")
     private String jwtSecretKey;
     @Value("${admin.secret-key:}")
@@ -49,14 +33,6 @@ public class ProductionSafetyValidator {
 
     @PostConstruct
     void validate() {
-        require("spring.datasource.url", mysqlUrl);
-        require("spring.datasource.username", mysqlUsername);
-        require("MYSQL_PASSWORD", mysqlPassword);
-        require("spring.data.redis.host", redisHost);
-        require("REDIS_PASSWORD", redisPassword);
-        require("rustfs.endpoint", rustfsEndpoint);
-        require("RUSTFS_ACCESS_KEY", rustfsAccessKey);
-        require("RUSTFS_SECRET_KEY", rustfsSecretKey);
         require("JWT_SECRET_KEY", jwtSecretKey);
         require("ADMIN_SECRET_KEY", adminSecretKey);
 

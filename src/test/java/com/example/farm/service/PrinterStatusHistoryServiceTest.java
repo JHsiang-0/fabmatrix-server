@@ -8,7 +8,7 @@ import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.dto.PrinterHistoryQueryDTO;
 import com.example.farm.mapper.PrinterStatusHistoryMapper;
 import com.example.farm.mapper.PrinterMapper;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.service.impl.PrinterCacheServiceImpl;
 import com.example.farm.service.impl.PrinterStatusHistoryServiceImpl;
 import org.junit.jupiter.api.Test;
@@ -133,11 +133,11 @@ class PrinterStatusHistoryServiceTest {
 
     @Test
     void persistsFirstSampleAndStateChangesWithoutWritingEveryPoll() {
-        RedisUtil redisUtil = mock(RedisUtil.class);
+        CacheStore cacheStore = mock(CacheStore.class);
         PrinterMapper printerMapper = mock(PrinterMapper.class);
         PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
         PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
-                redisUtil, printerMapper, historyService);
+                cacheStore, printerMapper, historyService);
         MoonrakerStatusDTO status = new MoonrakerStatusDTO();
         status.setUnifiedState("IDLE");
         status.setState("standby");
@@ -154,10 +154,10 @@ class PrinterStatusHistoryServiceTest {
 
     @Test
     void persistsFilenameChangeWithoutPersistingProgressOnlyUpdates() {
-        RedisUtil redisUtil = mock(RedisUtil.class);
+        CacheStore cacheStore = mock(CacheStore.class);
         PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
         PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
-                redisUtil, mock(PrinterMapper.class), historyService);
+                cacheStore, mock(PrinterMapper.class), historyService);
         MoonrakerStatusDTO status = new MoonrakerStatusDTO();
         status.setUnifiedState("PRINTING");
         status.setState("printing");
@@ -176,10 +176,10 @@ class PrinterStatusHistoryServiceTest {
 
     @Test
     void persistsTaskSourceChangeEvenWhenDeviceStateAndFilenameStayTheSame() {
-        RedisUtil redisUtil = mock(RedisUtil.class);
+        CacheStore cacheStore = mock(CacheStore.class);
         PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
         PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
-                redisUtil, mock(PrinterMapper.class), historyService);
+                cacheStore, mock(PrinterMapper.class), historyService);
         MoonrakerStatusDTO status = new MoonrakerStatusDTO();
         status.setUnifiedState("PRINTING");
         status.setState("printing");
@@ -199,11 +199,11 @@ class PrinterStatusHistoryServiceTest {
 
     @Test
     void retriesHistoryWhenPreviousInsertWasNotPersisted() {
-        RedisUtil redisUtil = mock(RedisUtil.class);
+        CacheStore cacheStore = mock(CacheStore.class);
         PrinterMapper printerMapper = mock(PrinterMapper.class);
         PrinterStatusHistoryService historyService = mock(PrinterStatusHistoryService.class);
         PrinterCacheServiceImpl cacheService = new PrinterCacheServiceImpl(
-                redisUtil, printerMapper, historyService);
+                cacheStore, printerMapper, historyService);
         MoonrakerStatusDTO status = new MoonrakerStatusDTO();
         status.setUnifiedState("IDLE");
         status.setState("standby");

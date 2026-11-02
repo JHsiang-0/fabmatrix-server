@@ -1,7 +1,11 @@
 package com.example.farm.protocol;
 
+import com.example.farm.protocol.observation.PrinterObservation;
+import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -14,6 +18,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 
 /**
@@ -24,6 +29,8 @@ import java.util.Locale;
  */
 @Component
 public class RrfApiClient {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RrfApiClient.class);
 
     private static final int STATUS_MAX_ATTEMPTS = 2;
     private static final long STATUS_RETRY_BACKOFF_MILLIS = 100L;
@@ -112,6 +119,7 @@ public class RrfApiClient {
     }
 
     private RrfStatusResponse getStatusOnce(PrinterEndpoint endpoint) {
+        Instant captureStartedAt = Instant.now();
         boolean connected = false;
         Session session = null;
         try {
@@ -119,7 +127,9 @@ public class RrfApiClient {
             connected = true;
             JsonNode stateResponse = getModel(endpoint, session, "state");
             JsonNode jobResponse = getModel(endpoint, session, "job");
+            Instant jobObservedAt = Instant.now();
             JsonNode heatResponse = getModel(endpoint, session, "heat");
+            Instant heatObservedAt = Instant.now();
             JsonNode toolsResponse = getModel(endpoint, session, "tools");
 
             JsonNode state = resultNode(stateResponse);
@@ -150,7 +160,8 @@ public class RrfApiClient {
                     booleanValue(job, "lastFileCancelled"),
                     booleanValue(job, "lastFileAborted"),
                     decimal(job, "lastDuration"),
-                    firstDecimal(decimal(state, "upTime"), decimal(state, "uptime"))
+                    firstDecimal(decimal(state, "upTime"), decimal(state, "uptime")),
+                    parseObservation(state, job, heat, tools, captureStartedAt, jobObservedAt, heatObservedAt)
             );
         } catch (PrinterProtocolException exception) {
             throw exception;
@@ -160,6 +171,17 @@ public class RrfApiClient {
             if (connected) {
                 disconnect(endpoint, session);
             }
+        }
+    }
+
+    private PrinterObservation parseObservation(JsonNode state, JsonNode job, JsonNode heat, JsonNode tools,
+                                                Instant start, Instant jobAt, Instant heatAt) {
+        try {
+            return PrinterObservationParser.rrf(state, job, heat, tools, start, jobAt, heatAt, Instant.now());
+        } catch (RuntimeException exception) {
+            LOG.warn("统一设备观测解析失败，不影响既有状态读取: errorType={}",
+                    exception.getClass().getSimpleName());
+            return null;
         }
     }
 

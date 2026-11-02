@@ -1,6 +1,6 @@
 package com.example.farm.task;
 
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.PrintFile;
@@ -62,7 +62,7 @@ class PrinterMonitorAdapterTest {
     @Mock
     private WebSocketEventPublisher eventPublisher;
     @Mock
-    private RedisUtil redisUtil;
+    private CacheStore cacheStore;
     @Mock
     private PrintFileMapper printFileMapper;
     @Mock
@@ -211,17 +211,17 @@ class PrinterMonitorAdapterTest {
     void skipsPrinterWhenAnotherInstanceOwnsThePrinterLock() throws Exception {
         Printer printer = printer("RRF");
         when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
-        when(redisUtil.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS)))
+        when(cacheStore.tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS)))
                 .thenReturn(false);
         monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
                 eventPublisher, monitorProperties());
-        Field redisField = PrinterMonitorTask.class.getDeclaredField("redisUtil");
+        Field redisField = PrinterMonitorTask.class.getDeclaredField("cacheStore");
         redisField.setAccessible(true);
-        redisField.set(monitorTask, redisUtil);
+        redisField.set(monitorTask, cacheStore);
 
         monitorTask.checkPrinterStatus();
 
-        verify(redisUtil, timeout(1000)).tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+        verify(cacheStore, timeout(1000)).tryLock(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
         verify(adapterFactory, never()).getAdapter("RRF");
         verifyNoInteractions(printerCacheService, eventPublisher);
     }

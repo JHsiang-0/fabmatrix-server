@@ -1,5 +1,7 @@
 package com.example.farm.entity.dto;
 
+import com.example.farm.protocol.observation.PrinterObservation;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -28,6 +30,10 @@ import lombok.Data;
 @Data
 @Schema(description = "Moonraker 打印机实时状态")
 public class MoonrakerStatusDTO {
+
+    /** 内部采集结果，不改变既有 LAN / WebSocket 响应格式。 */
+    @JsonIgnore
+    private PrinterObservation observation;
 
     // ==================== 统一状态常量定义 ====================
     // 第一层：系统级状态

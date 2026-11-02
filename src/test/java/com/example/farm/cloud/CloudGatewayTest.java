@@ -4,6 +4,8 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
+import com.example.farm.protocol.observation.PrinterObservationParser;
+import com.example.farm.protocol.observation.PrinterObservationView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -79,6 +81,26 @@ class CloudGatewayTest {
         var result = new CloudSnapshotSource(printers, cache).capture();
         assertThat(result).hasSize(2).allMatch(item -> item.progress() == null);
         verify(cache, never()).getCachedStatus(2L);
+    }
+
+    @Test void v2MapsObservationWithoutPrivateFilenameAndV1RemainsUnchanged() throws Exception {
+        PrinterService printers = mock(PrinterService.class);
+        PrinterCacheService cache = mock(PrinterCacheService.class);
+        Printer asset = asset(1L);
+        var at = java.time.Instant.now();
+        var node = new ObjectMapper().readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"printing","filename":"private.gcode"},
+                 "extruder":{"temperature":0,"target":210},"display_status":{"progress":0}}
+                """);
+        var observation = PrinterObservationParser.klipper(node, at, at);
+        when(printers.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(asset));
+        when(cache.getObservationView(eq(asset), any(), any())).thenReturn(new PrinterObservationView(
+                PrinterObservationView.Availability.CURRENT, observation, observation));
+        var source = new CloudSnapshotSource(printers, cache);
+        var json = new ObjectMapper().findAndRegisterModules();
+        String v2 = json.writeValueAsString(source.captureV2());
+        assertThat(v2).contains("PARTIAL", "currentC", "GOOD").doesNotContain("private.gcode", "filename");
+        assertThat(json.writeValueAsString(source.capture())).doesNotContain("observation");
     }
 
     @Test void rejectsOversizedFarmWithoutSilentlyDroppingDevices() {

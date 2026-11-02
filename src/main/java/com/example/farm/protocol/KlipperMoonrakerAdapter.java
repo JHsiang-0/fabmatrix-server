@@ -108,7 +108,8 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
                 decimal(source.getBedTarget()),
                 decimal(source.getPrintDuration()),
                 decimal(source.getTotalDuration()),
-                decimal(source.getFilamentUsed())
+                decimal(source.getFilamentUsed()),
+                null, null, null, null, null, null, null, source.getObservation()
         );
     }
 

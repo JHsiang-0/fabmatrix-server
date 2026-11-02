@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
@@ -50,7 +50,7 @@ class PrintJobRetryAuditTest {
     @Mock
     private PrinterService printerService;
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
     @Mock
     private PrinterProtocolAdapterFactory adapterFactory;
     @Mock
@@ -118,7 +118,7 @@ class PrintJobRetryAuditTest {
         assertThat(source.getErrorReason()).isEqualTo("设备异常");
         verify(auditLogService).recordSuccess(eq("JOB_RETRY_CREATE"), eq("JOB"), eq(101L), any(String.class));
         verify(printerService, never()).getById(any());
-        verify(rustFsClient, never()).getFileStream(any());
+        verify(fileStorage, never()).getFileStream(any());
         verify(adapterFactory, never()).getAdapter(any());
     }
 

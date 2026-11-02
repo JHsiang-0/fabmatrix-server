@@ -501,9 +501,6 @@ $devConfig = Join-Path $projectRoot 'src\main\resources\application-dev.yaml'
 $localConfig = Join-Path $projectRoot 'src\main\resources\application-local.yaml'
 $prodConfig = Join-Path $projectRoot 'src\main\resources\application-prod.yaml'
 $logback = Join-Path $projectRoot 'src\main\resources\logback-spring.xml'
-$dockerfile = Join-Path $projectRoot 'Dockerfile'
-$compose = Join-Path $projectRoot 'docker-compose.server.yml'
-$serverEnv = Join-Path $projectRoot '.env.server.example'
 
 # Parse every Windows PowerShell script without executing service/firewall operations.
 Get-ChildItem -LiteralPath $scriptRoot -Recurse -File -Filter '*.ps1' | ForEach-Object {
@@ -521,6 +518,7 @@ Assert-Contains $installer 'Name: "\{userstartup\}\\嘉东三维服务器"' 'sta
 Assert-Contains $installer 'Type: files; Name: "\{group\}\\FabMatrixServerTray\.lnk"' 'old Start menu shortcut cleanup'
 Assert-Contains $installer 'Type: files; Name: "\{userstartup\}\\FabMatrixServerTray\.lnk"' 'old startup shortcut cleanup'
 Assert-Contains $build 'description=嘉东三维服务器' 'tray executable description'
+Assert-Contains $build "'--java-options',\s*'--enable-native-access=ALL-UNNAMED'" 'SQLite native access for server launcher'
 Assert-Contains $installer 'DefaultDirName=\{autopf\}\\FabMatrix' 'default install directory'
 Assert-Contains $installer 'ExtractFileDrive\(ExpandConstant\(''\{sd\}''\)\)' 'valid system drive constant'
 Assert-NotContains $installer '\{sysdrive\}' 'invalid Inno system drive constant'
@@ -613,11 +611,6 @@ Assert-Contains $logback 'property name="FARM_LOG_FILE" value="\$\{LOG_FILE:-\$\
 Assert-Contains $logback '<file>\$\{FARM_LOG_FILE\}</file>' 'main log uses complete resolved file path'
 Assert-Contains $logback '<file>\$\{FARM_LOG_FILE\}\.error</file>|<file>\$\{FARM_LOG_FILE\}\.access</file>' 'derived error/access log paths'
 Assert-NotContains $logback '\$\{LOG_PATH\}\/\$\{LOG_FILE\}|\$\{LOG_FILE\}\.log' 'log path must not duplicate directory or extension'
-Assert-Contains $dockerfile 'EXPOSE 28081' 'Dockerfile default port'
-Assert-Contains $compose 'SERVER_PORT: \$\{SERVER_PORT:-28081\}' 'Compose container port override'
-Assert-Contains $compose 'FARM_HTTP_PORT:-28081.*SERVER_PORT:-28081' 'Compose host/container port mapping'
-Assert-Contains $compose '127\.0\.0\.1:\$\$\{SERVER_PORT:-28081\}/actuator/health' 'Compose healthcheck port'
-Assert-Contains $serverEnv 'FARM_HTTP_PORT=28081' 'Server Edition host port default'
 Assert-Contains $installer '28081' 'installer default port metadata'
 
 Assert-Contains $configure 'address: 0\.0\.0\.0' 'server address'

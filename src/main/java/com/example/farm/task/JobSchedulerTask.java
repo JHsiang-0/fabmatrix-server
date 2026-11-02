@@ -1,9 +1,9 @@
 package com.example.farm.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.example.farm.common.constant.RedisKeyConstant;
+import com.example.farm.common.constant.CacheKeyConstant;
 import com.example.farm.common.utils.LogUtil;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.enums.PrintJobStatus;
@@ -31,7 +31,7 @@ public class JobSchedulerTask {
 
     private final PrintJobService printJobService;
     private final PrinterService printerService;
-    private final RedisUtil redisUtil;
+    private final CacheStore cacheStore;
 
     @org.springframework.beans.factory.annotation.Value("${farm.scheduler.max-items-per-run:0}")
     private int maxItemsPerRun;
@@ -46,12 +46,12 @@ public class JobSchedulerTask {
      */
     @Scheduled(fixedRateString = "${farm.scheduler.interval:10s}")
     public void scheduleJobs() {
-        String lockKey = RedisKeyConstant.SCHEDULER_LOCK;
+        String lockKey = CacheKeyConstant.SCHEDULER_LOCK;
         String lockValue = UUID.randomUUID().toString();
 
         boolean locked = false;
         try {
-            locked = redisUtil.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
+            locked = cacheStore.tryLock(lockKey, lockValue, LOCK_TTL, TimeUnit.SECONDS);
             if (!locked) {
                 log.debug("调度锁已被其他实例持有，跳过本轮任务调度");
                 return;
@@ -66,9 +66,9 @@ public class JobSchedulerTask {
     }
 
     private void releaseLock(String lockKey, String lockValue) {
-        String currentValue = redisUtil.getLockValue(lockKey);
+        String currentValue = cacheStore.getLockValue(lockKey);
         if (lockValue.equals(currentValue)) {
-            redisUtil.unlock(lockKey);
+            cacheStore.unlock(lockKey);
         }
     }
 
@@ -79,7 +79,7 @@ public class JobSchedulerTask {
             log.debug("后台调度未配置可执行项，跳过本轮调度");
             return;
         }
-        
+
         try {
             // 获取空闲打印机
             List<Printer> idlePrinters = printerService.list(new LambdaQueryWrapper<Printer>()
@@ -98,7 +98,7 @@ public class JobSchedulerTask {
                 return;
             }
 
-            log.info("调度扫描结果: 空闲打印机 {} 台，待派发任务 {} 个", 
+            log.info("调度扫描结果: 空闲打印机 {} 台，待派发任务 {} 个",
                     idlePrinters.size(), queuedJobs.size());
 
             // 开始配对
@@ -115,9 +115,9 @@ public class JobSchedulerTask {
             if (successCount > 0) {
                 LogUtil.bizInfo("JOB_ASSIGN", "assigned", successCount, "total", assignCount, "durationMs", duration);
             }
-            
+
             LogUtil.slowOperation("scheduleJobs", duration, SLOW_THRESHOLD_MS);
-            
+
         } catch (Exception e) {
             log.error("任务调度执行失败", e);
         }
@@ -125,12 +125,12 @@ public class JobSchedulerTask {
 
     private boolean tryAssignJob(PrintJob job, Printer printer) {
         Long jobId = job.getId();
-        String lockKey = RedisKeyConstant.getKey(RedisKeyConstant.JOB_LOCK, jobId);
+        String lockKey = CacheKeyConstant.getKey(CacheKeyConstant.JOB_LOCK, jobId);
         String lockValue = UUID.randomUUID().toString();
 
         boolean locked = false;
         try {
-            locked = redisUtil.tryLock(lockKey, lockValue, 30, TimeUnit.SECONDS);
+            locked = cacheStore.tryLock(lockKey, lockValue, 30, TimeUnit.SECONDS);
             if (!locked) {
                 log.debug("任务已被其他调度器锁定，跳过: jobId={}", jobId);
                 return false;

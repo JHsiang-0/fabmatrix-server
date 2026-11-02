@@ -1,5 +1,7 @@
 package com.example.farm.protocol;
 
+import com.example.farm.protocol.observation.PrinterObservation;
+
 import java.math.BigDecimal;
 
 /**
@@ -25,8 +27,20 @@ public record RrfStatusResponse(
         Boolean lastFileCancelled,
         Boolean lastFileAborted,
         BigDecimal lastDuration,
-        BigDecimal deviceUptime
+        BigDecimal deviceUptime,
+        PrinterObservation observation
 ) {
+
+    public RrfStatusResponse(String stateStatus, String statusCode, String filename,
+                             BigDecimal progress, BigDecimal toolTemperature, BigDecimal toolTarget,
+                             BigDecimal bedTemperature, BigDecimal bedTarget, BigDecimal printDuration,
+                             BigDecimal totalDuration, BigDecimal filamentUsed, BigDecimal filePosition,
+                             BigDecimal fileSize, BigDecimal timesLeft, Boolean lastFileCancelled,
+                             Boolean lastFileAborted, BigDecimal lastDuration, BigDecimal deviceUptime) {
+        this(stateStatus, statusCode, filename, progress, toolTemperature, toolTarget, bedTemperature,
+                bedTarget, printDuration, totalDuration, filamentUsed, filePosition, fileSize, timesLeft,
+                lastFileCancelled, lastFileAborted, lastDuration, deviceUptime, null);
+    }
 
     public RrfStatusResponse(String stateStatus, String statusCode, String filename,
                              BigDecimal progress, BigDecimal toolTemperature, BigDecimal toolTarget,

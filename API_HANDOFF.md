@@ -308,6 +308,9 @@ Local Edition 全新数据目录没有预置管理员账号。前端首次打开
 | GET | `/printers/page` | ADMIN/OPERATOR | Query：`pageNum,pageSize,name,status` | `PageResult<PrinterVO>`，不含 apiKey |
 | GET | `/printers/{id}` | ADMIN/OPERATOR | Path：打印机 ID | `PrinterDetailVO`：安全配置、缓存实时状态和当前任务摘要 |
 | POST | `/printers/add` | ADMIN | 打印机配置 | `Result<null>` |
+| POST | `/printers/detect-protocol` | ADMIN | JSON：`ipAddress`，IPv4 地址 | `data.firmwareType` 为 `KLIPPER`、`RRF` 或 `null`；探测失败不代表设备永久离线 |
+| POST | `/printers/add-detected` | ADMIN | 与 `/printers/add` 相同 | 新增前重新探测并覆盖客户端提交的固件类型；未识别返回业务码 422，不创建设备 |
+| POST | `/printers/batch-delete` | ADMIN | JSON：`ids`，1–100 个不重复的设备 ID | 返回 `deletedCount`、`failedCount`、逐项 `items`；允许删除离线或状态未知的设备，禁止删除已知执行中、绑定任务或有未结束任务及活动执行记录的设备；保留历史任务和执行记录，逐台写审计 |
 | PUT | `/printers/update` | ADMIN | 包含 `id` 的打印机配置 | `Result<null>` |
 | DELETE | `/printers/delete/{id}` | ADMIN | Path ID | `Result<null>` |
 | GET | `/printers/scan` | ADMIN | Query：`subnet`，三段 IPv4 网段前缀，例如 `192.168.1` | Klipper/RRF 协议识别扫描结果数组；格式错误返回 `400/400` |
@@ -741,22 +744,7 @@ FAILED -> 新建 QUEUED 任务（retry；原任务不可变）
 废弃状态：`PENDING`、`PREPARING` 作为任务状态、`CANCELED`。`PREPARING` 只可用于打印机状态。
 设备上报取消时允许 `PRINTING -> CANCELLED`；设备上报急停或 idle 但没有终态证据时进入 `RECONCILING`，保留打印机绑定；用户通过当前任务删除接口取消打印中的任务仍返回 HTTP 422。
 
-已有 Docker 数据卷不会自动执行新增 SQL。升级已有数据库前请先备份，然后手动执行：
-
-```bash
-mysql -u root -p farm < src/main/resources/db/migration/mysql/04-normalize-print-job-status.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/05-normalize-printer-firmware-type.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/06-add-printer-status-history.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/07-v2-dispatch-plan.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/08-v2-atomic-printer-binding.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/09-v2-print-job-idempotency.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/18-v2-print-job-query-semantics-mysql.sql
-mysql -u root -p farm < src/main/resources/db/migration/mysql/19-v2-print-job-audit-model-mysql.sql
-```
-
-`02-current-schema.sql` 已改为按 `information_schema` 检查列和索引后再添加，可重复执行；`04`、`05` 的状态/协议规范化更新也只作用于旧值，`06` 使用 `CREATE TABLE IF NOT EXISTS`。`19-v2-print-job-audit-model-mysql.sql` 会幂等补齐快照/lineage 字段、将旧任务初始化为 `root=id/attempt=1`、尽力 LEFT JOIN 回填当前资源名称并创建唯一索引；operator 快照只在 `started_at` 非空时回填，旧 READY 且未开始的任务保持 null。历史改名和已丢失字段不可恢复。这些脚本不会自动作用于已有 Docker 数据卷，执行前仍必须备份。
-
-实体、Mapper 与 SQL 字段已完成静态核对：用户、打印机、打印文件、打印任务和打印机状态历史的当前字段均能在初始化表或对应增量脚本中找到；`operator_id`、文件目录/对象存储字段、`is_safe_to_print` 和状态历史表属于增量升级内容。历史 `V*.sql` 文件不代表 Spring 会自动执行的迁移，已有数据卷仍需按 `OPERATIONS.md` 手工升级并在真实 MySQL 中验收。
+SQLite 已有库的结构和数据升级由 `LocalSchemaMigration` 在启动时执行；离线脚本不会自动扫描。详细说明见 `docs/DATABASE_INITIALIZATION.md`。
 
 ### 6.3 PrintFileVO
 
@@ -910,22 +898,14 @@ docker compose up -d
 mvn spring-boot:run
 ```
 
-开发环境默认：
-
-```text
-MySQL:  localhost:3306
-Redis:  localhost:6379
-RustFS: localhost:9000
-应用:   localhost:28081
-```
+开发环境默认使用 SQLite 和本地文件，服务端口为 `28081`。数据目录可通过 `FARM_DATA_DIR` 指定，详见 `docs/SINGLE_MACHINE.md`。
 
 ### 9.2 数据库
 
-全新 MySQL 使用 `src/main/resources/db/init/mysql-schema.sql`，两份 Compose 只挂载这一入口。SQLite 使用 `db/init/sqlite-schema.sql`，随后由 `LocalSchemaMigration` 完成检查与升级。
+SQLite 使用 `db/init/sqlite-schema.sql`，随后由 `LocalSchemaMigration` 完成检查与升级。
 
-已有库的增量脚本和预检分别位于 `db/migration/mysql/`、`db/migration/sqlite/`；历史 `farm.sql` 和 `V*.sql` 位于 `db/archive/`，不再参与新库初始化。完整目录分工、首次管理员和升级步骤见 `docs/DATABASE_INITIALIZATION.md`。
+SQLite 离线升级脚本和预检位于 `db/migration/sqlite/`，不会自动扫描执行；已有库的启动升级由 `LocalSchemaMigration` 处理。当前运行与初始化方式见 `docs/SINGLE_MACHINE.md`。
 
-已有 MySQL 数据卷不会因修改 SQL 自动升级。升级前备份并按版本缺口手工执行经过确认的增量 SQL；`11-printer-monitor-reliability.sql` 会在字段/索引缺失时补齐，允许重复执行，旧设备 `monitor_enabled` 默认 `0`，需由管理员显式启用目标设备。不能为切换脚本路径而删除数据卷。
 
 2026-09-03 已在当前开发 Docker 数据卷完成一次备份后迁移：记录数量保持为用户 2、打印机 46、文件 1、任务 3；旧任务状态 `MANUAL` 已规范为 `QUEUED`，旧协议值 `Klipper` 已规范为 `KLIPPER`，新增字段和 `farm_printer_status_history` 已核对存在。该记录不代表生产环境已迁移，生产仍须按 `OPERATIONS.md` 执行并保留备份。
 

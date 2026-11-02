@@ -231,18 +231,13 @@ class PrintFileMapperTest {
     }
 
     @Test
-    void mysqlFolderDeleteUsesSelfJoinAndDefaultKeepsPortableFallback() throws IOException {
+    void sqliteFolderDeleteProtectsNonEmptyFolders() throws IOException {
         String mapperXml;
         try (var inputStream = new ClassPathResource("mapper/PrintFileMapper.xml").getInputStream()) {
             mapperXml = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8)
                     .replace("\r\n", "\n");
         }
 
-        assertThat(mapperXml).contains("<delete id=\"deleteEmptyFolder\" databaseId=\"mysql\">");
-        assertThat(mapperXml).contains("DELETE folder\n"
-                + "        FROM farm_print_file AS folder\n"
-                + "        LEFT JOIN farm_print_file AS child ON child.parent_id = folder.id");
-        assertThat(mapperXml).contains("AND child.id IS NULL");
         assertThat(mapperXml).contains("<delete id=\"deleteEmptyFolder\">\n"
                 + "        DELETE FROM farm_print_file");
         assertThat(mapperXml).contains("AND NOT EXISTS (");

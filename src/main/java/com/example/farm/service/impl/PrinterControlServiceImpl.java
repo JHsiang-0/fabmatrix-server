@@ -1,7 +1,7 @@
 package com.example.farm.service.impl;
 
 import com.example.farm.common.exception.BusinessException;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.common.utils.PrinterLock;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrintJob;
@@ -45,7 +45,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     private AuditLogService auditLogService;
 
     @Autowired(required = false)
-    private RedisUtil redisUtil;
+    private CacheStore cacheStore;
 
     @NonNull
     private final PrinterIdentityVerifier identityVerifier;
@@ -278,7 +278,7 @@ public class PrinterControlServiceImpl implements PrinterControlService {
     }
 
     private <T> T withPrinterLock(Long printerId, Supplier<T> action) {
-        return PrinterLock.execute(printerId, redisUtil, action);
+        return PrinterLock.execute(printerId, cacheStore, action);
     }
 
     private void markDeviceActionUnknown(Printer printer, String reason) {

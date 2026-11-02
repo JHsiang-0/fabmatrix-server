@@ -191,7 +191,7 @@ public class MoonrakerMockController {
                 file.getOriginalFilename(), file.getSize(), print);
 
         try {
-            // 调用现有的文件解析、S3 上传和入库逻辑
+            // 调用现有的文件解析、本地文件保存和入库逻辑
             PrintFile printFile = printFileService.uploadAndParseFile(file);
             log.info("文件入库成功: fileId={}, safeName={}", printFile.getId(), printFile.getSafeName());
 

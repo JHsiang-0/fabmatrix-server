@@ -1,7 +1,7 @@
 package com.example.farm.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.dto.PrintFileQueryDTO;
@@ -35,7 +35,7 @@ class PrintFileQueryTest {
     private PrintFileMapper printFileMapper;
 
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
 
     @Mock
     private FileUploadProperties fileUploadProperties;
@@ -44,7 +44,7 @@ class PrintFileQueryTest {
 
     @BeforeEach
     void setUp() {
-        printFileService = new PrintFileServiceImpl(rustFsClient, fileUploadProperties);
+        printFileService = new PrintFileServiceImpl(fileStorage, fileUploadProperties);
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
     }
 

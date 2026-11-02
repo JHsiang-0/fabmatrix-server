@@ -8,10 +8,6 @@ spring:
     hikari:
       maximum-pool-size: 1
       minimum-idle: 1
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
   lifecycle:
     timeout-per-shutdown-phase: 20s
   sql:

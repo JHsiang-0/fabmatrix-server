@@ -21,6 +21,7 @@ import com.example.farm.protocol.RrfApiClient;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterCacheService;
+import com.example.farm.service.PrinterBatchDeletionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
     @Autowired(required = false)
     private AuditLogService auditLogService;
+
+    @Autowired
+    private PrinterBatchDeletionService printerBatchDeletionService;
 
     private static final int MAX_BATCH_SIZE = 100;
 
@@ -333,26 +337,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void deletePrinter(Long id) {
-        Printer printer = this.getById(id);
-        if (printer == null) {
-            log.warn("删除打印机失败：打印机不存在，id={}", id);
-            throw new BusinessException("打印机不存在或已被删除！");
-        }
-
-        if ("PRINTING".equals(printer.getStatus())) {
-            log.warn("删除打印机被阻止：打印机正在打印中，id={}, name={}", id, printer.getName());
-            throw new BusinessException("危险操作：该机器正在打印中，无法删除！请先中止打印任务。");
-        }
-
-        if (!this.removeById(id)) {
-            throw new BusinessException("删除打印机失败");
-        }
-        recordSuccess("PRINTER_DELETE", "PRINTER", id, printer.getName());
-        log.info("删除打印机成功：id={}, name={}", id, printer.getName());
-
-        printerCacheService.refreshPrinterCache();
+        var result = printerBatchDeletionService.delete(List.of(id)).items().getFirst();
+        if (!result.success()) throw new BusinessException(409, result.message());
     }
 
     @Override
@@ -835,7 +822,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         if (affected == 1) {
             return;
         }
-        // MySQL 可按实际变化行数返回 0；仅在记录仍存在且开关已一致时视为幂等成功。
+        // 仅在记录仍存在且开关已一致时视为幂等成功。
         if (affected == 0) {
             Boolean current = baseMapper.selectMonitorEnabledForUpdate(printerId);
             if (Boolean.valueOf(enabled).equals(current)) {

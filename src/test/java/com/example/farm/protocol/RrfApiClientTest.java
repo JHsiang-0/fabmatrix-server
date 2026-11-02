@@ -1,5 +1,6 @@
 package com.example.farm.protocol;
 
+import com.example.farm.protocol.observation.PrinterObservation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -73,6 +74,11 @@ class RrfApiClientTest {
         assertThat(response.bedTemperature()).isEqualByComparingTo("55.4");
         assertThat(response.bedTarget()).isEqualByComparingTo("60");
         assertThat(response.deviceUptime()).isEqualByComparingTo("1234");
+        assertThat(response.observation()).isNotNull();
+        assertThat(response.observation().heaters()).hasSize(2);
+        assertThat(response.observation().heaters().getFirst().role())
+                .isEqualTo(PrinterObservation.HeaterRole.UNKNOWN);
+        assertThat(response.observation().execution().progressPercent().value()).isEqualByComparingTo("42.50");
         assertThat(response.lastFileCancelled()).isFalse();
         assertThat(response.lastFileAborted()).isFalse();
         server.verify();

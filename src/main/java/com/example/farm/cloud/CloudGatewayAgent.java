@@ -92,13 +92,13 @@ public class CloudGatewayAgent implements SmartLifecycle {
             long now = System.currentTimeMillis();
             if (pending != null && pending.packet().observedAt().toEpochMilli() < now - 60000) { clearPending(); lastSnapshotBody = null; }
             if (pending == null && now - lastCapture >= 5000) {
-                var printers = source.capture();
+                var printers = properties.isObservationV2Enabled() ? source.captureV2() : source.capture();
                 lastCapture = now;
                 var payload = new CloudWire.Payload("1.0.0", printers.size(), printers);
                 String body = json.writeValueAsString(payload);
                 boolean snapshot = !body.equals(lastSnapshotBody) || now - lastSnapshot >= 30000;
                 if (snapshot || lastAckAt == null || now - lastAckAt >= 15000) {
-                    var packet = new CloudWire.Packet(1, UUID.randomUUID().toString(), snapshot ? "SNAPSHOT" : "HEARTBEAT",
+                    var packet = new CloudWire.Packet(properties.isObservationV2Enabled() ? 2 : 1, UUID.randomUUID().toString(), snapshot ? "SNAPSHOT" : "HEARTBEAT",
                             credential.gatewayId(), credential.bindingVersion(), bootId, epoch, ++sequence, Instant.now(),
                             snapshot ? payload : new CloudWire.Payload("1.0.0", printers.size(), null));
                     String raw = json.writeValueAsString(packet);

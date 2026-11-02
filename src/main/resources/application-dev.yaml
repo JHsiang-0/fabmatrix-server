@@ -1,49 +1,8 @@
-# ===========================================
-# 3D打印农场管理系统 - 开发环境配置
-# ===========================================
-
 spring:
   config:
-    import: optional:file:./config/application-dev.local.yaml
     activate:
       on-profile: dev
 
-  # 开发环境数据源配置
-  datasource:
-    url: jdbc:mysql://localhost:3306/farm?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: farm
-    password: ${MYSQL_PASSWORD:${local.credentials.mysql-password:}}
-    hikari:
-      pool-name: FarmHikariPool-Dev
-      # DATETIME/LocalDateTime 使用农场 wall-clock，不做 UTC 转换。
-      connection-init-sql: SET time_zone = '+08:00'
-      # 开发环境使用较小的连接池
-      minimum-idle: 2
-      maximum-pool-size: 10
-      connection-timeout: 20000
-      idle-timeout: 300000
-      max-lifetime: 1200000
-
-  # 开发环境Redis配置
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      password: ${REDIS_PASSWORD:${local.credentials.redis-password:}}
-      database: 0
-      timeout: 5s
-      lettuce:
-        pool:
-          max-active: 4
-          max-idle: 4
-          min-idle: 1
-          max-wait: 5s
-
-# RustFS开发环境配置
-rustfs:
-  endpoint: http://127.0.0.1:9000
-  access-key: ${RUSTFS_ACCESS_KEY:${local.credentials.rustfs-access-key:}}
-  secret-key: ${RUSTFS_SECRET_KEY:${local.credentials.rustfs-secret-key:}}
 # 开发环境日志配置 - 更详细的日志输出
 logging:
   level:
@@ -74,7 +33,7 @@ server:
 # 开发环境应用配置
 farm:
   monitor:
-    enabled: false
+    enabled: ${FARM_MONITOR_ENABLED:true}
     # 设备级开关在 farm_printer.monitor_enabled；此列表仅用于旧配置兼容
     printer-ids: []
     failure-threshold: 3
@@ -85,7 +44,7 @@ farm:
     enabled: false
     max-items-per-run: 0
   tasks:
-    # 当前没有真实 Klipper 打印机，暂时关闭巡检和自动派单
+    # 监控由 farm.monitor.enabled 独立控制；后台自动派单仍保持关闭。
     enabled: false
   websocket:
     enabled: true

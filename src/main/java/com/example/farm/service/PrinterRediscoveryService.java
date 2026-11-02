@@ -2,7 +2,7 @@ package com.example.farm.service;
 
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.common.utils.MacAddressUtil;
-import com.example.farm.common.utils.RedisUtil;
+import com.example.farm.common.utils.CacheStore;
 import com.example.farm.common.utils.SecurityContextUtil;
 import com.example.farm.config.PrinterMonitorProperties;
 import com.example.farm.config.PrinterRediscoveryProperties;
@@ -57,7 +57,7 @@ public class PrinterRediscoveryService {
         return thread;
     });
     @Autowired(required = false)
-    private RedisUtil redisUtil;
+    private CacheStore cacheStore;
     @Autowired(required = false)
     private PrinterIdentityVerifier identityVerifier;
 
@@ -118,14 +118,14 @@ public class PrinterRediscoveryService {
         List<String> subnets = List.of();
         List<PrinterIpSyncItemVO> items = new ArrayList<>();
         try {
-            if (redisUtil != null) {
-                locked = redisUtil.tryLock(LOCK_KEY, lockValue, 360, TimeUnit.SECONDS);
+            if (cacheStore != null) {
+                locked = cacheStore.tryLock(LOCK_KEY, lockValue, 360, TimeUnit.SECONDS);
                 if (!locked) {
                     throw new BusinessException(409, "另一服务实例正在同步设备 IP，请稍后重试");
                 }
                 renewal = renewer.scheduleAtFixedRate(() -> {
                     try {
-                        if (!redisUtil.renewLockIfOwned(LOCK_KEY, lockValue, 360, TimeUnit.SECONDS)) {
+                        if (!cacheStore.renewLockIfOwned(LOCK_KEY, lockValue, 360, TimeUnit.SECONDS)) {
                             leaseValid.set(false);
                         }
                     } catch (RuntimeException exception) {
@@ -218,7 +218,7 @@ public class PrinterRediscoveryService {
             }
             if (locked) {
                 try {
-                    redisUtil.releaseLockIfOwned(LOCK_KEY, lockValue);
+                    cacheStore.releaseLockIfOwned(LOCK_KEY, lockValue);
                 } catch (RuntimeException exception) {
                     log.warn("设备地址同步锁清理失败: scanId={}", scanId);
                 }

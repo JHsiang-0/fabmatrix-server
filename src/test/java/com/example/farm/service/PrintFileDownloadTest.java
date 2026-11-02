@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.mapper.PrintFileMapper;
@@ -34,13 +34,13 @@ class PrintFileDownloadTest {
     private PrintFileMapper printFileMapper;
 
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
 
     private PrintFileServiceImpl printFileService;
 
     @BeforeEach
     void setUp() {
-        printFileService = new PrintFileServiceImpl(rustFsClient, new FileUploadProperties());
+        printFileService = new PrintFileServiceImpl(fileStorage, new FileUploadProperties());
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(1L, null,
@@ -68,12 +68,12 @@ class PrintFileDownloadTest {
                 new ByteArrayInputStream(new byte[]{1, 2, 3}));
         when(printFileMapper.selectOne(any(), eq(true))).thenReturn(null, file);
         when(printFileMapper.selectById(20L)).thenReturn(file);
-        when(rustFsClient.getFileStream(thumbnailKey)).thenReturn(thumbnail);
+        when(fileStorage.getFileStream(thumbnailKey)).thenReturn(thumbnail);
 
         InputStreamResource result = printFileService.downloadBySafeName(thumbnailKey);
 
         assertThat(result).isSameAs(thumbnail);
-        verify(rustFsClient).getFileStream(thumbnailKey);
-        verify(rustFsClient, never()).getFileStream(safeName);
+        verify(fileStorage).getFileStream(thumbnailKey);
+        verify(fileStorage, never()).getFileStream(safeName);
     }
 }

@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.FileNodeVO;
@@ -32,7 +32,7 @@ class PrintFileTreeTest {
     private PrintFileMapper printFileMapper;
 
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
 
     @Mock
     private FileUploadProperties fileUploadProperties;
@@ -41,7 +41,7 @@ class PrintFileTreeTest {
 
     @BeforeEach
     void setUp() {
-        printFileService = new PrintFileServiceImpl(rustFsClient, fileUploadProperties);
+        printFileService = new PrintFileServiceImpl(fileStorage, fileUploadProperties);
         ReflectionTestUtils.setField(printFileService, "baseMapper", printFileMapper);
     }
 

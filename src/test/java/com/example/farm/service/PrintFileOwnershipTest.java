@@ -1,6 +1,6 @@
 package com.example.farm.service;
 
-import com.example.farm.common.utils.RustFsClient;
+import com.example.farm.common.storage.FileStorage;
 import com.example.farm.config.FileUploadProperties;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.vo.PrintFilePreviewVO;
@@ -36,7 +36,7 @@ class PrintFileOwnershipTest {
     private PrintFileMapper printFileMapper;
 
     @Mock
-    private RustFsClient rustFsClient;
+    private FileStorage fileStorage;
 
     @Mock
     private FileUploadProperties fileUploadProperties;
@@ -67,7 +67,7 @@ class PrintFileOwnershipTest {
 
         assertThatThrownBy(() -> printFileService.getPresignedDownloadUrl(20L, 60))
                 .hasMessage("文件不存在");
-        verify(rustFsClient, never()).getPresignedUrl(org.mockito.ArgumentMatchers.anyString(),
+        verify(fileStorage, never()).getPresignedUrl(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any());
     }
 
@@ -76,12 +76,12 @@ class PrintFileOwnershipTest {
         mockUser(2L, "ADMIN");
         PrintFile file = file(20L, 1L);
         when(printFileMapper.selectById(20L)).thenReturn(file);
-        when(rustFsClient.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60)))
+        when(fileStorage.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60)))
                 .thenReturn("https://example.test/download");
 
         printFileService.getPresignedDownloadUrl(20L, 60);
 
-        verify(rustFsClient).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60));
+        verify(fileStorage).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60));
     }
 
     @Test
@@ -90,12 +90,12 @@ class PrintFileOwnershipTest {
         PrintFile file = file(20L, 1L);
         when(printFileMapper.selectById(20L)).thenReturn(file);
         when(fileUploadProperties.getPresignedUrlMaxMinutes()).thenReturn(120);
-        when(rustFsClient.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(120)))
+        when(fileStorage.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(120)))
                 .thenReturn("https://example.test/download");
 
         printFileService.getPresignedDownloadUrl(20L, 1000);
 
-        verify(rustFsClient).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(120));
+        verify(fileStorage).getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(120));
     }
 
     @Test
@@ -107,7 +107,7 @@ class PrintFileOwnershipTest {
 
         assertThatThrownBy(() -> printFileService.getPresignedThumbnailUrl(20L, 60))
                 .hasMessage("文件不存在");
-        verify(rustFsClient, never()).getPresignedUrlForObjectUrl(
+        verify(fileStorage, never()).getPresignedUrlForObjectUrl(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
     }
 
@@ -119,13 +119,13 @@ class PrintFileOwnershipTest {
         file.setThumbnailUrl(thumbnailUrl);
         when(printFileMapper.selectById(20L)).thenReturn(file);
         when(fileUploadProperties.getPresignedUrlMaxMinutes()).thenReturn(120);
-        when(rustFsClient.getPresignedUrlForObjectUrl(thumbnailUrl, java.time.Duration.ofMinutes(120)))
+        when(fileStorage.getPresignedUrlForObjectUrl(thumbnailUrl, java.time.Duration.ofMinutes(120)))
                 .thenReturn("https://example.test/thumbnail");
 
         assertThat(printFileService.getPresignedThumbnailUrl(20L, 1000))
                 .isEqualTo("https://example.test/thumbnail");
 
-        verify(rustFsClient).getPresignedUrlForObjectUrl(thumbnailUrl, java.time.Duration.ofMinutes(120));
+        verify(fileStorage).getPresignedUrlForObjectUrl(thumbnailUrl, java.time.Duration.ofMinutes(120));
     }
 
     @Test
@@ -133,7 +133,7 @@ class PrintFileOwnershipTest {
         mockUser(1L, "OPERATOR");
         PrintFile file = file(20L, 1L);
         when(printFileMapper.selectById(20L)).thenReturn(file);
-        when(rustFsClient.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60)))
+        when(fileStorage.getPresignedUrl("20_demo.gcode", java.time.Duration.ofMinutes(60)))
                 .thenThrow(new com.example.farm.common.exception.StorageException("生成预签名 URL 失败"));
 
         assertThatThrownBy(() -> printFileService.getPresignedDownloadUrl(20L, 60))
@@ -199,7 +199,7 @@ class PrintFileOwnershipTest {
                 .hasMessage("无权向该文件夹上传文件")
                 .extracting("code")
                 .isEqualTo(403L);
-        verify(rustFsClient, never()).uploadFile(org.mockito.ArgumentMatchers.anyString(),
+        verify(fileStorage, never()).uploadFile(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any());
     }
 
@@ -268,8 +268,8 @@ class PrintFileOwnershipTest {
         printFileService.deleteFolder(30L);
 
         verify(printFileMapper).deleteEmptyFolder(30L, 1L, false);
-        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
-        verify(rustFsClient, never()).deleteFileByObjectUrl(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFileByObjectUrl(org.mockito.ArgumentMatchers.anyString());
         verify(auditLogService).recordSuccess("FOLDER_DELETE", "FOLDER", 30L, "Empty folder");
     }
 
@@ -287,7 +287,7 @@ class PrintFileOwnershipTest {
 
         assertThat(result.getOriginalName()).isEqualTo("After");
         verify(printFileMapper).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
-        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
         verify(auditLogService).recordSuccess("FOLDER_RENAME", "FOLDER", 30L, "After");
     }
 
@@ -341,7 +341,7 @@ class PrintFileOwnershipTest {
 
         assertThat(result.getParentId()).isEqualTo(40L);
         verify(printFileMapper).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
-        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
         verify(auditLogService).recordSuccess("FOLDER_MOVE", "FOLDER", 30L, "Source");
     }
 
@@ -399,7 +399,7 @@ class PrintFileOwnershipTest {
 
         assertThatThrownBy(() -> printFileService.deleteFile(20L))
                 .hasMessage("文件已关联打印任务，禁止删除");
-        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
         verify(printFileMapper, never()).deleteById(20L);
     }
 
@@ -410,7 +410,7 @@ class PrintFileOwnershipTest {
         when(printFileMapper.selectById(20L)).thenReturn(file);
         when(printFileMapper.countPrintJobsByFileId(20L, null, null)).thenReturn(0);
         doThrow(new com.example.farm.common.exception.StorageException("对象存储删除失败"))
-                .when(rustFsClient).deleteFile("20_demo.gcode");
+                .when(fileStorage).deleteFile("20_demo.gcode");
 
         assertThatThrownBy(() -> printFileService.deleteFile(20L))
                 .isInstanceOf(com.example.farm.common.exception.StorageException.class);
@@ -428,7 +428,7 @@ class PrintFileOwnershipTest {
         assertThatThrownBy(() -> printFileService.deleteFile(20L))
                 .hasMessage("文件记录删除失败");
 
-        verify(rustFsClient).deleteFile("20_demo.gcode");
+        verify(fileStorage).deleteFile("20_demo.gcode");
     }
 
     @Test
@@ -443,8 +443,8 @@ class PrintFileOwnershipTest {
 
         printFileService.deleteFile(20L);
 
-        verify(rustFsClient).deleteFileByObjectUrl(thumbnailUrl);
-        verify(rustFsClient).deleteFile("20_demo.gcode");
+        verify(fileStorage).deleteFileByObjectUrl(thumbnailUrl);
+        verify(fileStorage).deleteFile("20_demo.gcode");
         verify(printFileMapper).deleteById(20L);
     }
 
@@ -466,8 +466,8 @@ class PrintFileOwnershipTest {
         assertThat(result.getFailedCount()).isEqualTo(1);
         assertThat(result.getItems()).extracting(PrintFileService.BatchDeleteItemResult::getId)
                 .containsExactly(20L, 21L);
-        verify(rustFsClient, never()).deleteFile("20_demo.gcode");
-        verify(rustFsClient).deleteFile("21_demo.gcode");
+        verify(fileStorage, never()).deleteFile("20_demo.gcode");
+        verify(fileStorage).deleteFile("21_demo.gcode");
     }
 
     @Test
@@ -494,7 +494,7 @@ class PrintFileOwnershipTest {
                 .containsExactly(30L, 20L, 21L);
         verify(printFileMapper).update(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.any());
         verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
-        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -511,7 +511,7 @@ class PrintFileOwnershipTest {
         assertThat(result.getFailedCount()).isEqualTo(1);
         assertThat(result.getItems().get(0).getReason()).isEqualTo("目标文件夹必须属于文件所属用户");
         verify(printFileMapper, never()).updateById(org.mockito.ArgumentMatchers.any(PrintFile.class));
-        verify(rustFsClient, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
+        verify(fileStorage, never()).deleteFile(org.mockito.ArgumentMatchers.anyString());
     }
 
     private PrintFile file(Long id, Long userId) {

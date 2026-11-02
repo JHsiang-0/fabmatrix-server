@@ -14,16 +14,14 @@
 ## T1 身份和数据迁移基础
 
 - [x] T1.1 Server 为来源实例和设备增加持久稳定 ID；实现已有 SQLite 增量升级与全新库初始化，兼容现有数字 ID 及业务关系。对应 R2、R5。证据：`farm_installation_identity` 单例、`farm_printer.device_uid` 唯一索引、旧库自动回填、服务新增设备生成 UUID；`LocalSchemaUpgradeIntegrationTest` 覆盖既有任务引用、重复迁移稳定性。
-- [ ] T1.2 Cloud 新增必要的身份、来源与绑定结构及 Flyway 迁移，保留旧 Cloud ID；实现可重入回填、冲突报告和受控转移。对应 R2、R5。
+- [x] T1.2 Cloud 新增必要的身份、来源与绑定结构及 Flyway 迁移，保留旧 Cloud ID；实现可重入回填、冲突报告和受控转移。对应 R2、R5。
 - [ ] T1.3 验证新库、旧库、重复升级、重启/恢复、网关重绑、本地 ID 复用、克隆和身份冲突；升级前后核对原有引用。对应 R2、R8。
 
-T1.2 进度：Cloud V6 加法迁移保留旧 `cloud_printer_projection.id`，将旧映射设为 `LEGACY_UNVERIFIED`，并建来源/设备唯一键、绑定历史与身份审核表；迁移检查通过。新增农场管理权限下的显式 legacy identity claim Service/API，校验 source/device 唯一性、绑定来源和审计，重复相同认领幂等；新增遗留身份审核列表和同农场受控身份迁移 API。迁移保留 Cloud ID/历史，关闭旧 binding、递增 revision、清理旧当前状态，并等待目标网关完整库存确认；拒绝跨农场、来源、UID 和本地 ID 冲突。Cloud `mvnw verify` 68 项通过，C1/C2 隔离集成 13 项通过。冲突原因持久化报告和 MySQL 身份转移专项验收仍未完成，T1.2、T1.3 不勾选。
+T1.2 进度：Cloud V6 身份结构保留旧 `cloud_printer_projection.id`，将旧映射设为 `LEGACY_UNVERIFIED`，并建立来源/设备唯一键、绑定历史与身份审核表；通过 Flyway 顺序迁移及 H2/MySQL 全量迁移测试。新增农场管理权限下的 legacy identity claim、遗留身份审核列表、同农场受控迁移及身份冲突持久化分页报告。迁移保留 Cloud ID/历史，关闭旧 binding、递增 revision、清理旧当前状态，并等待目标网关完整库存确认；跨农场、来源、UID 和本地 ID 冲突会拒绝并留存冲突原因。Cloud `mvnw verify` 68 项通过，C1/C2 隔离集成 13 项通过；实现分属 Cloud 提交 `55665e6`、`1475092`。T1.2 已完成。真实网关迁移、克隆分叉及现场恢复验收归入 T1.3。
 
-T1.3 进度：Server SQLite 旧库 fixture 校验 source/device UUID 回填、重跑稳定性及原任务外键；本轮另验证旧执行记录 `execution_uid` / `first_observed_at` 幂等回填。Cloud 身份绑定/同农场转移已有隔离 MySQL迁移测试与 H2 行为测试，但真实网关重绑、克隆分叉、身份冲突恢复及转移路径 MySQL 专项验证尚未完成，因此 T1.3 不勾选。
+T1.3 进度：Server SQLite 旧库 fixture 校验 source/device UUID 回填、重跑稳定性及原任务外键；本轮另验证旧执行记录 `execution_uid` / `first_observed_at` 幂等回填。Cloud 身份绑定迁移在隔离 MySQL 上验证 V1→V16 保留账号/会话/农场及空库初始化；同农场转移行为、冲突留存和库存重确认由 H2 集成覆盖。真实网关重绑、克隆分叉、恢复流程及转移路径 MySQL 专项验证尚未完成，因此 T1.3 不勾选。
 
-T1.2 追加进度：Cloud 已增加 V3 `printer-state` 消费前置身份认领 API，旧 Cloud 设备须由有农场管理权限的用户显式认领来源实例和 device UID，并保留既有 Cloud printer ID；Cloud V7 存储最新 canonical 对象，V3 接收必须匹配当前网关绑定。迁移和认领流程已有 H2 合成测试，尚未在 MySQL/真实网关迁移验证；身份冲突原因持久化及 MySQL 转移专项验证仍待完成，因此仍不勾选 T1.2。
-
-T1.2 追加进度：Cloud 新增 `GET /api/v1/farms/{farmId}/printer-identities/unverified` 遗留身份审核列表，以及 `POST /api/v1/farms/{farmId}/printers/{printerId}/identity/transfer` 同农场受控身份迁移。详情见 Cloud `docs/C2_IMPLEMENTATION.md` 和提交 `55665e6`。剩余冲突原因持久化报告和 MySQL 身份转移专项验收，T1.2 继续不勾选。
+T1.2 追加进度：Cloud 新增 `GET /api/v1/farms/{farmId}/printer-identities/unverified` 遗留身份审核列表、`POST /api/v1/farms/{farmId}/printers/{printerId}/identity/transfer` 同农场受控身份迁移，以及 `GET /api/v1/farms/{farmId}/printers/{printerId}/identity/conflicts` 冲突记录。详情见 Cloud `docs/C2_IMPLEMENTATION.md` 和提交 `55665e6`、`1475092`。Cloud 身份管理和审计交付完成，后续真实迁移/恢复验收列入 T1.3。
 
 T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限能力声明和 Printer + observation + 持久执行记录映射；SQLite 旧库升级增加执行 UUID/首次观测时间；本地监控将最新模型写入 SQLite，并保存模型进程代次、观测 revision 和 descriptor revision。Canonical 状态服务现可按设备 ID 读取并重新校验最新完整模型；Cloud 采集边界新增隐私过滤的 canonical snapshot，保留设备稳定身份、描述摘要和可空的已持久化完整模型，不改变现有 V1/V2 发送路径。SQLite 集成测试覆盖首次无记录、持久化后读取身份/版本/revision；Cloud 采集测试覆盖缺少 canonical 观测时仍保留资产。执行 ID 来自持久本地记录，外部执行不伪造开始时间；不一致观测不覆盖已保存值。Klipper 当前按 Moonraker 已加载对象白名单采集多加热器、风扇、轴和耗材传感器；RRF 解析响应中提供的风扇、轴和耗材监测器，并通过 `flags=f` 请求实时状态对象字段。动态能力完整性、固件版本/连接模式、RRF 多请求任务切换检测、终态结果映射、事件 outbox、Cloud V3 上报及 LAN 完整模型读取仍未完成，T2.1、T2.2 已完成；T2.3–T2.7 均不勾选。全量 `mvnw.cmd test` 816 项通过。真实固件与安装版未验证。
 

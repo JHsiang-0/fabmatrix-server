@@ -121,6 +121,33 @@ class PrinterExecutionServiceTest {
         assertThat(repeated.getState()).isEqualTo("ACTIVE");
     }
 
+    @Test
+    void startsNewExecutionIdentityWhenExecutionSourceChanges() {
+        PrinterExecutionServiceImpl service = new PrinterExecutionServiceImpl(
+                executionMapper, printJobMapper, printerMapper);
+        PrinterExecution previous = new PrinterExecution();
+        previous.setId(80L);
+        previous.setExecutionUid(java.util.UUID.randomUUID().toString());
+        previous.setPrinterId(4L);
+        previous.setSource("EXTERNAL");
+        previous.setState("ACTIVE");
+        when(executionMapper.selectOne(any())).thenReturn(previous);
+        when(executionMapper.updateById(previous)).thenReturn(1);
+        when(executionMapper.insert(any(PrinterExecution.class))).thenAnswer(invocation -> {
+            ((PrinterExecution) invocation.getArgument(0)).setId(81L);
+            return 1;
+        });
+
+        PrinterExecution current = service.observeExecuting(
+                4L, 9L, "FARM", "part.gcode", processingStatus());
+
+        assertThat(previous.getState()).isEqualTo("UNKNOWN");
+        assertThat(previous.getEndReason()).isEqualTo("设备执行来源或任务发生变化");
+        assertThat(current.getSource()).isEqualTo("FARM");
+        assertThat(current.getFarmJobId()).isEqualTo(9L);
+        assertThat(current.getExecutionUid()).isNotEqualTo(previous.getExecutionUid());
+    }
+
     private PrinterDeviceStatus processingStatus() {
         return new PrinterDeviceStatus(
                 PrinterStatus.PRINTING, "processing", null, "0:/gcodes/part.gcode",

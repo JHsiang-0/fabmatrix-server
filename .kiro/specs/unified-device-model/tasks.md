@@ -23,6 +23,8 @@ T1.3 进度：Server SQLite 旧库 fixture 校验 source/device UUID 回填、�
 
 T1.2 追加进度：Cloud 已增加 V3 `printer-state` 消费前置身份认领 API，旧 Cloud 设备须由有农场管理权限的用户显式认领来源实例和 device UID，并保留既有 Cloud printer ID；Cloud V7 存储最新 canonical 对象，V3 接收必须匹配当前网关绑定。迁移和认领流程已有 H2 合成测试，尚未在 MySQL/真实网关迁移验证；跨来源设备转移和冲突报告未实现，因此仍不勾选 T1.2。
 
+T1.2 追加进度：Cloud 新增 `GET /api/v1/farms/{farmId}/printer-identities/unverified`，仅农场管理成员可分页查看旧 Cloud ID、本地设备 ID、网关及是否仍在完整库存中；已由 H2 集成测试验证认领前可见、成功认领后从清单移除，并由 Service 测试验证未获农场管理权限时不查询数据。此次提供了待审遗留映射的可见报告；实际跨来源转移、冲突原因持久化报告和 MySQL 迁移验收仍未完成，T1.2 继续不勾选。
+
 T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限能力声明和 Printer + observation + 持久执行记录映射；SQLite 旧库升级增加执行 UUID/首次观测时间；本地监控将最新模型写入 SQLite，并保存模型进程代次、观测 revision 和 descriptor revision。Canonical 状态服务现可按设备 ID 读取并重新校验最新完整模型；Cloud 采集边界新增隐私过滤的 canonical snapshot，保留设备稳定身份、描述摘要和可空的已持久化完整模型，不改变现有 V1/V2 发送路径。SQLite 集成测试覆盖首次无记录、持久化后读取身份/版本/revision；Cloud 采集测试覆盖缺少 canonical 观测时仍保留资产。执行 ID 来自持久本地记录，外部执行不伪造开始时间；不一致观测不覆盖已保存值。Klipper 当前按 Moonraker 已加载对象白名单采集多加热器、风扇、轴和耗材传感器；RRF 解析响应中提供的风扇、轴和耗材监测器，并通过 `flags=f` 请求实时状态对象字段。动态能力完整性、固件版本/连接模式、RRF 多请求任务切换检测、终态结果映射、事件 outbox、Cloud V3 上报及 LAN 完整模型读取仍未完成，T2.1、T2.2 已完成；T2.3–T2.7 均不勾选。全量 `mvnw.cmd test` 816 项通过。真实固件与安装版未验证。
 
 T2.1 验收记录：`CanonicalPrinterModelMapperTest` 的 6 项测试通过；正例覆盖完整模型映射，反例覆盖错误版本、缺失设备 UID、时间倒置以及质量为 GOOD 但数值缺失。Server 全量 `mvnw.cmd test` 共 816 项通过。真实固件采集属于后续 T2.2/T2.3/T2.7，不包含在此项完成声明中。

@@ -2,6 +2,8 @@
 
 状态：进行中；创建日期：2026-11-02。任务属于跨仓库只读模型建设，先模型、后完整上报。勾选必须附实际证据。需求和约束见同目录 `requirements.md`、`design.md`。
 
+仓库基线整理（2026-11-02）：Cloud 历史账号/资源管理改动补交为 `4bcb296`，统一模型分支通过 `d764b85` 合入原工作区，两个 Cloud worktree 已同步到该提交；整合后 `mvnw verify` 73 项、隔离 MySQL/EMQX/Server JAR 检查 23 项通过。Flutter 历史账号页面、设置及云机器列表接入补交为 `49df3fa`，文档检查、静态分析和全量 75 项测试通过。以下早期记录中“保留未提交改动”描述的是当时的状态，后续开发以本次已提交基线为准。本次未推送或部署。
+
 ## T0 基线、范围和契约冻结
 
 - [x] T0.1 盘点 Server、Cloud、Flutter 的现有实体、协议字段、调用关系、持久化、已部署版本与未提交修改；区分已实现、设计和缺口。对应 R1、R5、R6。证据：同目录 `baseline.md`；Cloud 未提交改动按用户工作区保留，未部署状态未臆断。
@@ -65,7 +67,7 @@ T3.5 进度：Cloud 全量 `mvnw verify` 69 项通过，JAR 打包成功；覆�
 
 T4.1 进度：Flutter Cloud DTO/Repository 已覆盖 V2 canonical descriptor、observation、current execution、last execution result、设备 identity、执行/事件/告警/遥测历史及告警确认。原始 canonical model 递归只读保留，未知枚举保持原字符串；可选身份、测量、数组和历史字段按空/未知处理，未返回 canonicalModel 的旧 Cloud 状态继续按旧字段解析。测试覆盖未知状态、缺失字段、旧响应兼容和执行结果解析。T4.1 已完成。
 
-T4.2 进度：设备详情页展示稳定设备 UID、本地设备 ID、descriptor/observation revision、固件/位置/材料/喷嘴、能力、通道观测、当前执行与上次执行结果，并沿用 freshness 条件隐藏过期数值。机器列表已有 Cloud 农场/设备查询、设备状态、分页和详情导航的工作区实现，但其改动尚未并入已提交版本；列表摘要目前仍未完整展示 canonical identity、capability、execution 与 revision。未连接运行中的 Cloud 或手机真机，因此 T4.2 保持未完成。
+T4.2 进度：设备详情页展示稳定设备 UID、本地设备 ID、descriptor/observation revision、固件/位置/材料/喷嘴、能力、通道观测、当前执行与上次执行结果，并沿用 freshness 条件隐藏过期数值。Cloud 农场/设备查询、设备状态、分页和详情导航已随 Flutter `49df3fa` 提交；列表摘要目前仍未完整展示 canonical identity、capability、execution 与 revision。列表及模型详情的 Cloud/手机真机联调未完成，因此 T4.2 保持未完成。
 
 ## T4 手机完整模型展示
 

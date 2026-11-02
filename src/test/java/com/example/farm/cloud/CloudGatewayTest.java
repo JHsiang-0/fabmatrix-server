@@ -28,8 +28,8 @@ class CloudGatewayTest {
     @TempDir Path temp;
 
     @Test void protocolNegotiationAdvertisesOnlyImplementedVersionsAndLegacyFallbackPreservesSelection() {
-        assertThat(CloudGatewayAgent.supportedSchemaVersions(false)).containsExactly(1);
-        assertThat(CloudGatewayAgent.supportedSchemaVersions(true)).containsExactly(1, 2);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(false)).containsExactly(1, 3);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(true)).containsExactly(1, 2, 3);
         assertThat(CloudGatewayAgent.legacyFallback(false).selectedSchemaVersion()).isEqualTo(1);
         assertThat(CloudGatewayAgent.legacyFallback(true).selectedSchemaVersion()).isEqualTo(2);
     }

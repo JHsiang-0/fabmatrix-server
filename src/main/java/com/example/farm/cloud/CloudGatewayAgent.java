@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -51,6 +52,9 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private boolean registered;
     private boolean protocolNegotiated;
     private CloudWire.Protocol protocol;
+    private List<CloudWire.CanonicalPacket> inventoryPlan;
+    private int inventoryPartIndex;
+    private boolean inventoryComplete;
     private boolean terminal;
     private Pending pending;
     private long lastCapture;
@@ -67,7 +71,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
     }
 
     public record Status(String state, boolean connected, String gatewayId, Long lastAckAt, String errorCode, boolean pending) { }
-    private record Pending(CloudWire.Packet packet, String raw, long lastSentAt) { }
+    private record Pending(String messageId, long epoch, long sequence, Instant observedAt, String type,
+                           String raw, long lastSentAt) { }
     public Status status() { return status; }
 
     @Override public void start() {
@@ -92,9 +97,20 @@ public class CloudGatewayAgent implements SmartLifecycle {
             handleAck();
             if (terminal) { return; }
             long now = System.currentTimeMillis();
-            if (pending != null && pending.packet().observedAt().toEpochMilli() < now - 60000) { clearPending(); lastSnapshotBody = null; }
-            if (pending == null && now - lastCapture >= 5000) {
-                boolean observationEnabled = protocol.selectedSchemaVersion() == 2;
+            if (pending != null && pending.observedAt().toEpochMilli() < now - 60000) {
+                boolean inventoryPending = "INVENTORY".equals(pending.type());
+                clearPending(); lastSnapshotBody = null;
+                if (inventoryPending) {
+                    inventoryPlan = null; inventoryPartIndex = 0; inventoryComplete = false;
+                }
+            }
+            if (protocol.selectedSchemaVersion() == 3 && !inventoryComplete) {
+                prepareInventoryPending();
+            }
+            int legacySchemaVersion = protocol.selectedSchemaVersion() == 3
+                    ? (properties.isObservationV2Enabled() ? 2 : 1) : protocol.selectedSchemaVersion();
+            if (pending == null && inventoryComplete && now - lastCapture >= 5000) {
+                boolean observationEnabled = legacySchemaVersion == 2;
                 var printers = observationEnabled ? source.captureV2() : source.capture();
                 if (printers.size() > protocol.maxPrinters()) { throw new RemoteFailure("PRINTER_LIMIT_EXCEEDED"); }
                 lastCapture = now;
@@ -102,20 +118,22 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 String body = json.writeValueAsString(payload);
                 boolean snapshot = !body.equals(lastSnapshotBody) || now - lastSnapshot >= 30000;
                 if (snapshot || lastAckAt == null || now - lastAckAt >= 15000) {
-                    var packet = new CloudWire.Packet(protocol.selectedSchemaVersion(), UUID.randomUUID().toString(), snapshot ? "SNAPSHOT" : "HEARTBEAT",
+                    var packet = new CloudWire.Packet(legacySchemaVersion, UUID.randomUUID().toString(), snapshot ? "SNAPSHOT" : "HEARTBEAT",
                             credential.gatewayId(), credential.bindingVersion(), bootId, epoch, ++sequence, Instant.now(),
                             snapshot ? payload : new CloudWire.Payload("1.0.0", printers.size(), null));
                     String raw = json.writeValueAsString(packet);
                     if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) { throw new RemoteFailure("SNAPSHOT_TOO_LARGE"); }
                     CloudAgentFiles.write(pendingFile(), raw);
-                    pending = new Pending(packet, raw, 0);
+                    pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(),
+                            packet.type(), raw, 0);
                     if (snapshot) { lastSnapshot = now; lastSnapshotBody = body; }
                 }
             }
             if (pending != null && now - pending.lastSentAt() >= 5000) {
-                String topic = credential.topicPrefix() + "up/" + pending.packet().type().toLowerCase(java.util.Locale.ROOT);
+                String topic = credential.topicPrefix() + "up/" + pending.type().toLowerCase(java.util.Locale.ROOT);
                 mqtt.publish(topic, pending.raw().getBytes(StandardCharsets.UTF_8), 1, false);
-                pending = new Pending(pending.packet(), pending.raw(), now);
+                pending = new Pending(pending.messageId(), pending.epoch(), pending.sequence(), pending.observedAt(),
+                        pending.type(), pending.raw(), now);
             }
             retrySeconds = 1;
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
@@ -185,7 +203,9 @@ public class CloudGatewayAgent implements SmartLifecycle {
             if (selected == null || !offered.contains(selected.selectedSchemaVersion())
                     || selected.modelVersion() < 1 || selected.maxMessageBytes() < 1
                     || selected.maxMessageBytes() > 65536 || selected.maxPrinters() < 1
-                    || selected.maxPrinters() > 200) {
+                    || selected.maxPrinters() > 200 || selected.selectedSchemaVersion() == 3
+                    && (selected.maxInventoryParts() < 1 || selected.maxInventoryParts() > 8
+                    || selected.maxInventoryBytes() < 1 || selected.maxInventoryBytes() > 524288)) {
                 throw new RemoteFailure("CLOUD_PROTOCOL_INVALID");
             }
             return selected;
@@ -198,7 +218,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     }
 
     static java.util.List<Integer> supportedSchemaVersions(boolean observationV2Enabled) {
-        return observationV2Enabled ? java.util.List.of(1, 2) : java.util.List.of(1);
+        return observationV2Enabled ? java.util.List.of(1, 2, 3) : java.util.List.of(1, 3);
     }
 
     static CloudWire.Protocol legacyFallback(boolean observationV2Enabled) {
@@ -267,18 +287,42 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private void handleAck() throws IOException {
         var ack = receivedAck;
         receivedAck = null;
-        if (pending == null || ack == null || !pending.packet().messageId().equals(ack.messageId())
-                || pending.packet().epoch() != ack.epoch() || pending.packet().sequence() != ack.sequence()) { return; }
+        if (pending == null || ack == null || !pending.messageId().equals(ack.messageId())
+                || pending.epoch() != ack.epoch() || pending.sequence() != ack.sequence()) { return; }
         LOG.debug("Cloud gateway state receipt result={} code={}", ack.result(), ack.code());
         if ("REJECTED".equals(ack.result())) {
             if ("STALE_BOOT".equals(ack.code())) { terminal = true; closeMqtt(); }
             status = new Status(terminal ? "SUPERSEDED" : "RETRYING", !terminal, credential.gatewayId(), lastAckAt, ack.code(), false);
             lastSnapshotBody = null;
-        } else if (java.util.Set.of("ACCEPTED", "DUPLICATE", "STALE").contains(ack.result())) {
+        } else if (java.util.Set.of("ACCEPTED", "DUPLICATE", "STALE", "RECEIVED_PART", "DUPLICATE_PART",
+                "ACCEPTED_INVENTORY").contains(ack.result())) {
             lastAckAt = System.currentTimeMillis();
             status = new Status("CONNECTED", true, credential.gatewayId(), lastAckAt, null, false);
         } else { return; }
+        if ("INVENTORY".equals(pending.type()) && java.util.Set.of("RECEIVED_PART", "DUPLICATE_PART",
+                "ACCEPTED_INVENTORY").contains(ack.result())) {
+            inventoryPartIndex++;
+            if (inventoryPlan != null && inventoryPartIndex >= inventoryPlan.size()) { inventoryComplete = true; }
+        }
         clearPending();
+    }
+
+    private void prepareInventoryPending() throws Exception {
+        if (pending != null) { return; }
+        if (inventoryPlan == null) {
+            String sourceInstanceId = source.sourceInstanceId();
+            var devices = source.captureInventoryDevices(sourceInstanceId);
+            inventoryPlan = CloudInventoryPlan.build(json, credential.gatewayId(), credential.bindingVersion(), bootId,
+                    epoch, sequence + 1, Instant.now(), sourceInstanceId, System.currentTimeMillis(), devices,
+                    protocol.maxMessageBytes(), protocol.maxPrinters(), protocol.maxInventoryParts(), protocol.maxInventoryBytes());
+            sequence += inventoryPlan.size();
+            inventoryPartIndex = 0;
+        }
+        if (inventoryPartIndex >= inventoryPlan.size()) { inventoryComplete = true; return; }
+        var packet = inventoryPlan.get(inventoryPartIndex);
+        String raw = json.writeValueAsString(packet);
+        CloudAgentFiles.write(pendingFile(), raw);
+        pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(), raw, 0);
     }
 
     private Path pendingFile() { return Path.of(properties.getStateDirectory()).resolve("cloud-snapshot-pending.json"); }

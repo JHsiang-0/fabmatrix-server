@@ -184,6 +184,40 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(storedModel.modelVersion()).isEqualTo(2);
         assertThat(storedModel.identity().localPrinterId()).isEqualTo("9103");
         assertThat(storedModel.observation().revision()).isEqualTo(1);
+
+        Printer printerHealth = printerMapper.selectById(9103L);
+        printerHealth.setMonitorEnabled(true);
+        printerHealth.setConnectionStatus("ONLINE");
+        printerHealth.setLastSeenAt(java.time.LocalDateTime.now());
+        printerHealth.setConsecutiveFailureCount(0);
+        printerMapper.updateById(printerHealth);
+        var onlineModel = canonicalPrinterStateService.findLatest(9103L);
+        assertThat(onlineModel.observation().connection().status())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ConnectionStatus.ONLINE);
+
+        printerHealth.setConnectionStatus("OFFLINE");
+        printerMapper.updateById(printerHealth);
+        var offlineModel = canonicalPrinterStateService.findLatest(9103L);
+        assertThat(offlineModel.observation().connection().status())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ConnectionStatus.OFFLINE);
+        assertThat(offlineModel.observation().revision()).isEqualTo(onlineModel.observation().revision());
+        assertThat(offlineModel.observation().observedAt()).isEqualTo(onlineModel.observation().observedAt());
+
+        printerHealth.setMonitorEnabled(false);
+        printerHealth.setConnectionStatus("ONLINE");
+        printerMapper.updateById(printerHealth);
+        assertThat(canonicalPrinterStateService.findLatest(9103L).observation().connection().status())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ConnectionStatus.UNKNOWN);
+
+        printerHealth.setMonitorEnabled(true);
+        printerHealth.setConnectionStatus("ONLINE");
+        printerHealth.setLastSeenAt(java.time.LocalDateTime.now().minusSeconds(60));
+        printerMapper.updateById(printerHealth);
+        assertThat(canonicalPrinterStateService.findLatest(9103L).observation().connection().status())
+                .isEqualTo(com.example.farm.protocol.model.CanonicalPrinterModel.ConnectionStatus.UNKNOWN);
+
+        printerHealth.setLastSeenAt(java.time.LocalDateTime.now());
+        printerMapper.updateById(printerHealth);
         assertThat(canonicalPrinterStateService.findLatest(0)).isNull();
         var restartedStateService = new com.example.farm.service.impl.CanonicalPrinterStateServiceImpl(
                 jdbcTemplate, printerMapper, printerExecutionService, objectMapper);

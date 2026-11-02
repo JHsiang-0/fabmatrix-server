@@ -16,6 +16,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,6 +26,8 @@ import java.util.UUID;
 @Profile("local")
 @RequiredArgsConstructor
 public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateService {
+    private static final Duration CONNECTION_FRESHNESS = Duration.ofSeconds(30);
+
     private final JdbcTemplate jdbcTemplate;
     private final PrinterMapper printerMapper;
     private final PrinterExecutionService executionService;
@@ -95,10 +99,32 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
         try {
             CanonicalPrinterModel model = objectMapper.readValue(modelJson, CanonicalPrinterModel.class);
             CanonicalPrinterModelValidator.validate(model);
-            return model;
+            Printer printer = printerMapper.selectById(printerId);
+            return printer == null ? null : model.withConnectionHealth(currentConnection(printer));
         } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
             throw new IllegalStateException("Stored canonical printer model is invalid", invalid);
         }
+    }
+
+    private CanonicalPrinterModel.Connection currentConnection(Printer printer) {
+        Instant lastSuccessfulAt = printer.getLastSeenAt() == null ? null
+                : printer.getLastSeenAt().atZone(ZoneId.systemDefault()).toInstant();
+        String status = printer.getConnectionStatus() == null ? "UNKNOWN"
+                : printer.getConnectionStatus().trim().toUpperCase(java.util.Locale.ROOT);
+        CanonicalPrinterModel.ConnectionStatus currentStatus;
+        if (!Boolean.TRUE.equals(printer.getMonitorEnabled())) {
+            currentStatus = CanonicalPrinterModel.ConnectionStatus.UNKNOWN;
+        } else if ("OFFLINE".equals(status)) {
+            currentStatus = CanonicalPrinterModel.ConnectionStatus.OFFLINE;
+        } else if ("ONLINE".equals(status) && lastSuccessfulAt != null
+                && lastSuccessfulAt.isAfter(Instant.now().minus(CONNECTION_FRESHNESS))) {
+            currentStatus = CanonicalPrinterModel.ConnectionStatus.ONLINE;
+        } else {
+            currentStatus = CanonicalPrinterModel.ConnectionStatus.UNKNOWN;
+        }
+        return new CanonicalPrinterModel.Connection(currentStatus, Boolean.TRUE.equals(printer.getMonitorEnabled()),
+                lastSuccessfulAt, printer.getConsecutiveFailureCount() == null
+                ? 0 : Math.max(0, printer.getConsecutiveFailureCount()));
     }
 
     private Map<String, Object> previous(Long printerId) {

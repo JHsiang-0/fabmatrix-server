@@ -14,6 +14,18 @@ public record CanonicalPrinterModel(int modelVersion, Identity identity, Descrip
                                     Observation observation) {
     public static final int CURRENT_MODEL_VERSION = 2;
 
+    /** Returns the persisted measurement snapshot with the current local connection health overlaid. */
+    public CanonicalPrinterModel withConnectionHealth(Connection connection) {
+        if (observation == null) return this;
+        Observation current = new Observation(observation.id(), observation.deviceBootId(), observation.revision(),
+                observation.descriptorRevision(), observation.captureStartedAt(), observation.observedAt(),
+                observation.completeness(), connection, observation.systemState(), observation.operationState(),
+                observation.currentToolId(), observation.heaters(), observation.fans(), observation.motion(),
+                observation.sensors(), observation.currentExecution(), observation.lastExecutionResult(),
+                observation.issues());
+        return new CanonicalPrinterModel(modelVersion, identity, descriptor, current);
+    }
+
     @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Identity(UUID sourceInstanceId, UUID deviceUid, String localPrinterId) { }
 

@@ -8,6 +8,9 @@ import com.example.farm.protocol.observation.PrinterObservation;
 public interface CanonicalPrinterStateService {
     boolean persist(Printer printer, PrinterObservation observation);
 
-    /** Returns the latest validated full model stored for a local printer, or null before its first observation. */
+    /**
+     * Returns the latest validated measurement snapshot with current local connection health overlaid,
+     * or null before its first observation or after its printer asset has been removed.
+     */
     CanonicalPrinterModel findLatest(long printerId);
 }

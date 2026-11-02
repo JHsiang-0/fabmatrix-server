@@ -44,7 +44,7 @@ Server 已在现有 Klipper 和 RRF 状态读取中生成内部 `PrinterObservat
 
 V2 受限快照上报已增加为默认关闭的可选路径，Cloud 和手机可消费该子集；启用方式与部署顺序见 [CLOUD_GATEWAY](CLOUD_GATEWAY.md)。这是 transport `schemaVersion=2` 的初步实现，不是 Cloud 文档中完整 canonical device object：设备稳定身份、descriptor、分页/分片及独立详情 API 仍未实现。
 
-当前仍是基础阶段：Klipper 已按 Moonraker 已加载对象白名单查询多加热器、风扇、轴和耗材传感器；RRF 使用 `flags=f` 请求状态响应中的实时字段，并解析可用风扇、机器轴和耗材监测器。固件 family 仍没有可靠版本信息；RRF 多组对象之间也没有任务切换后的重采校验。descriptor revision、设备启动代次/观测 revision、最新观测持久化已有第一版，事件 outbox、last-known 查询投影、离线及监控关闭时的完整数据策略仍未完成。缓存有过期时间，不能当作持久化数据或设备当前在线的证明。下面列出的是 P1a 的完整目标，而非已交付内容。
+当前实现已覆盖第一版固件采集与持久化：Klipper 按 Moonraker 已加载对象白名单查询多加热器、风扇、轴和耗材传感器；RRF 使用 `flags=f` 请求实时字段，并在多组请求前后复读任务身份以识别采集期间切换。固件 family 仍没有可靠版本信息，真实 Klipper/RRF 设备尚未验收。descriptor revision、设备启动代次/观测 revision、最新观测和执行生命周期均持久化；读取最新 canonical 模型时按当前设备状态覆盖连接健康，监控关闭或采样超过 30 秒返回 `UNKNOWN`，明确离线返回 `OFFLINE`，保留原测量时间和最后执行结果。事件 outbox、专用 last-known 查询 API、Cloud 完整上报仍未完成。缓存有过期时间，不能当作持久化数据或设备当前在线的证明。下面列出的是 P1a 的完整目标，而非已交付内容。
 
 新增 `PrinterObservationView` 作为内部读取策略：调用方必须提供最新设备健康信息、当前时间和最大观测年龄；监控关闭、离线、通信失败、数据过期、时间异常或采集不一致时只保留最后已知值，不提供当前值。该策略尚未连接 API 或云端；最后已知值仍只保留在短期缓存中，不能保证重启后可用。Klipper 当前固定查询未读取选中工具，因此不再推断 `extruder` 一定是当前工具。
 

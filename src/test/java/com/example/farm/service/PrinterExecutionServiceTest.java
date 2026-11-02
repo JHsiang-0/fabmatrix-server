@@ -98,6 +98,29 @@ class PrinterExecutionServiceTest {
         assertThat(service.deviceRestarted(execution, statusWithUptime(1_200))).isFalse();
     }
 
+    @Test
+    void createsNewExecutionIdentityWhenSameFilenameRunsAfterPreviousSessionEnds() {
+        PrinterExecutionServiceImpl service = new PrinterExecutionServiceImpl(
+                executionMapper, printJobMapper, printerMapper);
+        when(executionMapper.selectOne(any())).thenReturn(null, null);
+        when(executionMapper.insert(any(PrinterExecution.class))).thenAnswer(invocation -> {
+            PrinterExecution execution = invocation.getArgument(0);
+            execution.setId(execution.getId() == null ? 81L : execution.getId() + 1);
+            return 1;
+        });
+        when(executionMapper.updateById(any(PrinterExecution.class))).thenReturn(1);
+
+        PrinterExecution first = service.observeExecuting(
+                4L, null, "EXTERNAL", "part.gcode", processingStatus());
+        assertThat(service.finishNonFarmExecution(first, "UNKNOWN", "终态证据不足")).isTrue();
+        PrinterExecution repeated = service.observeExecuting(
+                4L, null, "EXTERNAL", "part.gcode", processingStatus());
+
+        assertThat(first.getExecutionUid()).isNotEqualTo(repeated.getExecutionUid());
+        assertThat(first.getState()).isEqualTo("UNKNOWN");
+        assertThat(repeated.getState()).isEqualTo("ACTIVE");
+    }
+
     private PrinterDeviceStatus processingStatus() {
         return new PrinterDeviceStatus(
                 PrinterStatus.PRINTING, "processing", null, "0:/gcodes/part.gcode",

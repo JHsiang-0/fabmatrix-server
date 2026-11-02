@@ -12,6 +12,9 @@ import com.example.farm.service.CanonicalPrinterStateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +35,73 @@ class CloudGatewayTest {
         assertThat(CloudGatewayAgent.supportedSchemaVersions(true)).containsExactly(1, 2, 3);
         assertThat(CloudGatewayAgent.legacyFallback(false).selectedSchemaVersion()).isEqualTo(1);
         assertThat(CloudGatewayAgent.legacyFallback(true).selectedSchemaVersion()).isEqualTo(2);
+    }
+
+    @Test void legacyProtocolsPublishSnapshotsWithoutWaitingForV3Inventory() throws Exception {
+        for (int version : List.of(1, 2)) {
+            var properties = new CloudGatewayProperties();
+            properties.setStateDirectory(temp.resolve("legacy-" + version).toString());
+            properties.setObservationV2Enabled(version == 2);
+            var source = mock(CloudSnapshotSource.class);
+            when(source.capture()).thenReturn(List.of());
+            when(source.captureV2()).thenReturn(List.of());
+            var mqtt = mock(MqttClient.class);
+            var agent = connectedAgent(properties, source, mqtt, version);
+
+            ReflectionTestUtils.invokeMethod(agent, "tick");
+
+            var bytes = ArgumentCaptor.forClass(byte[].class);
+            verify(mqtt).publish(endsWith("up/snapshot"), bytes.capture(), eq(1), eq(false));
+            assertThat(new ObjectMapper().readTree(bytes.getValue()).path("schemaVersion").asInt()).isEqualTo(version);
+        }
+    }
+
+    @Test void duplicateAcknowledgementAdvancesAnIntermediateInventoryPart() throws Exception {
+        var properties = new CloudGatewayProperties();
+        properties.setStateDirectory(temp.resolve("inventory").toString());
+        var source = mock(CloudSnapshotSource.class);
+        String sourceId = UUID.randomUUID().toString();
+        var devices = java.util.stream.IntStream.range(0, 26).mapToObj(index ->
+                new CloudSnapshotSource.InventoryDevice(
+                        new CloudSnapshotSource.InventoryIdentity(sourceId, UUID.randomUUID().toString(), "" + (index + 1)),
+                        new CloudSnapshotSource.InventoryDescriptorSummary("Printer " + index, null, "KLIPPER"))).toList();
+        when(source.sourceInstanceId()).thenReturn(sourceId);
+        when(source.captureInventoryDevices(sourceId)).thenReturn(devices);
+        var mqtt = mock(MqttClient.class);
+        var agent = connectedAgent(properties, source, mqtt, 3);
+
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+        var firstBytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt).publish(endsWith("up/inventory"), firstBytes.capture(), eq(1), eq(false));
+        var first = new ObjectMapper().readTree(firstBytes.getValue());
+        assertThat(first.path("payload").path("partIndex").asInt()).isZero();
+        ReflectionTestUtils.setField(agent, "receivedAck", new CloudWire.Ack(first.path("messageId").asText(),
+                first.path("epoch").asLong(), first.path("sequence").asLong(), "DUPLICATE", "OK"));
+
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+
+        var allBytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt, times(2)).publish(endsWith("up/inventory"), allBytes.capture(), eq(1), eq(false));
+        assertThat(new ObjectMapper().readTree(allBytes.getAllValues().get(1))
+                .path("payload").path("partIndex").asInt()).isEqualTo(1);
+    }
+
+    private CloudGatewayAgent connectedAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
+                                              MqttClient mqtt, int version) throws Exception {
+        when(mqtt.isConnected()).thenReturn(true);
+        var agent = new CloudGatewayAgent(properties, source);
+        String gatewayId = UUID.randomUUID().toString();
+        var credential = new CloudWire.Credential(gatewayId, UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                1, "fixture", System.currentTimeMillis() + 60000, "fixture", "fixture", "fixture/");
+        ReflectionTestUtils.setField(agent, "credential", credential);
+        ReflectionTestUtils.setField(agent, "http", mock(java.net.http.HttpClient.class));
+        ReflectionTestUtils.setField(agent, "mqtt", mqtt);
+        ReflectionTestUtils.setField(agent, "protocol", new CloudWire.Protocol(version, 2, List.of(), 65536, 200, 8, 524288));
+        ReflectionTestUtils.setField(agent, "protocolNegotiated", true);
+        ReflectionTestUtils.setField(agent, "registered", true);
+        ReflectionTestUtils.setField(agent, "running", true);
+        ReflectionTestUtils.setField(agent, "epoch", 1L);
+        return agent;
     }
 
     @Test void canonicalInventoryPlanPartitionsAndBoundsEveryV3Message() throws Exception {

@@ -121,7 +121,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
             }
             int legacySchemaVersion = protocol.selectedSchemaVersion() == 3
                     ? (properties.isObservationV2Enabled() ? 2 : 1) : protocol.selectedSchemaVersion();
-            if (pending == null && inventoryComplete && now - lastCapture >= 5000) {
+            if (pending == null && (protocol.selectedSchemaVersion() != 3 || inventoryComplete)
+                    && now - lastCapture >= 5000) {
                 boolean observationEnabled = legacySchemaVersion == 2;
                 var printers = observationEnabled ? source.captureV2() : source.capture();
                 if (printers.size() > protocol.maxPrinters()) { throw new RemoteFailure("PRINTER_LIMIT_EXCEEDED"); }
@@ -312,9 +313,12 @@ public class CloudGatewayAgent implements SmartLifecycle {
             status = new Status("CONNECTED", true, credential.gatewayId(), lastAckAt, null, false);
         } else { return; }
         if ("INVENTORY".equals(pending.type()) && java.util.Set.of("RECEIVED_PART", "DUPLICATE_PART",
-                "ACCEPTED_INVENTORY").contains(ack.result())) {
+                "DUPLICATE", "ACCEPTED_INVENTORY").contains(ack.result())) {
             inventoryPartIndex++;
-            if (inventoryPlan != null && inventoryPartIndex >= inventoryPlan.size()) { inventoryComplete = true; }
+            if (inventoryPlan != null && inventoryPartIndex >= inventoryPlan.size()) {
+                inventoryComplete = "ACCEPTED_INVENTORY".equals(ack.result());
+                if (!inventoryComplete) { inventoryPlan = null; inventoryPartIndex = 0; }
+            }
         }
         if ("PRINTER_DESCRIPTOR".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
             acknowledgedDescriptorRevisions.put(pending.localPrinterId(), pending.descriptorRevision());

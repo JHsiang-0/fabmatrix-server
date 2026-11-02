@@ -7,6 +7,7 @@ import com.example.farm.protocol.PrinterProtocolDetector;
 import com.example.farm.protocol.RrfApiClient;
 import com.example.farm.common.utils.MacAddressUtil;
 import com.example.farm.service.impl.PrinterServiceImpl;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -172,6 +173,25 @@ class PrinterMonitorConfigurationServiceTest {
         verifyNoInteractions(cache);
         TransactionSynchronizationUtils.triggerAfterCommit();
         verify(cache).refreshPrinterCache();
+    }
+
+    @Test
+    void monitorDisabledEventIsRecordedOnlyAfterCommit() {
+        Printer printer = new Printer();
+        printer.setId(1L);
+        printer.setMonitorEnabled(true);
+        when(mapper.selectById(1L)).thenReturn(printer);
+        when(mapper.updateById(any(Printer.class))).thenReturn(1);
+        PrinterEventRecorder recorder = mock(PrinterEventRecorder.class);
+        ReflectionTestUtils.setField(service, "printerEventRecorder", recorder);
+        beginTransactionSynchronization();
+
+        service.updateMonitorEnabled(1L, false);
+
+        verifyNoInteractions(recorder);
+        TransactionSynchronizationUtils.triggerAfterCommit();
+        verify(recorder).record(printer, CanonicalPrinterEvent.Type.MONITOR_DISABLED,
+                CanonicalPrinterEvent.Severity.INFO, "MONITOR_DISABLED");
     }
 
     @Test

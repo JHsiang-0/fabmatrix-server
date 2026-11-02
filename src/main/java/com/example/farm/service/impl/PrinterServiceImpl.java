@@ -22,6 +22,8 @@ import com.example.farm.service.PrinterService;
 import com.example.farm.service.AuditLogService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterBatchDeletionService;
+import com.example.farm.service.PrinterEventRecorder;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +58,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
     @Autowired(required = false)
     private AuditLogService auditLogService;
+
+    @Autowired(required = false)
+    private PrinterEventRecorder printerEventRecorder;
 
     @Autowired
     private PrinterBatchDeletionService printerBatchDeletionService;
@@ -788,6 +793,9 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
             throw new BusinessException(404, "打印机不存在");
         }
         persistMonitorEnabled(printerId, enabled);
+        if (!enabled && Boolean.TRUE.equals(printer.getMonitorEnabled())) {
+            recordMonitorDisabledAfterCommit(printer);
+        }
         refreshMonitorConfigurationCacheAfterCommit();
     }
 
@@ -813,8 +821,36 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         for (Long printerId : distinctIds) {
             persistMonitorEnabled(printerId, enabled);
         }
+        if (!enabled) {
+            printers.stream().filter(printer -> Boolean.TRUE.equals(printer.getMonitorEnabled()))
+                    .forEach(this::recordMonitorDisabledAfterCommit);
+        }
         refreshMonitorConfigurationCacheAfterCommit();
         return printers.size();
+    }
+
+    private void recordMonitorDisabledAfterCommit(Printer printer) {
+        if (printerEventRecorder == null) return;
+        Runnable record = () -> {
+            try {
+                printerEventRecorder.record(printer, CanonicalPrinterEvent.Type.MONITOR_DISABLED,
+                        CanonicalPrinterEvent.Severity.INFO, "MONITOR_DISABLED");
+            } catch (RuntimeException failure) {
+                log.warn("监控关闭事件写入 outbox 失败: printerId={}, category={}",
+                        printer.getId(), failure.getClass().getSimpleName());
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    record.run();
+                }
+            });
+        } else {
+            record.run();
+        }
     }
 
     private void persistMonitorEnabled(Long printerId, boolean enabled) {

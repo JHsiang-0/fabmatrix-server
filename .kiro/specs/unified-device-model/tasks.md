@@ -43,7 +43,7 @@ T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限�
 - [ ] T3.4 旧 V1、受限 V2、旧列表及现有单设备状态接口兼容；验证旧设备 ID、旧客户端和受限上报不受影响。对应 R6、R7。
 - [ ] T3.5 运行 Cloud `mvnw verify`，隔离 MySQL 迁移与 MQTT TLS、权限、重复、乱序、重启、分片缺失/超限和回执测试。对应 R6、R8。
 
-T3 进度：Cloud V7 增加 canonical 最新对象列；Cloud 实现有界结构/质量校验、V3 `printer-state` 消费、当前身份绑定校验、事务提交后复用现有 state-ack、重复消息处理，并在现有单设备详情 API 按农场权限返回最新 canonical 对象。synthetic H2 集成测试与 Cloud `mvnw.cmd clean verify`（66 项）通过。仍缺 descriptor/inventory/event 接收、分片和 V3 ACK 契约、执行/事件/告警/采样独立存储及查询、MySQL/MQTT TLS 实测；T3.1–T3.5 尚不勾选。
+T3 进度：Cloud V7 增加 canonical 最新对象列；Cloud 实现有界结构/质量校验、V3 `printer-state` 消费、当前身份绑定校验、事务提交后复用现有 state-ack、重复消息处理，并在现有单设备详情 API 按农场权限返回最新 canonical 对象。synthetic H2 集成测试与 Cloud `mvnw.cmd clean verify`（65 项）通过。仍缺 descriptor/inventory/event 接收、分片和 V3 ACK 契约、执行/事件/告警/采样独立存储及查询、MySQL/MQTT TLS 实测；T3.1–T3.5 尚不勾选。
 
 T4.1–T4.2 进度：Flutter 新增 canonical modelVersion 2 的 Cloud DTO 解析和手机机器详情展示（描述、能力、通道测量、执行摘要），继续兼容旧状态与受限 observation。`flutter analyze` 通过，针对解析和设备详情的 3 项测试通过；没有运行中的调试 App，尚未热重载或真机验收。完整事件/历史查询未提供，T4.1–T4.4 均不勾选。
 

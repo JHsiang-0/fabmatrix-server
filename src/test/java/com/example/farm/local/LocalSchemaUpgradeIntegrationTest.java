@@ -3,8 +3,10 @@ package com.example.farm.local;
 import com.example.farm.FarmApplication;
 import com.zaxxer.hikari.HikariDataSource;
 import com.example.farm.entity.Printer;
+import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.service.CanonicalPrinterStateService;
+import com.example.farm.service.PrinterExecutionService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -30,6 +32,7 @@ import java.util.Comparator;
 import java.util.UUID;
 import java.time.Instant;
 import java.util.List;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,6 +52,12 @@ class LocalSchemaUpgradeIntegrationTest {
     private HikariDataSource dataSource;
     @Autowired
     private CanonicalPrinterStateService canonicalPrinterStateService;
+    @Autowired
+    private PrinterMapper printerMapper;
+    @Autowired
+    private PrinterExecutionService printerExecutionService;
+    @Autowired
+    private ObjectMapper objectMapper;
     @LocalServerPort
     private int serverPort;
 
@@ -176,9 +185,17 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(storedModel.identity().localPrinterId()).isEqualTo("9103");
         assertThat(storedModel.observation().revision()).isEqualTo(1);
         assertThat(canonicalPrinterStateService.findLatest(0)).isNull();
-        assertThat(canonicalPrinterStateService.persist(printer, observation)).isTrue();
+        var restartedStateService = new com.example.farm.service.impl.CanonicalPrinterStateServiceImpl(
+                jdbcTemplate, printerMapper, printerExecutionService, objectMapper);
+        assertThat(restartedStateService.persist(printer, observation)).isTrue();
         assertThat(jdbcTemplate.queryForObject("SELECT observation_revision FROM farm_printer_canonical_state "
                 + "WHERE printer_id = 9103", Integer.class)).isEqualTo(2);
+        var recoveredModel = restartedStateService.findLatest(9103L);
+        assertThat(recoveredModel.observation().revision()).isEqualTo(2);
+        assertThat(recoveredModel.descriptor().revision()).isEqualTo(1);
+        assertThat(recoveredModel.observation().deviceBootId()).isNotEqualTo(storedModel.observation().deviceBootId());
+        assertThat(recoveredModel.observation().issues()).anyMatch(issue ->
+                issue.code() == com.example.farm.protocol.model.CanonicalPrinterModel.IssueCode.CONTINUITY_UNKNOWN);
 
         jdbcTemplate.update("INSERT INTO farm_printer_execution(printer_id, source, state, started_at, last_seen_at) "
                         + "VALUES (?, 'EXTERNAL', 'ACTIVE', ?, ?)", 9103,

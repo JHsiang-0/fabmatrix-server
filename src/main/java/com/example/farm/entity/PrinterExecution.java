@@ -22,6 +22,10 @@ public class PrinterExecution implements Serializable {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
+    /** 稳定公共执行身份；兼容保留本地数字主键。 */
+    @TableField("execution_uid")
+    private String executionUid;
+
     @TableField("printer_id")
     private Long printerId;
 
@@ -69,6 +73,10 @@ public class PrinterExecution implements Serializable {
 
     @TableField("started_at")
     private LocalDateTime startedAt;
+
+    /** 首次确认设备处于该执行状态的时间，与真实开始时间分开。 */
+    @TableField("first_observed_at")
+    private LocalDateTime firstObservedAt;
 
     @TableField("last_seen_at")
     private LocalDateTime lastSeenAt;

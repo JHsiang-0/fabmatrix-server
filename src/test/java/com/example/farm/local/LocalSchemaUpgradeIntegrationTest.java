@@ -2,6 +2,9 @@ package com.example.farm.local;
 
 import com.example.farm.FarmApplication;
 import com.zaxxer.hikari.HikariDataSource;
+import com.example.farm.entity.Printer;
+import com.example.farm.protocol.observation.PrinterObservation;
+import com.example.farm.service.CanonicalPrinterStateService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -24,6 +27,9 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.Comparator;
+import java.util.UUID;
+import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,6 +47,8 @@ class LocalSchemaUpgradeIntegrationTest {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private HikariDataSource dataSource;
+    @Autowired
+    private CanonicalPrinterStateService canonicalPrinterStateService;
     @LocalServerPort
     private int serverPort;
 
@@ -112,6 +120,24 @@ class LocalSchemaUpgradeIntegrationTest {
                 .containsEntry("operator_username_snapshot", "startup-operator");
         assertThat(jdbcTemplate.queryForObject("SELECT current_job_id FROM farm_printer WHERE id = 9103",
                 Integer.class)).isEqualTo(9101);
+        String sourceInstanceId = jdbcTemplate.queryForObject(
+                "SELECT source_instance_id FROM farm_installation_identity WHERE id = 1", String.class);
+        String deviceUid = jdbcTemplate.queryForObject(
+                "SELECT device_uid FROM farm_printer WHERE id = 9103", String.class);
+        assertThat(UUID.fromString(sourceInstanceId)).isNotNull();
+        assertThat(UUID.fromString(deviceUid)).isNotNull();
+        assertThat(jdbcTemplate.queryForList("PRAGMA index_list(farm_printer)").stream()
+                .map(row -> String.valueOf(row.get("name"))))
+                .contains("uk_farm_printer_device_uid");
+
+        new com.example.farm.config.LocalSchemaMigration(jdbcTemplate).run();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT source_instance_id FROM farm_installation_identity WHERE id = 1", String.class))
+                .isEqualTo(sourceInstanceId);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT device_uid FROM farm_printer WHERE id = 9103", String.class)).isEqualTo(deviceUid);
+        assertThat(jdbcTemplate.queryForObject("SELECT printer_id FROM farm_print_job WHERE id = 9101",
+                Integer.class)).isEqualTo(9103);
         assertThat(indexNames()).contains("uk_print_job_retry_of_job", "uk_print_job_root_attempt");
         assertThat(jdbcTemplate.queryForList("PRAGMA table_info(farm_print_job)").stream()
                 .map(column -> String.valueOf(column.get("name"))))
@@ -125,13 +151,50 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(jdbcTemplate.queryForList("PRAGMA index_list(farm_printer_execution)").stream()
                 .map(row -> String.valueOf(row.get("name"))))
                 .contains("uk_printer_execution_active", "idx_printer_execution_printer_state",
-                        "idx_printer_execution_job");
+                        "idx_printer_execution_job", "uk_printer_execution_uid");
+        assertThat(jdbcTemplate.queryForList("PRAGMA table_info(farm_printer_canonical_state)").stream()
+                .map(column -> String.valueOf(column.get("name"))))
+                .contains("printer_id", "device_boot_id", "observation_revision", "descriptor_revision",
+                        "descriptor_json", "model_json");
+
+        Instant observedAt = Instant.now();
+        var observation = new PrinterObservation(observedAt, observedAt, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        Printer printer = new Printer();
+        printer.setId(9103L);
+        assertThat(canonicalPrinterStateService.persist(printer, observation)).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT observation_revision FROM farm_printer_canonical_state "
+                + "WHERE printer_id = 9103", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT descriptor_revision FROM farm_printer_canonical_state "
+                + "WHERE printer_id = 9103", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT model_json FROM farm_printer_canonical_state "
+                + "WHERE printer_id = 9103", String.class)).contains("\"modelVersion\":2", "deviceUid");
+        assertThat(canonicalPrinterStateService.persist(printer, observation)).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT observation_revision FROM farm_printer_canonical_state "
+                + "WHERE printer_id = 9103", Integer.class)).isEqualTo(2);
+
+        jdbcTemplate.update("INSERT INTO farm_printer_execution(printer_id, source, state, started_at, last_seen_at) "
+                        + "VALUES (?, 'EXTERNAL', 'ACTIVE', ?, ?)", 9103,
+                java.sql.Timestamp.valueOf("2026-11-02 09:00:00"),
+                java.sql.Timestamp.valueOf("2026-11-02 09:00:00"));
+        new com.example.farm.config.LocalSchemaMigration(jdbcTemplate).run();
+        String executionUid = jdbcTemplate.queryForObject(
+                "SELECT execution_uid FROM farm_printer_execution WHERE printer_id = 9103", String.class);
+        assertThat(UUID.fromString(executionUid)).isNotNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT first_observed_at FROM farm_printer_execution "
+                + "WHERE printer_id = 9103", java.sql.Timestamp.class))
+                .isEqualTo(java.sql.Timestamp.valueOf("2026-11-02 09:00:00"));
+        new com.example.farm.config.LocalSchemaMigration(jdbcTemplate).run();
+        assertThat(jdbcTemplate.queryForObject("SELECT execution_uid FROM farm_printer_execution "
+                + "WHERE printer_id = 9103", String.class)).isEqualTo(executionUid);
     }
 
     private static void createPreTc007Fixture(Path databasePath) {
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databasePath.toAbsolutePath())) {
             JdbcTemplate jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, false));
             runResource(jdbc, "db/init/sqlite-schema.sql");
+            jdbc.execute("ALTER TABLE farm_printer DROP COLUMN device_uid");
             jdbc.execute("ALTER TABLE farm_user DROP COLUMN must_change_password");
             jdbc.execute("DROP TABLE farm_login_session");
             jdbc.execute("DROP TABLE farm_print_job");

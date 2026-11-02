@@ -125,7 +125,8 @@ public class RrfApiClient {
         try {
             session = connect(endpoint, PrinterOperation.GET_STATUS);
             connected = true;
-            JsonNode stateResponse = getModel(endpoint, session, "state");
+            // Include live fields (fans, move positions) exposed by the RRF state object model.
+            JsonNode stateResponse = getModel(endpoint, session, "state", "f");
             JsonNode jobResponse = getModel(endpoint, session, "job");
             Instant jobObservedAt = Instant.now();
             JsonNode heatResponse = getModel(endpoint, session, "heat");

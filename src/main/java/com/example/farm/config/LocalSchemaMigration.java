@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /** 为已有 Local Edition SQLite 数据库补齐新增字段，重复启动安全。 */
@@ -32,6 +33,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        migrateDeviceIdentity();
         migrateFirstAdminSetupState();
         validateDashboardLayoutPreconditions();
         ensurePrinterCoordinateGuards();
@@ -39,6 +41,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         correctLegacyDefaultDashboardLayout();
         createAuditLogTableIfMissing();
         createPrinterExecutionTableIfMissing();
+        createCanonicalPrinterStateTableIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("farm_user", "must_change_password", "INTEGER NOT NULL DEFAULT 0");
@@ -81,6 +84,55 @@ public class LocalSchemaMigration implements CommandLineRunner {
         validatePrintFileStructure();
     }
 
+    /** 为本地数据库谱系和设备建立稳定 UUID；重复启动保留现有身份及业务外键。 */
+    private void migrateDeviceIdentity() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_installation_identity (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    source_instance_id VARCHAR(36) NOT NULL UNIQUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+        Integer identityCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM farm_installation_identity", Integer.class);
+        if (identityCount == null || identityCount == 0) {
+            jdbcTemplate.update("INSERT INTO farm_installation_identity(id, source_instance_id) VALUES (1, ?)",
+                    UUID.randomUUID().toString());
+        }
+        Integer canonicalIdentityCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM farm_installation_identity WHERE id = 1", Integer.class);
+        if (canonicalIdentityCount == null || canonicalIdentityCount != 1) {
+            throw new IllegalStateException("SQLite 来源身份记录异常，已阻止启动");
+        }
+        String sourceInstanceId = jdbcTemplate.queryForObject(
+                "SELECT source_instance_id FROM farm_installation_identity WHERE id = 1", String.class);
+        try {
+            UUID.fromString(sourceInstanceId);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("SQLite 来源身份不是有效 UUID，已阻止启动", exception);
+        }
+
+        addColumnIfMissing("farm_printer", "device_uid", "VARCHAR(36)");
+        List<Long> printersWithoutIdentity = jdbcTemplate.queryForList(
+                "SELECT id FROM farm_printer WHERE device_uid IS NULL OR TRIM(device_uid) = ''", Long.class);
+        for (Long printerId : printersWithoutIdentity) {
+            jdbcTemplate.update("UPDATE farm_printer SET device_uid = ? WHERE id = ? "
+                            + "AND (device_uid IS NULL OR TRIM(device_uid) = '')",
+                    UUID.randomUUID().toString(), printerId);
+        }
+        Integer duplicateIdentityCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT device_uid FROM farm_printer
+                    GROUP BY device_uid HAVING COUNT(*) > 1
+                ) duplicate_device_uid
+                """, Integer.class);
+        if (duplicateIdentityCount != null && duplicateIdentityCount > 0) {
+            throw new IllegalStateException("SQLite 打印机存在重复 device_uid，已阻止启动");
+        }
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_farm_printer_device_uid "
+                + "ON farm_printer(device_uid)");
+    }
+
     /** 持久化设备执行会话，避免 RRF 结束后清空 job 字段或服务重启导致终态证据丢失。 */
     private void createPrinterExecutionTableIfMissing() {
         jdbcTemplate.execute("""
@@ -113,8 +165,44 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_printer_execution(printer_id, state, id)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_execution_job "
                 + "ON farm_printer_execution(farm_job_id, state)");
+        addColumnIfMissing("farm_printer_execution", "execution_uid", "VARCHAR(36)");
+        addColumnIfMissing("farm_printer_execution", "first_observed_at", "TIMESTAMP");
+        List<Long> executionsWithoutIdentity = jdbcTemplate.queryForList(
+                "SELECT id FROM farm_printer_execution WHERE execution_uid IS NULL OR TRIM(execution_uid) = ''", Long.class);
+        for (Long executionId : executionsWithoutIdentity) {
+            jdbcTemplate.update("UPDATE farm_printer_execution SET execution_uid = ? WHERE id = ? "
+                            + "AND (execution_uid IS NULL OR TRIM(execution_uid) = '')",
+                    UUID.randomUUID().toString(), executionId);
+        }
+        jdbcTemplate.update("UPDATE farm_printer_execution SET first_observed_at = started_at "
+                + "WHERE first_observed_at IS NULL");
+        Integer duplicateExecutionIdentityCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT execution_uid FROM farm_printer_execution
+                    GROUP BY execution_uid HAVING COUNT(*) > 1
+                ) duplicate_execution_uid
+                """, Integer.class);
+        if (duplicateExecutionIdentityCount != null && duplicateExecutionIdentityCount > 0) {
+            throw new IllegalStateException("SQLite 执行记录存在重复 execution_uid，已阻止启动");
+        }
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_printer_execution_uid "
+                + "ON farm_printer_execution(execution_uid)");
         jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_printer_execution_active "
                 + "ON farm_printer_execution(printer_id) WHERE state = 'ACTIVE'");
+    }
+
+    private void createCanonicalPrinterStateTableIfMissing() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_printer_canonical_state (
+                    printer_id INTEGER PRIMARY KEY,
+                    device_boot_id VARCHAR(36) NOT NULL,
+                    observation_revision INTEGER NOT NULL,
+                    descriptor_revision INTEGER NOT NULL,
+                    descriptor_json TEXT NOT NULL,
+                    model_json TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
     }
 
     /** 首次引入持久化 setup 状态时，已有用户数据必须视为已初始化。 */

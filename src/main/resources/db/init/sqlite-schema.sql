@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS farm_print_file (
 
 CREATE TABLE IF NOT EXISTS farm_printer (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_uid VARCHAR(36),
     name VARCHAR(50) NOT NULL, ip_address VARCHAR(50) UNIQUE,
     mac_address VARCHAR(50) UNIQUE, firmware_type VARCHAR(20) NOT NULL DEFAULT 'KLIPPER',
     api_key VARCHAR(255), status VARCHAR(20) NOT NULL DEFAULT 'OFFLINE',
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS farm_printer_status_history (
 
 CREATE TABLE IF NOT EXISTS farm_printer_execution (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_uid VARCHAR(36),
     printer_id INTEGER NOT NULL,
     farm_job_id INTEGER,
     source VARCHAR(16) NOT NULL,
@@ -130,6 +132,7 @@ CREATE TABLE IF NOT EXISTS farm_printer_execution (
     device_uptime_at_start INTEGER,
     device_uptime_last INTEGER,
     started_at TIMESTAMP NOT NULL,
+    first_observed_at TIMESTAMP,
     last_seen_at TIMESTAMP NOT NULL,
     ended_at TIMESTAMP,
     end_reason VARCHAR(255),
@@ -143,6 +146,16 @@ CREATE INDEX IF NOT EXISTS idx_printer_execution_job
     ON farm_printer_execution(farm_job_id, state);
 CREATE UNIQUE INDEX IF NOT EXISTS uk_printer_execution_active
     ON farm_printer_execution(printer_id) WHERE state = 'ACTIVE';
+
+CREATE TABLE IF NOT EXISTS farm_printer_canonical_state (
+    printer_id INTEGER PRIMARY KEY,
+    device_boot_id VARCHAR(36) NOT NULL,
+    observation_revision INTEGER NOT NULL,
+    descriptor_revision INTEGER NOT NULL,
+    descriptor_json TEXT NOT NULL,
+    model_json TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS farm_dispatch_plan (
     id VARCHAR(64) PRIMARY KEY, mode VARCHAR(20) NOT NULL, strategy VARCHAR(30) NOT NULL,

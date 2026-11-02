@@ -2,7 +2,7 @@
 
 日期：2026-11-01。产品仍为 `1.0.0`；归属 C2 云只读扩展设计。`modelVersion=2` 是数据契约版本，不是产品 v2，也不表示启用 v3 自动派单。
 
-状态：**设计与契约验证完成，Server P1a 的内部观测基础已实现，P1a 尚未完成**。现有 LAN API、设备动作、数据库结构和 Cloud V1 上报继续以实际代码为准。
+状态：**设计与契约验证完成，Server 已有来源/设备/执行 UUID、canonical Java 对象与最新模型 SQLite 持久化基础；固件完整采集、Cloud V3 消费与手机展示仍未完成**。现有 LAN API、设备动作和 Cloud V1/受限 V2 上报继续以实际代码为准。
 
 ## 1. 统一契约入口
 
@@ -22,6 +22,9 @@
 - [PrinterProtocolAdapterFactory](../src/main/java/com/example/farm/protocol/PrinterProtocolAdapterFactory.java) 按固件选择适配器；Klipper 与 RRF 客户端独立。
 - [PrinterDeviceStatus](../src/main/java/com/example/farm/protocol/PrinterDeviceStatus.java) 已统一基础状态、温度、时长、文件进度和部分设备执行证据。
 - [PrinterExecution](../src/main/java/com/example/farm/entity/PrinterExecution.java) 已持久化实际执行与平台任务的关系，支持外部打印、重启恢复与终态确认。
+- `farm_printer_execution.execution_uid` 为执行记录增加稳定 UUID；旧行启动时幂等回填，`first_observed_at` 保留首次观测时间，外部执行不会据此伪称真实开始时间。
+- [CanonicalPrinterModel](../src/main/java/com/example/farm/protocol/model/CanonicalPrinterModel.java) 与 Mapper/Validator 对齐 Cloud canonical Schema 的对象层级；映射仅使用当前可证明字段，缺少稳定执行记录时拒绝拼装当前执行。
+- `farm_printer_canonical_state` 只保留每台设备最新 canonical JSON、descriptor 快照与版本号；每进程新建 `deviceBootId`，首帧标记连续性未知。失败/不一致采集不覆盖最后持久观测。
 - [CloudSnapshotSource](../src/main/java/com/example/farm/cloud/CloudSnapshotSource.java) 只上传白名单基础状态；现有消息版本为 1。
 - 现场 [CLOUD_GATEWAY](CLOUD_GATEWAY.md) 中的只读上报不调用设备控制，保留此边界。
 
@@ -31,23 +34,23 @@
 2. `RrfApiClient` 将切片预估 `job.file.printTime` 填入 totalDuration，需与真实运行时长拆开；lastFileName不能无条件作为当前任务。
 3. RRF 温度映射只取一个工具/热床，并有缺配置时猜测热床的兼容分支；新模型使用工具与heater显式关联，不猜角色。
 4. 现有状态缓存10秒、dev空闲轮询15秒，且云快照从数据库lastSeenAt与缓存值组合；新模型按同一帧存储测量和时间，不能仅增加字段。
-5. 当前网关内数字ID映射不适合设备跨网关迁移，需要可持久设备UID及来源实例UUID；保留现有云UUID。
+5. Server SQLite 已在 `LocalSchemaMigration` 持久生成 `sourceInstanceId`，并为既有/新增设备生成唯一 `deviceUid`；Cloud 身份映射、旧 Cloud UUID 回填、跨来源迁移与数据库克隆冲突策略尚未实现。继续保留本地数字 ID 与已有 Cloud UUID。
 
 ## 4. Server P1a 实施边界
 
 ### 当前进度
 
-Server 已在现有 Klipper 和 RRF 状态读取中生成内部 `PrinterObservation`，包括采集时间、状态、加热器、工具、执行摘要及数值质量；监控将其写入独立的 90 秒短期缓存。缺失与真实零值分开，RRF 按显式关联及加热模式解释目标温度，区分运行时长与切片预估。旧 LAN API、WebSocket 与 Cloud V1 保持原有字段和语义。
+Server 已在现有 Klipper 和 RRF 状态读取中生成内部 `PrinterObservation`，包括采集时间、状态、加热器、工具、执行摘要及数值质量；监控将其写入独立的 90 秒短期缓存。缺失与真实零值分开，RRF 按显式关联及加热模式解释目标温度，区分运行时长与切片预估。SQLite 现有库启动时会幂等建立 `farm_installation_identity.source_instance_id`、回填 `farm_printer.device_uid` 并加唯一索引；新设备在服务新增路径生成 UUID。旧 LAN API、WebSocket 与 Cloud V1 保持原有字段和语义。此身份基础尚未意味着已发送给 Cloud，备份克隆成独立站点的身份分裂流程仍未实现。
 
 V2 受限快照上报已增加为默认关闭的可选路径，Cloud 和手机可消费该子集；启用方式与部署顺序见 [CLOUD_GATEWAY](CLOUD_GATEWAY.md)。这是 transport `schemaVersion=2` 的初步实现，不是 Cloud 文档中完整 canonical device object：设备稳定身份、descriptor、分页/分片及独立详情 API 仍未实现。
 
-当前只是基础：Klipper 仍查询现有固定对象，未完成动态发现；RRF 多次请求仅标记部分采集，尚未做执行变化后的重采；设备稳定身份、descriptor、执行 UUID、持久化、离线及监控关闭时的数据策略均未完成。缓存有过期时间，不能当作持久化数据或设备当前在线的证明。下面列出的是 P1a 的完整目标，而非已交付内容。
+当前仍是基础阶段：Klipper 已按 Moonraker 已加载对象白名单查询多加热器、风扇、轴和耗材传感器；RRF 使用 `flags=f` 请求状态响应中的实时字段，并解析可用风扇、机器轴和耗材监测器。固件 family 仍没有可靠版本信息；RRF 多组对象之间也没有任务切换后的重采校验。descriptor revision、设备启动代次/观测 revision、最新观测持久化已有第一版，事件 outbox、last-known 查询投影、离线及监控关闭时的完整数据策略仍未完成。缓存有过期时间，不能当作持久化数据或设备当前在线的证明。下面列出的是 P1a 的完整目标，而非已交付内容。
 
 新增 `PrinterObservationView` 作为内部读取策略：调用方必须提供最新设备健康信息、当前时间和最大观测年龄；监控关闭、离线、通信失败、数据过期、时间异常或采集不一致时只保留最后已知值，不提供当前值。该策略尚未连接 API 或云端；最后已知值仍只保留在短期缓存中，不能保证重启后可用。Klipper 当前固定查询未读取选中工具，因此不再推断 `extruder` 一定是当前工具。
 
 ### 完整目标
 
-先添加固件无关的 `protocol/model`（或明确领域子包）对象：PrinterDescriptor、PrinterObservation、Measurement、ToolDescriptor、HeaterDescriptor、ExecutionSummary。具体 Java 名称与现有类型冲突时按作用加前缀，不创建空 Service/Mapper。
+继续扩展已有固件无关 `protocol/model` 对象，补上动态发现、能力、风扇/轴/传感器、测量窗口、版本校验及与 SQLite 持久层的集成；暂不创建空 Service/Mapper。
 
 适配器输出新模型，现有 `PrinterDeviceStatus`/`MoonrakerStatusDTO` 通过兼容映射继续服务现有监控和 LAN 界面；核心统一对象不再叫 Moonraker。不要一次重写任务控制事务、设备锁和现场安全流程。
 
@@ -68,6 +71,6 @@ Server仍是本地单农场身份域；组织隔离由Cloud承担。不要把Clo
 
 ## 6. 当前验证与后续验证
 
-设计阶段使用合成数据校验 Schema、引用、时间、温度模式、执行来源和敏感字段边界；具体命令见 Cloud 模型入口。内部观测基础在隔离副本中执行 `mvnw.cmd test`，801 项通过；未运行固件物理动作，也未验证真实设备采集。
+设计阶段使用合成数据校验 Schema、引用、时间、温度模式、执行来源和敏感字段边界；具体命令见 Cloud 模型入口。此前 Server 全量 `mvnw.cmd test` 为 809 项通过；本轮新增持久化后 canonical 映射及 SQLite 升级定向测试为 5 项通过；真实设备采集尚未验证。
 
 P1修改Java/SQL时至少运行 `mvnw.cmd test`；Cloud运行 `mvnw.cmd verify` 和隔离MySQL/MQTT升级回归。客户端补齐类型映射与小屏/离线/权限验证后重新构建安装包。真实Klipper/RRF各一台只读验证分别登记版本/模式，emulated设备不作为生产物理验收依据。

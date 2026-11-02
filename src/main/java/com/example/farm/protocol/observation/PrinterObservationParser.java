@@ -2,6 +2,12 @@ package com.example.farm.protocol.observation;
 
 import com.example.farm.protocol.observation.PrinterObservation.Completeness;
 import com.example.farm.protocol.observation.PrinterObservation.Execution;
+import com.example.farm.protocol.observation.PrinterObservation.Fan;
+import com.example.farm.protocol.observation.PrinterObservation.FanRole;
+import com.example.farm.protocol.observation.PrinterObservation.Motion;
+import com.example.farm.protocol.observation.PrinterObservation.Axis;
+import com.example.farm.protocol.observation.PrinterObservation.Sensor;
+import com.example.farm.protocol.observation.PrinterObservation.BooleanMeasurement;
 import com.example.farm.protocol.observation.PrinterObservation.Heater;
 import com.example.farm.protocol.observation.PrinterObservation.HeaterMode;
 import com.example.farm.protocol.observation.PrinterObservation.HeaterRole;
@@ -46,13 +52,37 @@ public final class PrinterObservationParser {
         } : OperationState.UNKNOWN;
         List<Heater> heaters = new ArrayList<>();
         List<Tool> tools = new ArrayList<>();
-        JsonNode extruder = status.path("extruder");
-        if (extruder.isObject()) {
-            heaters.add(klipperHeater("extruder", HeaterRole.TOOL, extruder, end));
-            tools.add(new Tool("extruder", List.of("extruder")));
-        }
-        JsonNode bed = status.path("heater_bed");
-        if (bed.isObject()) heaters.add(klipperHeater("heater_bed", HeaterRole.BED, bed, end));
+        status.fields().forEachRemaining(entry -> {
+            String rawId = entry.getKey();
+            JsonNode node = entry.getValue();
+            if (!node.isObject() || !isKlipperHeater(rawId, node)) return;
+            String id = safeId(rawId);
+            HeaterRole role = "heater_bed".equals(rawId) ? HeaterRole.BED
+                    : rawId.startsWith("extruder") ? HeaterRole.TOOL : HeaterRole.UNKNOWN;
+            heaters.add(klipperHeater(id, role, node, end));
+            if (role == HeaterRole.TOOL) tools.add(new Tool(id, List.of(id)));
+        });
+        List<Fan> fans = new ArrayList<>();
+        status.fields().forEachRemaining(entry -> {
+            String name = entry.getKey();
+            if (!isKlipperFan(name) || !entry.getValue().isObject()) return;
+            FanRole role = name.equals("fan") || name.startsWith("fan_generic ") ? FanRole.PART
+                    : name.startsWith("heater_fan ") ? FanRole.HOTEND
+                    : name.startsWith("controller_fan ") ? FanRole.OTHER : FanRole.UNKNOWN;
+            fans.add(new Fan(safeId(name), role,
+                    number(entry.getValue(), "speed", end, ZERO, BigDecimal.ONE),
+                    number(entry.getValue(), "rpm", end, ZERO, BigDecimal.valueOf(100_000))));
+        });
+        Motion motion = klipperMotion(status, end);
+        List<Sensor> sensors = new ArrayList<>();
+        status.fields().forEachRemaining(entry -> {
+            String name = entry.getKey();
+            JsonNode node = entry.getValue();
+            if (!name.startsWith("filament_switch_sensor ") && !name.startsWith("filament_motion_sensor ")) return;
+            if (!node.isObject()) return;
+            sensors.add(new Sensor(safeId(name), booleanMeasurement(node, "enabled", end),
+                    booleanMeasurement(node, "filament_detected", end)));
+        });
         JsonNode stats = status.path("print_stats");
         Execution execution = null;
         if (operation == OperationState.PRINTING || operation == OperationState.PAUSED) {
@@ -68,7 +98,7 @@ public final class PrinterObservationParser {
         boolean inconsistent = end.isBefore(start);
         return new PrinterObservation(start, end, inconsistent ? Completeness.INCONSISTENT : Completeness.PARTIAL,
                 systemState, inconsistent ? OperationState.UNKNOWN : operation,
-                heaters, tools, null, inconsistent ? null : execution);
+                heaters, tools, null, inconsistent ? null : execution, fans, motion, sensors);
     }
 
     public static PrinterObservation rrf(JsonNode state, JsonNode job, JsonNode heat, JsonNode toolsNode,
@@ -110,7 +140,11 @@ public final class PrinterObservationParser {
                 for (JsonNode id : tool.path("heaters")) {
                     if (id.canConvertToInt() && id.intValue() >= 0) ids.add("heater-" + id.intValue());
                 }
-                tools.add(new Tool("tool-" + tool.path("number").intValue(), ids));
+                List<String> fanIds = new ArrayList<>();
+                for (JsonNode id : tool.path("fans")) {
+                    if (id.canConvertToInt() && id.intValue() >= 0) fanIds.add("fan-" + id.intValue());
+                }
+                tools.add(new Tool("tool-" + tool.path("number").intValue(), ids, fanIds));
             }
         }
         List<Heater> heaters = new ArrayList<>();
@@ -151,6 +185,38 @@ public final class PrinterObservationParser {
             String selected = currentTool;
             if (tools.stream().noneMatch(t -> t.id().equals(selected))) currentTool = null;
         }
+        List<Fan> fans = new ArrayList<>();
+        JsonNode fanNodes = state.path("fans");
+        if (fanNodes.isArray()) {
+            if (fanNodes.size() > 16) throw new IllegalArgumentException("Observation fan limit exceeded");
+            for (int i = 0; i < fanNodes.size(); i++) {
+                JsonNode fan = fanNodes.get(i);
+                if (!fan.isObject()) continue;
+                BigDecimal actual = decimal(fan, "actualValue");
+                BigDecimal rpm = decimal(fan, "rpm");
+                fans.add(new Fan("fan-" + i, FanRole.OTHER,
+                        actual == null || actual.signum() < 0 ? unknown(end) : ratio(actual, end),
+                        rpm == null || rpm.signum() < 0 ? unknown(end)
+                                : Measurement.of(rpm, end, ZERO, BigDecimal.valueOf(100_000))));
+            }
+        }
+        Motion motion = rrfMotion(state.path("move"), end);
+        List<Sensor> sensors = new ArrayList<>();
+        JsonNode monitors = state.path("sensors").path("filamentMonitors");
+        if (monitors.isArray()) {
+            if (monitors.size() > 32) throw new IllegalArgumentException("Observation sensor limit exceeded");
+            for (int i = 0; i < monitors.size(); i++) {
+                JsonNode monitor = monitors.get(i);
+                if (!monitor.isObject()) continue;
+                JsonNode enableMode = monitor.path("enableMode");
+                Boolean enabled = enableMode.isIntegralNumber() ? enableMode.intValue() != 0
+                        : monitor.path("enabled").isBoolean() ? monitor.path("enabled").booleanValue() : null;
+                JsonNode present = monitor.path("filamentPresent");
+                Boolean detected = present.isBoolean() ? present.booleanValue() : null;
+                sensors.add(new Sensor("filament-" + i,
+                        booleanMeasurement(enabled, end), booleanMeasurement(detected, end)));
+            }
+        }
         Execution execution = null;
         if (operation == OperationState.PRINTING || operation == OperationState.PAUSED
                 || operation == OperationState.PAUSING || operation == OperationState.RESUMING
@@ -175,13 +241,94 @@ public final class PrinterObservationParser {
                 || end.isBefore(heatObservedAt);
         return new PrinterObservation(start, end, inconsistent ? Completeness.INCONSISTENT : Completeness.PARTIAL,
                 system, inconsistent ? OperationState.UNKNOWN : operation, heaters, tools, currentTool,
-                inconsistent ? null : execution);
+                inconsistent ? null : execution, fans, motion, sensors);
+    }
+
+    private static Motion rrfMotion(JsonNode move, Instant at) {
+        JsonNode axesNode = move.path("axes");
+        if (!axesNode.isArray()) return null;
+        if (axesNode.size() > 10) throw new IllegalArgumentException("Observation axis limit exceeded");
+        List<Axis> axes = new ArrayList<>();
+        for (int i = 0; i < axesNode.size(); i++) {
+            JsonNode axis = axesNode.get(i);
+            if (!axis.isObject()) continue;
+            String letter = text(axis, "letter");
+            String id = letter == null ? "axis-" + i : safeId(letter.toLowerCase(Locale.ROOT));
+            BigDecimal position = decimal(axis, "machinePosition");
+            Boolean homed = axis.has("homed") && axis.path("homed").isBoolean() ? axis.path("homed").booleanValue() : null;
+            axes.add(new Axis(id, Measurement.of(position, at, BigDecimal.valueOf(-1_000_000),
+                    BigDecimal.valueOf(1_000_000)), new BooleanMeasurement(homed,
+                    homed == null ? PrinterObservation.Quality.UNAVAILABLE : PrinterObservation.Quality.GOOD,
+                    homed == null ? null : at)));
+        }
+        return new Motion(PrinterObservation.CoordinateSpace.MACHINE, axes, unknown(at), unknown(at));
     }
 
     private static Heater klipperHeater(String id, HeaterRole role, JsonNode node, Instant at) {
         Measurement target = number(node, "target", at, TEMPERATURE_MIN, TEMPERATURE_MAX);
         return new Heater(id, role, HeaterMode.UNKNOWN, number(node, "temperature", at, TEMPERATURE_MIN, TEMPERATURE_MAX),
                 target, target, unknown(at));
+    }
+
+    private static boolean isKlipperHeater(String name, JsonNode node) {
+        String normalized = name.toLowerCase(Locale.ROOT);
+        return (normalized.equals("extruder") || normalized.matches("extruder[0-9]+")
+                || normalized.equals("heater_bed") || normalized.startsWith("heater_generic "))
+                && (node.has("temperature") || node.has("target"));
+    }
+
+    private static boolean isKlipperFan(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT);
+        return normalized.equals("fan") || normalized.startsWith("fan_generic ")
+                || normalized.startsWith("heater_fan ") || normalized.startsWith("controller_fan ");
+    }
+
+    private static String safeId(String raw) {
+        String normalized = raw.trim().replaceAll("[^A-Za-z0-9._:-]", "_");
+        if (normalized.length() <= 64) return normalized;
+        return "object_" + java.util.UUID.nameUUIDFromBytes(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static Motion klipperMotion(JsonNode status, Instant at) {
+        JsonNode move = status.path("gcode_move");
+        if (!move.isObject()) return null;
+        JsonNode positions = move.path("gcode_position");
+        String homed = text(status.path("toolhead"), "homed_axes");
+        List<String> axisNames = List.of("x", "y", "z", "e");
+        List<Axis> axes = new ArrayList<>();
+        for (int index = 0; index < axisNames.size() && index < positions.size(); index++) {
+            String axis = axisNames.get(index);
+            axes.add(new Axis(axis, number(positions, index, at, BigDecimal.valueOf(-1_000_000),
+                    BigDecimal.valueOf(1_000_000)), booleanValue(homed != null && homed.contains(axis), at)));
+        }
+        return new Motion(PrinterObservation.CoordinateSpace.GCODE, axes,
+                number(move, "speed_factor", at, ZERO, BigDecimal.valueOf(10)),
+                number(move, "extrude_factor", at, ZERO, BigDecimal.valueOf(10)));
+    }
+
+    private static Measurement number(JsonNode node, int index, Instant at, BigDecimal min, BigDecimal max) {
+        if (!node.isArray() || index < 0 || index >= node.size()) return unknown(at);
+        JsonNode value = node.get(index);
+        if (!value.isNumber() || !Double.isFinite(value.doubleValue())) {
+            return new Measurement(null, PrinterObservation.Quality.INVALID, at);
+        }
+        return Measurement.of(value.decimalValue(), at, min, max);
+    }
+
+    private static BooleanMeasurement booleanMeasurement(JsonNode node, String key, Instant at) {
+        JsonNode value = node.path(key);
+        if (value.isMissingNode() || value.isNull()) return new BooleanMeasurement(null,
+                PrinterObservation.Quality.UNAVAILABLE, null);
+        if (!value.isBoolean()) return new BooleanMeasurement(null, PrinterObservation.Quality.INVALID, at);
+        return new BooleanMeasurement(value.booleanValue(), PrinterObservation.Quality.GOOD, at);
+    }
+
+    private static BooleanMeasurement booleanValue(boolean value, Instant at) {
+        return new BooleanMeasurement(value, PrinterObservation.Quality.GOOD, at);
+    }
+    private static BooleanMeasurement booleanMeasurement(Boolean value, Instant at) {
+        return new BooleanMeasurement(value, value == null ? PrinterObservation.Quality.UNAVAILABLE
+                : PrinterObservation.Quality.GOOD, value == null ? null : at);
     }
     private static boolean containsIndex(JsonNode nodes, int index) {
         if (!nodes.isArray()) return false;
@@ -203,5 +350,10 @@ public final class PrinterObservationParser {
     private static String normalize(String value) { return value == null ? "" : value.trim().toLowerCase(Locale.ROOT); }
     private static Measurement temperature(BigDecimal value, Instant at) { return Measurement.of(value, at, TEMPERATURE_MIN, TEMPERATURE_MAX); }
     private static Measurement percent(BigDecimal value, Instant at) { return Measurement.of(value, at, ZERO, PERCENT_MAX); }
+    private static Measurement ratio(BigDecimal value, Instant at) { return Measurement.of(value, at, ZERO, BigDecimal.ONE); }
+    private static BigDecimal decimal(JsonNode parent, String field) {
+        JsonNode value = parent.path(field);
+        return value.isNumber() ? value.decimalValue() : null;
+    }
     private static Measurement unknown(Instant at) { return Measurement.of(null, at, null, null); }
 }

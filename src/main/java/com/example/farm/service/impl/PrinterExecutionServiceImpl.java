@@ -172,6 +172,7 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         LocalDateTime now = LocalDateTime.now();
         PrinterExecution execution = new PrinterExecution();
         execution.setPrinterId(printerId);
+        execution.setExecutionUid(java.util.UUID.randomUUID().toString());
         execution.setFarmJobId(farmJobId);
         execution.setSource(source);
         execution.setState(ACTIVE);
@@ -180,6 +181,7 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         execution.setHasSeenPaused(false);
         execution.setIdleObservationCount(0);
         execution.setStartedAt(now);
+        execution.setFirstObservedAt(now);
         execution.setLastSeenAt(now);
         execution.setCreatedAt(now);
         execution.setUpdatedAt(now);

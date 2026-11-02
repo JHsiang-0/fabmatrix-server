@@ -37,6 +37,10 @@ public class Printer implements Serializable {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
+    /** 跨重启及云端来源迁移使用的稳定设备身份；不同于本地自增主键。 */
+    @TableField("device_uid")
+    private String deviceUid;
+
     /**
      * 打印机名称（如：Voron-2.4-01）
      */

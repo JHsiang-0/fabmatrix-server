@@ -35,6 +35,60 @@ class PrinterObservationParserTest {
     }
 
     @Test
+    void klipperMapsDiscoveredChannelsAndLabelsGcodeCoordinates() throws Exception {
+        var status = mapper.readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"standby"},
+                 "extruder":{"temperature":210,"target":215},
+                 "extruder1":{"temperature":205,"target":210},
+                 "heater_generic chamber":{"temperature":30,"target":35},
+                 "fan":{"speed":0.4},"heater_fan hotend_fan":{"speed":0.8,"rpm":1200},
+                 "gcode_move":{"gcode_position":[12,23,4,7],"speed_factor":1,"extrude_factor":0.95},
+                 "toolhead":{"homed_axes":"xy"},
+                 "filament_switch_sensor runout":{"enabled":true,"filament_detected":false},
+                 "display_status":{"progress":0}}
+                """);
+        PrinterObservation observation = PrinterObservationParser.klipper(status, START, END);
+        assertThat(observation.heaters()).hasSize(3);
+        assertThat(observation.tools()).extracting(PrinterObservation.Tool::id)
+                .contains("extruder", "extruder1");
+        assertThat(observation.fans()).hasSize(2);
+        assertThat(observation.fans()).filteredOn(fan -> fan.id().equals("heater_fan_hotend_fan"))
+                .singleElement().satisfies(fan -> assertThat(fan.rpm().value()).isEqualByComparingTo("1200"));
+        assertThat(observation.motion().axes()).hasSize(4);
+        assertThat(observation.motion().axes().getFirst().positionMm().value()).isEqualByComparingTo("12");
+        assertThat(observation.motion().axes().getFirst().homed().value()).isTrue();
+        assertThat(observation.motion().axes().get(2).homed().value()).isFalse();
+        assertThat(observation.sensors()).hasSize(1);
+        assertThat(observation.sensors().getFirst().detected().value()).isFalse();
+    }
+
+    @Test
+    void rrfMapsAvailableFansAndMachineAxesWithoutGuessingMissingChannels() throws Exception {
+        var state = mapper.readTree("""
+                {"status":"processing","fans":[{"actualValue":0,"rpm":0},{"actualValue":-1,"rpm":-1}],
+                 "move":{"axes":[{"letter":"X","machinePosition":12.5,"homed":true},
+                 {"letter":"Y","machinePosition":null,"homed":false}]},
+                 "sensors":{"filamentMonitors":[{"enableMode":2,"filamentPresent":false},
+                 {"enableMode":0,"filamentPresent":null}]}}
+                """);
+        var tools = mapper.readTree("[{\"number\":2,\"heaters\":[1],\"fans\":[0]}]");
+        var observation = PrinterObservationParser.rrf(state, mapper.readTree("{}"),
+                mapper.readTree("{\"heaters\":[{},{}] }"), tools, START, END);
+
+        assertThat(observation.fans()).hasSize(2);
+        assertThat(observation.fans().getFirst().pwmRatio().value()).isEqualByComparingTo("0");
+        assertThat(observation.fans().get(1).rpm().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+        assertThat(observation.tools().getFirst().fanIds()).containsExactly("fan-0");
+        assertThat(observation.motion().coordinateSpace()).isEqualTo(PrinterObservation.CoordinateSpace.MACHINE);
+        assertThat(observation.motion().axes().getFirst().positionMm().value()).isEqualByComparingTo("12.5");
+        assertThat(observation.motion().axes().get(1).positionMm().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+        assertThat(observation.sensors()).hasSize(2);
+        assertThat(observation.sensors().getFirst().enabled().value()).isTrue();
+        assertThat(observation.sensors().getFirst().detected().value()).isFalse();
+        assertThat(observation.sensors().get(1).detected().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+    }
+
+    @Test
     void rrfRespectsToolAssociationsStandbyAndDistinctTiming() throws Exception {
         var state = mapper.readTree("{\"status\":\"simulating\",\"currentTool\":1}");
         var job = mapper.readTree("""

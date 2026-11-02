@@ -17,6 +17,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 与 Klipper(Moonraker) 通信的 HTTP 客户端工具类
@@ -31,6 +36,9 @@ public class MoonrakerApiClient {
     private final RestClient restClient;
     private final RestClient uploadRestClient;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Map<String, CachedObjectList> objectLists = new ConcurrentHashMap<>();
+    private static final long OBJECT_LIST_TTL_MILLIS = 60_000;
+    private static final Set<String> BASE_OBJECTS = Set.of("webhooks", "print_stats", "display_status");
 
     public MoonrakerApiClient() {
         // 核心修复点 1：设置 3 秒连接超时
@@ -76,14 +84,8 @@ public class MoonrakerApiClient {
      */
     private MoonrakerStatusDTO getPrinterStatusOnce(String ipAddress) {
         Instant captureStartedAt = Instant.now();
-        // 使用新的对象级查询 URL，获取更全面的打印机数据
-        String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&extruder&heater_bed&display_status", ipAddress);
-
         try {
-            String jsonResponse = restClient.get()
-                    .uri(url)
-                    .retrieve()
-                    .body(String.class);
+            String jsonResponse = queryObservedObjects(ipAddress);
 
             if (jsonResponse != null) {
                 JsonNode rootNode = mapper.readTree(jsonResponse);
@@ -148,6 +150,70 @@ public class MoonrakerApiClient {
         }
         return null;
     }
+
+    private String queryObservedObjects(String ipAddress) {
+        Set<String> loaded = loadedObservationObjects(ipAddress);
+        if (loaded.isEmpty() || !loaded.containsAll(BASE_OBJECTS)) {
+            return fixedStatusQuery(ipAddress);
+        }
+        Map<String, Object> objects = new LinkedHashMap<>();
+        loaded.forEach(name -> objects.put(name, null));
+        try {
+            return restClient.post()
+                    .uri("http://" + ipAddress + ":7125/printer/objects/query")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(Map.of("objects", objects))
+                    .retrieve()
+                    .body(String.class);
+        } catch (RuntimeException unavailable) {
+            return fixedStatusQuery(ipAddress);
+        }
+    }
+
+    private String fixedStatusQuery(String ipAddress) {
+        String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&extruder&heater_bed&display_status", ipAddress);
+        return restClient.get().uri(url).retrieve().body(String.class);
+    }
+
+    private Set<String> loadedObservationObjects(String ipAddress) {
+        long now = System.currentTimeMillis();
+        CachedObjectList cached = objectLists.get(ipAddress);
+        if (cached != null && cached.expiresAt() > now) return cached.names();
+        try {
+            String body = restClient.get().uri("http://" + ipAddress + ":7125/printer/objects/list")
+                    .retrieve().body(String.class);
+            JsonNode root = mapper.readTree(body);
+            JsonNode values = root.path("result").path("objects");
+            if (!values.isArray()) values = root.path("objects");
+            if (!values.isArray() || values.size() > 1024) throw new IllegalArgumentException("Invalid object list");
+            var selected = new java.util.LinkedHashSet<String>();
+            for (JsonNode value : values) {
+                if (!value.isTextual() || value.textValue().length() > 128) continue;
+                String name = value.textValue();
+                if (isObservationObject(name)) selected.add(name);
+            }
+            Set<String> result = Set.copyOf(selected);
+            objectLists.put(ipAddress, new CachedObjectList(result, now + OBJECT_LIST_TTL_MILLIS));
+            return result;
+        } catch (Exception unavailable) {
+            objectLists.put(ipAddress, new CachedObjectList(Set.of(), now + 15_000));
+            return Set.of();
+        }
+    }
+
+    private boolean isObservationObject(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT);
+        return BASE_OBJECTS.contains(normalized) || normalized.equals("extruder")
+                || normalized.matches("extruder[0-9]+") || normalized.equals("heater_bed")
+                || normalized.startsWith("heater_generic ") || normalized.equals("fan")
+                || normalized.startsWith("fan_generic ") || normalized.startsWith("heater_fan ")
+                || normalized.startsWith("controller_fan ") || normalized.startsWith("temperature_sensor ")
+                || normalized.startsWith("filament_switch_sensor ") || normalized.startsWith("filament_motion_sensor ")
+                || normalized.equals("gcode_move") || normalized.equals("toolhead")
+                || normalized.equals("virtual_sdcard");
+    }
+
+    private record CachedObjectList(Set<String> names, long expiresAt) { }
 
     private void requireObject(JsonNode parent, String field) {
         if (!parent.has(field) || !parent.path(field).isObject()) {

@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -221,6 +222,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
 
             // 创建新设备
             Printer newPrinter = new Printer();
+            newPrinter.setDeviceUid(UUID.randomUUID().toString());
             newPrinter.setName(StringUtils.hasText(dto.getName())
                     ? dto.getName()
                     : macAddressUtil.generateDefaultPrinterName(macAddress));
@@ -269,6 +271,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         }
 
         Printer printer = new Printer();
+        printer.setDeviceUid(UUID.randomUUID().toString());
         printer.setName(dto.getName());
         printer.setIpAddress(dto.getIpAddress());
         printer.setFirmwareType(normalizeFirmwareType(dto.getFirmwareType()));
@@ -692,6 +695,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
      */
     private Printer buildPrinterFromScanResult(PrinterScanResultDTO result) {
         Printer printer = new Printer();
+        printer.setDeviceUid(UUID.randomUUID().toString());
 
         // 名称优先使用建议名称，否则自动生成
         String name = StringUtils.hasText(result.getSuggestedName())

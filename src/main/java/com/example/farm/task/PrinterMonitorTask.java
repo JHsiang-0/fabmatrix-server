@@ -24,6 +24,7 @@ import com.example.farm.service.PrinterRediscoveryService;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrintJobService;
 import com.example.farm.service.PrinterExecutionService;
+import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.service.WebSocketEventPublisher;
 import com.example.farm.mapper.PrintFileMapper;
 import jakarta.annotation.PreDestroy;
@@ -77,6 +78,9 @@ public class PrinterMonitorTask implements SmartLifecycle {
 
     @Autowired(required = false)
     private PrinterExecutionService printerExecutionService;
+
+    @Autowired(required = false)
+    private CanonicalPrinterStateService canonicalPrinterStateService;
 
     // 并发线程池，用于并行查询多个打印机状态
     private final ExecutorService executorService;
@@ -429,6 +433,15 @@ public class PrinterMonitorTask implements SmartLifecycle {
         };
         if (!newDbStatus.equals(printer.getStatus())) {
             updatePrinterStatus(printer, newDbStatus);
+        }
+
+        if (canonicalPrinterStateService != null && status.observation() != null) {
+            try {
+                canonicalPrinterStateService.persist(printer, status.observation());
+            } catch (RuntimeException exception) {
+                log.warn("统一设备模型持久化失败，不影响现场监控: printerId={}, errorType={}",
+                        printerId, exception.getClass().getSimpleName());
+            }
         }
 
         // 记录慢查询

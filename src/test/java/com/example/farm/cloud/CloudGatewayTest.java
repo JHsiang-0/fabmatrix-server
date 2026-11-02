@@ -25,6 +25,13 @@ import static org.mockito.Mockito.*;
 class CloudGatewayTest {
     @TempDir Path temp;
 
+    @Test void protocolNegotiationAdvertisesOnlyImplementedVersionsAndLegacyFallbackPreservesSelection() {
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(false)).containsExactly(1);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(true)).containsExactly(1, 2);
+        assertThat(CloudGatewayAgent.legacyFallback(false).selectedSchemaVersion()).isEqualTo(1);
+        assertThat(CloudGatewayAgent.legacyFallback(true).selectedSchemaVersion()).isEqualTo(2);
+    }
+
     @Test void fileWritesAreAtomicBoundedAndOwnerProtected() throws Exception {
         Path file = temp.resolve("nested/credential.json");
         CloudAgentFiles.verifyWritable(file);

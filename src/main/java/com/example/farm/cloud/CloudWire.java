@@ -38,4 +38,7 @@ public final class CloudWire {
     public record Ack(String messageId, long epoch, long sequence, String result, String code) { }
     public record Session(long epoch, long lastSequence) { }
     public record Boot(String gatewayId, long bindingVersion, String bootId) { }
+    public record ProtocolRequest(String gatewayId, long bindingVersion, List<Integer> supportedSchemaVersions) { }
+    public record Protocol(int selectedSchemaVersion, int modelVersion, List<String> capabilities,
+                           int maxMessageBytes, int maxPrinters, int maxInventoryParts, int maxInventoryBytes) { }
 }

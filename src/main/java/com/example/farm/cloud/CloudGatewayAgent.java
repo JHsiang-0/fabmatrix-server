@@ -49,6 +49,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private long epoch;
     private long sequence;
     private boolean registered;
+    private boolean protocolNegotiated;
+    private CloudWire.Protocol protocol;
     private boolean terminal;
     private Pending pending;
     private long lastCapture;
@@ -92,17 +94,19 @@ public class CloudGatewayAgent implements SmartLifecycle {
             long now = System.currentTimeMillis();
             if (pending != null && pending.packet().observedAt().toEpochMilli() < now - 60000) { clearPending(); lastSnapshotBody = null; }
             if (pending == null && now - lastCapture >= 5000) {
-                var printers = properties.isObservationV2Enabled() ? source.captureV2() : source.capture();
+                boolean observationEnabled = protocol.selectedSchemaVersion() == 2;
+                var printers = observationEnabled ? source.captureV2() : source.capture();
+                if (printers.size() > protocol.maxPrinters()) { throw new RemoteFailure("PRINTER_LIMIT_EXCEEDED"); }
                 lastCapture = now;
                 var payload = new CloudWire.Payload("1.0.0", printers.size(), printers);
                 String body = json.writeValueAsString(payload);
                 boolean snapshot = !body.equals(lastSnapshotBody) || now - lastSnapshot >= 30000;
                 if (snapshot || lastAckAt == null || now - lastAckAt >= 15000) {
-                    var packet = new CloudWire.Packet(properties.isObservationV2Enabled() ? 2 : 1, UUID.randomUUID().toString(), snapshot ? "SNAPSHOT" : "HEARTBEAT",
+                    var packet = new CloudWire.Packet(protocol.selectedSchemaVersion(), UUID.randomUUID().toString(), snapshot ? "SNAPSHOT" : "HEARTBEAT",
                             credential.gatewayId(), credential.bindingVersion(), bootId, epoch, ++sequence, Instant.now(),
                             snapshot ? payload : new CloudWire.Payload("1.0.0", printers.size(), null));
                     String raw = json.writeValueAsString(packet);
-                    if (raw.getBytes(StandardCharsets.UTF_8).length > 65536) { throw new RemoteFailure("SNAPSHOT_TOO_LARGE"); }
+                    if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) { throw new RemoteFailure("SNAPSHOT_TOO_LARGE"); }
                     CloudAgentFiles.write(pendingFile(), raw);
                     pending = new Pending(packet, raw, 0);
                     if (snapshot) { lastSnapshot = now; lastSnapshotBody = body; }
@@ -166,6 +170,41 @@ public class CloudGatewayAgent implements SmartLifecycle {
             // A process restart creates a new boot/epoch and captures current local state instead of replaying an old snapshot.
             Files.deleteIfExists(pendingFile());
         }
+        if (!protocolNegotiated) {
+            protocol = negotiateProtocol();
+            protocolNegotiated = true;
+        }
+    }
+
+    private CloudWire.Protocol negotiateProtocol() throws Exception {
+        var offered = supportedSchemaVersions(properties.isObservationV2Enabled());
+        try {
+            var selected = post("/api/v1/gateway/protocol", credential.credential(),
+                    new CloudWire.ProtocolRequest(credential.gatewayId(), credential.bindingVersion(), offered),
+                    CloudWire.Protocol.class);
+            if (selected == null || !offered.contains(selected.selectedSchemaVersion())
+                    || selected.modelVersion() < 1 || selected.maxMessageBytes() < 1
+                    || selected.maxMessageBytes() > 65536 || selected.maxPrinters() < 1
+                    || selected.maxPrinters() > 200) {
+                throw new RemoteFailure("CLOUD_PROTOCOL_INVALID");
+            }
+            return selected;
+        } catch (RemoteFailure unavailable) {
+            if (!"CLOUD_HTTP_404".equals(unavailable.getMessage())
+                    && !"CLOUD_HTTP_405".equals(unavailable.getMessage())) throw unavailable;
+            // Older Cloud deployments predate protocol negotiation; retain their established V1/V2 behavior.
+            return legacyFallback(properties.isObservationV2Enabled());
+        }
+    }
+
+    static java.util.List<Integer> supportedSchemaVersions(boolean observationV2Enabled) {
+        return observationV2Enabled ? java.util.List.of(1, 2) : java.util.List.of(1);
+    }
+
+    static CloudWire.Protocol legacyFallback(boolean observationV2Enabled) {
+        int legacyVersion = observationV2Enabled ? 2 : 1;
+        return new CloudWire.Protocol(legacyVersion, 1, java.util.List.of("LEGACY_FALLBACK"),
+                65536, 200, 0, 0);
     }
 
     private void validate(CloudWire.Credential value) {

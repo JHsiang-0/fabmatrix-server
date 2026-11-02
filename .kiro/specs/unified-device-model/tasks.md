@@ -43,7 +43,7 @@ T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限�
 - [ ] T3.4 旧 V1、受限 V2、旧列表及现有单设备状态接口兼容；验证旧设备 ID、旧客户端和受限上报不受影响。对应 R6、R7。
 - [ ] T3.5 运行 Cloud `mvnw verify`，隔离 MySQL 迁移与 MQTT TLS、权限、重复、乱序、重启、分片缺失/超限和回执测试。对应 R6、R8。
 
-T3 进度：Cloud V7 增加 canonical 最新对象兼容列，V8 增加 descriptor 表，V9 增加独立最新 observation 表；Cloud 实现有界结构/质量校验、V3 `descriptor` 和 `printer-state` 消费、当前身份绑定及 descriptor revision 校验、事务提交后复用现有 state-ack、重复消息处理，以及对 observation revision 的旧帧拒绝和同版本冲突检查。设备详情现在从已验证身份、descriptor 与 observation 表组装 canonical 响应，不再依赖 V7 投影 JSON。descriptor 未先持久化或 revision/内容不匹配时，状态消息被拒绝。Cloud `mvnw.cmd clean verify`（65 项）通过；隔离 C1 集成脚本副本验证了 MySQL V1→V9、空库初始化和 MQTT TLS/ACL；canonical descriptor/observation 消息写入由 H2 合成测试覆盖。仍缺 inventory/event 接收、分片和 V3 ACK 契约、执行/事件/告警/采样独立存储及查询；T3.1–T3.5 尚不勾选。
+T3 进度：Cloud V7 增加 canonical 最新对象兼容列，V8 增加 descriptor 表，V9 增加独立最新 observation 表，V10 增加 execution/result 历史记录；Cloud 实现有界结构/质量校验、V3 `descriptor` 和 `printer-state` 消费、当前身份绑定及 descriptor revision 校验、事务提交后复用现有 state-ack、重复消息处理，以及对 observation revision 的旧帧拒绝和同版本冲突检查。currentExecution 与 lastExecutionResult 按 execution UUID 合并持久化，未由实时打印状态推断执行结果。设备详情从已验证身份、descriptor 与 observation 表组装 canonical 响应，不再依赖 V7 投影 JSON。Cloud `mvnw.cmd clean verify`（65 项）通过；隔离 C1 集成脚本副本验证了 MySQL V1→V10、空库初始化和 MQTT TLS/ACL；V8–V10 设备数据写入由 H2 合成测试覆盖。仍缺 inventory/event 接收、分片和 V3 ACK 契约、执行历史 API、事件/告警/采样独立存储及查询；T3.1–T3.5 尚不勾选。
 
 T4.1–T4.2 进度：Flutter 新增 canonical modelVersion 2 的 Cloud DTO 解析和手机机器详情展示（描述、能力、通道测量、执行摘要），继续兼容旧状态与受限 observation。`flutter analyze` 通过，针对解析和设备详情的 3 项测试通过；没有运行中的调试 App，尚未热重载或真机验收。完整事件/历史查询未提供，T4.1–T4.4 均不勾选。
 

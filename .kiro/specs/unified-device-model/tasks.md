@@ -27,7 +27,7 @@ T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限�
 
 T2.1 验收记录：`CanonicalPrinterModelMapperTest` 的 6 项测试通过；正例覆盖完整模型映射，反例覆盖错误版本、缺失设备 UID、时间倒置以及质量为 GOOD 但数值缺失。Server 全量 `mvnw.cmd test` 共 816 项通过。真实固件采集属于后续 T2.2/T2.3/T2.7，不包含在此项完成声明中。
 
-T2.5 进度：SQLite 集成测试现通过重建 `CanonicalPrinterStateServiceImpl` 实例模拟进程重启，验证旧模型可恢复，新设备 boot ID 和 observation revision 前进，descriptor revision 保持稳定，并标记 `CONTINUITY_UNKNOWN`。这只覆盖状态快照重启恢复；执行当前/最后结果的持久化边界及缓存/LAN 回归仍未验收，因此 T2.5 不勾选。
+T2.5 进度：SQLite 集成测试重建状态服务，验证已持久化快照恢复、新 boot ID/观测 revision、稳定的 descriptor revision 及 `CONTINUITY_UNKNOWN`。执行生命周期回归验证 `currentExecution` 可跨服务重建恢复，执行结束后转入 `lastExecutionResult`；未知结果仍为 `UNKNOWN/UNCONFIRMED`。Server 全量 `mvnw.cmd test`：824 项通过。离线/过期读取语义及缓存、LAN、WebSocket 回归仍待完成，因此 T2.5 不勾选。未连接真实打印机。
 
 T2.4 进度：现场执行行已有稳定 UUID、来源、首次观测时间和既有 Farm 任务关联。外部执行稳定空闲后无明确终态证据时记为 `UNKNOWN`，明确取消/中止分别保留对应终态；设备重启判定以最近已观测 uptime 为准并兼容旧记录回退到开始 uptime。Farm 执行重启后若仍报告打印中，保留执行会话/设备绑定并将任务置为 `RECONCILING`，后续仅由设备明确终态完成核验。canonical 观测现映射最近一条已结束执行结果，未知结果为 `UNKNOWN/UNCONFIRMED`。回归覆盖同名文件在前一会话结束后获得新 UUID、来源切换关闭旧会话，以及 SQLite 旧库中未知终态的查询/映射；Server 全量 `mvnw.cmd test`（824 项）通过。T2.4 acceptance completed; indistinguishable same-file restarts without a firmware-observable boundary remain intentionally unsegmented; no real printer was connected.
 

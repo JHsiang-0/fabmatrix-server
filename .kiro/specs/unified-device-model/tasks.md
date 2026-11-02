@@ -17,9 +17,11 @@
 - [ ] T1.2 Cloud 新增必要的身份、来源与绑定结构及 Flyway 迁移，保留旧 Cloud ID；实现可重入回填、冲突报告和受控转移。对应 R2、R5。
 - [ ] T1.3 验证新库、旧库、重复升级、重启/恢复、网关重绑、本地 ID 复用、克隆和身份冲突；升级前后核对原有引用。对应 R2、R8。
 
-T1.2 进度：已新增 Cloud V6 加法迁移，保留旧 `cloud_printer_projection.id`，将旧映射落入 `LEGACY_UNVERIFIED`，并建来源/设备唯一键、绑定历史与身份审核表；H2/MySQL V1→V6 与全新库迁移检查通过。Cloud 收到 V3 身份、管理员认领/转移 Service、冲突报告尚未实现，因此 T1.2、T1.3 不勾选。
+T1.2 进度：Cloud V6 加法迁移保留旧 `cloud_printer_projection.id`，将旧映射设为 `LEGACY_UNVERIFIED`，并建来源/设备唯一键、绑定历史与身份审核表；迁移检查通过。新增农场管理权限下的显式 legacy identity claim Service/API，校验 source/device 唯一性、绑定来源和审计，重复相同认领幂等；定向 Service 测试通过。V3 身份消息接入、跨来源转移、可查询冲突报告及完整 Cloud 迁移回滚仍未实现，故 T1.2、T1.3 不勾选。Cloud V6/V5 相关文件处于用户已有未提交工作区，尚未提交。
 
 T1.3 进度：Server SQLite 旧库 fixture 校验 source/device UUID 回填、重跑稳定性及原任务外键；本轮另验证旧执行记录 `execution_uid` / `first_observed_at` 幂等回填。Cloud 身份绑定迁移已做隔离集成测试；真实网关重绑、克隆分叉和 Cloud 管理员认领尚未实现，因此 T1.3 不勾选。
+
+T1.2 追加进度：Cloud 已增加 V3 `printer-state` 消费前置身份认领 API，旧 Cloud 设备须由有农场管理权限的用户显式认领来源实例和 device UID，并保留既有 Cloud printer ID；Cloud V7 存储最新 canonical 对象，V3 接收必须匹配当前网关绑定。迁移和认领流程已有 H2 合成测试，尚未在 MySQL/真实网关迁移验证；跨来源设备转移和冲突报告未实现，因此仍不勾选 T1.2。
 
 T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限能力声明和 Printer + observation + 持久执行记录映射；SQLite 旧库升级增加执行 UUID/首次观测时间；本地监控将最新模型写入 SQLite，并保存模型进程代次、观测 revision 和 descriptor revision。执行 ID 来自持久本地记录，外部执行不伪造开始时间；不一致观测不覆盖已保存值。Klipper 当前按 Moonraker 已加载对象白名单采集多加热器、风扇、轴和耗材传感器；RRF 解析响应中提供的风扇、轴和耗材监测器，并通过 `flags=f` 请求实时状态对象字段。动态能力完整性、固件版本/连接模式、RRF 多请求任务切换检测、终态结果映射、事件 outbox、LAN/Cloud 读取接线仍未完成，T2.1–T2.7 均不勾选。定向测试 30 项通过；全量 `mvnw.cmd test` 812 项通过。真实固件与安装版未验证。
 
@@ -40,6 +42,10 @@ T2 进度：新增 canonical 记录类型、结构引用/质量校验、有限�
 - [ ] T3.3 建立完整设备详情、执行/事件/告警/历史的有界只读 API；沿用组织/农场权限和跨范围不可探测约束。对应 R7。
 - [ ] T3.4 旧 V1、受限 V2、旧列表及现有单设备状态接口兼容；验证旧设备 ID、旧客户端和受限上报不受影响。对应 R6、R7。
 - [ ] T3.5 运行 Cloud `mvnw verify`，隔离 MySQL 迁移与 MQTT TLS、权限、重复、乱序、重启、分片缺失/超限和回执测试。对应 R6、R8。
+
+T3 进度：Cloud V7 增加 canonical 最新对象列；Cloud 实现有界结构/质量校验、V3 `printer-state` 消费、当前身份绑定校验、事务提交后复用现有 state-ack、重复消息处理，并在现有单设备详情 API 按农场权限返回最新 canonical 对象。synthetic H2 集成测试与 Cloud `mvnw.cmd clean verify`（65 项）通过。仍缺 descriptor/inventory/event 接收、分片和 V3 ACK 契约、执行/事件/告警/采样独立存储及查询、MySQL/MQTT TLS 实测；T3.1–T3.5 尚不勾选。
+
+T4.1–T4.2 进度：Flutter 新增 canonical modelVersion 2 的 Cloud DTO 解析和手机机器详情展示（描述、能力、通道测量、执行摘要），继续兼容旧状态与受限 observation。`flutter analyze` 通过，针对解析和设备详情的 3 项测试通过；没有运行中的调试 App，尚未热重载或真机验收。完整事件/历史查询未提供，T4.1–T4.4 均不勾选。
 
 ## T4 手机完整模型展示
 

@@ -12,6 +12,9 @@ public interface PrinterEventOutbox {
 
     List<CanonicalPrinterEvent> findPending(int limit);
 
+    /** Returns events eligible for a new delivery attempt after the retry interval. */
+    List<CanonicalPrinterEvent> findReady(int limit);
+
     void recordAttempt(UUID eventId);
 
     /** Removes an event only after the receiver confirms transactionally accepted or duplicate. */

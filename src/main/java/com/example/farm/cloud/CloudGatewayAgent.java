@@ -4,12 +4,16 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.example.farm.service.PrinterEventOutbox;
+import com.example.farm.protocol.model.CanonicalPrinterModel;
 import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -36,6 +40,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(CloudGatewayAgent.class);
     private final CloudGatewayProperties properties;
     private final CloudSnapshotSource source;
+    private final ObjectProvider<PrinterEventOutbox> eventOutboxes;
     private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final String bootId = UUID.randomUUID().toString();
@@ -65,6 +70,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private long lastCanonicalScan;
     private int canonicalCursor;
     private String canonicalSourceInstanceId;
+    private long lastEventPoll;
     private boolean terminal;
     private Pending pending;
     private long lastCapture;
@@ -75,15 +81,22 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private Long lastAckAt;
     private long lastWarning;
 
-    public CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source) {
+    @Autowired
+    public CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
+                             ObjectProvider<PrinterEventOutbox> eventOutboxes) {
         this.properties = properties;
         this.source = source;
+        this.eventOutboxes = eventOutboxes;
+    }
+
+    CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source) {
+        this(properties, source, null);
     }
 
     public record Status(String state, boolean connected, String gatewayId, Long lastAckAt, String errorCode, boolean pending) { }
     private record Pending(String messageId, long epoch, long sequence, Instant observedAt, String type,
                            String localPrinterId, long descriptorRevision, String observationId,
-                           String raw, long lastSentAt) { }
+                           UUID eventId, String raw, long lastSentAt) { }
     public Status status() { return status; }
 
     @Override public void start() {
@@ -145,9 +158,13 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) { throw new RemoteFailure("SNAPSHOT_TOO_LARGE"); }
                     CloudAgentFiles.write(pendingFile(), raw);
                     pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(),
-                            packet.type(), null, 0, null, raw, 0);
+                            packet.type(), null, 0, null, null, raw, 0);
                     if (snapshot) { lastSnapshot = now; lastSnapshotBody = body; }
                 }
+            }
+            if (pending == null && protocol.selectedSchemaVersion() == 3 && inventoryComplete
+                    && descriptorPlan == null && properties.isObservationV3Enabled()) {
+                if (now - lastEventPoll >= 1000) { prepareEventPending(now); }
             }
             if (pending == null && protocol.selectedSchemaVersion() == 3 && inventoryComplete
                     && descriptorPlan == null && properties.isObservationV3Enabled()) {
@@ -158,7 +175,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 mqtt.publish(topic, pending.raw().getBytes(StandardCharsets.UTF_8), 1, false);
                 pending = new Pending(pending.messageId(), pending.epoch(), pending.sequence(), pending.observedAt(),
                         pending.type(), pending.localPrinterId(), pending.descriptorRevision(), pending.observationId(),
-                        pending.raw(), now);
+                        pending.eventId(), pending.raw(), now);
             }
             retrySeconds = 1;
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
@@ -220,7 +237,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     }
 
     private CloudWire.Protocol negotiateProtocol() throws Exception {
-        var offered = supportedSchemaVersions(properties.isObservationV2Enabled());
+        var offered = supportedSchemaVersions(properties.isObservationV2Enabled(), properties.isObservationV3Enabled());
         try {
             var selected = post("/api/v1/gateway/protocol", credential.credential(),
                     new CloudWire.ProtocolRequest(credential.gatewayId(), credential.bindingVersion(), offered),
@@ -242,8 +259,9 @@ public class CloudGatewayAgent implements SmartLifecycle {
         }
     }
 
-    static java.util.List<Integer> supportedSchemaVersions(boolean observationV2Enabled) {
-        return observationV2Enabled ? java.util.List.of(1, 2, 3) : java.util.List.of(1, 3);
+    static java.util.List<Integer> supportedSchemaVersions(boolean observationV2Enabled, boolean observationV3Enabled) {
+        if (observationV3Enabled) { return observationV2Enabled ? List.of(1, 2, 3) : List.of(1, 3); }
+        return observationV2Enabled ? List.of(1, 2) : List.of(1);
     }
 
     static CloudWire.Protocol legacyFallback(boolean observationV2Enabled) {
@@ -343,6 +361,11 @@ public class CloudGatewayAgent implements SmartLifecycle {
         if ("PRINTER_STATE".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
             acknowledgedObservations.put(pending.localPrinterId(), pending.observationId());
         }
+        if ("PRINTER_EVENT".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
+            var outbox = eventOutboxes == null ? null : eventOutboxes.getIfAvailable();
+            if (outbox == null) { throw new IOException("EVENT_OUTBOX_UNAVAILABLE"); }
+            outbox.acknowledge(pending.eventId());
+        }
         clearPending();
     }
 
@@ -363,7 +386,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
         String raw = json.writeValueAsString(packet);
         CloudAgentFiles.write(pendingFile(), raw);
         pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
-                null, 0, null, raw, 0);
+                null, 0, null, null, raw, 0);
     }
 
     private void prepareDescriptorPlan() throws Exception {
@@ -405,7 +428,34 @@ public class CloudGatewayAgent implements SmartLifecycle {
         long revision = packet.payload().descriptor().revision();
         CloudAgentFiles.write(pendingFile(), raw);
         pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
-                localPrinterId, revision, null, raw, 0);
+                localPrinterId, revision, null, null, raw, 0);
+    }
+
+    private void prepareEventPending(long now) throws Exception {
+        lastEventPoll = now;
+        var outbox = eventOutboxes == null ? null : eventOutboxes.getIfAvailable();
+        if (outbox == null) { return; }
+        var events = outbox.findReady(1);
+        if (events.isEmpty()) { return; }
+        var event = events.getFirst();
+        outbox.recordAttempt(event.eventId());
+        if (!event.sourceInstanceId().toString().equals(canonicalSourceInstanceId)) {
+            LOG.warn("Cloud event source does not match this installation: eventId={}", event.eventId());
+            return;
+        }
+        var identity = new CanonicalPrinterModel.Identity(event.sourceInstanceId(), event.deviceUid(), event.localPrinterId());
+        var data = new CloudWire.EventData(event.eventId(), event.executionId(), event.type(), event.occurredAt(),
+                event.severity(), event.code(), event.safeMessage(), event.correlationId());
+        var packet = new CloudWire.CanonicalEventPacket(3, UUID.randomUUID().toString(), "PRINTER_EVENT",
+                credential.gatewayId(), credential.bindingVersion(), bootId, epoch, ++sequence, Instant.now(),
+                new CloudWire.EventPayload(identity, data));
+        String raw = json.writeValueAsString(packet);
+        if (raw.getBytes(StandardCharsets.UTF_8).length > protocol.maxMessageBytes()) {
+            throw new RemoteFailure("CANONICAL_EVENT_TOO_LARGE");
+        }
+        CloudAgentFiles.write(pendingFile(), raw);
+        pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(), packet.type(),
+                event.localPrinterId(), 0, null, event.eventId(), raw, 0);
     }
 
     private void prepareCanonicalStatePending(long now) throws Exception {
@@ -445,7 +495,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
             }
             CloudAgentFiles.write(pendingFile(), raw);
             pending = new Pending(packet.messageId(), packet.epoch(), packet.sequence(), packet.observedAt(),
-                    packet.type(), asset.localPrinterId(), model.descriptor().revision(), observation.id().toString(), raw, 0);
+                    packet.type(), asset.localPrinterId(), model.descriptor().revision(), observation.id().toString(),
+                    null, raw, 0);
             return;
         }
     }
@@ -454,6 +505,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
         return switch (type) {
             case "PRINTER_DESCRIPTOR" -> "descriptor";
             case "PRINTER_STATE" -> "printer-state";
+            case "PRINTER_EVENT" -> "event";
             default -> type.toLowerCase(java.util.Locale.ROOT);
         };
     }

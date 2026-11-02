@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.List;
 import java.math.BigDecimal;
 import com.example.farm.protocol.model.CanonicalPrinterModel;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
+import java.util.UUID;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 public final class CloudWire {
@@ -56,4 +58,10 @@ public final class CloudWire {
     public record CanonicalStatePacket(int schemaVersion, String messageId, String type, String gatewayId,
                                        long bindingVersion, String bootId, long epoch, long sequence,
                                        Instant observedAt, CanonicalPrinterModel payload) { }
+    public record EventData(UUID eventId, UUID executionId, CanonicalPrinterEvent.Type type, Instant occurredAt,
+                            CanonicalPrinterEvent.Severity severity, String code, String safeMessage, UUID correlationId) { }
+    public record EventPayload(CanonicalPrinterModel.Identity identity, EventData event) { }
+    public record CanonicalEventPacket(int schemaVersion, String messageId, String type, String gatewayId,
+                                       long bindingVersion, String bootId, long epoch, long sequence,
+                                       Instant observedAt, EventPayload payload) { }
 }

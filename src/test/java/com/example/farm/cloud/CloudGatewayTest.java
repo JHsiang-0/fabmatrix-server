@@ -9,6 +9,8 @@ import com.example.farm.protocol.observation.PrinterObservationView;
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.protocol.model.CanonicalPrinterModelMapper;
 import com.example.farm.service.CanonicalPrinterStateService;
+import com.example.farm.service.PrinterEventOutbox;
+import com.example.farm.protocol.model.CanonicalPrinterEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,8 +33,10 @@ class CloudGatewayTest {
     @TempDir Path temp;
 
     @Test void protocolNegotiationAdvertisesOnlyImplementedVersionsAndLegacyFallbackPreservesSelection() {
-        assertThat(CloudGatewayAgent.supportedSchemaVersions(false)).containsExactly(1, 3);
-        assertThat(CloudGatewayAgent.supportedSchemaVersions(true)).containsExactly(1, 2, 3);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(false, false)).containsExactly(1);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(true, false)).containsExactly(1, 2);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(false, true)).containsExactly(1, 3);
+        assertThat(CloudGatewayAgent.supportedSchemaVersions(true, true)).containsExactly(1, 2, 3);
         assertThat(CloudGatewayAgent.legacyFallback(false).selectedSchemaVersion()).isEqualTo(1);
         assertThat(CloudGatewayAgent.legacyFallback(true).selectedSchemaVersion()).isEqualTo(2);
     }
@@ -88,8 +92,14 @@ class CloudGatewayTest {
 
     private CloudGatewayAgent connectedAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
                                               MqttClient mqtt, int version) throws Exception {
+        return connectedAgent(properties, source, mqtt, version, null);
+    }
+
+    private CloudGatewayAgent connectedAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
+                                              MqttClient mqtt, int version,
+                                              org.springframework.beans.factory.ObjectProvider<PrinterEventOutbox> outboxes) throws Exception {
         when(mqtt.isConnected()).thenReturn(true);
-        var agent = new CloudGatewayAgent(properties, source);
+        var agent = new CloudGatewayAgent(properties, source, outboxes);
         String gatewayId = UUID.randomUUID().toString();
         var credential = new CloudWire.Credential(gatewayId, UUID.randomUUID().toString(), UUID.randomUUID().toString(),
                 1, "fixture", System.currentTimeMillis() + 60000, "fixture", "fixture", "fixture/");
@@ -102,6 +112,45 @@ class CloudGatewayTest {
         ReflectionTestUtils.setField(agent, "running", true);
         ReflectionTestUtils.setField(agent, "epoch", 1L);
         return agent;
+    }
+
+    @Test void eventOutboxIsRemovedOnlyAfterCloudCommitOrDuplicateAcknowledgement() throws Exception {
+        for (String result : List.of("ACCEPTED", "DUPLICATE", "REJECTED")) {
+            var properties = new CloudGatewayProperties();
+            properties.setObservationV3Enabled(true);
+            properties.setStateDirectory(temp.resolve("event-" + result).toString());
+            var source = mock(CloudSnapshotSource.class);
+            when(source.captureCanonical()).thenReturn(List.of());
+            var outbox = mock(PrinterEventOutbox.class);
+            @SuppressWarnings("unchecked")
+            org.springframework.beans.factory.ObjectProvider<PrinterEventOutbox> provider =
+                    mock(org.springframework.beans.factory.ObjectProvider.class);
+            when(provider.getIfAvailable()).thenReturn(outbox);
+            var sourceId = UUID.randomUUID();
+            var event = new CanonicalPrinterEvent(UUID.randomUUID(), sourceId, UUID.randomUUID(), "42", null,
+                    CanonicalPrinterEvent.Type.DEVICE_CONNECTED, Instant.now().minusSeconds(3600),
+                    CanonicalPrinterEvent.Severity.INFO, "DEVICE_CONNECTED", null, null);
+            when(outbox.findReady(1)).thenReturn(List.of(event), List.of());
+            var mqtt = mock(MqttClient.class);
+            var agent = connectedAgent(properties, source, mqtt, 3, provider);
+            ReflectionTestUtils.setField(agent, "inventoryComplete", true);
+            ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId.toString());
+            ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
+            ReflectionTestUtils.setField(agent, "lastDescriptorScan", System.currentTimeMillis());
+
+            ReflectionTestUtils.invokeMethod(agent, "tick");
+            var bytes = ArgumentCaptor.forClass(byte[].class);
+            verify(mqtt).publish(endsWith("up/event"), bytes.capture(), eq(1), eq(false));
+            verify(outbox).recordAttempt(event.eventId());
+            verify(outbox, never()).acknowledge(any());
+            var packet = new ObjectMapper().readTree(bytes.getValue());
+            assertThat(packet.path("payload").path("event").path("eventId").asText()).isEqualTo(event.eventId().toString());
+            ReflectionTestUtils.setField(agent, "receivedAck", new CloudWire.Ack(packet.path("messageId").asText(),
+                    packet.path("epoch").asLong(), packet.path("sequence").asLong(), result, "fixture"));
+
+            ReflectionTestUtils.invokeMethod(agent, "tick");
+            verify(outbox, times("REJECTED".equals(result) ? 0 : 1)).acknowledge(event.eventId());
+        }
     }
 
     @Test void canonicalInventoryPlanPartitionsAndBoundsEveryV3Message() throws Exception {

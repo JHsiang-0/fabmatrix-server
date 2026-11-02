@@ -325,7 +325,9 @@ class LocalSchemaUpgradeIntegrationTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> outbox.enqueue(thirdEvent))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("outbox is full");
         assertThat(outbox.findPending(1)).containsExactly(firstEvent);
+        assertThat(outbox.findReady(1)).containsExactly(firstEvent);
         outbox.recordAttempt(eventId1);
+        assertThat(outbox.findReady(1)).containsExactly(secondEvent);
         assertThat(jdbcTemplate.queryForObject("SELECT attempt_count FROM farm_printer_event_outbox "
                 + "WHERE event_id = ?", Integer.class, eventId1.toString())).isEqualTo(1);
         outbox.acknowledge(eventId1);

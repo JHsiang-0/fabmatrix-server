@@ -59,14 +59,26 @@ public class PrinterEventOutboxImpl implements PrinterEventOutbox {
     @Override
     @Transactional(readOnly = true)
     public List<CanonicalPrinterEvent> findPending(int limit) {
+        return findEvents(limit, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CanonicalPrinterEvent> findReady(int limit) {
+        return findEvents(limit, true);
+    }
+
+    private List<CanonicalPrinterEvent> findEvents(int limit, boolean readyOnly) {
         if (limit < 1 || limit > MAX_BATCH_SIZE) {
             throw new IllegalArgumentException("Event outbox batch size must be between 1 and 100");
         }
-        return jdbcTemplate.query("""
+        String query = """
                 SELECT event_id, source_instance_id, device_uid, local_printer_id, execution_id,
                        event_type, occurred_at, severity, code, safe_message, correlation_id
-                FROM farm_printer_event_outbox ORDER BY id ASC LIMIT ?
-                """, (rs, row) -> new CanonicalPrinterEvent(
+                FROM farm_printer_event_outbox
+                """ + (readyOnly ? " WHERE last_attempt_at IS NULL OR last_attempt_at <= datetime('now', '-30 seconds')" : "")
+                + " ORDER BY id ASC LIMIT ?";
+        return jdbcTemplate.query(query, (rs, row) -> new CanonicalPrinterEvent(
                 UUID.fromString(rs.getString("event_id")),
                 UUID.fromString(rs.getString("source_instance_id")),
                 UUID.fromString(rs.getString("device_uid")), rs.getString("local_printer_id"),

@@ -78,9 +78,9 @@ Server仍是本地单农场身份域；组织隔离由Cloud承担。不要把Clo
 | Klipper 状态/测量 | `PrinterObservationParserTest`、`KlipperMoonrakerAdapterTest`、`MoonrakerObservationObjectSelectionTest`：状态、真实零值/缺失/非法值、多加热器/工具、风扇、轴、耗材传感器和执行时间口径 | 固件版本、所选工具以及未加载对象的能力无法可靠推断；当前工具保持未知 |
 | RRF 状态/测量 | `PrinterObservationParserTest`、`RrfApiClientTest`、`RrfAdapterTest`：多请求字段、工具/加热器关系、OFF/standby、活动/切片预估时间、风扇、轴/传感器和采集期间任务身份变化 | RRF 固件版本及连接运行模式不可靠；缺层数、完整耗材统计与部分固件端事件 |
 | 执行与恢复 | `LocalSchemaUpgradeIntegrationTest`、`PrinterExecutionServiceTest`：稳定执行 UUID、来源、重启、未知终态、current/last execution 以及 SQLite 服务重建 | 文件摘要 SHA-256、层数及设备无法提供的执行估算保持缺省/未知；不可据此宣称完整制造履历 |
-| 持久化与连接健康 | `LocalSchemaUpgradeIntegrationTest`：旧 SQLite 增量迁移、重复迁移、revision/boot 恢复、离线/停监/过期投影、outbox 去重/容量/ACK 清理 | 本地 outbox 当前生产连接/断开事件；尚未发送到 Cloud、未覆盖执行事件或断网恢复实发 |
+| 持久化与连接健康 | `LocalSchemaUpgradeIntegrationTest`：旧 SQLite 增量迁移、重复迁移、revision/boot 恢复、离线/停监/过期投影、outbox 去重/容量/ACK 清理；`PrinterExecutionServiceTest`：执行开始/暂停/恢复/终止及稳定 execution UUID | 本地 outbox 生产连接/断开/监控关闭和执行生命周期事件；尚未发送到 Cloud 或完成 ACK 集成。执行事件在业务事务提交后再入队，进程若在两步之间退出可能丢失事件；尚无断网恢复实链路验收 |
 | 旧接口兼容 | `PrinterObservationParserTest.internalObservationDoesNotChangeLegacyStatusJson`、`PrinterVOTest`、`PrinterMonitorControllerTest`、`WebSocketSecurityTest`、`WebSocketEventPublisherTest`：保持旧状态 DTO/VO 与 WebSocket 契约 | 尚无 LAN canonical 详情 API；完整对象不应被描述为现有 LAN/API 已可读取 |
 
-上表的测试都使用合成响应或临时 SQLite；它们证明映射和回归边界，不证明现场固件行为。Server 全量 `mvnw.cmd test` 最近一次为 827 项通过（0 failures/errors/skips）。Klipper、RRF 真机只读验收仍属于 T6.3；`mvnw.cmd package`/安装版及现场数据链路验收属于 T6.2/T6.4。
+上表的测试都使用合成响应或临时 SQLite；它们证明映射和回归边界，不证明现场固件行为。Server 全量 `mvnw.cmd test` 最近一次为 829 项通过（0 failures/errors/skips）。Klipper、RRF 真机只读验收仍属于 T6.3；`mvnw.cmd package`/安装版及现场数据链路验收属于 T6.2/T6.4。
 
 P1修改Java/SQL时至少运行 `mvnw.cmd test`；Cloud运行 `mvnw.cmd verify` 和隔离MySQL/MQTT升级回归。客户端补齐类型映射与小屏/离线/权限验证后重新构建安装包。真实Klipper/RRF各一台只读验证分别登记版本/模式，emulated设备不作为生产物理验收依据。

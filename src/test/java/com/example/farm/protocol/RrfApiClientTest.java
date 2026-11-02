@@ -59,6 +59,7 @@ class RrfApiClientTest {
         expectTemperatureModels(
                 "{\"key\":\"heat\",\"result\":{\"bedHeaters\":[-1],\"heaters\":[{\"current\":55.4,\"active\":60,\"standby\":0,\"state\":\"active\",\"sensor\":0},{\"current\":237.3,\"active\":240,\"standby\":180,\"state\":\"active\",\"sensor\":1}]}}",
                 "{\"key\":\"tools\",\"result\":[{\"number\":0,\"heaters\":[1]}]}");
+        expectConsistencyModels("processing", 0, "demo.gcode", 1000);
         expectDisconnect();
 
         RrfStatusResponse response = client.getStatus(endpoint());
@@ -75,6 +76,7 @@ class RrfApiClientTest {
         assertThat(response.bedTarget()).isEqualByComparingTo("60");
         assertThat(response.deviceUptime()).isEqualByComparingTo("1234");
         assertThat(response.observation()).isNotNull();
+        assertThat(response.observation().completeness()).isEqualTo(PrinterObservation.Completeness.PARTIAL);
         assertThat(response.observation().heaters()).hasSize(2);
         assertThat(response.observation().heaters().getFirst().role())
                 .isEqualTo(PrinterObservation.HeaterRole.UNKNOWN);
@@ -102,11 +104,51 @@ class RrfApiClientTest {
                 .andExpect(header("X-Session-Key", "123"))
                 .andRespond(withSuccess("{\"key\":\"job\",\"result\":{}}", MediaType.APPLICATION_JSON));
         expectEmptyTemperatureModels();
+        expectConsistencyModels("idle", null, null, null);
         expectDisconnect();
 
         RrfStatusResponse response = client.getStatus(endpoint());
 
         assertThat(response.stateStatus()).isEqualTo("idle");
+        server.verify();
+    }
+
+    @Test
+    void marksCanonicalObservationInconsistentWhenRrfExecutionChangesDuringCapture() {
+        expectConnect();
+        expectState("processing", 0, "1234");
+        expectJob("demo.gcode", 1000, 425);
+        expectTemperatureModels(
+                "{\"key\":\"heat\",\"result\":{\"heaters\":[]}}",
+                "{\"key\":\"tools\",\"result\":[{\"number\":0,\"heaters\":[]}]}");
+        expectState("idle", 0, null);
+        expectJob("demo.gcode", 1000, 425);
+        expectDisconnect();
+
+        RrfStatusResponse response = client.getStatus(endpoint());
+
+        assertThat(response.stateStatus()).isEqualTo("processing");
+        assertThat(response.observation().completeness()).isEqualTo(PrinterObservation.Completeness.INCONSISTENT);
+        assertThat(response.observation().operationState()).isEqualTo(PrinterObservation.OperationState.UNKNOWN);
+        assertThat(response.observation().execution()).isNull();
+        server.verify();
+    }
+
+    @Test
+    void marksCanonicalObservationInconsistentWhenRrfJobChangesDuringCapture() {
+        expectConnect();
+        expectState("processing", 0, null);
+        expectJob("first.gcode", 1000, 100);
+        expectEmptyTemperatureModels();
+        expectState("processing", 0, null);
+        expectJob("second.gcode", 2000, 100);
+        expectDisconnect();
+
+        RrfStatusResponse response = client.getStatus(endpoint());
+
+        assertThat(response.observation().completeness()).isEqualTo(PrinterObservation.Completeness.INCONSISTENT);
+        assertThat(response.observation().operationState()).isEqualTo(PrinterObservation.OperationState.UNKNOWN);
+        assertThat(response.observation().execution()).isNull();
         server.verify();
     }
 
@@ -245,6 +287,7 @@ class RrfApiClientTest {
                 .andRespond(withSuccess("{\"key\":\"job\",\"result\":{\"filePosition\":0}}",
                         MediaType.APPLICATION_JSON));
         expectEmptyTemperatureModels();
+        expectConsistencyModels("off", null, null, null);
         server.expect(requestTo(startsWith("http://192.168.1.80/rr_disconnect")))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("{\"err\":0}", MediaType.APPLICATION_JSON));
@@ -326,6 +369,42 @@ class RrfApiClientTest {
         expectTemperatureModels(
                 "{\"key\":\"heat\",\"result\":{\"heaters\":[]}}",
                 "{\"key\":\"tools\",\"result\":[]}");
+    }
+
+    private void expectConsistencyModels(String status, Integer currentTool, String fileName, Integer fileSize) {
+        expectState(status, currentTool, null);
+        expectJob(fileName, fileSize, null);
+    }
+
+    private void expectState(String status, Integer currentTool, String uptime) {
+        String currentToolField = currentTool == null ? "" : ",\"currentTool\":" + currentTool;
+        String uptimeField = uptime == null ? "" : ",\"upTime\":" + uptime;
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "state"))
+                .andExpect(queryParam("flags", "f"))
+                .andRespond(withSuccess("{\"key\":\"state\",\"result\":{\"status\":\"" + status + "\""
+                        + currentToolField + uptimeField + "}}", MediaType.APPLICATION_JSON));
+    }
+
+    private void expectJob(String fileName, Integer fileSize, Integer filePosition) {
+        StringBuilder fields = new StringBuilder();
+        if (fileName != null || fileSize != null) {
+            fields.append("\"file\":{");
+            if (fileName != null) fields.append("\"fileName\":\"").append(fileName).append('\"');
+            if (fileName != null && fileSize != null) fields.append(',');
+            if (fileSize != null) fields.append("\"size\":").append(fileSize);
+            fields.append('}');
+        }
+        if (filePosition != null) {
+            if (!fields.isEmpty()) fields.append(',');
+            fields.append("\"filePosition\":").append(filePosition);
+        }
+        server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                .andExpect(method(GET))
+                .andExpect(queryParam("key", "job"))
+                .andRespond(withSuccess("{\"key\":\"job\",\"result\":{" + fields + "}}",
+                        MediaType.APPLICATION_JSON));
     }
 
     private void expectTemperatureModels(String heatResponse, String toolsResponse) {

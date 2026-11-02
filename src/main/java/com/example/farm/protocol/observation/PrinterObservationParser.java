@@ -108,6 +108,12 @@ public final class PrinterObservationParser {
 
     public static PrinterObservation rrf(JsonNode state, JsonNode job, JsonNode heat, JsonNode toolsNode,
                                          Instant start, Instant jobObservedAt, Instant heatObservedAt, Instant end) {
+        return rrf(state, job, heat, toolsNode, start, jobObservedAt, heatObservedAt, end, true);
+    }
+
+    public static PrinterObservation rrf(JsonNode state, JsonNode job, JsonNode heat, JsonNode toolsNode,
+                                         Instant start, Instant jobObservedAt, Instant heatObservedAt, Instant end,
+                                         boolean captureConsistent) {
         String raw = normalize(text(state, "status"));
         SystemState system = switch (raw) {
             case "starting" -> SystemState.STARTING;
@@ -236,8 +242,9 @@ public final class PrinterObservationParser {
                     number(file, "printTime", jobObservedAt, ZERO, DURATION_MAX), number(job.path("timesLeft"), "file", jobObservedAt, ZERO, DURATION_MAX),
                     number(job, "rawExtrusion", jobObservedAt, ZERO, FILAMENT_MAX));
         }
-        // 当前客户端分四次 HTTP 获取对象，没有任务一致性标记；不可将结果视为原子帧。
-        boolean inconsistent = end.isBefore(start) || jobObservedAt.isBefore(start) || heatObservedAt.isBefore(jobObservedAt)
+        // RRF 字段来自独立 HTTP 查询；即使执行身份复读一致，也只能作为部分观测帧。
+        boolean inconsistent = !captureConsistent || end.isBefore(start) || jobObservedAt.isBefore(start)
+                || heatObservedAt.isBefore(jobObservedAt)
                 || end.isBefore(heatObservedAt);
         return new PrinterObservation(start, end, inconsistent ? Completeness.INCONSISTENT : Completeness.PARTIAL,
                 system, inconsistent ? OperationState.UNKNOWN : operation, heaters, tools, currentTool,

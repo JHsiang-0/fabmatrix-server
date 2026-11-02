@@ -133,6 +133,10 @@ public class RrfApiClient {
             Instant heatObservedAt = Instant.now();
             JsonNode toolsResponse = getModel(endpoint, session, "tools");
 
+            // RRF serves each object model independently. Re-read stable execution identity after
+            // the field matrix so a task/status transition cannot be presented as one coherent frame.
+            boolean captureConsistent = captureConsistent(endpoint, session, stateResponse, jobResponse);
+
             JsonNode state = resultNode(stateResponse);
             JsonNode job = resultNode(jobResponse);
             JsonNode heat = resultNode(heatResponse);
@@ -162,7 +166,8 @@ public class RrfApiClient {
                     booleanValue(job, "lastFileAborted"),
                     decimal(job, "lastDuration"),
                     firstDecimal(decimal(state, "upTime"), decimal(state, "uptime")),
-                    parseObservation(state, job, heat, tools, captureStartedAt, jobObservedAt, heatObservedAt)
+                    parseObservation(state, job, heat, tools, captureStartedAt, jobObservedAt, heatObservedAt,
+                            captureConsistent)
             );
         } catch (PrinterProtocolException exception) {
             throw exception;
@@ -176,15 +181,52 @@ public class RrfApiClient {
     }
 
     private PrinterObservation parseObservation(JsonNode state, JsonNode job, JsonNode heat, JsonNode tools,
-                                                Instant start, Instant jobAt, Instant heatAt) {
+                                                Instant start, Instant jobAt, Instant heatAt,
+                                                boolean captureConsistent) {
         try {
-            return PrinterObservationParser.rrf(state, job, heat, tools, start, jobAt, heatAt, Instant.now());
+            return PrinterObservationParser.rrf(state, job, heat, tools, start, jobAt, heatAt,
+                    Instant.now(), captureConsistent);
         } catch (RuntimeException exception) {
             LOG.warn("统一设备观测解析失败，不影响既有状态读取: errorType={}",
                     exception.getClass().getSimpleName());
             return null;
         }
     }
+
+    private boolean captureConsistent(PrinterEndpoint endpoint, Session session,
+                                      JsonNode initialStateResponse, JsonNode initialJobResponse) {
+        try {
+            JsonNode finalState = getModel(endpoint, session, "state", "f");
+            JsonNode finalJob = getModel(endpoint, session, "job");
+            return frameIdentity(initialStateResponse, initialJobResponse)
+                    .equals(frameIdentity(finalState, finalJob));
+        } catch (PrinterProtocolException exception) {
+            LOG.warn("RRF canonical 观测一致性复读失败: category={}", exception.getCategory());
+            return false;
+        }
+    }
+
+    private RrfFrameIdentity frameIdentity(JsonNode stateResponse, JsonNode jobResponse) {
+        JsonNode state = resultNode(stateResponse);
+        JsonNode job = resultNode(jobResponse);
+        JsonNode file = child(job, "file");
+        BigDecimal size = decimal(file, "size");
+        return new RrfFrameIdentity(normalizeStatus(text(state, "status")), integer(state, "currentTool"),
+                text(file, "fileName"), size == null ? null : size.stripTrailingZeros().toPlainString(),
+                text(job, "lastFileName"));
+    }
+
+    private String normalizeStatus(String status) {
+        return status == null ? "" : status.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private Integer integer(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.canConvertToInt() ? value.intValue() : null;
+    }
+
+    private record RrfFrameIdentity(String status, Integer currentTool, String fileName, String fileSize,
+                                    String lastFileName) { }
 
     /**
      * 状态读取是幂等的，允许一次短暂重连；控制命令不复用该策略，避免网络超时后重复执行命令。

@@ -176,7 +176,7 @@ class PrinterMonitorConfigurationServiceTest {
     }
 
     @Test
-    void monitorDisabledEventIsRecordedOnlyAfterCommit() {
+    void monitorDisabledEventIsWrittenWithinConfigurationTransaction() {
         Printer printer = new Printer();
         printer.setId(1L);
         printer.setMonitorEnabled(true);
@@ -188,10 +188,9 @@ class PrinterMonitorConfigurationServiceTest {
 
         service.updateMonitorEnabled(1L, false);
 
-        verifyNoInteractions(recorder);
-        TransactionSynchronizationUtils.triggerAfterCommit();
         verify(recorder).record(printer, CanonicalPrinterEvent.Type.MONITOR_DISABLED,
                 CanonicalPrinterEvent.Severity.INFO, "MONITOR_DISABLED");
+        TransactionSynchronizationUtils.triggerAfterCommit();
     }
 
     @Test

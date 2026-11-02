@@ -18,8 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -84,11 +82,11 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         mergeStatus(active, confirmedStatus);
         save(active);
         if (replaced != null) {
-            recordExecutionEventAfterCommit(replaced, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+            recordExecutionEvent(replaced, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
                     CanonicalPrinterEvent.Severity.WARNING, "EXECUTION_SOURCE_CHANGED");
         }
         if (created) {
-            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
+            recordExecutionEvent(active, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
                     CanonicalPrinterEvent.Severity.INFO, "EXECUTION_STARTED");
         }
         return active;
@@ -119,19 +117,19 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         active.setIdleObservationCount(0);
         save(active);
         if (replaced != null) {
-            recordExecutionEventAfterCommit(replaced, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+            recordExecutionEvent(replaced, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
                     CanonicalPrinterEvent.Severity.WARNING, "EXECUTION_SOURCE_CHANGED");
         }
         if (created) {
-            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
+            recordExecutionEvent(active, CanonicalPrinterEvent.Type.EXECUTION_STARTED,
                     CanonicalPrinterEvent.Severity.INFO, "EXECUTION_STARTED");
         } else if (isPausedState(normalize(status == null ? null : status.rawState()))
                 && !isPausedState(previousRawState)) {
-            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_PAUSED,
+            recordExecutionEvent(active, CanonicalPrinterEvent.Type.EXECUTION_PAUSED,
                     CanonicalPrinterEvent.Severity.INFO, "EXECUTION_PAUSED");
         } else if (isExecutingState(normalize(status == null ? null : status.rawState()))
                 && isPausedState(previousRawState)) {
-            recordExecutionEventAfterCommit(active, CanonicalPrinterEvent.Type.EXECUTION_RESUMED,
+            recordExecutionEvent(active, CanonicalPrinterEvent.Type.EXECUTION_RESUMED,
                     CanonicalPrinterEvent.Severity.INFO, "EXECUTION_RESUMED");
         }
         return active;
@@ -202,7 +200,7 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         }
         close(execution, target.name(), reason);
 
-        recordExecutionEventAfterCommit(execution, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+        recordExecutionEvent(execution, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
                 severity(target), endCode(target));
 
         job.setStatus(persistedJob.getStatus());
@@ -222,12 +220,12 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
             return false;
         }
         close(execution, state == null || state.isBlank() ? "COMPLETED" : state, reason);
-        recordExecutionEventAfterCommit(execution, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
+        recordExecutionEvent(execution, CanonicalPrinterEvent.Type.EXECUTION_ENDED,
                 severity(execution.getState()), endCode(execution.getState()));
         return true;
     }
 
-    private void recordExecutionEventAfterCommit(PrinterExecution execution,
+    private void recordExecutionEvent(PrinterExecution execution,
                                                  CanonicalPrinterEvent.Type type,
                                                  CanonicalPrinterEvent.Severity severity, String code) {
         if (printerEventRecorder == null || execution == null || execution.getPrinterId() == null
@@ -244,17 +242,7 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
                         execution.getPrinterId(), type, failure.getClass().getSimpleName());
             }
         };
-        if (TransactionSynchronizationManager.isActualTransactionActive()
-                && TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    record.run();
-                }
-            });
-        } else {
-            record.run();
-        }
+        record.run();
     }
 
     private CanonicalPrinterEvent.Severity severity(PrintJobStatus status) {

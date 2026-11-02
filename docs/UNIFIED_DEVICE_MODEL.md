@@ -44,7 +44,7 @@ Server 已在现有 Klipper 和 RRF 状态读取中生成内部 `PrinterObservat
 
 V2 受限快照上报已增加为默认关闭的可选路径，Cloud 和手机可消费该子集；启用方式与部署顺序见 [CLOUD_GATEWAY](CLOUD_GATEWAY.md)。这是 transport `schemaVersion=2` 的初步实现，不是 Cloud 文档中完整 canonical device object：设备稳定身份、descriptor、分页/分片及独立详情 API 仍未实现。
 
-当前实现已覆盖第一版固件采集与持久化：Klipper 按 Moonraker 已加载对象白名单查询多加热器、风扇、轴和耗材传感器；RRF 使用 `flags=f` 请求实时字段，并在多组请求前后复读任务身份以识别采集期间切换。固件 family 仍没有可靠版本信息，真实 Klipper/RRF 设备尚未验收。descriptor revision、设备启动代次/观测 revision、最新观测和执行生命周期均持久化；读取最新 canonical 模型时按当前设备状态覆盖连接健康，监控关闭或采样超过 30 秒返回 `UNKNOWN`，明确离线返回 `OFFLINE`，保留原测量时间和最后执行结果。Server 已有受限事件对象、SQLite 持久 outbox，并在连接健康跨越在线/离线边界时生成设备连接事件、在监控开关关闭事务提交后生成关闭事件；执行事件、Cloud 发送与提交 ACK 尚未接通。专用 last-known 查询 API、Cloud 完整上报仍未完成。缓存有过期时间，不能当作持久化数据或设备当前在线的证明。下面列出的是 P1a 的完整目标，而非已交付内容。
+当前实现已覆盖第一版固件采集与持久化：Klipper 按 Moonraker 已加载对象白名单查询多加热器、风扇、轴和耗材传感器；RRF 使用 `flags=f` 请求实时字段，并在多组请求前后复读任务身份以识别采集期间切换。固件 family 仍没有可靠版本信息，真实 Klipper/RRF 设备尚未验收。descriptor revision、设备启动代次/观测 revision、最新观测和执行生命周期均持久化；读取最新 canonical 模型时按当前设备状态覆盖连接健康，监控关闭或采样超过 30 秒返回 `UNKNOWN`，明确离线返回 `OFFLINE`，保留原测量时间和最后执行结果。Server 已有受限事件对象、SQLite 持久 outbox，并在连接健康跨越在线/离线边界时生成设备连接事件；执行生命周期和监控关闭事件在对应业务事务内写入 outbox，保证事务回滚时不会留下孤立事件。Cloud 发送与提交 ACK 尚未接通。专用 last-known 查询 API、Cloud 完整上报仍未完成。缓存有过期时间，不能当作持久化数据或设备当前在线的证明。下面列出的是 P1a 的完整目标，而非已交付内容。
 
 新增 `PrinterObservationView` 作为内部读取策略：调用方必须提供最新设备健康信息、当前时间和最大观测年龄；监控关闭、离线、通信失败、数据过期、时间异常或采集不一致时只保留最后已知值，不提供当前值。该策略尚未连接 API 或云端；最后已知值仍只保留在短期缓存中，不能保证重启后可用。Klipper 当前固定查询未读取选中工具，因此不再推断 `extruder` 一定是当前工具。
 
@@ -78,7 +78,7 @@ Server仍是本地单农场身份域；组织隔离由Cloud承担。不要把Clo
 | Klipper 状态/测量 | `PrinterObservationParserTest`、`KlipperMoonrakerAdapterTest`、`MoonrakerObservationObjectSelectionTest`：状态、真实零值/缺失/非法值、多加热器/工具、风扇、轴、耗材传感器和执行时间口径 | 固件版本、所选工具以及未加载对象的能力无法可靠推断；当前工具保持未知 |
 | RRF 状态/测量 | `PrinterObservationParserTest`、`RrfApiClientTest`、`RrfAdapterTest`：多请求字段、工具/加热器关系、OFF/standby、活动/切片预估时间、风扇、轴/传感器和采集期间任务身份变化 | RRF 固件版本及连接运行模式不可靠；缺层数、完整耗材统计与部分固件端事件 |
 | 执行与恢复 | `LocalSchemaUpgradeIntegrationTest`、`PrinterExecutionServiceTest`：稳定执行 UUID、来源、重启、未知终态、current/last execution 以及 SQLite 服务重建 | 文件摘要 SHA-256、层数及设备无法提供的执行估算保持缺省/未知；不可据此宣称完整制造履历 |
-| 持久化与连接健康 | `LocalSchemaUpgradeIntegrationTest`：旧 SQLite 增量迁移、重复迁移、revision/boot 恢复、离线/停监/过期投影、outbox 去重/容量/ACK 清理；`PrinterExecutionServiceTest`：执行开始/暂停/恢复/终止及稳定 execution UUID；`PrinterEventOutboxHealthTaskTest`：积压警告与恢复迟滞 | 本地 outbox 生产连接/断开/监控关闭和执行生命周期事件；容量达到 80% 告警、低于 60% 恢复。尚未发送到 Cloud 或完成 ACK 集成。执行事件在业务事务提交后再入队，进程若在两步之间退出可能丢失事件；尚无断网恢复实链路验收 |
+| 持久化与连接健康 | `LocalSchemaUpgradeIntegrationTest`：旧 SQLite 增量迁移、重复迁移、revision/boot 恢复、离线/停监/过期投影、outbox 去重/容量/ACK 清理及外层事务回滚；`PrinterExecutionServiceTest`：执行开始/暂停/恢复/终止及稳定 execution UUID；`PrinterMonitorConfigurationServiceTest`：事务内记录监控关闭事件；`PrinterEventOutboxHealthTaskTest`：积压警告与恢复迟滞 | 本地 outbox 生产连接/断开/监控关闭和执行生命周期事件；执行及监控关闭事件与本地业务事务原子写入；容量达到 80% 告警、低于 60% 恢复。尚未发送到 Cloud 或完成 ACK 集成；连接事件不在监控状态更新事务中生成，尚无断网恢复实链路验收 |
 | 旧接口兼容 | `PrinterObservationParserTest.internalObservationDoesNotChangeLegacyStatusJson`、`PrinterVOTest`、`PrinterMonitorControllerTest`、`WebSocketSecurityTest`、`WebSocketEventPublisherTest`：保持旧状态 DTO/VO 与 WebSocket 契约 | 尚无 LAN canonical 详情 API；完整对象不应被描述为现有 LAN/API 已可读取 |
 
 上表的测试都使用合成响应或临时 SQLite；它们证明映射和回归边界，不证明现场固件行为。Server 全量 `mvnw.cmd test` 最近一次为 831 项通过（0 failures/errors/skips）。Klipper、RRF 真机只读验收仍属于 T6.3；`mvnw.cmd package`/安装版及现场数据链路验收属于 T6.2/T6.4。

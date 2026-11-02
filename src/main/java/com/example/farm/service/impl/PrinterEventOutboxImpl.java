@@ -32,7 +32,6 @@ public class PrinterEventOutboxImpl implements PrinterEventOutbox {
     }
 
     @Override
-    @Transactional
     public boolean enqueue(CanonicalPrinterEvent event) {
         if (event == null) throw new IllegalArgumentException("Event is required");
         CanonicalPrinterEvent existing = findById(event.eventId());

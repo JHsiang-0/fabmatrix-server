@@ -794,7 +794,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         }
         persistMonitorEnabled(printerId, enabled);
         if (!enabled && Boolean.TRUE.equals(printer.getMonitorEnabled())) {
-            recordMonitorDisabledAfterCommit(printer);
+            recordMonitorDisabled(printer);
         }
         refreshMonitorConfigurationCacheAfterCommit();
     }
@@ -823,13 +823,13 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
         }
         if (!enabled) {
             printers.stream().filter(printer -> Boolean.TRUE.equals(printer.getMonitorEnabled()))
-                    .forEach(this::recordMonitorDisabledAfterCommit);
+                    .forEach(this::recordMonitorDisabled);
         }
         refreshMonitorConfigurationCacheAfterCommit();
         return printers.size();
     }
 
-    private void recordMonitorDisabledAfterCommit(Printer printer) {
+    private void recordMonitorDisabled(Printer printer) {
         if (printerEventRecorder == null) return;
         Runnable record = () -> {
             try {
@@ -840,17 +840,7 @@ public class PrinterServiceImpl extends ServiceImpl<PrinterMapper, Printer> impl
                         printer.getId(), failure.getClass().getSimpleName());
             }
         };
-        if (TransactionSynchronizationManager.isActualTransactionActive()
-                && TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    record.run();
-                }
-            });
-        } else {
-            record.run();
-        }
+        record.run();
     }
 
     private void persistMonitorEnabled(Long printerId, boolean enabled) {

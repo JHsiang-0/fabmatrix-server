@@ -18,10 +18,12 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -331,6 +333,12 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(outbox.findPending(2)).containsExactly(secondEvent, thirdEvent);
         outbox.acknowledge(eventId2);
         outbox.acknowledge(eventId3);
+        assertThat(outbox.pendingCount()).isZero();
+
+        new TransactionTemplate(new DataSourceTransactionManager(dataSource)).executeWithoutResult(status -> {
+            assertThat(outbox.enqueue(firstEvent)).isTrue();
+            status.setRollbackOnly();
+        });
         assertThat(outbox.pendingCount()).isZero();
 
         var eventRecorder = new PrinterEventRecorder(jdbcTemplate, outbox);

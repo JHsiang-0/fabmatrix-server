@@ -238,6 +238,26 @@ class CloudGatewayTest {
                 sourceId, 1, devices, 65536, 200, 2, 524288)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test void inventoryAtDeviceLimitFitsEightMessagesWithoutLosingIdentities() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        String sourceId = UUID.randomUUID().toString();
+        var devices = java.util.stream.IntStream.range(0, 200).mapToObj(index ->
+                new CloudSnapshotSource.InventoryDevice(
+                        new CloudSnapshotSource.InventoryIdentity(sourceId, UUID.randomUUID().toString(), "" + index),
+                        new CloudSnapshotSource.InventoryDescriptorSummary("设".repeat(100), "M".repeat(50), "KLIPPER")))
+                .toList();
+        var plan = CloudInventoryPlan.build(json, UUID.randomUUID().toString(), 1, UUID.randomUUID().toString(),
+                1, 1, Instant.now(), sourceId, 1, devices, 65536, 200, 8, 524288);
+        assertThat(plan).hasSize(8);
+        assertThat(plan.stream().flatMap(part -> part.payload().devices().stream()).toList()).containsExactlyElementsOf(devices);
+        assertThat(plan).allSatisfy(part -> assertThat(json.writeValueAsBytes(part)).hasSizeLessThanOrEqualTo(65536));
+        var tooMany = new java.util.ArrayList<>(devices);
+        tooMany.add(devices.getFirst());
+        assertThatThrownBy(() -> CloudInventoryPlan.build(json, UUID.randomUUID().toString(), 1,
+                UUID.randomUUID().toString(), 1, 1, Instant.now(), sourceId, 1, tooMany,
+                65536, 200, 8, 524288)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test void canonicalDescriptorPacketUsesCloudV3EnvelopeAndPrivacyFilteredModel() throws Exception {
         var json = new ObjectMapper().findAndRegisterModules();
         Printer printer = asset(42L);

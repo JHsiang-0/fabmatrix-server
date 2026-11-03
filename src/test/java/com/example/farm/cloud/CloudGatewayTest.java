@@ -251,6 +251,83 @@ class CloudGatewayTest {
         assertThat(json.writeValueAsString(packet)).doesNotContain("must-not-be-published");
     }
 
+    @Test void expiredDescriptorIsRebuiltWithAFreshEnvelopeAfterReconnect() throws Exception {
+        var properties = new CloudGatewayProperties();
+        properties.setStateDirectory(temp.resolve("expired-descriptor").toString());
+        var source = mock(CloudSnapshotSource.class);
+        var mqtt = mock(MqttClient.class);
+        var agent = connectedAgent(properties, source, mqtt, 3);
+        var sourceId = UUID.randomUUID();
+        var printer = asset(42L);
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        var at = Instant.now();
+        var observation = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        var model = CanonicalPrinterModelMapper.map(printer, sourceId, UUID.randomUUID(), 1, 1,
+                observation, null, true, at);
+        when(source.sourceInstanceId()).thenReturn(sourceId.toString());
+        when(source.captureCanonical()).thenReturn(List.of(new CloudSnapshotSource.CanonicalAsset("42",
+                printer.getDeviceUid(), printer.getName(), null, "KLIPPER", model)));
+        var expired = new CloudWire.CanonicalDescriptorPacket(3, UUID.randomUUID().toString(), "PRINTER_DESCRIPTOR",
+                UUID.randomUUID().toString(), 1, UUID.randomUUID().toString(), 1, 1, at.minusSeconds(61),
+                new CloudWire.DescriptorPayload(model.identity(), model.descriptor()));
+        ReflectionTestUtils.setField(agent, "inventoryComplete", true);
+        ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId.toString());
+        ReflectionTestUtils.setField(agent, "lastInventoryScan", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "descriptorPlan", List.of(expired));
+        ReflectionTestUtils.invokeMethod(agent, "prepareDescriptorPending");
+
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+
+        var bytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt).publish(endsWith("up/descriptor"), bytes.capture(), eq(1), eq(false));
+        var sent = new ObjectMapper().readTree(bytes.getValue());
+        assertThat(sent.path("messageId").asText()).isNotEqualTo(expired.messageId());
+        assertThat(Instant.parse(sent.path("observedAt").asText())).isAfter(at.minusSeconds(5));
+    }
+
+    @Test void rejectedDescriptorDoesNotBlockOtherDevices() throws Exception {
+        var properties = new CloudGatewayProperties();
+        properties.setStateDirectory(temp.resolve("rejected-descriptor").toString());
+        var source = mock(CloudSnapshotSource.class);
+        var mqtt = mock(MqttClient.class);
+        var agent = connectedAgent(properties, source, mqtt, 3);
+        var sourceId = UUID.randomUUID();
+        var at = Instant.now();
+        var observation = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        var first = asset(1L);
+        first.setDeviceUid(UUID.randomUUID().toString());
+        var second = asset(2L);
+        second.setDeviceUid(UUID.randomUUID().toString());
+        var firstModel = CanonicalPrinterModelMapper.map(first, sourceId, UUID.randomUUID(), 1, 1, observation, null, true, at);
+        var secondModel = CanonicalPrinterModelMapper.map(second, sourceId, UUID.randomUUID(), 1, 1, observation, null, true, at);
+        var firstPacket = new CloudWire.CanonicalDescriptorPacket(3, UUID.randomUUID().toString(), "PRINTER_DESCRIPTOR",
+                UUID.randomUUID().toString(), 1, UUID.randomUUID().toString(), 1, 1, at,
+                new CloudWire.DescriptorPayload(firstModel.identity(), firstModel.descriptor()));
+        var secondPacket = new CloudWire.CanonicalDescriptorPacket(3, UUID.randomUUID().toString(), "PRINTER_DESCRIPTOR",
+                firstPacket.gatewayId(), 1, firstPacket.bootId(), 1, 2, at,
+                new CloudWire.DescriptorPayload(secondModel.identity(), secondModel.descriptor()));
+        ReflectionTestUtils.setField(agent, "inventoryComplete", true);
+        ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId.toString());
+        ReflectionTestUtils.setField(agent, "lastInventoryScan", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "descriptorPlan", List.of(firstPacket, secondPacket));
+        ReflectionTestUtils.invokeMethod(agent, "prepareDescriptorPending");
+        ReflectionTestUtils.setField(agent, "receivedAck", new CloudWire.Ack(firstPacket.messageId(), 1, 1,
+                "REJECTED", "CANONICAL_MODEL_INVALID"));
+
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+
+        var bytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt).publish(endsWith("up/descriptor"), bytes.capture(), eq(1), eq(false));
+        assertThat(new ObjectMapper().readTree(bytes.getValue()).path("payload").path("identity")
+                .path("localPrinterId").asText()).isEqualTo("2");
+    }
+
     @Test void canonicalStateWaitsForDescriptorAndIsSentOnceAfterCommitAcknowledgement() throws Exception {
         var properties = new CloudGatewayProperties();
         properties.setStateDirectory(temp.resolve("canonical-state").toString());

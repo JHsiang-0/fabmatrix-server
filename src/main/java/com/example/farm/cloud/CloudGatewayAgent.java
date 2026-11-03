@@ -71,6 +71,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private final Map<String, Long> acknowledgedDescriptorRevisions = new HashMap<>();
     private final Map<String, String> acknowledgedDescriptorDeviceUids = new HashMap<>();
     private final Map<String, String> acknowledgedObservations = new HashMap<>();
+    private final Map<String, String> rejectedObservations = new HashMap<>();
     private List<CloudSnapshotSource.CanonicalAsset> canonicalAssets = List.of();
     private long lastCanonicalScan;
     private int canonicalCursor;
@@ -125,13 +126,17 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 registered = true;
             }
             handleAck();
-            if (terminal) { return; }
+            if (terminal || !registered) { return; }
             long now = System.currentTimeMillis();
             if (pending != null && pending.observedAt().toEpochMilli() < now - 60000) {
                 boolean inventoryPending = "INVENTORY".equals(pending.type());
+                boolean descriptorPending = "PRINTER_DESCRIPTOR".equals(pending.type());
                 clearPending(); lastSnapshotBody = null;
                 if (inventoryPending) {
                     inventoryPlan = null; inventoryPartIndex = 0; inventoryComplete = false;
+                }
+                if (descriptorPending) {
+                    descriptorPlan = null; descriptorIndex = 0; lastDescriptorScan = 0;
                 }
             }
             if (protocol.selectedSchemaVersion() == 3 && inventoryComplete && pending == null
@@ -347,6 +352,20 @@ public class CloudGatewayAgent implements SmartLifecycle {
             if ("STALE_BOOT".equals(ack.code())) { terminal = true; closeMqtt(); }
             status = new Status(terminal ? "SUPERSEDED" : "RETRYING", !terminal, credential.gatewayId(), lastAckAt, ack.code(), false);
             lastSnapshotBody = null;
+            if (!terminal && "PRINTER_DESCRIPTOR".equals(pending.type())) {
+                LOG.warn("Cloud descriptor rejected: printerId={}, code={}", pending.localPrinterId(), ack.code());
+                advanceDescriptor();
+            }
+            if (!terminal && "PRINTER_STATE".equals(pending.type())) {
+                LOG.warn("Cloud observation rejected: printerId={}, code={}", pending.localPrinterId(), ack.code());
+                if ("NEED_DESCRIPTOR".equals(ack.code())) {
+                    acknowledgedDescriptorRevisions.remove(pending.localPrinterId());
+                    acknowledgedDescriptorDeviceUids.remove(pending.localPrinterId());
+                    lastDescriptorScan = 0;
+                } else {
+                    rejectedObservations.put(pending.localPrinterId(), pending.observationId());
+                }
+            }
         } else if (java.util.Set.of("ACCEPTED", "DUPLICATE", "STALE", "RECEIVED_PART", "DUPLICATE_PART",
                 "ACCEPTED_INVENTORY").contains(ack.result())) {
             lastAckAt = System.currentTimeMillis();
@@ -363,6 +382,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     acknowledgedDescriptorRevisions.clear();
                     acknowledgedDescriptorDeviceUids.clear();
                     acknowledgedObservations.clear();
+                    rejectedObservations.clear();
                     canonicalAssets = List.of();
                     lastCanonicalScan = 0;
                     lastDescriptorScan = 0;
@@ -373,14 +393,20 @@ public class CloudGatewayAgent implements SmartLifecycle {
             acknowledgedDescriptorRevisions.put(pending.localPrinterId(), pending.descriptorRevision());
             acknowledgedDescriptorDeviceUids.put(pending.localPrinterId(),
                     descriptorPlan.get(descriptorIndex).payload().identity().deviceUid().toString());
-            descriptorIndex++;
-            if (descriptorPlan != null && descriptorIndex >= descriptorPlan.size()) {
-                descriptorPlan = null;
-                lastDescriptorScan = System.currentTimeMillis();
-            }
+            advanceDescriptor();
         }
         if ("PRINTER_STATE".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
             acknowledgedObservations.put(pending.localPrinterId(), pending.observationId());
+            rejectedObservations.remove(pending.localPrinterId());
+        }
+        if ("STALE".equals(ack.result())) {
+            registered = false;
+            lastSnapshotBody = null;
+            if ("PRINTER_DESCRIPTOR".equals(pending.type())) {
+                descriptorPlan = null; descriptorIndex = 0; lastDescriptorScan = 0;
+            } else if ("INVENTORY".equals(pending.type())) {
+                inventoryPlan = null; inventoryPartIndex = 0; inventoryComplete = false;
+            }
         }
         if ("PRINTER_EVENT".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
             var outbox = eventOutboxes == null ? null : eventOutboxes.getIfAvailable();
@@ -507,7 +533,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     || observation.completeness() == com.example.farm.protocol.model.CanonicalPrinterModel.Completeness.INCONSISTENT
                     || observation.observedAt().toEpochMilli() < now - 30000
                     || observation.observedAt().toEpochMilli() > now + 5000
-                    || observation.id().toString().equals(acknowledgedObservations.get(asset.localPrinterId()))) {
+                    || observation.id().toString().equals(acknowledgedObservations.get(asset.localPrinterId()))
+                    || observation.id().toString().equals(rejectedObservations.get(asset.localPrinterId()))) {
                 continue;
             }
             var payload = CloudCanonicalStateMapper.project(model);
@@ -533,6 +560,14 @@ public class CloudGatewayAgent implements SmartLifecycle {
             case "PRINTER_EVENT" -> "event";
             default -> type.toLowerCase(java.util.Locale.ROOT);
         };
+    }
+
+    private void advanceDescriptor() {
+        descriptorIndex++;
+        if (descriptorPlan != null && descriptorIndex >= descriptorPlan.size()) {
+            descriptorPlan = null;
+            lastDescriptorScan = System.currentTimeMillis();
+        }
     }
 
     private void refreshInventoryIfChanged(long now) throws Exception {

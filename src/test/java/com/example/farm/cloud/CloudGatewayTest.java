@@ -564,6 +564,7 @@ class CloudGatewayTest {
         var model = CanonicalPrinterModelMapper.map(first, java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
                 1, 1, observation, null, true, at);
         when(states.findLatestForCloud(1L)).thenReturn(model);
+        when(states.findLatestForCloud(2L)).thenThrow(new IllegalStateException("private fixture error"));
         when(provider.getIfAvailable()).thenReturn(states);
 
         var captured = new CloudSnapshotSource(printers, cache, provider).captureCanonical();

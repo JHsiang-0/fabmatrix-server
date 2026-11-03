@@ -9,6 +9,7 @@ import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.protocol.observation.PrinterObservation;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,11 +25,13 @@ import java.util.Locale;
 
 @Component
 @ConditionalOnProperty(name = "farm.cloud.enabled", havingValue = "true")
+@Slf4j
 public class CloudSnapshotSource {
     private final PrinterService printers;
     private final PrinterCacheService cache;
     private final ObjectProvider<CanonicalPrinterStateService> canonicalStateServices;
     private final JdbcTemplate jdbcTemplate;
+    private final java.util.Map<Long, Long> invalidModelWarnings = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Autowired
     public CloudSnapshotSource(PrinterService printers, PrinterCacheService cache,
@@ -69,8 +72,27 @@ public class CloudSnapshotSource {
         return assets.stream().map(asset -> new CanonicalAsset(asset.getId() == null ? null : asset.getId().toString(),
                 asset.getDeviceUid(), limited(asset.getName(), 100, "Unnamed printer"),
                 limited(asset.getMachineNumber(), 50, null), limited(asset.getFirmwareType(), 32, "UNKNOWN"),
-                canonicalStates == null || asset.getId() == null ? null : canonicalStates.findLatestForCloud(asset.getId())))
+                canonicalStates == null || asset.getId() == null ? null : readCanonical(canonicalStates, asset.getId())))
                 .toList();
+    }
+
+    private CanonicalPrinterModel readCanonical(CanonicalPrinterStateService states, long printerId) {
+        try {
+            return states.findLatestForCloud(printerId);
+        } catch (IllegalStateException invalidModel) {
+            long now = System.currentTimeMillis();
+            if (invalidModelWarnings.size() >= 200 && !invalidModelWarnings.containsKey(printerId)) {
+                invalidModelWarnings.clear();
+            }
+            invalidModelWarnings.compute(printerId, (id, last) -> {
+                if (last == null || now - last >= Duration.ofMinutes(5).toMillis()) {
+                    log.warn("Cloud canonical model is invalid; skipping printerId={}", id);
+                    return now;
+                }
+                return last;
+            });
+            return null;
+        }
     }
 
     public String sourceInstanceId() {

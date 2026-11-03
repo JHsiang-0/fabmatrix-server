@@ -67,7 +67,7 @@ T3.5 进度：Cloud 全量 `mvnw verify` 69 项通过，JAR 打包成功；覆�
 
 T4.1 进度：Flutter Cloud DTO/Repository 已覆盖 V2 canonical descriptor、observation、current execution、last execution result、设备 identity、执行/事件/告警/遥测历史及告警确认。原始 canonical model 递归只读保留，未知枚举保持原字符串；可选身份、测量、数组和历史字段按空/未知处理，未返回 canonicalModel 的旧 Cloud 状态继续按旧字段解析。测试覆盖未知状态、缺失字段、旧响应兼容和执行结果解析。T4.1 已完成。
 
-T4.2 进度：设备详情页展示稳定设备 UID、本地设备 ID、descriptor/observation revision、固件/位置/材料/喷嘴、能力、通道观测、当前执行与上次执行结果，并沿用 freshness 条件隐藏过期数值。Cloud 农场/设备查询、设备状态、分页和详情导航已随 Flutter `49df3fa` 提交；列表摘要目前仍未完整展示 canonical identity、capability、execution 与 revision。列表及模型详情的 Cloud/手机真机联调未完成，因此 T4.2 保持未完成。
+T4.2 进度：设备详情页展示稳定设备 UID、本地设备 ID、descriptor/observation revision、固件/位置/材料/喷嘴、能力、通道观测、当前执行与上次执行结果，并沿用 freshness 条件隐藏过期数值。Flutter `79310e1` 增加列表中的现场设备 ID、固件、版本、能力项数量和执行摘要，过期时隐藏执行；`2e71fe7` 以真实隔离 Cloud 响应验证列表与详情。Server JAR、Cloud MySQL/EMQX 和 Flutter 测试客户端的 C1/C2 33 项通过；Android 手机及真实设备联调未完成，因此 T4.2 保持未完成。
 
 ## T4 手机完整模型展示
 

@@ -433,21 +433,36 @@ class CloudGatewayTest {
                 com.fasterxml.jackson.databind.node.TextNode.valueOf("private-sensor-secret"),
                 CanonicalPrinterModel.Quality.GOOD, at, CanonicalPrinterModel.MeasurementSource.DEVICE);
         var o = model.observation();
+        var missingSensor = new CanonicalPrinterModel.Measurement<com.fasterxml.jackson.databind.JsonNode>(
+                com.fasterxml.jackson.databind.node.NullNode.instance, CanonicalPrinterModel.Quality.UNSUPPORTED,
+                null, CanonicalPrinterModel.MeasurementSource.NONE);
         var changed = new CanonicalPrinterModel.Observation(o.id(), o.deviceBootId(), o.revision(), o.descriptorRevision(),
                 o.captureStartedAt(), o.observedAt(), o.completeness(), o.connection(), o.systemState(), o.operationState(),
                 o.currentToolId(), o.heaters(), o.fans(), o.motion(),
-                List.of(new CanonicalPrinterModel.SensorState("sensor", null, unsafeReading)), execution,
+                List.of(new CanonicalPrinterModel.SensorState("sensor", missingSensor, unsafeReading)), execution,
                 o.lastExecutionResult(), List.of(new CanonicalPrinterModel.Issue(
                         CanonicalPrinterModel.IssueCode.DEVICE_FAULT, CanonicalPrinterModel.Severity.WARNING, "private-fault-text")));
 
+        var d = model.descriptor();
+        var descriptor = new CanonicalPrinterModel.Descriptor(d.revision(), d.name(), d.machineNumber(),
+                d.firmwareFamily(), d.firmwareVersion(), d.connectionMode(), d.machineMode(), d.emulated(),
+                d.primaryToolId(), d.primaryBedHeaterId(), d.tools(), d.heaters(), d.fans(), d.axes(),
+                List.of(new CanonicalPrinterModel.SensorDescriptor("sensor", "Sensor", "OTHER", null)),
+                d.capabilities(), d.locationLabel(), d.configuredMaterial(), d.configuredNozzleDiameterMm());
+        com.example.farm.protocol.model.CanonicalPrinterModelValidator.validate(
+                new CanonicalPrinterModel(model.modelVersion(), model.identity(), descriptor, changed));
+
         var projected = CloudCanonicalStateMapper.project(new CanonicalPrinterModel(model.modelVersion(),
-                model.identity(), model.descriptor(), changed));
+                model.identity(), descriptor, changed));
         String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(projected);
         assertThat(json).doesNotContain("local-sensitive-job", "private-network", "private-sensor-secret", "private-fault-text");
         assertThat(projected.observation().currentExecution().file().name()).isEqualTo("fixture.gcode");
         assertThat(projected.observation().currentExecution().file().sha256()).isNull();
         assertThat(projected.observation().sensors().getFirst().reading().quality())
                 .isEqualTo(CanonicalPrinterModel.Quality.INVALID);
+        assertThat(projected.observation().sensors().getFirst().enabled().quality())
+                .isEqualTo(CanonicalPrinterModel.Quality.UNSUPPORTED);
+        assertThat(projected.observation().sensors().getFirst().enabled().value()).isNull();
     }
 
     @Test void fileWritesAreAtomicBoundedAndOwnerProtected() throws Exception {

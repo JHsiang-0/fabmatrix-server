@@ -129,10 +129,11 @@ public final class CanonicalPrinterModelValidator {
 
     private static void validateJson(CanonicalPrinterModel.Measurement<com.fasterxml.jackson.databind.JsonNode> value) {
         if (value == null) return;
+        boolean missing = value.value() == null || value.value().isNull();
         if (value.quality() == null || value.source() == null
                 || (value.quality() == CanonicalPrinterModel.Quality.GOOD
-                && (value.value() == null || value.observedAt() == null))
-                || (value.quality() != CanonicalPrinterModel.Quality.GOOD && value.value() != null)) {
+                && (missing || value.observedAt() == null))
+                || (value.quality() != CanonicalPrinterModel.Quality.GOOD && !missing)) {
             throw new IllegalArgumentException("Sensor measurement quality is inconsistent");
         }
     }

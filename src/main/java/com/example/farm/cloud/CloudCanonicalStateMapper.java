@@ -53,6 +53,9 @@ final class CloudCanonicalStateMapper {
 
     private static Measurement<JsonNode> safeSensor(Measurement<JsonNode> measurement, boolean booleanOnly) {
         if (measurement == null || measurement.value() == null) { return required(measurement); }
+        if (measurement.value().isNull()) {
+            return new Measurement<>(null, measurement.quality(), measurement.observedAt(), measurement.source());
+        }
         JsonNode value = measurement.value();
         if (value.isBoolean() || (!booleanOnly && value.isNumber())) { return measurement; }
         return new Measurement<>(null, Quality.INVALID, null, MeasurementSource.NONE);

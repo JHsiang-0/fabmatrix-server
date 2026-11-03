@@ -1,6 +1,7 @@
 package com.example.farm.cloud;
 
 import com.example.farm.protocol.model.CanonicalPrinterModel;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import static com.example.farm.protocol.model.CanonicalPrinterModel.*;
 
@@ -20,13 +21,14 @@ final class CloudCanonicalStateMapper {
                 required(a.homed()))).toList();
         var safeMotion = new Motion(motion.coordinateSpace(), axes, required(motion.speedFactor()),
                 required(motion.flowFactor()));
-        var sensors = original.sensors().stream().map(s -> new SensorState(s.id(), required(s.enabled()),
-                required(s.reading()))).toList();
+        var sensors = original.sensors().stream().map(s -> new SensorState(s.id(), safeSensor(s.enabled(), true),
+                safeSensor(s.reading(), false))).toList();
+        var issues = original.issues().stream().map(issue -> new Issue(issue.code(), issue.severity(), null)).toList();
         var observation = new Observation(original.id(), original.deviceBootId(), original.revision(),
                 original.descriptorRevision(), original.captureStartedAt(), original.observedAt(),
                 original.completeness(), original.connection(), original.systemState(), original.operationState(),
                 original.currentToolId(), heaters, fans, safeMotion, sensors, execution(original.currentExecution()),
-                original.lastExecutionResult(), original.issues());
+                original.lastExecutionResult(), issues);
         return new CanonicalPrinterModel(model.modelVersion(), model.identity(), model.descriptor(), observation);
     }
 
@@ -36,7 +38,7 @@ final class CloudCanonicalStateMapper {
         var layers = execution.layers();
         var remaining = execution.estimatedRemaining();
         return new Execution(execution.id(), execution.source(), execution.kind(), null, execution.firstObservedAt(),
-                execution.startedAt(), execution.file(), required(execution.progressPercent()), execution.progressMethod(),
+                execution.startedAt(), safeFile(execution.file()), required(execution.progressPercent()), execution.progressMethod(),
                 required(execution.filePositionBytes()),
                 new Timing(required(timing.printSeconds()), required(timing.totalSeconds()), required(timing.activeSeconds()),
                         required(timing.warmupSeconds()), required(timing.pausedSeconds()),
@@ -47,5 +49,26 @@ final class CloudCanonicalStateMapper {
 
     private static <T> Measurement<T> required(Measurement<T> measurement) {
         return measurement == null ? new Measurement<>(null, Quality.UNAVAILABLE, null, MeasurementSource.NONE) : measurement;
+    }
+
+    private static Measurement<JsonNode> safeSensor(Measurement<JsonNode> measurement, boolean booleanOnly) {
+        if (measurement == null || measurement.value() == null) { return required(measurement); }
+        JsonNode value = measurement.value();
+        if (value.isBoolean() || (!booleanOnly && value.isNumber())) { return measurement; }
+        return new Measurement<>(null, Quality.INVALID, null, MeasurementSource.NONE);
+    }
+
+    private static FileSummary safeFile(FileSummary file) {
+        if (file == null) { return null; }
+        String name = file.name();
+        if (name != null) {
+            int separator = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+            name = name.substring(separator + 1).replaceAll("[:\\p{Cntrl}]", "_");
+            if (name.length() > 128) { name = name.substring(0, 128); }
+            if (name.isBlank()) { name = null; }
+        }
+        Long size = file.sizeBytes() != null && file.sizeBytes() >= 0 ? file.sizeBytes() : null;
+        String hash = file.sha256() != null && file.sha256().matches("(?i)[0-9a-f]{64}") ? file.sha256() : null;
+        return new FileSummary(name, size, hash);
     }
 }

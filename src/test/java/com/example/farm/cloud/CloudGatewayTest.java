@@ -8,6 +8,7 @@ import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.example.farm.protocol.observation.PrinterObservationView;
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.protocol.model.CanonicalPrinterModelMapper;
+import com.example.farm.protocol.model.CanonicalPrinterModel;
 import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.service.PrinterEventOutbox;
 import com.example.farm.protocol.model.CanonicalPrinterEvent;
@@ -387,6 +388,46 @@ class CloudGatewayTest {
                 packet.path("epoch").asLong(), packet.path("sequence").asLong(), "ACCEPTED", "OK"));
         ReflectionTestUtils.invokeMethod(agent, "tick");
         verify(mqtt, times(1)).publish(endsWith("up/printer-state"), any(byte[].class), eq(1), eq(false));
+    }
+
+    @Test void canonicalProjectionRemovesPrivatePathsDiagnosticsAndNonScalarSensorData() throws Exception {
+        var printer = asset(7L);
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        var at = Instant.now();
+        var source = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        var model = CanonicalPrinterModelMapper.map(printer, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, source, null, true, at);
+        var unavailable = new CanonicalPrinterModel.Measurement<java.math.BigDecimal>(null,
+                CanonicalPrinterModel.Quality.UNSUPPORTED, null, CanonicalPrinterModel.MeasurementSource.NONE);
+        var unknownCount = new CanonicalPrinterModel.Measurement<Long>(null,
+                CanonicalPrinterModel.Quality.UNSUPPORTED, null, CanonicalPrinterModel.MeasurementSource.NONE);
+        var execution = new CanonicalPrinterModel.Execution(UUID.randomUUID(), CanonicalPrinterModel.ExecutionSource.FARM,
+                CanonicalPrinterModel.ExecutionKind.PRINT, "local-sensitive-job", at, at,
+                new CanonicalPrinterModel.FileSummary("D:\\private-network\\fixture.gcode", 123L, "invalid-hash"),
+                unavailable, CanonicalPrinterModel.ProgressMethod.UNKNOWN, unknownCount,
+                new CanonicalPrinterModel.Timing(unavailable, unavailable, unavailable, unavailable, unavailable, unavailable),
+                new CanonicalPrinterModel.Layers(unknownCount, unknownCount), unavailable, null);
+        var unsafeReading = new CanonicalPrinterModel.Measurement<com.fasterxml.jackson.databind.JsonNode>(
+                com.fasterxml.jackson.databind.node.TextNode.valueOf("private-sensor-secret"),
+                CanonicalPrinterModel.Quality.GOOD, at, CanonicalPrinterModel.MeasurementSource.DEVICE);
+        var o = model.observation();
+        var changed = new CanonicalPrinterModel.Observation(o.id(), o.deviceBootId(), o.revision(), o.descriptorRevision(),
+                o.captureStartedAt(), o.observedAt(), o.completeness(), o.connection(), o.systemState(), o.operationState(),
+                o.currentToolId(), o.heaters(), o.fans(), o.motion(),
+                List.of(new CanonicalPrinterModel.SensorState("sensor", null, unsafeReading)), execution,
+                o.lastExecutionResult(), List.of(new CanonicalPrinterModel.Issue(
+                        CanonicalPrinterModel.IssueCode.DEVICE_FAULT, CanonicalPrinterModel.Severity.WARNING, "private-fault-text")));
+
+        var projected = CloudCanonicalStateMapper.project(new CanonicalPrinterModel(model.modelVersion(),
+                model.identity(), model.descriptor(), changed));
+        String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(projected);
+        assertThat(json).doesNotContain("local-sensitive-job", "private-network", "private-sensor-secret", "private-fault-text");
+        assertThat(projected.observation().currentExecution().file().name()).isEqualTo("fixture.gcode");
+        assertThat(projected.observation().currentExecution().file().sha256()).isNull();
+        assertThat(projected.observation().sensors().getFirst().reading().quality())
+                .isEqualTo(CanonicalPrinterModel.Quality.INVALID);
     }
 
     @Test void fileWritesAreAtomicBoundedAndOwnerProtected() throws Exception {

@@ -564,10 +564,12 @@ class CloudGatewayTest {
         var model = CanonicalPrinterModelMapper.map(first, java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
                 1, 1, observation, null, true, at);
         when(states.findLatestForCloud(1L)).thenReturn(model);
-        when(states.findLatestForCloud(2L)).thenThrow(new IllegalStateException("private fixture error"));
+        when(states.findLatestForCloud(2L)).thenThrow(
+                new CanonicalPrinterStateService.InvalidStoredModelException(new IllegalArgumentException("private fixture error")));
         when(provider.getIfAvailable()).thenReturn(states);
 
-        var captured = new CloudSnapshotSource(printers, cache, provider).captureCanonical();
+        var source = new CloudSnapshotSource(printers, cache, provider);
+        var captured = source.captureCanonical();
         assertThat(captured).hasSize(2);
         assertThat(captured.getFirst().localPrinterId()).isEqualTo("1");
         assertThat(captured.getFirst().deviceUid()).isEqualTo(first.getDeviceUid());
@@ -576,6 +578,9 @@ class CloudGatewayTest {
         assertThat(captured.get(1).model()).isNull();
         verify(states).findLatestForCloud(1L);
         verify(states).findLatestForCloud(2L);
+        doThrow(new IllegalStateException("storage unavailable")).when(states).findLatestForCloud(2L);
+        assertThatThrownBy(source::captureCanonical).isInstanceOf(IllegalStateException.class)
+                .hasMessage("storage unavailable");
     }
 
     @Test void inventoryCaptureUsesStableIdsAndRejectsUnknownFirmwareWithoutDroppingDevices() {

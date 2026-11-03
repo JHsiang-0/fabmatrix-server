@@ -79,7 +79,7 @@ public class CloudSnapshotSource {
     private CanonicalPrinterModel readCanonical(CanonicalPrinterStateService states, long printerId) {
         try {
             return states.findLatestForCloud(printerId);
-        } catch (IllegalStateException invalidModel) {
+        } catch (CanonicalPrinterStateService.InvalidStoredModelException invalidModel) {
             long now = System.currentTimeMillis();
             if (invalidModelWarnings.size() >= 200 && !invalidModelWarnings.containsKey(printerId)) {
                 invalidModelWarnings.clear();

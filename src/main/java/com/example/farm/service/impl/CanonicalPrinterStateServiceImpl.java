@@ -133,7 +133,7 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
             Printer printer = printerMapper.selectById(printerId);
             return printer == null ? null : model.withConnectionHealth(currentConnection(printer));
         } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
-            throw new IllegalStateException("Stored canonical printer model is invalid", invalid);
+            throw new InvalidStoredModelException(invalid);
         }
     }
 

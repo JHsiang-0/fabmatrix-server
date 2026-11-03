@@ -41,6 +41,17 @@ class CloudGatewayTest {
         assertThat(CloudGatewayAgent.legacyFallback(true).selectedSchemaVersion()).isEqualTo(2);
     }
 
+    @Test void uploadBudgetLimitsAggregatePayloadAndRefillsOverTime() {
+        var limiter = new CloudBandwidthLimiter(65_536, 0);
+        assertThat(limiter.tryAcquire(65_536, 0)).isTrue();
+        assertThat(limiter.tryAcquire(1, 0)).isFalse();
+        assertThat(limiter.tryAcquire(32_768, 500_000_000L)).isTrue();
+        assertThat(limiter.tryAcquire(1, 500_000_000L)).isFalse();
+        assertThat(limiter.tryAcquire(32_768, 1_000_000_000L)).isTrue();
+        assertThatThrownBy(() -> new CloudBandwidthLimiter(1, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> limiter.tryAcquire(65_537, 0)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test void legacyProtocolsPublishSnapshotsWithoutWaitingForV3Inventory() throws Exception {
         for (int version : List.of(1, 2)) {
             var properties = new CloudGatewayProperties();

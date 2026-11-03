@@ -13,6 +13,7 @@ public class CloudGatewayProperties {
     private boolean enabled;
     private boolean observationV2Enabled;
     private boolean observationV3Enabled;
+    private int maxUploadBytesPerSecond = 131072;
     private String apiUrl = "";
     private String mqttUrl = "";
     private String caCertificate = "";

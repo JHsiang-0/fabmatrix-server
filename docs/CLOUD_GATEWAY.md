@@ -9,6 +9,7 @@
 | FARM_CLOUD_ENABLED | 默认 false，配置完成后显式 true |
 | FARM_CLOUD_OBSERVATION_V2_ENABLED | 默认 false；确认云端已升级并应用 V5 后设为 true，启用 V2 受限观测快照 |
 | FARM_CLOUD_OBSERVATION_V3_ENABLED | 默认 false；Cloud 已支持 V3 并完成数据库迁移后设为 true，启用单设备 canonical 观测和执行上报 |
+| FARM_CLOUD_MAX_UPLOAD_BYTES_PER_SECOND | 应用消息每秒字节预算，默认 131072，允许 16384–10485760；含重发，不含 MQTT/TLS 网络开销 |
 | FARM_CLOUD_API_URL | 云 HTTPS 根地址，无路径/查询；HTTP 仅允许字面 loopback 调试 |
 | FARM_CLOUD_MQTT_URL | ssl://域名:8883，强制验证证书和主机名 |
 | FARM_CLOUD_CA_CERTIFICATE | 可选 CA PEM 路径，空使用系统信任 |

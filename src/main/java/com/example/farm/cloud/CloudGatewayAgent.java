@@ -53,6 +53,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private URI api;
     private MqttClient mqtt;
     private javax.net.ssl.SSLContext tls;
+    private CloudBandwidthLimiter bandwidth;
     private long epoch;
     private long sequence;
     private boolean registered;
@@ -187,10 +188,13 @@ public class CloudGatewayAgent implements SmartLifecycle {
             }
             if (pending != null && now - pending.lastSentAt() >= 5000) {
                 String topic = credential.topicPrefix() + "up/" + topicSegment(pending.type());
-                mqtt.publish(topic, pending.raw().getBytes(StandardCharsets.UTF_8), 1, false);
-                pending = new Pending(pending.messageId(), pending.epoch(), pending.sequence(), pending.observedAt(),
-                        pending.type(), pending.localPrinterId(), pending.descriptorRevision(), pending.observationId(),
-                        pending.eventId(), pending.raw(), now);
+                byte[] bytes = pending.raw().getBytes(StandardCharsets.UTF_8);
+                if (bandwidth.tryAcquire(bytes.length, System.nanoTime())) {
+                    mqtt.publish(topic, bytes, 1, false);
+                    pending = new Pending(pending.messageId(), pending.epoch(), pending.sequence(), pending.observedAt(),
+                            pending.type(), pending.localPrinterId(), pending.descriptorRevision(), pending.observationId(),
+                            pending.eventId(), pending.raw(), now);
+                }
             }
             retrySeconds = 1;
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
@@ -212,6 +216,10 @@ public class CloudGatewayAgent implements SmartLifecycle {
     }
 
     private void prepare() throws Exception {
+        if (bandwidth == null) {
+            try { bandwidth = new CloudBandwidthLimiter(properties.getMaxUploadBytesPerSecond(), System.nanoTime()); }
+            catch (IllegalArgumentException invalid) { throw new RemoteFailure("CLOUD_BANDWIDTH_INVALID"); }
+        }
         if (http == null) {
             api = CloudTls.apiUri(properties.getApiUrl());
             URI broker = URI.create(properties.getMqttUrl());

@@ -2,7 +2,9 @@
 
 日期：2026-11-01。产品仍为 `1.0.0`；归属 C2 云只读扩展设计。`modelVersion=2` 是数据契约版本，不是产品 v2，也不表示启用 v3 自动派单。
 
-状态：**设计与契约验证完成，Server 已有来源/设备/执行 UUID、canonical Java 对象与最新模型 SQLite 持久化基础；固件完整采集、Cloud V3 消费与手机展示仍未完成**。现有 LAN API、设备动作和 Cloud V1/受限 V2 上报继续以实际代码为准。
+当前状态（2026-11-03）：Server 已实现 canonical 模型持久化、V3 协商及库存、描述、观测、执行和事件上报；Cloud 已实现 V3 消费、存储与授权查询；Flutter 已接入列表、详情及历史。隔离环境已串联真实 Server JAR、Cloud MySQL/EMQX 和 Flutter 测试客户端。V3 上报默认关闭，设备与告警 fixture 为合成数据，告警自动规则和真实设备、Android 真机验收仍未完成。准确进度和最新证据以 [Kiro 任务清单](../.kiro/specs/unified-device-model/tasks.md) 为准。
+
+本文下方保留 2026-11-01 至 T2.7 的设计和阶段记录，其中“尚未实现”“现有版本”等陈述描述当时状态，不能作为当前部署或能力清单；部署与开关以 [CLOUD_GATEWAY.md](CLOUD_GATEWAY.md) 为准。
 
 ## 1. 统一契约入口
 

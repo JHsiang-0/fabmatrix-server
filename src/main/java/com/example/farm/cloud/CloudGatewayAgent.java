@@ -61,10 +61,15 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private List<CloudWire.CanonicalPacket> inventoryPlan;
     private int inventoryPartIndex;
     private boolean inventoryComplete;
+    private String acknowledgedInventoryBody;
+    private String plannedInventoryBody;
+    private long lastInventoryScan;
+    private long lastInventoryRevision = -1;
     private List<CloudWire.CanonicalDescriptorPacket> descriptorPlan;
     private int descriptorIndex;
     private long lastDescriptorScan;
     private final Map<String, Long> acknowledgedDescriptorRevisions = new HashMap<>();
+    private final Map<String, String> acknowledgedDescriptorDeviceUids = new HashMap<>();
     private final Map<String, String> acknowledgedObservations = new HashMap<>();
     private List<CloudSnapshotSource.CanonicalAsset> canonicalAssets = List.of();
     private long lastCanonicalScan;
@@ -129,6 +134,10 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     inventoryPlan = null; inventoryPartIndex = 0; inventoryComplete = false;
                 }
             }
+            if (protocol.selectedSchemaVersion() == 3 && inventoryComplete && pending == null
+                    && now - lastInventoryScan >= 5000) {
+                refreshInventoryIfChanged(now);
+            }
             if (protocol.selectedSchemaVersion() == 3 && !inventoryComplete) {
                 prepareInventoryPending();
             }
@@ -146,6 +155,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 boolean observationEnabled = legacySchemaVersion == 2;
                 var printers = observationEnabled ? source.captureV2() : source.capture();
                 if (printers.size() > protocol.maxPrinters()) { throw new RemoteFailure("PRINTER_LIMIT_EXCEEDED"); }
+                if (protocol.selectedSchemaVersion() == 3 && !snapshotMatchesInventory(printers, now)) { return; }
                 lastCapture = now;
                 var payload = new CloudWire.Payload("1.0.0", printers.size(), printers);
                 String body = json.writeValueAsString(payload);
@@ -348,10 +358,21 @@ public class CloudGatewayAgent implements SmartLifecycle {
             if (inventoryPlan != null && inventoryPartIndex >= inventoryPlan.size()) {
                 inventoryComplete = "ACCEPTED_INVENTORY".equals(ack.result());
                 if (!inventoryComplete) { inventoryPlan = null; inventoryPartIndex = 0; }
+                else if (!java.util.Objects.equals(acknowledgedInventoryBody, plannedInventoryBody)) {
+                    acknowledgedInventoryBody = plannedInventoryBody;
+                    acknowledgedDescriptorRevisions.clear();
+                    acknowledgedDescriptorDeviceUids.clear();
+                    acknowledgedObservations.clear();
+                    canonicalAssets = List.of();
+                    lastCanonicalScan = 0;
+                    lastDescriptorScan = 0;
+                }
             }
         }
         if ("PRINTER_DESCRIPTOR".equals(pending.type()) && java.util.Set.of("ACCEPTED", "DUPLICATE").contains(ack.result())) {
             acknowledgedDescriptorRevisions.put(pending.localPrinterId(), pending.descriptorRevision());
+            acknowledgedDescriptorDeviceUids.put(pending.localPrinterId(),
+                    descriptorPlan.get(descriptorIndex).payload().identity().deviceUid().toString());
             descriptorIndex++;
             if (descriptorPlan != null && descriptorIndex >= descriptorPlan.size()) {
                 descriptorPlan = null;
@@ -374,12 +395,14 @@ public class CloudGatewayAgent implements SmartLifecycle {
         if (inventoryPlan == null) {
             String sourceInstanceId = source.sourceInstanceId();
             var devices = source.captureInventoryDevices(sourceInstanceId);
+            plannedInventoryBody = json.writeValueAsString(devices);
             inventoryPlan = CloudInventoryPlan.build(json, credential.gatewayId(), credential.bindingVersion(), bootId,
-                    epoch, sequence + 1, Instant.now(), sourceInstanceId, System.currentTimeMillis(), devices,
+                    epoch, sequence + 1, Instant.now(), sourceInstanceId, nextInventoryRevision(), devices,
                     protocol.maxMessageBytes(), protocol.maxPrinters(), protocol.maxInventoryParts(), protocol.maxInventoryBytes());
             sequence += inventoryPlan.size();
             canonicalSourceInstanceId = sourceInstanceId;
             inventoryPartIndex = 0;
+            lastInventoryScan = System.currentTimeMillis();
         }
         if (inventoryPartIndex >= inventoryPlan.size()) { inventoryComplete = true; return; }
         var packet = inventoryPlan.get(inventoryPartIndex);
@@ -401,7 +424,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 throw new RemoteFailure("LOCAL_CANONICAL_IDENTITY_MISMATCH");
             }
             long revision = model.descriptor().revision();
-            if (revision <= acknowledgedDescriptorRevisions.getOrDefault(asset.localPrinterId(), 0L)) { continue; }
+            if (asset.deviceUid().equals(acknowledgedDescriptorDeviceUids.get(asset.localPrinterId()))
+                    && revision <= acknowledgedDescriptorRevisions.getOrDefault(asset.localPrinterId(), 0L)) { continue; }
             var payload = new CloudWire.DescriptorPayload(model.identity(), model.descriptor());
             var packet = new CloudWire.CanonicalDescriptorPacket(3, UUID.randomUUID().toString(),
                     "PRINTER_DESCRIPTOR", credential.gatewayId(), credential.bindingVersion(), bootId, epoch,
@@ -477,6 +501,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 throw new RemoteFailure("LOCAL_CANONICAL_IDENTITY_MISMATCH");
             }
             if (acknowledgedDescriptorRevisions.getOrDefault(asset.localPrinterId(), 0L) != model.descriptor().revision()
+                    || !asset.deviceUid().equals(acknowledgedDescriptorDeviceUids.get(asset.localPrinterId()))
                     || observation.connection().status() != com.example.farm.protocol.model.CanonicalPrinterModel.ConnectionStatus.ONLINE
                     || !observation.connection().monitorEnabled()
                     || observation.completeness() == com.example.farm.protocol.model.CanonicalPrinterModel.Completeness.INCONSISTENT
@@ -508,6 +533,46 @@ public class CloudGatewayAgent implements SmartLifecycle {
             case "PRINTER_EVENT" -> "event";
             default -> type.toLowerCase(java.util.Locale.ROOT);
         };
+    }
+
+    private void refreshInventoryIfChanged(long now) throws Exception {
+        var current = source.captureInventoryDevices(source.sourceInstanceId());
+        lastInventoryScan = now;
+        if (!json.writeValueAsString(current).equals(acknowledgedInventoryBody)) { invalidateInventory(); }
+    }
+
+    private boolean snapshotMatchesInventory(List<CloudWire.Printer> printers, long now) throws Exception {
+        var current = source.captureInventoryDevices(source.sourceInstanceId());
+        lastInventoryScan = now;
+        var snapshotIds = printers.stream().map(CloudWire.Printer::localPrinterId).collect(java.util.stream.Collectors.toSet());
+        var inventoryIds = current.stream().map(device -> device.identity().localPrinterId())
+                .collect(java.util.stream.Collectors.toSet());
+        if (!snapshotIds.equals(inventoryIds) || !json.writeValueAsString(current).equals(acknowledgedInventoryBody)) {
+            invalidateInventory();
+            return false;
+        }
+        return true;
+    }
+
+    private void invalidateInventory() {
+        inventoryComplete = false;
+        inventoryPlan = null;
+        inventoryPartIndex = 0;
+        descriptorPlan = null;
+        lastSnapshotBody = null;
+    }
+
+    private long nextInventoryRevision() throws IOException {
+        Path revisionFile = Path.of(properties.getStateDirectory()).resolve("cloud-inventory-revision.txt");
+        if (lastInventoryRevision < 0) {
+            lastInventoryRevision = Files.exists(revisionFile)
+                    ? Long.parseLong(CloudAgentFiles.read(revisionFile, 32).trim()) : 0;
+        }
+        long next = Math.max(System.currentTimeMillis(), Math.addExact(lastInventoryRevision, 1));
+        if (next > 9_007_199_254_740_991L) { throw new IOException("INVENTORY_REVISION_EXHAUSTED"); }
+        CloudAgentFiles.write(revisionFile, Long.toString(next));
+        lastInventoryRevision = next;
+        return next;
     }
 
     private Path pendingFile() { return Path.of(properties.getStateDirectory()).resolve("cloud-snapshot-pending.json"); }

@@ -90,6 +90,50 @@ class CloudGatewayTest {
                 .path("payload").path("partIndex").asInt()).isEqualTo(1);
     }
 
+    @Test void inventoryChangesAreReconciledAndRevisionSurvivesAgentRestart() throws Exception {
+        var properties = new CloudGatewayProperties();
+        properties.setStateDirectory(temp.resolve("inventory-refresh").toString());
+        var source = mock(CloudSnapshotSource.class);
+        String sourceId = UUID.randomUUID().toString();
+        var first = new CloudSnapshotSource.InventoryDevice(
+                new CloudSnapshotSource.InventoryIdentity(sourceId, UUID.randomUUID().toString(), "1"),
+                new CloudSnapshotSource.InventoryDescriptorSummary("Printer 1", null, "KLIPPER"));
+        var second = new CloudSnapshotSource.InventoryDevice(
+                new CloudSnapshotSource.InventoryIdentity(sourceId, UUID.randomUUID().toString(), "2"),
+                new CloudSnapshotSource.InventoryDescriptorSummary("Printer 2", null, "RRF"));
+        when(source.sourceInstanceId()).thenReturn(sourceId);
+        when(source.captureInventoryDevices(sourceId)).thenReturn(List.of(first));
+        var mqtt = mock(MqttClient.class);
+        var agent = connectedAgent(properties, source, mqtt, 3);
+        ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "lastDescriptorScan", System.currentTimeMillis());
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+        var bytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt).publish(endsWith("up/inventory"), bytes.capture(), eq(1), eq(false));
+        var initial = new ObjectMapper().readTree(bytes.getValue());
+        ReflectionTestUtils.setField(agent, "receivedAck", new CloudWire.Ack(initial.path("messageId").asText(),
+                initial.path("epoch").asLong(), initial.path("sequence").asLong(), "ACCEPTED_INVENTORY", "OK"));
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+
+        when(source.captureInventoryDevices(sourceId)).thenReturn(List.of(first, second));
+        ReflectionTestUtils.setField(agent, "lastInventoryScan", 0L);
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+        var sent = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt, times(2)).publish(endsWith("up/inventory"), sent.capture(), eq(1), eq(false));
+        var updated = new ObjectMapper().readTree(sent.getAllValues().get(1));
+        assertThat(updated.path("payload").path("devices")).hasSize(2);
+        assertThat(updated.path("payload").path("revision").asLong())
+                .isGreaterThan(initial.path("payload").path("revision").asLong());
+
+        var restartedMqtt = mock(MqttClient.class);
+        var restarted = connectedAgent(properties, source, restartedMqtt, 3);
+        ReflectionTestUtils.invokeMethod(restarted, "tick");
+        var restartedBytes = ArgumentCaptor.forClass(byte[].class);
+        verify(restartedMqtt).publish(endsWith("up/inventory"), restartedBytes.capture(), eq(1), eq(false));
+        assertThat(new ObjectMapper().readTree(restartedBytes.getValue()).path("payload").path("revision").asLong())
+                .isGreaterThan(updated.path("payload").path("revision").asLong());
+    }
+
     private CloudGatewayAgent connectedAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
                                               MqttClient mqtt, int version) throws Exception {
         return connectedAgent(properties, source, mqtt, version, null);
@@ -135,6 +179,7 @@ class CloudGatewayTest {
             var agent = connectedAgent(properties, source, mqtt, 3, provider);
             ReflectionTestUtils.setField(agent, "inventoryComplete", true);
             ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId.toString());
+            ReflectionTestUtils.setField(agent, "lastInventoryScan", System.currentTimeMillis());
             ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
             ReflectionTestUtils.setField(agent, "lastDescriptorScan", System.currentTimeMillis());
 
@@ -230,6 +275,7 @@ class CloudGatewayTest {
         when(source.captureCanonical()).thenReturn(List.of(asset));
         ReflectionTestUtils.setField(agent, "inventoryComplete", true);
         ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId.toString());
+        ReflectionTestUtils.setField(agent, "lastInventoryScan", System.currentTimeMillis());
         ReflectionTestUtils.setField(agent, "lastCapture", System.currentTimeMillis());
         ReflectionTestUtils.setField(agent, "lastDescriptorScan", System.currentTimeMillis());
 
@@ -238,6 +284,9 @@ class CloudGatewayTest {
         @SuppressWarnings("unchecked")
         var descriptorRevisions = (java.util.Map<String, Long>) ReflectionTestUtils.getField(agent, "acknowledgedDescriptorRevisions");
         descriptorRevisions.put("42", 1L);
+        @SuppressWarnings("unchecked")
+        var descriptorUids = (java.util.Map<String, String>) ReflectionTestUtils.getField(agent, "acknowledgedDescriptorDeviceUids");
+        descriptorUids.put("42", printer.getDeviceUid());
         ReflectionTestUtils.invokeMethod(agent, "tick");
 
         var bytes = ArgumentCaptor.forClass(byte[].class);

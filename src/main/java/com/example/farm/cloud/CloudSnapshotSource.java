@@ -63,8 +63,7 @@ public class CloudSnapshotSource {
 
     /** Captures the privacy-filtered asset identity and the last locally persisted full model. */
     public List<CanonicalAsset> captureCanonical() {
-        var assets = printers.list(Wrappers.<Printer>lambdaQuery().orderByAsc(Printer::getId).last("LIMIT 201"));
-        if (assets.size() > 200) { throw new IllegalStateException("Cloud gateway currently supports at most 200 printers"); }
+        var assets = assets();
         CanonicalPrinterStateService canonicalStates = canonicalStateServices == null
                 ? null : canonicalStateServices.getIfAvailable();
         return assets.stream().map(asset -> new CanonicalAsset(asset.getId() == null ? null : asset.getId().toString(),
@@ -82,19 +81,26 @@ public class CloudSnapshotSource {
 
     public List<InventoryDevice> captureInventoryDevices(String sourceInstanceId) {
         java.util.UUID.fromString(sourceInstanceId);
-        return captureCanonical().stream().map(asset -> {
-            if (asset.localPrinterId() == null || !asset.localPrinterId().matches("[A-Za-z0-9._:-]{1,64}")) {
+        return assets().stream().map(asset -> {
+            String localPrinterId = asset.getId() == null ? null : asset.getId().toString();
+            if (localPrinterId == null || !localPrinterId.matches("[A-Za-z0-9._:-]{1,64}")) {
                 throw new IllegalStateException("Cloud inventory contains an invalid local printer ID");
             }
-            java.util.UUID.fromString(asset.deviceUid());
-            String family = asset.firmwareType().toUpperCase(Locale.ROOT).contains("RRF")
-                    || asset.firmwareType().toUpperCase(Locale.ROOT).contains("REPRAP") ? "RRF"
-                    : asset.firmwareType().toUpperCase(Locale.ROOT).contains("KLIPPER") ? "KLIPPER" : null;
+            java.util.UUID.fromString(asset.getDeviceUid());
+            String firmware = limited(asset.getFirmwareType(), 32, "UNKNOWN").toUpperCase(Locale.ROOT);
+            String family = firmware.contains("RRF") || firmware.contains("REPRAP") ? "RRF"
+                    : firmware.contains("KLIPPER") ? "KLIPPER" : null;
             if (family == null) { throw new IllegalStateException("Cloud inventory contains an unsupported firmware family"); }
-            return new InventoryDevice(new InventoryIdentity(sourceInstanceId, asset.deviceUid(), asset.localPrinterId()),
-                    new InventoryDescriptorSummary(limited(asset.name(), 100, "Unnamed printer"),
-                            limited(asset.machineNumber(), 64, null), family));
+            return new InventoryDevice(new InventoryIdentity(sourceInstanceId, asset.getDeviceUid(), localPrinterId),
+                    new InventoryDescriptorSummary(limited(asset.getName(), 100, "Unnamed printer"),
+                            limited(asset.getMachineNumber(), 50, null), family));
         }).toList();
+    }
+
+    private List<Printer> assets() {
+        var result = printers.list(Wrappers.<Printer>lambdaQuery().orderByAsc(Printer::getId).last("LIMIT 201"));
+        if (result.size() > 200) { throw new IllegalStateException("Cloud gateway currently supports at most 200 printers"); }
+        return result;
     }
 
     public List<CloudWire.Printer> capture() {

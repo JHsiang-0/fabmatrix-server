@@ -13,4 +13,7 @@ public interface CanonicalPrinterStateService {
      * or null before its first observation or after its printer asset has been removed.
      */
     CanonicalPrinterModel findLatest(long printerId);
+
+    /** Reads a bounded model for cloud publication; oversized snapshots are omitted. */
+    CanonicalPrinterModel findLatestForCloud(long printerId);
 }

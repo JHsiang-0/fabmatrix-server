@@ -69,7 +69,7 @@ public class CloudSnapshotSource {
         return assets.stream().map(asset -> new CanonicalAsset(asset.getId() == null ? null : asset.getId().toString(),
                 asset.getDeviceUid(), limited(asset.getName(), 100, "Unnamed printer"),
                 limited(asset.getMachineNumber(), 50, null), limited(asset.getFirmwareType(), 32, "UNKNOWN"),
-                canonicalStates == null || asset.getId() == null ? null : canonicalStates.findLatest(asset.getId())))
+                canonicalStates == null || asset.getId() == null ? null : canonicalStates.findLatestForCloud(asset.getId())))
                 .toList();
     }
 

@@ -528,7 +528,7 @@ class CloudGatewayTest {
                 List.of(), List.of(), null, null);
         var model = CanonicalPrinterModelMapper.map(first, java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
                 1, 1, observation, null, true, at);
-        when(states.findLatest(1L)).thenReturn(model);
+        when(states.findLatestForCloud(1L)).thenReturn(model);
         when(provider.getIfAvailable()).thenReturn(states);
 
         var captured = new CloudSnapshotSource(printers, cache, provider).captureCanonical();
@@ -538,8 +538,8 @@ class CloudGatewayTest {
         assertThat(captured.getFirst().name()).isEqualTo("Canonical printer");
         assertThat(captured.getFirst().model()).isSameAs(model);
         assertThat(captured.get(1).model()).isNull();
-        verify(states).findLatest(1L);
-        verify(states).findLatest(2L);
+        verify(states).findLatestForCloud(1L);
+        verify(states).findLatestForCloud(2L);
     }
 
     @Test void inventoryCaptureUsesStableIdsAndRejectsUnknownFirmwareWithoutDroppingDevices() {

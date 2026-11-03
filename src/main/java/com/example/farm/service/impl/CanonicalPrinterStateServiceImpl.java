@@ -10,6 +10,7 @@ import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.service.PrinterExecutionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,14 +26,17 @@ import java.util.UUID;
 @Service
 @Profile("local")
 @RequiredArgsConstructor
+@Slf4j
 public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateService {
     private static final Duration CONNECTION_FRESHNESS = Duration.ofSeconds(30);
+    private static final int CLOUD_MODEL_MAX_BYTES = 128 * 1024;
 
     private final JdbcTemplate jdbcTemplate;
     private final PrinterMapper printerMapper;
     private final PrinterExecutionService executionService;
     private final ObjectMapper objectMapper;
     private final UUID deviceBootId = UUID.randomUUID();
+    private final Map<Long, Long> oversizedWarnings = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Override
     public boolean persist(Printer printer, PrinterObservation observation) {
@@ -87,13 +91,40 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
 
     @Override
     public CanonicalPrinterModel findLatest(long printerId) {
+        return findLatest(printerId, false);
+    }
+
+    @Override
+    public CanonicalPrinterModel findLatestForCloud(long printerId) {
+        return findLatest(printerId, true);
+    }
+
+    private CanonicalPrinterModel findLatest(long printerId, boolean bounded) {
         if (printerId <= 0) return null;
         String modelJson;
         try {
-            modelJson = jdbcTemplate.queryForObject(
-                    "SELECT model_json FROM farm_printer_canonical_state WHERE printer_id = ?",
-                    String.class, printerId);
+            modelJson = bounded
+                    ? jdbcTemplate.queryForObject("SELECT CASE WHEN length(CAST(model_json AS BLOB)) <= ? "
+                            + "THEN model_json ELSE NULL END FROM farm_printer_canonical_state WHERE printer_id = ?",
+                            String.class, CLOUD_MODEL_MAX_BYTES, printerId)
+                    : jdbcTemplate.queryForObject(
+                            "SELECT model_json FROM farm_printer_canonical_state WHERE printer_id = ?",
+                            String.class, printerId);
         } catch (EmptyResultDataAccessException missing) {
+            return null;
+        }
+        if (modelJson == null) {
+            long now = System.currentTimeMillis();
+            if (oversizedWarnings.size() >= 200 && !oversizedWarnings.containsKey(printerId)) {
+                oversizedWarnings.clear();
+            }
+            oversizedWarnings.compute(printerId, (id, last) -> {
+                if (last == null || now - last >= Duration.ofMinutes(5).toMillis()) {
+                    log.warn("Cloud canonical model exceeds {} bytes; skipping printerId={}", CLOUD_MODEL_MAX_BYTES, id);
+                    return now;
+                }
+                return last;
+            });
             return null;
         }
         try {

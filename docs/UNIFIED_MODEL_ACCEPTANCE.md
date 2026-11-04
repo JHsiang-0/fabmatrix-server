@@ -7,8 +7,8 @@
 | 范围 | 已验证 | 尚需确认 |
 | --- | --- | --- |
 | 来源、设备身份和绑定 | SQLite 启动升级、库存增删、网关重启、旧 ID 和绑定隔离有隔离测试；Cloud 设备 ID 保持稳定 | 现场数据库恢复、克隆与实际网关迁移按目标环境验收 |
-| Klipper、RRF 采集 | 合成响应覆盖状态、加热器、工具、风扇、轴、传感器、0 与缺失；两种固件真机空闲状态、工具和温度及 RRF 打印状态经只读接口、Cloud 和手机核对 | Klipper 真机打印过程及其他字段逐项核对；未能证明的字段继续为未知 |
-| 当前观测和执行 | Server SQLite → V3 → Cloud MySQL → Flutter 测试客户端覆盖多通道、质量、当前执行和文件摘要；RRF 真机打印时 Cloud 和手机显示打印中及进度 | 真机终态及暂停、断电恢复的完整过程仍需核对；不下发物理动作 |
+| Klipper、RRF 采集 | 合成响应覆盖状态、加热器、工具、风扇、轴、传感器、0 与缺失；两种固件真机空闲、打印、工具和温度经只读接口、Cloud 和手机核对；Klipper 零功率、RRF 切片剩余时间现场复验通过 | 其他字段逐项核对；未能证明的字段继续为未知 |
+| 当前观测和执行 | Server SQLite → V3 → Cloud MySQL → Flutter 测试客户端覆盖多通道、质量、当前执行和文件摘要；两种真机打印、明确取消及历史通过，RRF 暂停后关机再开机保留未知结果 | 自然完成及连续暂停/恢复的完整现场过程仍需核对；不下发物理动作 |
 | 事件、告警与遥测 | 事件 outbox、断网补报、重复去重、温度采样、查询及 Flutter 界面有隔离覆盖；告警查询和确认使用合成记录 | 告警自动规则尚未实现；真实设备事件与采样可用性待确认 |
 | 客户端时效和权限 | 旧协议兼容、组织/农场权限、离线与过期隐藏有自动测试；Android 真机覆盖网关重绑、设备离线恢复、虚拟设备删除和手机断网重试 | 实际账号权限变化及全部设备操作状态待验收 |
 
@@ -30,7 +30,7 @@
 - 用户启动 RRF 真机打印后，只读核对设备、Cloud 和手机：Cloud 显示打印中、文件位置计算的进度，手机显示打印状态、进度及加热数据，模型质量为 PARTIAL。设备提供的切片器剩余时间此前未完整传递，Server `2dfc878` 已修复，847 项全量测试通过。用户开机后重新启动打印，真机 processing、文件位置 18,263/40,691,069 字节、timesLeft.slicer=79,186 秒；Cloud 为 PRINTING、进度 0.04%（FILE_OFFSET），estimatedRemaining 为 SLICER/GOOD/SLICER_ESTIMATE、79,186 秒，手机详情显示相同剩余时间及热床/工具目标 60℃/230℃。该轮处于加热阶段，当前执行获得新的 UUID，上一轮 UNKNOWN/UNCONFIRMED 结果保留。剩余时间修复现场复验通过。
 - 用户确认先暂停再关机；设备无法连接后，Server 显示离线，最后协议状态为 paused，Cloud 显示离线并将旧观测标记为过期。随后用户重新开机，RRF 原生状态为 idle、uptime 约 125 秒且无活动任务，Server、Cloud 和手机恢复在线空闲，观测重新有效。原执行 ID 保持，currentExecution=null，lastExecutionResult 为 UNKNOWN/UNCONFIRMED、原因 TERMINAL_UNCONFIRMED，手机显示相同结果。Cloud 历史包含同一执行的开始、暂停和 EXECUTION_UNKNOWN 结束事件，以及设备离线和重连事件。本次验证了暂停后关机再开机的未知结果路径，正常完成或明确取消路径仍待验证。
 - 用户重新安装 Server 后，只读核对安装目录中的 JAR 与本地 `2dfc878` 构建的 SHA-256 一致，Windows 服务运行、网关 CONNECTED，Cloud 保持两台设备原 ID。Klipper 持续 ONLINE/IDLE 且观测有效，RRF OFFLINE 且旧观测过期。完整模型仍通过 V3 上报。
-- 当前安装包固定为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`，构建提交 `395e2b2`，SHA-256 `8C3925A8040FA6DE33A4E49C3103E659E055769AEFD8376D2D88FC6CFB88CD1B`，包含 Klipper 加热器功率和外部执行终态修复，853 项全量测试及安装器契约检查通过。该修复包尚未安装，现场仍运行已核对的 `2dfc878`。旧任务构建目录已由用户删除，后续构建仅使用固定目录。Cloud 已收拢到原始工作区并将功能快进合入本地 main。
+- 当前安装包固定为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`，构建提交 `395e2b2`，SHA-256 `8C3925A8040FA6DE33A4E49C3103E659E055769AEFD8376D2D88FC6CFB88CD1B`，包含 Klipper 加热器功率和外部执行终态修复，853 项全量测试及安装器契约检查通过。用户已安装，安装 JAR 与本地构建 SHA-256 均为 `076DF90AEA38924DC7359C3FEF1E3BDC4052C0DD12CBD4C6520997D5BFEBB25C`，服务运行、两台真机在线空闲且网关 CONNECTED。旧任务构建目录已由用户删除，后续构建仅使用固定目录。Cloud 已收拢到原始工作区并将功能快进合入本地 main。
 - 安装后继续只读核对 Klipper 的 Moonraker 与手机：当前工具 extruder、热床和工具目标温度 0℃、两个风扇比例 0、四轴位置及未归零状态相符；温度按各自采样时刻变化。Moonraker 返回加热器 power=0，而该安装版 canonical 显示功率未知，发现采集与映射遗漏，修复后仍需现场部署复验。手机已切换到两台真机所属测试农场。
 - 本次用原始 Cloud 工作区与 `2dfc878` Server JAR 重跑跨三端隔离检查，包含 Flutter、200 台模拟库存、16384 B/s 限速、双向各 150 毫秒 MQTT 延迟、Cloud HTTP/Broker 中断、重连及稳定身份，结果 PASS。此结果对应功率修复之前的构建。
 - 功率修复后使用 `a8af4c1` 新 JAR 再跑同一跨三端隔离场景，42 项检查通过，隔离资源清理通过。此轮未包含历史 JAR 回退参数，检查数量与此前 44 项场景不同；真实功率显示仍需安装后核对。
@@ -41,4 +41,5 @@
 - 用户随后取消，设备返回 cancelled、总运行约 222 秒且虚拟 SD 已停止。现场 Server 健康状态变为空闲，但 canonical 执行停在 PAUSED，Cloud 未收到终态；日志持续报告生命周期不一致。代码定位到外部执行结束仅处理 idle/standby、遗漏 Klipper cancelled/error 及 complete 分支的执行关闭，修复和现场复验进行中。
 - Server `395e2b2` 将外部执行的终态关闭纳入监控主流程；明确 complete/cancelled/canceled/error 分别关闭为 COMPLETED/CANCELLED/CANCELLED/FAILED，普通空闲仍保留两次稳定观察与 UNKNOWN 语义，FARM 执行由原流程处理。回归覆盖监控入口及未确认空闲边界，853 项全量测试和打包通过，等待用户安装后复验现场未结束执行。
 - `395e2b2` 新 JAR 配合原始 Cloud 工作区和 Flutter，再次通过 42 项跨三端隔离检查，包含限速、MQTT 延迟、HTTP/Broker 中断和重启恢复；隔离资源清理通过。该结果不替代现场取消记录的补报验收。
-- 待完成：Klipper 取消终态修复部署复验、功率修复安装复验、字段覆盖及最终证据汇总；RRF 自然完成路径尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。
+- 用户安装 `395e2b2` 后，Klipper 原执行 UUID 保持，currentExecution 清空，lastExecutionResult 为 CANCELLED/DEVICE_EXPLICIT、原因 DEVICE_REPORTED_CANCELLED。Cloud 执行历史和 EXECUTION_CANCELLED 事件均补齐，Android 详情显示相同结果；结果观察时间为升级后确认时刻，不推断为设备实际取消时刻。Moonraker 两个加热器 power=0，Cloud 与手机均显示 pwmRatio=0/GOOD，终态和功率修复现场复验通过。
+- 待完成：字段覆盖及最终证据汇总；自然完成和连续暂停/恢复完整现场过程尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。

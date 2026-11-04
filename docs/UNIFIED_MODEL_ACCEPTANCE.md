@@ -35,4 +35,5 @@
 - 本次用原始 Cloud 工作区与 `2dfc878` Server JAR 重跑跨三端隔离检查，包含 Flutter、200 台模拟库存、16384 B/s 限速、双向各 150 毫秒 MQTT 延迟、Cloud HTTP/Broker 中断、重连及稳定身份，结果 PASS。此结果对应功率修复之前的构建。
 - 功率修复后使用 `a8af4c1` 新 JAR 再跑同一跨三端隔离场景，42 项检查通过，隔离资源清理通过。此轮未包含历史 JAR 回退参数，检查数量与此前 44 项场景不同；真实功率显示仍需安装后核对。
 - 用户在设备端取消本轮 RRF 打印并将其切换网段，随后提供新地址。只读接口返回 idle、lastFileCancelled=true、lastFileAborted=false；通过管理员更新接口修改现有设备的 IP，保留名称、MAC、耗材、喷嘴和编号，监控恢复在线空闲。Cloud 原设备 ID 和稳定 UID 保持，当前执行清空，原执行结果为 CANCELLED/DEVICE_EXPLICIT、原因 DEVICE_REPORTED_CANCELLED，并收到 EXECUTION_CANCELLED 结束事件；手机分别刷新事件和执行页后显示相同取消结果，上一轮 UNKNOWN 结果仍保留。电脑同时更换网段后，Klipper 旧地址不可达，仍待恢复连接。
-- 待完成：Klipper 恢复连接及真机打印、功率修复安装复验、字段覆盖及最终证据汇总；RRF 自然完成路径尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。
+- 用户提供 Klipper 新地址后，只读核对 Moonraker 返回 ready/standby、当前工具 extruder；Server 原记录已使用该新地址且 ONLINE/IDLE，本次没有重复更新。Cloud 和 Android 列表显示在线空闲、有效观测，本地 ID、稳定 UID 及 Cloud ID 均保持原值。两台真机均恢复连接，设备名称仍保留原有名称。
+- 待完成：Klipper 真机打印、功率修复安装复验、字段覆盖及最终证据汇总；RRF 自然完成路径尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。

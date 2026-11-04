@@ -4,6 +4,7 @@ import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
@@ -125,19 +126,26 @@ public class RrfApiClient {
         try {
             session = connect(endpoint, PrinterOperation.GET_STATUS);
             connected = true;
-            // Include live fields (fans, move positions) exposed by the RRF state object model.
+            // State and the optional channel groups are distinct top-level RRF objects.
             JsonNode stateResponse = getModel(endpoint, session, "state", "f");
             JsonNode jobResponse = getModel(endpoint, session, "job");
             Instant jobObservedAt = Instant.now();
             JsonNode heatResponse = getModel(endpoint, session, "heat");
             Instant heatObservedAt = Instant.now();
             JsonNode toolsResponse = getModel(endpoint, session, "tools");
+            JsonNode move = optionalObservationModel(endpoint, session, "move");
+            JsonNode fans = optionalObservationModel(endpoint, session, "fans");
+            JsonNode sensors = optionalObservationModel(endpoint, session, "sensors");
 
             // RRF serves each object model independently. Re-read stable execution identity after
             // the field matrix so a task/status transition cannot be presented as one coherent frame.
             boolean captureConsistent = captureConsistent(endpoint, session, stateResponse, jobResponse);
 
             JsonNode state = resultNode(stateResponse);
+            ObjectNode observationState = state.isObject() ? ((ObjectNode) state).deepCopy() : objectMapper.createObjectNode();
+            observationState.set("move", move);
+            observationState.set("fans", fans);
+            observationState.set("sensors", sensors);
             JsonNode job = resultNode(jobResponse);
             JsonNode heat = resultNode(heatResponse);
             JsonNode tools = resultNode(toolsResponse);
@@ -166,7 +174,7 @@ public class RrfApiClient {
                     booleanValue(job, "lastFileAborted"),
                     decimal(job, "lastDuration"),
                     firstDecimal(decimal(state, "upTime"), decimal(state, "uptime")),
-                    parseObservation(state, job, heat, tools, captureStartedAt, jobObservedAt, heatObservedAt,
+                    parseObservation(observationState, job, heat, tools, captureStartedAt, jobObservedAt, heatObservedAt,
                             captureConsistent)
             );
         } catch (PrinterProtocolException exception) {
@@ -327,6 +335,15 @@ public class RrfApiClient {
             throw exception;
         } catch (Exception exception) {
             throw failure(operation, classify(exception), "连接 RRF 设备失败", exception);
+        }
+    }
+
+    private JsonNode optionalObservationModel(PrinterEndpoint endpoint, Session session, String key) {
+        try {
+            return resultNode(getModel(endpoint, session, key, "d99"));
+        } catch (PrinterProtocolException exception) {
+            // Optional channels must not turn an otherwise readable legacy status into offline.
+            return objectMapper.createObjectNode();
         }
     }
 

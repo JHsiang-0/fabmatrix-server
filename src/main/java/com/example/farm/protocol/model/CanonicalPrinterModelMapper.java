@@ -88,6 +88,11 @@ public final class CanonicalPrinterModelMapper {
                 == PrinterObservation.Quality.GOOD;
         boolean hasRemaining = hasCurrentExecution && observation.execution().remainingSeconds().quality()
                 == PrinterObservation.Quality.GOOD;
+        boolean hasLayerProgress = hasCurrentExecution
+                && ((observation.execution().currentLayer() != null
+                && observation.execution().currentLayer().quality() == PrinterObservation.Quality.GOOD)
+                || (observation.execution().totalLayers() != null
+                && observation.execution().totalLayers().quality() == PrinterObservation.Quality.GOOD));
         boolean hasFlowFactor = observation != null && observation.motion() != null
                 && observation.motion().flowFactor().quality() == PrinterObservation.Quality.GOOD;
         boolean hasTargets = observation != null && observation.heaters().stream()
@@ -98,7 +103,7 @@ public final class CanonicalPrinterModelMapper {
                 capability("READ_CURRENT_EXECUTION", observation != null
                         && observation.operationState() != PrinterObservation.OperationState.UNKNOWN, detectedAt),
                 capability("READ_FILE_PROGRESS", hasFileProgress, detectedAt),
-                capability("READ_LAYER_PROGRESS", false, detectedAt),
+                capability("READ_LAYER_PROGRESS", hasLayerProgress, detectedAt),
                 capability("READ_REMAINING_TIME", hasRemaining, detectedAt),
                 capability("READ_FANS", hasFans, detectedAt),
                 capability("READ_AXES", hasAxes, detectedAt),
@@ -206,10 +211,11 @@ public final class CanonicalPrinterModelMapper {
                 ? persisted.getStartedAt().atZone(ZoneId.systemDefault()).toInstant() : null;
         String farmJobId = sourceKind == ExecutionSource.FARM && persisted.getFarmJobId() != null
                 ? persisted.getFarmJobId().toString() : null;
-        BigDecimal fileSize = persisted.getFileSize();
+        BigDecimal fileSize = source.fileSizeBytes() != null
+                && source.fileSizeBytes().quality() == PrinterObservation.Quality.GOOD
+                ? source.fileSizeBytes().value() : persisted.getFileSize();
         Long sizeBytes = nonNegativeInteger(fileSize);
-        Measurement<Long> filePositionMeasurement = count(null, null, Quality.UNAVAILABLE, MeasurementSource.NONE);
-        Measurement<Long> layerUnknown = count(null, null, Quality.UNSUPPORTED, MeasurementSource.NONE);
+        Measurement<Long> filePositionMeasurement = countMeasurement(source.filePositionBytes());
         Measurement<BigDecimal> printSeconds = requiredMeasurement(source.printSeconds());
         Measurement<BigDecimal> totalSeconds = requiredMeasurement(source.totalSeconds());
         Measurement<BigDecimal> activeSeconds = requiredMeasurement(source.activeSeconds());
@@ -238,14 +244,22 @@ public final class CanonicalPrinterModelMapper {
                 new FileSummary(filename, sizeBytes, null), progress, progressMethod,
                 filePositionMeasurement,
                 new Timing(printSeconds, totalSeconds, activeSeconds,
-                        requiredUnavailable(), requiredUnavailable(), slicerSeconds),
-                new Layers(layerUnknown, layerUnknown), filamentLength,
+                        requiredMeasurement(source.warmupSeconds()), requiredMeasurement(source.pausedSeconds()), slicerSeconds),
+                new Layers(countMeasurement(source.currentLayer()), countMeasurement(source.totalLayers())), filamentLength,
                 new Remaining(remainingSeconds, source.remainingMethod() == null ? RemainingMethod.UNKNOWN
                         : RemainingMethod.valueOf(source.remainingMethod().name()), null));
     }
 
     private static Measurement<Long> count(Long value, Instant at, Quality quality, MeasurementSource source) {
         return new Measurement<>(value, quality, at, source);
+    }
+
+    private static Measurement<Long> countMeasurement(PrinterObservation.Measurement source) {
+        if (source == null) return count(null, null, Quality.UNAVAILABLE, MeasurementSource.NONE);
+        Quality quality = Quality.valueOf(source.quality().name());
+        Long value = quality == Quality.GOOD ? nonNegativeInteger(source.value()) : null;
+        if (quality == Quality.GOOD && value == null) quality = Quality.INVALID;
+        return count(value, source.observedAt(), quality, value == null ? MeasurementSource.NONE : MeasurementSource.DEVICE);
     }
 
     private static Long nonNegativeInteger(BigDecimal value) {

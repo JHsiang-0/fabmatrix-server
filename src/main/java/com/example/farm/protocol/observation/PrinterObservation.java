@@ -85,7 +85,17 @@ public record PrinterObservation(
                             Measurement printSeconds, Measurement totalSeconds,
                             Measurement activeSeconds, Measurement slicerEstimatedSeconds,
                             Measurement remainingSeconds, Measurement filamentLengthMm,
-                            RemainingMethod remainingMethod) {
+                            RemainingMethod remainingMethod, Measurement filePositionBytes, Measurement fileSizeBytes,
+                            Measurement currentLayer, Measurement totalLayers,
+                            Measurement warmupSeconds, Measurement pausedSeconds) {
+        public Execution(String filename, boolean simulation, Measurement progressPercent,
+                         Measurement printSeconds, Measurement totalSeconds, Measurement activeSeconds,
+                         Measurement slicerEstimatedSeconds, Measurement remainingSeconds, Measurement filamentLengthMm,
+                         RemainingMethod remainingMethod) {
+            this(filename, simulation, progressPercent, printSeconds, totalSeconds, activeSeconds,
+                    slicerEstimatedSeconds, remainingSeconds, filamentLengthMm, remainingMethod,
+                    null, null, null, null, null, null);
+        }
         public Execution(String filename, boolean simulation, Measurement progressPercent,
                          Measurement printSeconds, Measurement totalSeconds, Measurement activeSeconds,
                          Measurement slicerEstimatedSeconds, Measurement remainingSeconds, Measurement filamentLengthMm) {

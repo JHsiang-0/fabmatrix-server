@@ -99,7 +99,11 @@ public final class PrinterObservationParser {
             execution = new Execution(text(stats, "filename"), false, progress,
                     number(stats, "print_duration", end, ZERO, DURATION_MAX),
                     number(stats, "total_duration", end, ZERO, DURATION_MAX), unknown(end), unknown(end), unknown(end),
-                    number(stats, "filament_used", end, ZERO, FILAMENT_MAX));
+                    number(stats, "filament_used", end, ZERO, FILAMENT_MAX), PrinterObservation.RemainingMethod.UNKNOWN,
+                    counter(status.path("virtual_sdcard"), "file_position", end),
+                    counter(status.path("virtual_sdcard"), "file_size", end),
+                    counter(stats.path("info"), "current_layer", end),
+                    totalLayers(stats.path("info"), "total_layer", end), unknown(end), unknown(end));
         }
         // 只映射本次查询实际返回的对象；缺失通道保持缺失，不构造虚拟通道。
         boolean inconsistent = end.isBefore(start);
@@ -167,7 +171,9 @@ public final class PrinterObservationParser {
                 JsonNode node = nodes.get(i);
                 if (!node.isObject()) continue;
                 String id = "heater-" + i;
-                boolean isBed = containsIndex(heat.path("bedHeaters"), i);
+                JsonNode bedMapping = heat.path("bedHeaterMapping").isArray()
+                        ? heat.path("bedHeaterMapping") : heat.path("bedHeaters");
+                boolean isBed = containsIndex(bedMapping, i);
                 boolean isTool = tools.stream().anyMatch(t -> t.heaterIds().contains(id));
                 HeaterRole role = isBed && isTool ? HeaterRole.UNKNOWN
                         : isBed ? HeaterRole.BED : isTool ? HeaterRole.TOOL : HeaterRole.UNKNOWN;
@@ -189,7 +195,7 @@ public final class PrinterObservationParser {
                 Measurement current = node.path("sensor").isIntegralNumber() && node.path("sensor").intValue() < 0
                         ? unknown(heatObservedAt) : number(node, "current", heatObservedAt, TEMPERATURE_MIN, TEMPERATURE_MAX);
                 heaters.add(new Heater(id, role, mode, current,
-                        effective, active, standby));
+                        effective, active, standby, number(node, "avgPwm", heatObservedAt, ZERO, BigDecimal.ONE)));
             }
         }
         String currentTool = state.path("currentTool").canConvertToInt() && state.path("currentTool").intValue() >= 0
@@ -257,7 +263,11 @@ public final class PrinterObservationParser {
             execution = new Execution(text(file, "fileName"), operation == OperationState.SIMULATING,
                     progressMeasure, unknown(jobObservedAt), unknown(jobObservedAt), number(job, "duration", jobObservedAt, ZERO, DURATION_MAX),
                     number(file, "printTime", jobObservedAt, ZERO, DURATION_MAX), remaining,
-                    number(job, "rawExtrusion", jobObservedAt, ZERO, FILAMENT_MAX), remainingMethod);
+                    number(job, "rawExtrusion", jobObservedAt, ZERO, FILAMENT_MAX), remainingMethod,
+                    counter(job, "filePosition", jobObservedAt), counter(file, "size", jobObservedAt),
+                    counter(job, "layer", jobObservedAt), totalLayers(file, "numLayers", jobObservedAt),
+                    number(job, "warmUpDuration", jobObservedAt, ZERO, DURATION_MAX),
+                    number(job, "pauseDuration", jobObservedAt, ZERO, DURATION_MAX));
         }
         // RRF 字段来自独立 HTTP 查询；即使执行身份复读一致，也只能作为部分观测帧。
         boolean inconsistent = !captureConsistent || end.isBefore(start) || jobObservedAt.isBefore(start)
@@ -359,6 +369,19 @@ public final class PrinterObservationParser {
         for (JsonNode node : nodes) if (node.canConvertToInt() && node.intValue() == index) return true;
         return false;
     }
+    private static Measurement counter(JsonNode node, String key, Instant at) {
+        Measurement value = number(node, key, at, ZERO, BigDecimal.valueOf(Long.MAX_VALUE));
+        if (value.value() != null && value.value().stripTrailingZeros().scale() > 0) {
+            return new Measurement(null, PrinterObservation.Quality.INVALID, at);
+        }
+        return value;
+    }
+
+    private static Measurement totalLayers(JsonNode node, String key, Instant at) {
+        Measurement value = counter(node, key, at);
+        return value.value() != null && value.value().signum() == 0 ? unknown(at) : value;
+    }
+
     private static Measurement number(JsonNode node, String key, Instant at, BigDecimal min, BigDecimal max) {
         JsonNode value = node.path(key);
         if (value.isMissingNode() || value.isNull()) return unknown(at);

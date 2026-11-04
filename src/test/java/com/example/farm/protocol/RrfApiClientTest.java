@@ -32,6 +32,7 @@ import static org.hamcrest.Matchers.startsWith;
 class RrfApiClientTest {
 
     private MockRestServiceServer server;
+    private boolean optionalModelsUnavailable;
     private RrfApiClient client;
 
     @BeforeEach
@@ -76,6 +77,9 @@ class RrfApiClientTest {
         assertThat(response.bedTarget()).isEqualByComparingTo("60");
         assertThat(response.deviceUptime()).isEqualByComparingTo("1234");
         assertThat(response.observation()).isNotNull();
+        assertThat(response.observation().fans().getFirst().pwmRatio().value()).isEqualByComparingTo("0");
+        assertThat(response.observation().motion().axes().getFirst().positionMm().value()).isEqualByComparingTo("12.5");
+        assertThat(response.observation().sensors().getFirst().detected().value()).isFalse();
         assertThat(response.observation().completeness()).isEqualTo(PrinterObservation.Completeness.PARTIAL);
         assertThat(response.observation().heaters()).hasSize(2);
         assertThat(response.observation().heaters().getFirst().role())
@@ -371,9 +375,46 @@ class RrfApiClientTest {
                 "{\"key\":\"tools\",\"result\":[]}");
     }
 
+    @Test
+    void unavailableOptionalChannelsKeepLegacyStatusReadable() {
+        optionalModelsUnavailable = true;
+        expectConnect();
+        expectState("idle", 0, null);
+        expectJob(null, null, null);
+        expectEmptyTemperatureModels();
+        expectConsistencyModels("idle", 0, null, null);
+        expectDisconnect();
+
+        var response = client.getStatus(endpoint());
+
+        assertThat(response.stateStatus()).isEqualTo("idle");
+        assertThat(response.observation().fans()).isEmpty();
+        assertThat(response.observation().motion()).isNull();
+        server.verify();
+    }
+
     private void expectConsistencyModels(String status, Integer currentTool, String fileName, Integer fileSize) {
         expectState(status, currentTool, null);
         expectJob(fileName, fileSize, null);
+    }
+
+    private void expectOptionalObservationModels() {
+        String[] keys = {"move", "fans", "sensors"};
+        String[] values = {
+                "{\"axes\":[{\"letter\":\"X\",\"machinePosition\":12.5,\"homed\":true}]}",
+                "[{\"actualValue\":0,\"rpm\":0}]",
+                "{\"filamentMonitors\":[{\"enableMode\":1,\"filamentPresent\":false}]}"
+        };
+        for (int i = 0; i < keys.length; i++) {
+            var expectation = server.expect(requestTo(startsWith("http://192.168.1.80/rr_model")))
+                    .andExpect(method(GET)).andExpect(queryParam("key", keys[i]))
+                    .andExpect(queryParam("flags", "d99"));
+            if (optionalModelsUnavailable) {
+                expectation.andRespond(withStatus(org.springframework.http.HttpStatus.NOT_FOUND));
+            } else {
+                expectation.andRespond(withSuccess("{\"result\":" + values[i] + "}", MediaType.APPLICATION_JSON));
+            }
+        }
     }
 
     private void expectState(String status, Integer currentTool, String uptime) {
@@ -416,6 +457,7 @@ class RrfApiClientTest {
                 .andExpect(method(GET))
                 .andExpect(queryParam("key", "tools"))
                 .andRespond(withSuccess(toolsResponse, MediaType.APPLICATION_JSON));
+        expectOptionalObservationModels();
     }
 
     private PrinterEndpoint endpoint() {

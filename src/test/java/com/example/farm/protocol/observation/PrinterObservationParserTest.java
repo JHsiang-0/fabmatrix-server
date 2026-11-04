@@ -16,6 +16,60 @@ class PrinterObservationParserTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    void klipperMapsFileCountersAndReportedLayersWithoutGuessingTimeParts() throws Exception {
+        var status = mapper.readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"printing",
+                  "info":{"current_layer":0,"total_layer":12}},
+                 "virtual_sdcard":{"file_position":0,"file_size":1000}}
+                """);
+        var execution = PrinterObservationParser.klipper(status, START, END).execution();
+        assertThat(execution.filePositionBytes().value()).isEqualByComparingTo("0");
+        assertThat(execution.fileSizeBytes().value()).isEqualByComparingTo("1000");
+        assertThat(execution.currentLayer().value()).isEqualByComparingTo("0");
+        assertThat(execution.totalLayers().value()).isEqualByComparingTo("12");
+        assertThat(execution.warmupSeconds().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+        assertThat(execution.pausedSeconds().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+    }
+
+    @Test
+    void rrfMapsPowerFileLayersAndSeparateWarmupAndPauseTimes() throws Exception {
+        var observation = PrinterObservationParser.rrf(mapper.readTree("{\"status\":\"processing\"}"),
+                mapper.readTree("""
+                        {"file":{"size":1000,"numLayers":12},"filePosition":100,"layer":2,
+                         "warmUpDuration":10,"pauseDuration":0,"duration":20}
+                        """), mapper.readTree("{\"bedHeaterMapping\":[0],\"heaters\":[{\"avgPwm\":0},{\"avgPwm\":0.5}]}"),
+                mapper.readTree("[]"), START, END);
+        assertThat(observation.heaters().getFirst().pwmRatio().value()).isEqualByComparingTo("0");
+        assertThat(observation.heaters().getFirst().role()).isEqualTo(PrinterObservation.HeaterRole.BED);
+        assertThat(observation.heaters().get(1).pwmRatio().value()).isEqualByComparingTo("0.5");
+        var execution = observation.execution();
+        assertThat(execution.filePositionBytes().value()).isEqualByComparingTo("100");
+        assertThat(execution.currentLayer().value()).isEqualByComparingTo("2");
+        assertThat(execution.totalLayers().value()).isEqualByComparingTo("12");
+        assertThat(execution.warmupSeconds().value()).isEqualByComparingTo("10");
+        assertThat(execution.pausedSeconds().value()).isEqualByComparingTo("0");
+        assertThat(execution.activeSeconds().value()).isEqualByComparingTo("20");
+    }
+
+    @Test
+    void countersRejectFractionsNegativeAndOverflowWhileMissingLayersRemainUnavailable() throws Exception {
+        for (String value : new String[]{"0.5", "-1", "9223372036854775808"}) {
+            var status = mapper.readTree("{\"webhooks\":{\"state\":\"ready\"},"
+                    + "\"print_stats\":{\"state\":\"printing\"},\"virtual_sdcard\":{\"file_position\":" + value + "}}");
+            var execution = PrinterObservationParser.klipper(status, START, END).execution();
+            assertThat(execution.filePositionBytes().quality()).isEqualTo(PrinterObservation.Quality.INVALID);
+            assertThat(execution.filePositionBytes().value()).isNull();
+            assertThat(execution.currentLayer().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+        }
+        var status = mapper.readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"printing",
+                 "info":{"total_layer":0}}}
+                """);
+        assertThat(PrinterObservationParser.klipper(status, START, END).execution().totalLayers().quality())
+                .isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+    }
+
+    @Test
     void klipperPreservesHeaterPowerRatioIncludingZeroAndRejectsInvalidValues() throws Exception {
         for (String value : new String[]{"0", "0.45", "1"}) {
             var status = mapper.readTree("{\"extruder\":{\"temperature\":20,\"power\":" + value + "}}");

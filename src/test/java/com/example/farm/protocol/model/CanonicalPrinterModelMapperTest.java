@@ -93,7 +93,12 @@ class CanonicalPrinterModelMapperTest {
         var remaining = new PrinterObservation.Measurement(new BigDecimal("79187"),
                 PrinterObservation.Quality.GOOD, captured);
         var execution = new PrinterObservation.Execution("part.gcode", false, unavailable, unavailable,
-                unavailable, unavailable, unavailable, remaining, unavailable, PrinterObservation.RemainingMethod.SLICER);
+                unavailable, unavailable, unavailable, remaining, unavailable, PrinterObservation.RemainingMethod.SLICER,
+                new PrinterObservation.Measurement(BigDecimal.ZERO, PrinterObservation.Quality.GOOD, captured),
+                new PrinterObservation.Measurement(new BigDecimal("1000"), PrinterObservation.Quality.GOOD, captured),
+                new PrinterObservation.Measurement(BigDecimal.ZERO, PrinterObservation.Quality.GOOD, captured),
+                new PrinterObservation.Measurement(new BigDecimal("12"), PrinterObservation.Quality.GOOD, captured),
+                new PrinterObservation.Measurement(BigDecimal.TEN, PrinterObservation.Quality.GOOD, captured), unavailable);
         var observation = new PrinterObservation(captured, captured, PrinterObservation.Completeness.PARTIAL,
                 PrinterObservation.SystemState.READY, PrinterObservation.OperationState.PRINTING,
                 List.of(), List.of(), null, execution);
@@ -110,6 +115,13 @@ class CanonicalPrinterModelMapperTest {
         assertEquals(CanonicalPrinterModel.ExecutionSource.EXTERNAL, mapped.observation().currentExecution().source());
         assertNull(mapped.observation().currentExecution().startedAt());
         assertEquals("part.gcode", mapped.observation().currentExecution().file().name());
+        assertEquals(1000L, mapped.observation().currentExecution().file().sizeBytes());
+        assertEquals(0L, mapped.observation().currentExecution().filePositionBytes().value());
+        assertEquals(0L, mapped.observation().currentExecution().layers().current().value());
+        assertEquals(12L, mapped.observation().currentExecution().layers().total().value());
+        assertEquals(BigDecimal.TEN, mapped.observation().currentExecution().timing().warmupSeconds().value());
+        assertEquals(CanonicalPrinterModel.Quality.UNAVAILABLE,
+                mapped.observation().currentExecution().timing().pausedSeconds().quality());
         assertEquals(CanonicalPrinterModel.RemainingMethod.SLICER,
                 mapped.observation().currentExecution().estimatedRemaining().method());
         assertEquals(new BigDecimal("79187"), mapped.observation().currentExecution().estimatedRemaining().seconds().value());

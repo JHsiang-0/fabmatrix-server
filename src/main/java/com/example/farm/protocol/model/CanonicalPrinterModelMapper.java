@@ -121,7 +121,8 @@ public final class CanonicalPrinterModelMapper {
         List<HeaterState> heaters = source == null ? List.of() : source.heaters().stream()
                 .map(heater -> new HeaterState(heater.id(), measurement(heater.currentC()),
                         measurement(heater.effectiveTargetC()), measurement(heater.activeTargetC()),
-                        measurement(heater.standbyTargetC()), null, HeaterMode.valueOf(heater.mode().name()))).toList();
+                        measurement(heater.standbyTargetC()), measurement(heater.pwmRatio()),
+                        HeaterMode.valueOf(heater.mode().name()))).toList();
         List<FanState> fans = source == null ? List.of() : source.fans().stream()
                 .map(fan -> new FanState(fan.id(), measurement(fan.pwmRatio()), measurement(fan.rpm()))).toList();
         List<AxisState> axes = source == null || source.motion() == null ? List.of() : source.motion().axes().stream()

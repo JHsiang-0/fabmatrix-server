@@ -31,4 +31,6 @@
 - 用户确认先暂停再关机；设备无法连接后，Server 显示离线，最后协议状态为 paused，Cloud 显示离线并将旧观测标记为过期。尚未验证开机后的恢复和执行终态。
 - 用户重新安装 Server 后，只读核对安装目录中的 JAR 与本地 `2dfc878` 构建的 SHA-256 一致，Windows 服务运行、网关 CONNECTED，Cloud 保持两台设备原 ID。Klipper 持续 ONLINE/IDLE 且观测有效，RRF OFFLINE 且旧观测过期。完整模型仍通过 V3 上报。
 - 当前安装包固定为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`，构建提交 `2dfc878`，SHA-256 `ED47DF246D2458F3D09A93BDB8760BC8FEC68F505821E25309D687642284F47B`。旧任务构建目录和打包中间目录已由用户删除。Cloud 已收拢到原始工作区并将功能快进合入本地 main。
+- 安装后继续只读核对 Klipper 的 Moonraker 与手机：当前工具 extruder、热床和工具目标温度 0℃、两个风扇比例 0、四轴位置及未归零状态相符；温度按各自采样时刻变化。Moonraker 返回加热器 power=0，而该安装版 canonical 显示功率未知，发现采集与映射遗漏，修复后仍需现场部署复验。手机已切换到两台真机所属测试农场。
+- 本次用原始 Cloud 工作区与 `2dfc878` Server JAR 重跑跨三端隔离检查，包含 Flutter、200 台模拟库存、16384 B/s 限速、双向各 150 毫秒 MQTT 延迟、Cloud HTTP/Broker 中断、重连及稳定身份，结果 PASS。此结果对应功率修复之前的构建。
 - 待完成：Klipper 真机打印、RRF 暂停恢复与终态的完整只读验收、剩余时间现场复验、字段覆盖及最终证据汇总；自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。

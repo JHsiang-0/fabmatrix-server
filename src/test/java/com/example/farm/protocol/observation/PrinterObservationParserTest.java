@@ -16,6 +16,25 @@ class PrinterObservationParserTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    void klipperPreservesHeaterPowerRatioIncludingZeroAndRejectsInvalidValues() throws Exception {
+        for (String value : new String[]{"0", "0.45", "1"}) {
+            var status = mapper.readTree("{\"extruder\":{\"temperature\":20,\"power\":" + value + "}}");
+            var power = PrinterObservationParser.klipper(status, START, END).heaters().getFirst().pwmRatio();
+            assertThat(power.quality()).isEqualTo(PrinterObservation.Quality.GOOD);
+            assertThat(power.value()).isEqualByComparingTo(value);
+            assertThat(power.observedAt()).isEqualTo(END);
+        }
+        for (String value : new String[]{"-0.1", "1.1", "\"bad\""}) {
+            var status = mapper.readTree("{\"extruder\":{\"temperature\":20,\"power\":" + value + "}}");
+            var power = PrinterObservationParser.klipper(status, START, END).heaters().getFirst().pwmRatio();
+            assertThat(power.quality()).isEqualTo(PrinterObservation.Quality.INVALID);
+            assertThat(power.value()).isNull();
+        }
+        var missing = PrinterObservationParser.klipper(mapper.readTree("{\"extruder\":{\"temperature\":20}}"), START, END);
+        assertThat(missing.heaters().getFirst().pwmRatio().quality()).isEqualTo(PrinterObservation.Quality.UNAVAILABLE);
+    }
+
+    @Test
     void klipperDistinguishesZeroMissingAndInvalidWithoutInventingBed() throws Exception {
         var status = mapper.readTree("""
                 {"webhooks":{"state":"ready"},"print_stats":{"state":"printing",

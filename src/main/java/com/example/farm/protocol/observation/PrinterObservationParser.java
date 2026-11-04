@@ -291,7 +291,7 @@ public final class PrinterObservationParser {
     private static Heater klipperHeater(String id, HeaterRole role, JsonNode node, Instant at) {
         Measurement target = number(node, "target", at, TEMPERATURE_MIN, TEMPERATURE_MAX);
         return new Heater(id, role, HeaterMode.UNKNOWN, number(node, "temperature", at, TEMPERATURE_MIN, TEMPERATURE_MAX),
-                target, target, unknown(at));
+                target, target, unknown(at), number(node, "power", at, ZERO, BigDecimal.ONE));
     }
 
     private static boolean isKlipperHeater(String name, JsonNode node) {

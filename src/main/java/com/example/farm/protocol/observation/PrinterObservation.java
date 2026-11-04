@@ -53,7 +53,12 @@ public record PrinterObservation(
 
     public record Heater(String id, HeaterRole role, HeaterMode mode,
                          Measurement currentC, Measurement effectiveTargetC,
-                         Measurement activeTargetC, Measurement standbyTargetC) { }
+                         Measurement activeTargetC, Measurement standbyTargetC, Measurement pwmRatio) {
+        public Heater(String id, HeaterRole role, HeaterMode mode, Measurement currentC,
+                      Measurement effectiveTargetC, Measurement activeTargetC, Measurement standbyTargetC) {
+            this(id, role, mode, currentC, effectiveTargetC, activeTargetC, standbyTargetC, null);
+        }
+    }
 
     public record Tool(String id, List<String> heaterIds, List<String> fanIds) {
         public Tool { heaterIds = List.copyOf(heaterIds); fanIds = List.copyOf(fanIds); }

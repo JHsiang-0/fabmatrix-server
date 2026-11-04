@@ -31,7 +31,8 @@ class CanonicalPrinterModelMapperTest {
                 PrinterObservation.Quality.GOOD, captured);
         var heater = new PrinterObservation.Heater("extruder", PrinterObservation.HeaterRole.TOOL,
                 PrinterObservation.HeaterMode.ACTIVE, measurement, measurement, measurement,
-                new PrinterObservation.Measurement(null, PrinterObservation.Quality.UNAVAILABLE, captured));
+                new PrinterObservation.Measurement(null, PrinterObservation.Quality.UNAVAILABLE, captured),
+                new PrinterObservation.Measurement(BigDecimal.ZERO, PrinterObservation.Quality.GOOD, captured));
         var observation = new PrinterObservation(captured, captured, PrinterObservation.Completeness.PARTIAL,
                 PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
                 List.of(heater), List.of(new PrinterObservation.Tool("extruder", List.of("extruder"))),
@@ -47,6 +48,10 @@ class CanonicalPrinterModelMapperTest {
         assertEquals(CanonicalPrinterModel.FirmwareFamily.KLIPPER, model.descriptor().firmwareFamily());
         assertEquals("extruder", model.observation().heaters().getFirst().id());
         assertEquals(new BigDecimal("205.0"), model.observation().heaters().getFirst().currentC().value());
+        assertEquals(BigDecimal.ZERO, model.observation().heaters().getFirst().pwmRatio().value());
+        assertEquals(CanonicalPrinterModel.Quality.GOOD, model.observation().heaters().getFirst().pwmRatio().quality());
+        assertEquals(CanonicalPrinterModel.MeasurementSource.DEVICE,
+                model.observation().heaters().getFirst().pwmRatio().source());
         assertEquals(CanonicalPrinterModel.CoordinateSpace.UNKNOWN, model.observation().motion().coordinateSpace());
         assertTrue(model.descriptor().fans().isEmpty());
     }

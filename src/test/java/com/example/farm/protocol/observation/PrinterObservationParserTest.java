@@ -35,6 +35,23 @@ class PrinterObservationParserTest {
     }
 
     @Test
+    void klipperReportsActiveExtruderOnlyWhenItsToolWasObserved() throws Exception {
+        var selected = mapper.readTree("""
+                {"toolhead":{"extruder":"extruder1"},"extruder":{"temperature":20},
+                 "extruder1":{"temperature":21}}
+                """);
+        assertThat(PrinterObservationParser.klipper(selected, START, END).currentToolId()).isEqualTo("extruder1");
+        var missing = mapper.readTree("""
+                {"toolhead":{"extruder":"extruder1"},"extruder":{"temperature":20}}
+                """);
+        assertThat(PrinterObservationParser.klipper(missing, START, END).currentToolId()).isNull();
+        var notTool = mapper.readTree("""
+                {"toolhead":{"extruder":"heater_bed"},"heater_bed":{"temperature":20}}
+                """);
+        assertThat(PrinterObservationParser.klipper(notTool, START, END).currentToolId()).isNull();
+    }
+
+    @Test
     void klipperMapsDiscoveredChannelsAndLabelsGcodeCoordinates() throws Exception {
         var status = mapper.readTree("""
                 {"webhooks":{"state":"ready"},"print_stats":{"state":"standby"},

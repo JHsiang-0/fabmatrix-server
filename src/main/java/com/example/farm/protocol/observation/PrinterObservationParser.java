@@ -62,6 +62,13 @@ public final class PrinterObservationParser {
             heaters.add(klipperHeater(id, role, node, end));
             if (role == HeaterRole.TOOL) tools.add(new Tool(id, List.of(id)));
         });
+        String activeExtruder = text(status.path("toolhead"), "extruder");
+        String currentTool = null;
+        if (activeExtruder != null && status.path(activeExtruder).isObject()
+                && isKlipperHeater(activeExtruder, status.path(activeExtruder))) {
+            String candidate = safeId(activeExtruder);
+            if (tools.stream().anyMatch(tool -> tool.id().equals(candidate))) currentTool = candidate;
+        }
         List<Fan> fans = new ArrayList<>();
         status.fields().forEachRemaining(entry -> {
             String name = entry.getKey();
@@ -98,7 +105,7 @@ public final class PrinterObservationParser {
         boolean inconsistent = end.isBefore(start);
         return new PrinterObservation(start, end, inconsistent ? Completeness.INCONSISTENT : Completeness.PARTIAL,
                 systemState, inconsistent ? OperationState.UNKNOWN : operation,
-                heaters, tools, null, inconsistent ? null : execution, fans, motion, sensors);
+                heaters, tools, currentTool, inconsistent ? null : execution, fans, motion, sensors);
     }
 
     public static PrinterObservation rrf(JsonNode state, JsonNode job, JsonNode heat, JsonNode toolsNode,

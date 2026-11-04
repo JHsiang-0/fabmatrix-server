@@ -281,6 +281,8 @@ v3 规划注意：控制接口的 HTTP 成功不等于设备已完成动作。�
 
 ## 15. 修改工作规范
 
+工作区约定：默认直接在 `D:/WorkSpace/Java/fabmatrix-server` 的 `main` 开发。未经用户明确要求，不创建额外 worktree 或项目副本。Windows 安装包固定输出到 `dist/windows-installer`，使用构建脚本默认输出路径，不按任务另建构建目录。
+
 1. 先阅读相关 Controller、Service、Mapper、Entity 和配置，再修改，不要只根据文档猜接口。
 2. 先检查 `git status` 和目标文件的 diff；工作区已有修改属于用户，不能用 reset、checkout 或批量格式化覆盖。
 3. 使用精确补丁修改文件，避免无关的换行、编码或格式变化。

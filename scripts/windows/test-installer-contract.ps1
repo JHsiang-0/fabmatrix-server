@@ -826,7 +826,8 @@ Assert-Contains $backup 'database.*farm\.db|config.*application\.yml|files' 'bac
 Assert-Contains $backup '\$\{FARM_DATA_DIR\}' 'portable backup config'
 Assert-Contains $restore 'Move-Item|restore-staging|installedNames|rollback was attempted' 'replacement restore and rollback'
 Assert-Contains $restore 'Set-FabMatrixDataAcl' 'restore reapplies data ACL policy'
-Assert-Contains $restore "Import-MaintenanceHelper 'data-acl\.ps1'" 'packaged restore ACL helper'
+Assert-Contains $restore "Find-MaintenanceHelper 'data-acl\.ps1'" 'packaged restore ACL helper'
+& (Join-Path $PSScriptRoot 'test-maintenance.ps1')
 
 # Generate and parse WinSW XML for paths with spaces; this does not install a service.
 $portSelfTestOutput = (& $install -SelfTestPortConfig | Out-String)

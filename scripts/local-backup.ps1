@@ -8,19 +8,18 @@ $ErrorActionPreference = 'Stop'
 $dataPath = [IO.Path]::GetFullPath($DataRoot)
 $backupPath = if ([string]::IsNullOrWhiteSpace($BackupRoot)) { Join-Path $dataPath 'backups' } else { [IO.Path]::GetFullPath($BackupRoot) }
 
-function Import-PortableConfigHelper {
+function Find-PortableConfigHelper {
   foreach ($candidate in @(
       (Join-Path $PSScriptRoot 'portable-config.ps1'),
       (Join-Path $PSScriptRoot 'windows\service\portable-config.ps1'))) {
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      . $candidate
-      return
+      return $candidate
     }
   }
   throw 'Maintenance helper is missing: portable-config.ps1'
 }
 
-Import-PortableConfigHelper
+. (Find-PortableConfigHelper)
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $service -and $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {

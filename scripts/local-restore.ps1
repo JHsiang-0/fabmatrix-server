@@ -13,20 +13,19 @@ if ($dataPath.Equals($volumeRoot, [StringComparison]::OrdinalIgnoreCase)) {
   throw 'DataRoot must not be a volume root.'
 }
 
-function Import-MaintenanceHelper([string]$Name) {
+function Find-MaintenanceHelper([string]$Name) {
   foreach ($candidate in @(
       (Join-Path $PSScriptRoot $Name),
       (Join-Path $PSScriptRoot "windows\service\$Name"))) {
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      . $candidate
-      return
+      return $candidate
     }
   }
   throw "Maintenance helper is missing: $Name"
 }
 
-Import-MaintenanceHelper 'portable-config.ps1'
-Import-MaintenanceHelper 'data-acl.ps1'
+. (Find-MaintenanceHelper 'portable-config.ps1')
+. (Find-MaintenanceHelper 'data-acl.ps1')
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $service -and $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {

@@ -244,10 +244,20 @@ public final class PrinterObservationParser {
             Measurement progressMeasure = sizeMeasure.quality() == PrinterObservation.Quality.INVALID
                     || positionMeasure.quality() == PrinterObservation.Quality.INVALID
                     ? new Measurement(null, PrinterObservation.Quality.INVALID, jobObservedAt) : percent(progress, jobObservedAt);
+            Measurement remaining = number(job.path("timesLeft"), "file", jobObservedAt, ZERO, DURATION_MAX);
+            var remainingMethod = remaining.quality() == PrinterObservation.Quality.GOOD
+                    ? PrinterObservation.RemainingMethod.FILE : PrinterObservation.RemainingMethod.UNKNOWN;
+            if (remaining.quality() == PrinterObservation.Quality.UNAVAILABLE) {
+                Measurement slicerRemaining = number(job.path("timesLeft"), "slicer", jobObservedAt, ZERO, DURATION_MAX);
+                if (slicerRemaining.quality() == PrinterObservation.Quality.GOOD) {
+                    remaining = slicerRemaining;
+                    remainingMethod = PrinterObservation.RemainingMethod.SLICER;
+                }
+            }
             execution = new Execution(text(file, "fileName"), operation == OperationState.SIMULATING,
                     progressMeasure, unknown(jobObservedAt), unknown(jobObservedAt), number(job, "duration", jobObservedAt, ZERO, DURATION_MAX),
-                    number(file, "printTime", jobObservedAt, ZERO, DURATION_MAX), number(job.path("timesLeft"), "file", jobObservedAt, ZERO, DURATION_MAX),
-                    number(job, "rawExtrusion", jobObservedAt, ZERO, FILAMENT_MAX));
+                    number(file, "printTime", jobObservedAt, ZERO, DURATION_MAX), remaining,
+                    number(job, "rawExtrusion", jobObservedAt, ZERO, FILAMENT_MAX), remainingMethod);
         }
         // RRF 字段来自独立 HTTP 查询；即使执行身份复读一致，也只能作为部分观测帧。
         boolean inconsistent = !captureConsistent || end.isBefore(start) || jobObservedAt.isBefore(start)

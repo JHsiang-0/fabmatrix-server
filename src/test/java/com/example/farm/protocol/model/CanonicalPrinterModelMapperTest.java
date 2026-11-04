@@ -85,8 +85,10 @@ class CanonicalPrinterModelMapperTest {
         printer.setDeviceUid("67e76af9-e1df-4230-bce8-3628c87aa7d5");
         var unavailable = new PrinterObservation.Measurement(null,
                 PrinterObservation.Quality.UNAVAILABLE, captured);
+        var remaining = new PrinterObservation.Measurement(new BigDecimal("79187"),
+                PrinterObservation.Quality.GOOD, captured);
         var execution = new PrinterObservation.Execution("part.gcode", false, unavailable, unavailable,
-                unavailable, unavailable, unavailable, unavailable, unavailable);
+                unavailable, unavailable, unavailable, remaining, unavailable, PrinterObservation.RemainingMethod.SLICER);
         var observation = new PrinterObservation(captured, captured, PrinterObservation.Completeness.PARTIAL,
                 PrinterObservation.SystemState.READY, PrinterObservation.OperationState.PRINTING,
                 List.of(), List.of(), null, execution);
@@ -103,6 +105,11 @@ class CanonicalPrinterModelMapperTest {
         assertEquals(CanonicalPrinterModel.ExecutionSource.EXTERNAL, mapped.observation().currentExecution().source());
         assertNull(mapped.observation().currentExecution().startedAt());
         assertEquals("part.gcode", mapped.observation().currentExecution().file().name());
+        assertEquals(CanonicalPrinterModel.RemainingMethod.SLICER,
+                mapped.observation().currentExecution().estimatedRemaining().method());
+        assertEquals(new BigDecimal("79187"), mapped.observation().currentExecution().estimatedRemaining().seconds().value());
+        assertEquals(CanonicalPrinterModel.MeasurementSource.SLICER_ESTIMATE,
+                mapped.observation().currentExecution().estimatedRemaining().seconds().source());
     }
 
     @Test

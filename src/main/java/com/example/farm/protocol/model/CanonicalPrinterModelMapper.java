@@ -213,7 +213,11 @@ public final class CanonicalPrinterModelMapper {
         Measurement<BigDecimal> totalSeconds = requiredMeasurement(source.totalSeconds());
         Measurement<BigDecimal> activeSeconds = requiredMeasurement(source.activeSeconds());
         Measurement<BigDecimal> slicerSeconds = requiredMeasurement(source.slicerEstimatedSeconds());
-        Measurement<BigDecimal> remainingSeconds = requiredMeasurement(source.remainingSeconds());
+        MeasurementSource remainingSource = source.remainingMethod() == PrinterObservation.RemainingMethod.SLICER
+                ? MeasurementSource.SLICER_ESTIMATE
+                : source.remainingMethod() == PrinterObservation.RemainingMethod.FILE
+                ? MeasurementSource.DEVICE_ESTIMATE : MeasurementSource.DEVICE;
+        Measurement<BigDecimal> remainingSeconds = measurement(source.remainingSeconds(), remainingSource);
         Measurement<BigDecimal> filamentLength = requiredMeasurement(source.filamentLengthMm());
         boolean rrfFileProgress = printer.getFirmwareType() != null
                 && printer.getFirmwareType().toUpperCase(Locale.ROOT).contains("RRF")
@@ -235,7 +239,8 @@ public final class CanonicalPrinterModelMapper {
                 new Timing(printSeconds, totalSeconds, activeSeconds,
                         requiredUnavailable(), requiredUnavailable(), slicerSeconds),
                 new Layers(layerUnknown, layerUnknown), filamentLength,
-                new Remaining(remainingSeconds, RemainingMethod.UNKNOWN, null));
+                new Remaining(remainingSeconds, source.remainingMethod() == null ? RemainingMethod.UNKNOWN
+                        : RemainingMethod.valueOf(source.remainingMethod().name()), null));
     }
 
     private static Measurement<Long> count(Long value, Instant at, Quality quality, MeasurementSource source) {

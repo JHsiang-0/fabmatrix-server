@@ -130,6 +130,23 @@ class PrinterObservationParserTest {
         assertThat(observation.execution().slicerEstimatedSeconds().value()).isEqualByComparingTo("7200");
         assertThat(observation.execution().totalSeconds().value()).isNull();
         assertThat(observation.execution().progressPercent().value()).isEqualByComparingTo("50");
+        assertThat(observation.execution().remainingSeconds().value()).isEqualByComparingTo("3500");
+        assertThat(observation.execution().remainingMethod()).isEqualTo(PrinterObservation.RemainingMethod.FILE);
+    }
+
+    @Test
+    void rrfUsesSlicerRemainingWhenFileEstimateIsUnavailable() throws Exception {
+        var state = mapper.readTree("{\"status\":\"processing\"}");
+        var heat = mapper.readTree("{}");
+        var tools = mapper.readTree("[]");
+        var job = mapper.readTree("{\"timesLeft\":{\"slicer\":79187}}");
+        var execution = PrinterObservationParser.rrf(state, job, heat, tools, START, END).execution();
+        assertThat(execution.remainingSeconds().value()).isEqualByComparingTo("79187");
+        assertThat(execution.remainingMethod()).isEqualTo(PrinterObservation.RemainingMethod.SLICER);
+        var invalid = mapper.readTree("{\"timesLeft\":{\"file\":-1,\"slicer\":79187}}");
+        var rejected = PrinterObservationParser.rrf(state, invalid, heat, tools, START, END).execution();
+        assertThat(rejected.remainingSeconds().quality()).isEqualTo(PrinterObservation.Quality.INVALID);
+        assertThat(rejected.remainingMethod()).isEqualTo(PrinterObservation.RemainingMethod.UNKNOWN);
     }
 
     @Test

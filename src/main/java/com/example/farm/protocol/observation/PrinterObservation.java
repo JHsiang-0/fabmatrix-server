@@ -73,11 +73,20 @@ public record PrinterObservation(
     public record BooleanMeasurement(Boolean value, Quality quality, Instant observedAt) { }
     public record Sensor(String id, BooleanMeasurement enabled, BooleanMeasurement detected) { }
 
+    public enum RemainingMethod { FILE, SLICER, UNKNOWN }
+
     /** 文件名仅作为本地观测，不用于证明任务归属或完成。 */
     public record Execution(String filename, boolean simulation, Measurement progressPercent,
                             Measurement printSeconds, Measurement totalSeconds,
                             Measurement activeSeconds, Measurement slicerEstimatedSeconds,
-                            Measurement remainingSeconds, Measurement filamentLengthMm) {
+                            Measurement remainingSeconds, Measurement filamentLengthMm,
+                            RemainingMethod remainingMethod) {
+        public Execution(String filename, boolean simulation, Measurement progressPercent,
+                         Measurement printSeconds, Measurement totalSeconds, Measurement activeSeconds,
+                         Measurement slicerEstimatedSeconds, Measurement remainingSeconds, Measurement filamentLengthMm) {
+            this(filename, simulation, progressPercent, printSeconds, totalSeconds, activeSeconds,
+                    slicerEstimatedSeconds, remainingSeconds, filamentLengthMm, RemainingMethod.UNKNOWN);
+        }
         @Override
         public String toString() { return "Execution[filename=redacted, simulation=" + simulation + "]"; }
     }

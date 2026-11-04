@@ -1,5 +1,7 @@
 package com.example.farm.cloud;
 
+import com.example.farm.protocol.model.CanonicalPrinterModelProjection;
+
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.service.PrinterCacheService;
@@ -452,7 +454,7 @@ class CloudGatewayTest {
         com.example.farm.protocol.model.CanonicalPrinterModelValidator.validate(
                 new CanonicalPrinterModel(model.modelVersion(), model.identity(), descriptor, changed));
 
-        var projected = CloudCanonicalStateMapper.project(new CanonicalPrinterModel(model.modelVersion(),
+        var projected = CanonicalPrinterModelProjection.project(new CanonicalPrinterModel(model.modelVersion(),
                 model.identity(), descriptor, changed));
         String json = new ObjectMapper().findAndRegisterModules().writeValueAsString(projected);
         assertThat(json).doesNotContain("local-sensitive-job", "private-network", "private-sensor-secret", "private-fault-text");

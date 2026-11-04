@@ -1,15 +1,14 @@
-package com.example.farm.cloud;
+package com.example.farm.protocol.model;
 
-import com.example.farm.protocol.model.CanonicalPrinterModel;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import static com.example.farm.protocol.model.CanonicalPrinterModel.*;
 
 /** Produces the bounded public wire model while preserving measurement quality. */
-final class CloudCanonicalStateMapper {
-    private CloudCanonicalStateMapper() { }
+public final class CanonicalPrinterModelProjection {
+    private CanonicalPrinterModelProjection() { }
 
-    static CanonicalPrinterModel project(CanonicalPrinterModel model) {
+    public static CanonicalPrinterModel project(CanonicalPrinterModel model) {
         var original = model.observation();
         var heaters = original.heaters().stream().map(h -> new HeaterState(h.id(), required(h.currentC()),
                 required(h.effectiveTargetC()), required(h.activeTargetC()), required(h.standbyTargetC()),

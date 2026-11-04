@@ -1,5 +1,7 @@
 package com.example.farm.cloud;
 
+import com.example.farm.protocol.model.CanonicalPrinterModelProjection;
+
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -545,7 +547,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     || observation.id().toString().equals(rejectedObservations.get(asset.localPrinterId()))) {
                 continue;
             }
-            var payload = CloudCanonicalStateMapper.project(model);
+            var payload = CanonicalPrinterModelProjection.project(model);
             var packet = new CloudWire.CanonicalStatePacket(3, UUID.randomUUID().toString(), "PRINTER_STATE",
                     credential.gatewayId(), credential.bindingVersion(), bootId, epoch, ++sequence,
                     observation.observedAt(), payload);

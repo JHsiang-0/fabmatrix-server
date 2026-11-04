@@ -3,6 +3,9 @@ package com.example.farm.controller;
 import com.example.farm.FarmApplication;
 import com.example.farm.entity.Printer;
 import com.example.farm.service.PrinterService;
+import com.example.farm.service.CanonicalPrinterStateService;
+import com.example.farm.protocol.model.CanonicalPrinterModelMapper;
+import com.example.farm.protocol.observation.PrinterObservation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -18,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -48,6 +53,59 @@ class PrinterMonitorControllerTest {
 
     @MockitoBean
     private PrinterService printerService;
+
+    @MockitoBean
+    private CanonicalPrinterStateService canonicalPrinterStateService;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RRF", "KLIPPER"})
+    void serializesCompleteModelWithIsoTimeAndFalseSensorValue(String firmware) throws Exception {
+        Instant at = Instant.now();
+        Printer printer = new Printer();
+        printer.setId(30L);
+        printer.setName("fixture");
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        printer.setFirmwareType(firmware);
+        printer.setMonitorEnabled(true);
+        printer.setConnectionStatus("ONLINE");
+        printer.setApiKey("private-api-key");
+        var measurement = new PrinterObservation.BooleanMeasurement(false, PrinterObservation.Quality.GOOD, at);
+        var source = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null, List.of(), null,
+                List.of(new PrinterObservation.Sensor("sensor", measurement, measurement)));
+        var model = CanonicalPrinterModelMapper.map(printer, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, source, null, false, at);
+        when(printerService.getById(30L)).thenReturn(printer);
+        when(canonicalPrinterStateService.findLatest(30L)).thenReturn(model);
+        mockMvc.perform(get("/api/v1/printers/30/model").with(user("viewer").roles("VIEWER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stale").value(false))
+                .andExpect(jsonPath("$.data.model.modelVersion").value(2))
+                .andExpect(jsonPath("$.data.model.identity.localPrinterId").value("30"))
+                .andExpect(jsonPath("$.data.model.descriptor.firmwareFamily").value(firmware))
+                .andExpect(jsonPath("$.data.model.observation.observedAt").isString())
+                .andExpect(jsonPath("$.data.model.observation.sensors[0].reading.value").value(false))
+                .andExpect(content().string(not(containsString("private-api-key"))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "OPERATOR", "VIEWER"})
+    void allLocalRolesCanReadModelWithoutFirstObservation(String role) throws Exception {
+        when(printerService.getById(30L)).thenReturn(new Printer());
+        mockMvc.perform(get("/api/v1/printers/30/model").with(user("reader").roles(role)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.stale").value(true))
+                .andExpect(jsonPath("$.data.serverTime").exists())
+                .andExpect(jsonPath("$.data.model").isEmpty());
+    }
+
+    @Test
+    void modelReadRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/printers/30/model")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(printerService);
+    }
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})

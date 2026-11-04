@@ -8,6 +8,7 @@ import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.service.PrinterEventRecorder;
 import com.example.farm.service.PrinterExecutionService;
+import com.example.farm.service.PrinterModelService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -55,6 +56,8 @@ class LocalSchemaUpgradeIntegrationTest {
     private HikariDataSource dataSource;
     @Autowired
     private CanonicalPrinterStateService canonicalPrinterStateService;
+    @Autowired
+    private PrinterModelService printerModelService;
     @Autowired
     private PrinterMapper printerMapper;
     @Autowired
@@ -187,6 +190,9 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(jdbcTemplate.queryForObject("SELECT model_json FROM farm_printer_canonical_state "
                 + "WHERE printer_id = 9103", String.class)).contains("\"modelVersion\":2", "deviceUid");
         var storedModel = canonicalPrinterStateService.findLatest(9103L);
+        var publicModel = printerModelService.getModel(9103L);
+        assertThat(publicModel.model().get("identity").toString()).contains(storedModel.identity().deviceUid().toString());
+        assertThat(publicModel.model()).containsEntry("modelVersion", 2);
         assertThat(canonicalPrinterStateService.findLatestForCloud(9103L)).isNotNull();
         String normalModelJson = jdbcTemplate.queryForObject(
                 "SELECT model_json FROM farm_printer_canonical_state WHERE printer_id = 9103", String.class);

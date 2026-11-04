@@ -1121,3 +1121,15 @@ src/test/java/com/example/farm/mapper/PrintFileMapperTest.java
 - RRF 从已确认执行态连续两次返回 `idle`，且没有取消、中止、故障、设备重启或文件冲突证据时，任务自动转为 `COMPLETED`。该判断不依赖打印结束后可能重置的 `filePosition/timesLeft/progress`。
 - FARM 任务终态、打印机解绑和执行会话关闭由同一事务提交；外部打印只关闭 EXTERNAL/UNKNOWN 会话，不修改等待中的平台任务。
 - 本轮只修改源码、迁移、测试和文档，没有重启或替换现场运行中的安装版服务。真实设备行为仍需使用新安装包执行 T11.7 验收。
+
+## 2026-11-04 Client 完整设备模型读取
+
+`GET /api/v1/printers/{id}/model` 返回 `Result<PrinterModelVO>`。ADMIN、OPERATOR、VIEWER 均可读取共享设备，匿名和强制改密账号沿用现有安全限制。
+
+- `data.serverTime` 是服务端 UTC 时间，用于客户端计算数据年龄。
+- `data.stale` 表示监控关闭、通信非在线、采样超过 30 秒或采样时间异常。客户端仍需按时间持续判断过期，并检查每个 Measurement 的 quality 和 observedAt。
+- `data.model` 是完整 `CanonicalPrinterModel`，当前 modelVersion 为 2，包含 identity、descriptor、observation。设备存在但尚无采样或当前 profile 未启用模型持久化时返回 null。设备不存在返回 404，ID 非正整数返回 400，损坏数据及存储故障按异常处理。
+- 查询读取已有 SQLite 状态，不触发打印机访问，也不依赖 MQTT 或 Cloud。保留历史快照便于解释数据来源，离线时不能用快照声称设备正在打印或已完成。
+- 复用 Cloud 的公共模型投影，移除内部 localFarmJobId、原始故障文本和非标量传感器内容，文件只保留清理后的基本名、大小与有效摘要。
+
+本次接口不新增数据库结构。已安装 Server 需更新到包含该接口的构建后，Client 才能显示完整模型。Client 列表和 WebSocket 继续使用轻量摘要，详情读取此接口。

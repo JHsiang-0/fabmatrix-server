@@ -15,10 +15,12 @@ import com.example.farm.entity.dto.PrinterMonitorUpdateDTO;
 import com.example.farm.entity.dto.PrinterMonitorBatchUpdateDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.entity.vo.PrinterDetailVO;
+import com.example.farm.entity.vo.PrinterModelVO;
 import com.example.farm.entity.vo.PrinterStatusHistoryVO;
 import com.example.farm.entity.vo.PrinterStatisticsVO;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.PrinterDetailService;
+import com.example.farm.service.PrinterModelService;
 import com.example.farm.service.PrinterStatusHistoryService;
 import com.example.farm.service.PrinterStatisticsService;
 import com.example.farm.service.DashboardLayoutService;
@@ -48,6 +50,7 @@ public class PrinterController {
 
     private final PrinterService printerService;
     private final PrinterDetailService printerDetailService;
+    private final PrinterModelService printerModelService;
     private final PrinterStatusHistoryService printerStatusHistoryService;
     private final PrinterStatisticsService printerStatisticsService;
     private final DashboardLayoutService dashboardLayoutService;
@@ -68,6 +71,12 @@ public class PrinterController {
     @GetMapping("/{id}")
     public Result<PrinterDetailVO> getPrinterDetail(@PathVariable Long id) {
         return Result.success(printerDetailService.getDetail(id));
+    }
+
+    @Operation(summary = "查询打印机完整只读模型", description = "返回统一模型和新鲜度，不触发设备采集；无采样时 model 为 null")
+    @GetMapping("/{id}/model")
+    public Result<PrinterModelVO> getPrinterModel(@PathVariable Long id) {
+        return Result.success(printerModelService.getModel(id));
     }
 
     @Operation(summary = "查询打印机监控配置", description = "返回监控开关及最近通信健康信息")

@@ -37,7 +37,7 @@ class PrinterObservationParserTest {
                 mapper.readTree("""
                         {"file":{"size":1000,"numLayers":12},"filePosition":100,"layer":2,
                          "warmUpDuration":10,"pauseDuration":0,"duration":20}
-                        """), mapper.readTree("{\"bedHeaterMapping\":[0],\"heaters\":[{\"avgPwm\":0},{\"avgPwm\":0.5}]}"),
+                        """), mapper.readTree("{\"bedHeaterMapping\":[[0]],\"heaters\":[{\"avgPwm\":0},{\"avgPwm\":0.5}]}"),
                 mapper.readTree("[]"), START, END);
         assertThat(observation.heaters().getFirst().pwmRatio().value()).isEqualByComparingTo("0");
         assertThat(observation.heaters().getFirst().role()).isEqualTo(PrinterObservation.HeaterRole.BED);

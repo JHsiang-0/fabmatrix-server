@@ -366,7 +366,14 @@ public final class PrinterObservationParser {
     }
     private static boolean containsIndex(JsonNode nodes, int index) {
         if (!nodes.isArray()) return false;
-        for (JsonNode node : nodes) if (node.canConvertToInt() && node.intValue() == index) return true;
+        for (JsonNode node : nodes) {
+            if (node.canConvertToInt() && node.intValue() == index) return true;
+            if (node.isArray()) {
+                for (JsonNode heater : node) {
+                    if (heater.canConvertToInt() && heater.intValue() == index) return true;
+                }
+            }
+        }
         return false;
     }
     private static Measurement counter(JsonNode node, String key, Instant at) {

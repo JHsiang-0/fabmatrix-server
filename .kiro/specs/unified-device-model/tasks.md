@@ -126,5 +126,5 @@ T6.4 补充证据：经授权新建并删除单独的虚拟设备记录，手机
 
 现场发现能力检测时间使描述版本随轮询递增，Server `1d7f77f` 保留能力首次确认时间，只有实际描述变化才升版；846 项全量测试、安装器契约及两台真机多轮采样验证通过。Cloud、Server、Flutter 的隔离 C1/C2 共 44 项通过；虚拟设备和自动化环境不替代实体打印过程验收。
 
-最新 Windows 安装包为 `dist/windows-model-v3-stable-descriptor/FabMatrix-Server-Setup-1.0.0.exe`（SHA-256 `32EFE139F9355EE67374E26E49DCEEB76E03891865ABB352B98EF75325D20CD8`），已安装；手机安装 Flutter `f566cc8` 的 debug APK（SHA-256 `D72ECC11D923B6111BCB7EA00D7B794994C036EBD81379CD1CC7CF85A18EDD13`）。两项均针对本机开发环境，不代表公网发布。
+此前安装了描述版本稳定性修复包（Server `1d7f77f`，SHA-256 `32EFE139F9355EE67374E26E49DCEEB76E03891865ABB352B98EF75325D20CD8`）。当前 Windows 安装包已统一为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`（Server `2dfc878`，SHA-256 `ED47DF246D2458F3D09A93BDB8760BC8FEC68F505821E25309D687642284F47B`），修复 RRF 剩余时间与估算来源，847 项全量测试通过。用户安装后，已核对真实安装 JAR 与该构建校验一致，服务运行且网关 CONNECTED，Cloud 保持两台设备 ID，Klipper 在线空闲，RRF 离线。用户确认 RRF 先暂停再关机，恢复和终态尚待现场核对。手机安装 Flutter `f566cc8` 的 debug APK（SHA-256 `D72ECC11D923B6111BCB7EA00D7B794994C036EBD81379CD1CC7CF85A18EDD13`）。旧构建目录已删除，上方路径仅记录历史证据。两端均针对本机开发环境。
 - [ ] T6.5 汇总字段覆盖、测试与现场证据、协议兼容、性能和遗留项；只有满足 `requirements.md` 全部完成定义才标记本规格完成。对应 R1–R8。

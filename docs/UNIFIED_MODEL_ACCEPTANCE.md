@@ -1,6 +1,6 @@
 # 统一设备模型验收记录
 
-更新时间：2026-11-04。本文记录当前证据及缺口，不等同于现场或发布验收通过。任务状态以 [Kiro 清单](../.kiro/specs/unified-device-model/tasks.md) 为准，升级和回退见 [发布说明](UNIFIED_MODEL_RELEASE.md)。
+更新时间：2026-11-04。本规格 35 项已完成，结论与字段覆盖见 [最终审查](UNIFIED_MODEL_FINAL_REVIEW.md)。本文保留分阶段证据和当时发现的问题，后续记录说明修复与复验结果。任务状态以 [Kiro 清单](../.kiro/specs/unified-device-model/tasks.md) 为准，升级和回退见 [发布说明](UNIFIED_MODEL_RELEASE.md)。
 
 ## 字段与链路
 
@@ -42,4 +42,6 @@
 - Server `395e2b2` 将外部执行的终态关闭纳入监控主流程；明确 complete/cancelled/canceled/error 分别关闭为 COMPLETED/CANCELLED/CANCELLED/FAILED，普通空闲仍保留两次稳定观察与 UNKNOWN 语义，FARM 执行由原流程处理。回归覆盖监控入口及未确认空闲边界，853 项全量测试和打包通过，等待用户安装后复验现场未结束执行。
 - `395e2b2` 新 JAR 配合原始 Cloud 工作区和 Flutter，再次通过 42 项跨三端隔离检查，包含限速、MQTT 延迟、HTTP/Broker 中断和重启恢复；隔离资源清理通过。该结果不替代现场取消记录的补报验收。
 - 用户安装 `395e2b2` 后，Klipper 原执行 UUID 保持，currentExecution 清空，lastExecutionResult 为 CANCELLED/DEVICE_EXPLICIT、原因 DEVICE_REPORTED_CANCELLED。Cloud 执行历史和 EXECUTION_CANCELLED 事件均补齐，Android 详情显示相同结果；结果观察时间为升级后确认时刻，不推断为设备实际取消时刻。Moonraker 两个加热器 power=0，Cloud 与手机均显示 pwmRatio=0/GOOD，终态和功率修复现场复验通过。
-- 待完成：字段覆盖及最终证据汇总；自然完成和连续暂停/恢复完整现场过程尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。
+- 最终字段审查完成，Server `469786d` 补齐文件计数、层数、独立时间、RRF 功率和顶层通道查询，`de6a41c` 兼容真实二维热床映射。857 项 Server 检查和最终 44 项跨三端隔离检查通过，包含新增执行字段的查询断言；Flutter `3e0c536` 的 81 项常规测试通过，计数使用整数且过期隐藏。
+- 用户已安装 `de6a41c`，安装 JAR SHA-256 为 `D40A4F829EC04B176CA9E8A86682B2A0CBDFB77FCB2221E130F065EFBC083CD7`，与构建一致。Android debug APK `3e0c536` 已保留数据安装。最终空闲只读复验中两台设备 ONLINE/IDLE，Cloud 稳定 ID 保持，RRF heat 映射 heater-0=BED、heater-1=TOOL，两个风扇、三轴与功率上报，手机显示相同角色和数值。新增执行明细没有重复做真机打印。
+- T6.5 字段覆盖、需求证据、版本与遗留项汇总已完成。自然完成和连续暂停/恢复完整现场过程尚未实测，自动告警规则尚未实现，均列为后续限制；不作为已通过场景。真实库修改、服务重启或设备动作须按目标与影响范围确认。

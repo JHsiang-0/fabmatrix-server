@@ -2,7 +2,7 @@
 
 日期：2026-11-01。产品仍为 `1.0.0`；归属 C2 云只读扩展设计。`modelVersion=2` 是数据契约版本，不是产品 v2，也不表示启用 v3 自动派单。
 
-当前状态（2026-11-03）：Server 已实现 canonical 模型持久化、V3 协商及库存、描述、观测、执行和事件上报；Cloud 已实现 V3 消费、存储与授权查询；Flutter 已接入列表、详情及历史。隔离环境已串联真实 Server JAR、Cloud MySQL/EMQX 和 Flutter 测试客户端。V3 上报默认关闭，设备与告警 fixture 为合成数据，告警自动规则和真实设备、Android 真机验收仍未完成。准确进度和最新证据以 [Kiro 任务清单](../.kiro/specs/unified-device-model/tasks.md) 为准。
+当前状态（2026-11-04）：本规格 35 项完成，Server、Cloud 与 Flutter 已串联 canonical 持久化、V3 协商、库存、描述、观测、执行、事件和历史。两种真机及 Android 已验证打印、明确取消、换网恢复和离线展示，现场已安装 Server `de6a41c` 和 Flutter `3e0c536`。最终审查补齐文件计数、层数、RRF 独立通道及二维热床映射，857 项 Server 检查、81 项 Flutter 常规测试和最终 44 项隔离检查通过；新增通道已做空闲只读复验。V3 默认关闭，告警自动规则尚未实现。字段覆盖、版本及未实测边界见 [最终审查](UNIFIED_MODEL_FINAL_REVIEW.md)，完成状态以 [Kiro 任务清单](../.kiro/specs/unified-device-model/tasks.md) 为准。
 
 本文下方保留 2026-11-01 至 T2.7 的设计和阶段记录，其中“尚未实现”“现有版本”等陈述描述当时状态，不能作为当前部署或能力清单；部署与开关以 [CLOUD_GATEWAY.md](CLOUD_GATEWAY.md) 为准。
 

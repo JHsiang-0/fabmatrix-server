@@ -11,7 +11,7 @@
 
 ## 文档分工
 
-[统一设备模型设计](UNIFIED_DEVICE_MODEL.md) 定义 Klipper/RRF 现场适配与 Cloud 对象契约；Server 已实现部分内部观测基础，现有对外接口和云端运行协议尚未切换。
+[统一设备模型设计](UNIFIED_DEVICE_MODEL.md) 定义 Klipper/RRF 现场适配与 Cloud 对象契约；V3 完整只读链路已落地，35 项 Kiro 任务完成。当前字段覆盖、三端部署版本、测试和现场边界见 [最终审查](UNIFIED_MODEL_FINAL_REVIEW.md)。
 
 当前运行时使用 SQLite 和本地文件；`db/init/sqlite-schema.sql` 配合 `LocalSchemaMigration` 完成初始化与升级。旧 MySQL 初始化及迁移脚本已移除。Windows/IDEA 单机运行说明见 [单机运行模式](./SINGLE_MACHINE.md)。
 

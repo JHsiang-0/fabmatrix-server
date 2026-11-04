@@ -6,15 +6,22 @@ import com.example.farm.common.storage.FileStorage;
 import com.example.farm.entity.PrintFile;
 import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.dto.PrinterScanResultDTO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
 import com.example.farm.mapper.PrinterMapper;
 import com.example.farm.service.PrintFileService;
 import com.example.farm.service.PrintJobService;
+import com.example.farm.service.PrinterService;
+import com.example.farm.service.PrinterModelService;
+import com.example.farm.service.CanonicalPrinterStateService;
+import com.example.farm.protocol.observation.PrinterObservation;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.Resource;
@@ -31,8 +38,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,6 +53,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @TestPropertySource(properties = {
         "farm.websocket.enabled=false",
         "farm.monitor.enabled=false",
+        "farm.cloud.enabled=false",
+        "farm.discovery.enabled=false",
         "spring.datasource.hikari.connection-timeout=1000"
 })
 class LocalEditionMapperTest {
@@ -61,6 +73,12 @@ class LocalEditionMapperTest {
     private PrintFileMapper printFileMapper;
     @Autowired
     private PrinterMapper printerMapper;
+    @Autowired
+    private PrinterService printerService;
+    @Autowired
+    private CanonicalPrinterStateService canonicalPrinterStateService;
+    @Autowired
+    private PrinterModelService printerModelService;
     @Autowired
     private PrintJobMapper printJobMapper;
     @Autowired
@@ -114,6 +132,8 @@ class LocalEditionMapperTest {
                 .extracting(PrintFile::getOriginalName).isEqualTo("Cube-PLA.gcode");
 
         Printer printer = new Printer();
+        String deviceUid = UUID.randomUUID().toString();
+        printer.setDeviceUid(deviceUid);
         printer.setName("RRF-01");
         printer.setIpAddress("192.168.0.77");
         printer.setMacAddress("aa:bb:cc:dd:ee:ff");
@@ -123,9 +143,103 @@ class LocalEditionMapperTest {
         printerMapper.upsertByMacAddress(printer);
 
         assertThat(printerMapper.selectByMacAddress("aa:bb:cc:dd:ee:ff").getMonitorEnabled()).isTrue();
+        assertThat(printerMapper.selectByMacAddress(printer.getMacAddress()).getDeviceUid()).isEqualTo(deviceUid);
         jdbcTemplate.update("UPDATE farm_printer SET monitor_enabled=0 WHERE mac_address=?", printer.getMacAddress());
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        printer.setIpAddress("198.51.100.21");
         printerMapper.upsertByMacAddress(printer);
         assertThat(printerMapper.selectByMacAddress(printer.getMacAddress()).getMonitorEnabled()).isFalse();
+        assertThat(printerMapper.selectByMacAddress(printer.getMacAddress()).getDeviceUid()).isEqualTo(deviceUid);
+    }
+
+    @Test
+    void sqliteBatchUpsertPersistsDistinctIdentitiesAndKeepsExistingIdentity() {
+        Printer first = identityCandidate("02:00:00:00:00:31", "198.51.100.31");
+        Printer second = identityCandidate("02:00:00:00:00:32", "198.51.100.32");
+        String originalUid = first.getDeviceUid();
+        printerMapper.batchUpsert(List.of(first, second));
+        assertThat(printerMapper.selectByMacAddress(first.getMacAddress()).getDeviceUid()).isEqualTo(originalUid);
+        assertThat(printerMapper.selectByMacAddress(second.getMacAddress()).getDeviceUid())
+                .isEqualTo(second.getDeviceUid()).isNotEqualTo(originalUid);
+
+        jdbcTemplate.update("UPDATE farm_printer SET current_job_id=7001, is_safe_to_print=1, monitor_enabled=1 "
+                + "WHERE mac_address=?", first.getMacAddress());
+        first.setDeviceUid(UUID.randomUUID().toString());
+        first.setIpAddress("198.51.100.33");
+        printerMapper.batchUpsert(List.of(first));
+        Printer stored = printerMapper.selectByMacAddress(first.getMacAddress());
+        assertThat(stored.getDeviceUid()).isEqualTo(originalUid);
+        assertThat(stored.getIpAddress()).isEqualTo("198.51.100.33");
+        assertThat(stored.getCurrentJobId()).isEqualTo(7001L);
+        assertThat(stored.getIsSafeToPrint()).isTrue();
+        assertThat(stored.getMonitorEnabled()).isTrue();
+    }
+
+    @Test
+    void existingStartupMigrationFillsOnlyMissingIdentitiesAndIsIdempotent() {
+        Printer stable = identityCandidate("02:00:00:00:00:51", "198.51.100.51");
+        printerMapper.insert(stable);
+        String stableUid = stable.getDeviceUid();
+        jdbcTemplate.update("""
+                INSERT INTO farm_printer (name, mac_address, device_uid, firmware_type, status,
+                    current_job_id, is_safe_to_print, monitor_enabled)
+                VALUES ('Missing null', '02:00:00:00:00:52', NULL, 'RRF', 'PRINTING', 7002, 1, 1),
+                       ('Missing blank', '02:00:00:00:00:53', ' ', 'KLIPPER', 'PRINTING', 7003, 1, 1)
+                """);
+        localSchemaMigration.run();
+        Printer repaired = printerMapper.selectByMacAddress("02:00:00:00:00:52");
+        String repairedUid = repaired.getDeviceUid();
+        assertThat(UUID.fromString(repairedUid).toString()).isEqualTo(repairedUid);
+        assertThat(repaired.getStatus()).isEqualTo("PRINTING");
+        assertThat(repaired.getCurrentJobId()).isEqualTo(7002L);
+        assertThat(repaired.getIsSafeToPrint()).isTrue();
+        assertThat(repaired.getMonitorEnabled()).isTrue();
+        String otherUid = printerMapper.selectByMacAddress("02:00:00:00:00:53").getDeviceUid();
+        assertThat(UUID.fromString(otherUid).toString()).isEqualTo(otherUid);
+        assertThat(otherUid).isNotEqualTo(repairedUid);
+        localSchemaMigration.run();
+        assertThat(printerMapper.selectByMacAddress(stable.getMacAddress()).getDeviceUid()).isEqualTo(stableUid);
+        assertThat(printerMapper.selectByMacAddress(repaired.getMacAddress()).getDeviceUid()).isEqualTo(repairedUid);
+        assertThat(printerMapper.selectByMacAddress("02:00:00:00:00:53").getDeviceUid()).isEqualTo(otherUid);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RRF", "KLIPPER"})
+    void scannedPrinterIdentityReachesPersistedModelAndClientReadApi(String firmware) {
+        var scan = PrinterScanResultDTO.of("198.51.100.41", "02:00:00:00:00:41", true);
+        scan.setFirmwareType(firmware);
+        scan.setSuggestedName("Identity fixture");
+        var result = printerService.batchUpsertPrinters(List.of(scan));
+        assertThat(result.getInsertedCount()).isEqualTo(1);
+        assertThat(result.getFailedCount()).isZero();
+        Printer stored = printerMapper.selectByMacAddress("02:00:00:00:00:41");
+        assertThat(stored.getDeviceUid()).isNotBlank();
+        assertThat(UUID.fromString(stored.getDeviceUid()).toString()).isEqualTo(stored.getDeviceUid());
+
+        stored.setConnectionStatus("ONLINE");
+        stored.setLastSeenAt(LocalDateTime.now());
+        stored.setStatus("PRINTING");
+        printerMapper.updateById(stored);
+        Instant at = Instant.now();
+        var temperature = new PrinterObservation.Measurement(new BigDecimal("205.0"),
+                PrinterObservation.Quality.GOOD, at);
+        var target = new PrinterObservation.Measurement(new BigDecimal("210.0"),
+                PrinterObservation.Quality.GOOD, at);
+        var heater = new PrinterObservation.Heater("tool", PrinterObservation.HeaterRole.TOOL,
+                PrinterObservation.HeaterMode.ACTIVE, temperature, target, target, null);
+        var observation = new PrinterObservation(at, at, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.PRINTING,
+                List.of(heater), List.of(new PrinterObservation.Tool("tool", List.of("tool"))), "tool", null);
+        assertThat(canonicalPrinterStateService.persist(stored, observation)).isTrue();
+        var response = printerModelService.getModel(stored.getId());
+        assertThat(response.stale()).isFalse();
+        Map<?, ?> identity = (Map<?, ?>) response.model().get("identity");
+        assertThat(identity.get("deviceUid")).isEqualTo(stored.getDeviceUid());
+        Map<?, ?> modelObservation = (Map<?, ?>) response.model().get("observation");
+        assertThat(modelObservation.get("operationState")).isEqualTo("PRINTING");
+        Map<?, ?> modelHeater = (Map<?, ?>) ((List<?>) modelObservation.get("heaters")).getFirst();
+        Map<?, ?> currentTemperature = (Map<?, ?>) modelHeater.get("currentC");
+        assertThat(((Number) currentTemperature.get("value")).doubleValue()).isEqualTo(205.0);
     }
 
     @Test
@@ -298,6 +412,17 @@ class LocalEditionMapperTest {
         assertThatThrownBy(() -> localSchemaMigration.run())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("阻止启动");
+    }
+
+    private Printer identityCandidate(String macAddress, String ipAddress) {
+        Printer printer = new Printer();
+        printer.setDeviceUid(UUID.randomUUID().toString());
+        printer.setName("Identity fixture");
+        printer.setMacAddress(macAddress);
+        printer.setIpAddress(ipAddress);
+        printer.setFirmwareType("RRF");
+        printer.setStatus("IDLE");
+        return printer;
     }
 
     private void ensureUser(int id, String username) {

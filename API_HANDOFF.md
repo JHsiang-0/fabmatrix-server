@@ -1133,3 +1133,11 @@ src/test/java/com/example/farm/mapper/PrintFileMapperTest.java
 - 复用 Cloud 的公共模型投影，移除内部 localFarmJobId、原始故障文本和非标量传感器内容，文件只保留清理后的基本名、大小与有效摘要。
 
 本次接口不新增数据库结构。已安装 Server 需更新到包含该接口的构建后，Client 才能显示完整模型。Client 列表和 WebSocket 继续使用轻量摘要，详情读取此接口。
+
+## 2026-11-04 批量录入设备 UUID 持久化修复
+
+批量扫描录入经 `PrinterService.batchUpsertPrinters` 为设备生成 UUID，`PrinterMapper.upsertByMacAddress` 原先未将 `device_uid` 写入 SQLite，导致新增设备基础监控正常而完整模型为空。同类问题同时存在于 `PrinterMapper.batchUpsert`。
+
+两条 INSERT 均已补上 `device_uid`。按 MAC 冲突更新继续沿用原设备 UUID。隔离 SQLite 回归覆盖正常批量录入入口、两种固件、模型持久化与 Client 读取服务，以及重复导入后的身份和任务绑定。
+
+历史空标识由既有 `LocalSchemaMigration` 在启动时补齐并保持幂等，回归验证已有 UUID、打印状态、任务绑定与监控标记。生产部署需安排授权的维护窗口，安装包升级和服务重启会执行此启动流程。

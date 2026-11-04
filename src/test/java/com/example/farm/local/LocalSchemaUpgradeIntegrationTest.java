@@ -246,6 +246,23 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(recoveredModel.observation().issues()).anyMatch(issue ->
                 issue.code() == com.example.farm.protocol.model.CanonicalPrinterModel.IssueCode.CONTINUITY_UNKNOWN);
 
+        Instant later = observedAt.plusSeconds(15);
+        var laterObservation = new PrinterObservation(later, later, PrinterObservation.Completeness.PARTIAL,
+                PrinterObservation.SystemState.READY, PrinterObservation.OperationState.IDLE,
+                List.of(), List.of(), null, null);
+        assertThat(restartedStateService.persist(printer, laterObservation)).isTrue();
+        var unchangedDescriptor = restartedStateService.findLatest(9103L);
+        assertThat(unchangedDescriptor.descriptor().revision()).isEqualTo(1);
+        assertThat(unchangedDescriptor.descriptor().capabilities()).isEqualTo(recoveredModel.descriptor().capabilities());
+        assertThat(unchangedDescriptor.observation().revision()).isEqualTo(3);
+        var unknownObservation = new PrinterObservation(later.plusSeconds(1), later.plusSeconds(1),
+                PrinterObservation.Completeness.PARTIAL, PrinterObservation.SystemState.UNKNOWN,
+                PrinterObservation.OperationState.UNKNOWN, List.of(), List.of(), null, null);
+        assertThat(restartedStateService.persist(printer, unknownObservation)).isTrue();
+        var changedDescriptor = restartedStateService.findLatest(9103L);
+        assertThat(changedDescriptor.descriptor().revision()).isEqualTo(2);
+        assertThat(changedDescriptor.descriptor().capabilities()).isNotEqualTo(unchangedDescriptor.descriptor().capabilities());
+
         jdbcTemplate.update("INSERT INTO farm_printer_execution(printer_id, source, state, started_at, last_seen_at) "
                         + "VALUES (?, 'EXTERNAL', 'ACTIVE', ?, ?)", 9103,
                 java.sql.Timestamp.valueOf("2026-11-02 09:00:00"),

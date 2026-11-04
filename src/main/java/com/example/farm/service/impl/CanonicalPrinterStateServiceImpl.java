@@ -60,15 +60,19 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
                 "SELECT source_instance_id FROM farm_installation_identity WHERE id = 1", String.class));
         var activeExecution = executionService.findActive(current.getId());
         var lastFinishedExecution = executionService.findLastFinished(current.getId());
+        CanonicalPrinterModel.Descriptor previousDescriptor = previous == null ? null
+                : readDescriptor((String) previous.get("descriptor_json"));
         CanonicalPrinterModel model = CanonicalPrinterModelMapper.map(current, sourceInstanceId,
                 deviceBootId, observationRevision, descriptorRevision, observation, activeExecution,
                 lastFinishedExecution, continuityUnknown, Instant.now());
+        model = preserveCapabilityTimes(model, previousDescriptor);
         String descriptorJson = serialize(model.descriptor());
         if (previous != null && !descriptorJson.equals(previous.get("descriptor_json"))) {
             descriptorRevision++;
             model = CanonicalPrinterModelMapper.map(current, sourceInstanceId, deviceBootId,
                     observationRevision, descriptorRevision, observation, activeExecution,
                     lastFinishedExecution, continuityUnknown, Instant.now());
+            model = preserveCapabilityTimes(model, previousDescriptor);
             descriptorJson = serialize(model.descriptor());
         }
         String modelJson = serialize(model);
@@ -173,5 +177,32 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
             throw new IllegalStateException("Unable to serialize canonical printer state", failure);
         }
+    }
+
+    private CanonicalPrinterModel.Descriptor readDescriptor(String json) {
+        try {
+            return objectMapper.readValue(json, CanonicalPrinterModel.Descriptor.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
+    private CanonicalPrinterModel preserveCapabilityTimes(CanonicalPrinterModel model,
+                                                            CanonicalPrinterModel.Descriptor previous) {
+        if (previous == null) return model;
+        var descriptor = model.descriptor();
+        var capabilities = descriptor.capabilities().stream().map(capability -> {
+            var existing = previous.capabilities().stream().filter(old -> old.code().equals(capability.code())
+                    && old.support() == capability.support() && old.evidence() == capability.evidence())
+                    .findFirst();
+            return existing.orElse(capability);
+        }).toList();
+        var stable = new CanonicalPrinterModel.Descriptor(descriptor.revision(), descriptor.name(),
+                descriptor.machineNumber(), descriptor.firmwareFamily(), descriptor.firmwareVersion(),
+                descriptor.connectionMode(), descriptor.machineMode(), descriptor.emulated(),
+                descriptor.primaryToolId(), descriptor.primaryBedHeaterId(), descriptor.tools(),
+                descriptor.heaters(), descriptor.fans(), descriptor.axes(), descriptor.sensors(), capabilities,
+                descriptor.locationLabel(), descriptor.configuredMaterial(), descriptor.configuredNozzleDiameterMm());
+        return new CanonicalPrinterModel(model.modelVersion(), model.identity(), stable, model.observation());
     }
 }

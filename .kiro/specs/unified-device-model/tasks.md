@@ -108,9 +108,13 @@ T5.5 证据：Cloud `4074630` 配合 Flutter `e4301f5`，使用临时回环转�
 - [x] T6.1 给出 Server SQLite 与 Cloud MySQL 的升级、必要备份、恢复、监控及先 Cloud 后 Server 的兼容发布方案；验证回退。对应 R8。
 
 T6.1 证据：Server `d9f312b` 给出升级顺序、快照范围、关闭 V3 与恢复数据库的差异及监控边界；Cloud `b141862` 验证隔离 MySQL V1 和 SQLite 升级前快照的独立恢复。Cloud `8f61b62` 进一步用本地离线构建的历史 Cloud `66a94ea` 启动恢复库并读取账号、农场，用历史 Server `2729a15` 启动恢复的 SQLite 并通过认证接口读取设备；合并弱网及 Flutter 的 C1/C2 共 40 项通过。历史程序构建跳过其测试；此结果仅证明这组旧程序和对应合成快照，不证明任意旧版可以直接使用升级后的库，也未操作真实环境。
-- [ ] T6.2 构建并验证 Windows 安装版、Cloud 和手机 App，记录具体版本、配置与开关；真实服务变更前核实目标。对应 R8。
+- [x] T6.2 构建并验证 Windows 安装版、Cloud 和手机 App，记录具体版本、配置与开关；真实服务变更前核实目标。对应 R8。
 
-T6.2 进度：2026-11-03 基于 Server `f334e44` 构建独立目录 `dist/windows-model-v3-validation/FabMatrix-Server-Setup-1.0.0.exe`，SHA-256 `1B69162334E404250EE3F7C4F9054170FF0980D83799D8C55CB8A82F9A162836`；此前同一代码版本全量 845 项测试通过，打包后独立启动/健康及安装器契约通过。Cloud `verify` 74 项通过并生成 JAR；2026-11-04 Flutter `e426fbb` 常规检查 77 项通过，隔离专用用例另在 C1/C2 运行，Android debug APK SHA-256 `F599DC1EC18CB9CAEBA23320A3C9BDDBC2A7F8A59D2DAC248F458999018671FE`。V3 上报默认关闭。上述构建未安装或部署到真实服务/手机，安装、升级及 Android 真机验证仍待执行，故不勾选。
+T6.2 构建证据：2026-11-03 基于 Server `f334e44` 构建独立目录 `dist/windows-model-v3-validation/FabMatrix-Server-Setup-1.0.0.exe`，SHA-256 `1B69162334E404250EE3F7C4F9054170FF0980D83799D8C55CB8A82F9A162836`；此前同一代码版本全量 845 项测试通过，打包后独立启动/健康及安装器契约通过。Cloud `verify` 74 项通过并生成 JAR；2026-11-04 Flutter `e426fbb` 常规检查 77 项通过，隔离专用用例另在 C1/C2 运行，Android debug APK SHA-256 `F599DC1EC18CB9CAEBA23320A3C9BDDBC2A7F8A59D2DAC248F458999018671FE`。V3 上报默认关闭，现场已显式启用。
+
+T6.2 实际部署验收（2026-11-04）：经用户授权，Cloud `b5b6715` 从 V5 升级至 V16，升级前一致性快照在独立 MySQL 恢复并由新版 Cloud 升级，用户、组织、农场、网关、设备投影数量保留；正式实例健康。安装版 Server 先停止并保存完整数据快照，对 SQLite 副本试运行新程序成功，再安装 `f334e44` 并检查健康及本地登录。随后在持久配置启用 V3，原网关重连且 Cloud 收到设备数为 0 的 V3 库存。手机 PJE110 保留数据安装 Flutter `e426fbb`，真实 Cloud 登录会话保留，模拟设备列表与详情可见。安装中发现备份/恢复脚本助手作用域错误，Server `d985fd0` 修复并通过隔离维护测试，已同步到已安装维护目录；不将模拟设备视为真实设备。物理设备和全场景手机验收仍分别属于 T6.3、T6.4。
+
+包含维护修复的后续 Windows 安装包位于 `dist/windows-model-v3-maintenance/FabMatrix-Server-Setup-1.0.0.exe`，SHA-256 `32AE532A3DEEB4C95CDF5BB77872B104F6B1EA01CFF70495DFA8929442C47BFE`；该包通过安装器契约和独立启动检查，已安装程序的两个维护脚本经哈希核对同步，未再次运行此安装包。
 - [ ] T6.3 分别使用一台 Klipper 和一台 RRF 真机做授权只读验收，记录固件、可用能力、设备状态与数据来源；不执行物理动作。对应 R3、R8。
 - [ ] T6.4 验证手机在在线、断网、离线、删除设备、网关重绑及恢复时展示正确；记录限制与未支持字段。对应 R7、R8。
 - [ ] T6.5 汇总字段覆盖、测试与现场证据、协议兼容、性能和遗留项；只有满足 `requirements.md` 全部完成定义才标记本规格完成。对应 R1–R8。

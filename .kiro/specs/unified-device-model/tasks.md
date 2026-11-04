@@ -129,6 +129,8 @@ T6.4 补充证据：经授权新建并删除单独的虚拟设备记录，手机
 此前安装了描述版本稳定性修复包（Server `1d7f77f`，SHA-256 `32EFE139F9355EE67374E26E49DCEEB76E03891865ABB352B98EF75325D20CD8`）。当前 Windows 安装包已统一为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`（Server `2dfc878`，SHA-256 `ED47DF246D2458F3D09A93BDB8760BC8FEC68F505821E25309D687642284F47B`），修复 RRF 剩余时间与估算来源，847 项全量测试通过。用户安装后，已核对真实安装 JAR 与该构建校验一致，服务运行且网关 CONNECTED，Cloud 保持两台设备 ID，Klipper 在线空闲，RRF 离线。用户确认 RRF 先暂停再关机，恢复和终态尚待现场核对。手机安装 Flutter `f566cc8` 的 debug APK（SHA-256 `D72ECC11D923B6111BCB7EA00D7B794994C036EBD81379CD1CC7CF85A18EDD13`）。旧构建目录已删除，上方路径仅记录历史证据。两端均针对本机开发环境。
 - [ ] T6.5 汇总字段覆盖、测试与现场证据、协议兼容、性能和遗留项；只有满足 `requirements.md` 全部完成定义才标记本规格完成。对应 R1–R8。
 
+T6.5 RRF 取消及换网验收（2026-11-04）：用户取消打印并切换设备网段后提供新 IP，只读 state/job 返回 idle、lastFileCancelled=true、lastFileAborted=false。使用管理员更新接口修改原设备记录的 IP，其本地 ID、稳定 UID、Cloud ID 和执行历史保持；监控恢复 ONLINE/IDLE，Cloud 当前执行为空，原执行结果 CANCELLED/DEVICE_EXPLICIT、原因 DEVICE_REPORTED_CANCELLED，事件历史新增 EXECUTION_CANCELLED。手机分别刷新事件和执行标签后显示同一执行的取消结果，原未知结果保留。RRF 明确取消路径通过；Klipper 随电脑换网后旧地址不可达，打印验收及功率修复现场部署仍待完成，RRF 自然完成路径尚未实测。
+
 T6.5 RRF 剩余时间复验（2026-11-04）：用户开机后重新启动打印，真机 processing，job.timesLeft.slicer=79,186 秒且文件位置 18,263/40,691,069 字节；Cloud 当前执行为 EXTERNAL/PRINT，进度 0.04%（FILE_OFFSET），estimatedRemaining 为 SLICER/GOOD/SLICER_ESTIMATE、79,186 秒，Android 详情显示相同数值。手机和 Cloud 同时保留上一轮 UNKNOWN/UNCONFIRMED 结果，新打印生成独立执行 UUID；加热阶段热床/工具目标为 60℃/230℃。`2dfc878` 的剩余时间修复现场复验通过，明确取消/完成及 Klipper 打印验收继续待办。
 
 T6.5 真机恢复补充（2026-11-04）：用户重新开启 RRF 后，设备只读状态 idle、uptime 约 125 秒且没有活动任务；Server、Cloud、手机均恢复在线空闲，Cloud 观测有效。关机前暂停的原执行保持同一 UUID，当前执行为空，上次结果为 UNKNOWN/UNCONFIRMED、原因 TERMINAL_UNCONFIRMED。Cloud 执行和事件历史可读回开始、暂停、离线、重连及 EXECUTION_UNKNOWN 结束事件，手机显示相同未确认结果。此次仅核对用户操作后的状态；RRF 正常完成或明确取消、剩余时间和 Klipper 打印场景仍待现场验证。

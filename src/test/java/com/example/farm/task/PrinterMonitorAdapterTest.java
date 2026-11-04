@@ -26,6 +26,8 @@ import com.example.farm.service.WebSocketEventPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -117,6 +119,52 @@ class PrinterMonitorAdapterTest {
 
         verify(printerExecutionService).finishNonFarmExecution(execution, "UNKNOWN",
                 "设备由执行态稳定返回空闲，但没有明确的完成/取消/中止证据");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"complete,COMPLETED,IDLE", "cancelled,CANCELLED,IDLE", "canceled,CANCELLED,IDLE", "error,FAILED,ERROR"})
+    void closesExternalExecutionFromExplicitTerminalThroughMonitoring(
+            String rawState, String expectedOutcome, PrinterStatus deviceStatus) {
+        Printer printer = printer("Klipper");
+        printer.setStatus("PRINTING");
+        PrinterExecution execution = new PrinterExecution();
+        execution.setId(7003L);
+        execution.setPrinterId(403L);
+        execution.setSource("EXTERNAL");
+        execution.setState("ACTIVE");
+        execution.setIdleObservationCount(1);
+        var status = new PrinterDeviceStatus(deviceStatus, rawState, null, "demo.gcode",
+                null, null, null, null, null, null, null, null);
+        when(printerService.listByIds(anyList())).thenReturn(List.of(printer));
+        when(printerService.getById(403L)).thenReturn(printer);
+        when(adapterFactory.getAdapter("Klipper")).thenReturn(adapter);
+        when(adapter.getStatus(any())).thenReturn(status);
+        when(printerExecutionService.findActive(403L)).thenReturn(execution);
+        when(printerExecutionService.observeIdle(403L, status)).thenReturn(execution);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrinterExecutionService();
+
+        monitorTask.checkPrinterStatus();
+
+        verify(printerExecutionService, timeout(2000)).finishNonFarmExecution(eq(execution), eq(expectedOutcome), anyString());
+    }
+
+    @Test
+    void waitsForStableIdleBeforeClosingUnconfirmedExternalExecution() {
+        Printer printer = printer("RRF");
+        PrinterExecution execution = new PrinterExecution();
+        execution.setSource("EXTERNAL");
+        execution.setIdleObservationCount(1);
+        when(printerExecutionService.findActive(403L)).thenReturn(execution);
+        when(printerExecutionService.observeIdle(eq(403L), any())).thenReturn(execution);
+        monitorTask = new PrinterMonitorTask(printerService, printerCacheService, adapterFactory, printJobService,
+                eventPublisher, monitorProperties());
+        installPrinterExecutionService();
+
+        ReflectionTestUtils.invokeMethod(monitorTask, "closeNonFarmExecutionAfterIdle", printer, idleStatus());
+
+        verify(printerExecutionService, never()).finishNonFarmExecution(any(), anyString(), anyString());
     }
 
     @Test

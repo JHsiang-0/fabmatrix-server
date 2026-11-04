@@ -37,4 +37,6 @@
 - 用户在设备端取消本轮 RRF 打印并将其切换网段，随后提供新地址。只读接口返回 idle、lastFileCancelled=true、lastFileAborted=false；通过管理员更新接口修改现有设备的 IP，保留名称、MAC、耗材、喷嘴和编号，监控恢复在线空闲。Cloud 原设备 ID 和稳定 UID 保持，当前执行清空，原执行结果为 CANCELLED/DEVICE_EXPLICIT、原因 DEVICE_REPORTED_CANCELLED，并收到 EXECUTION_CANCELLED 结束事件；手机分别刷新事件和执行页后显示相同取消结果，上一轮 UNKNOWN 结果仍保留。电脑同时更换网段后，Klipper 旧地址不可达，仍待恢复连接。
 - 用户提供 Klipper 新地址后，只读核对 Moonraker 返回 ready/standby、当前工具 extruder；Server 原记录已使用该新地址且 ONLINE/IDLE，本次没有重复更新。Cloud 和 Android 列表显示在线空闲、有效观测，本地 ID、稳定 UID 及 Cloud ID 均保持原值。两台真机均恢复连接，设备名称仍保留原有名称。
 - 用户尝试启动 Klipper 打印后，首次只读采集为 print_stats.state=cancelled、total_duration 约 0.11 秒，随后为 standby。设备 G-code 日志包含 Unknown command（M98 等）及 Extrude below minimum temp，提示文件/配置兼容性需核对；不能把此轮认定为持续打印验收通过。Cloud、手机显示空闲，与读取到的设备状态一致。仍需用户使用适配该 Klipper 的文件按正常流程启动。
-- 待完成：Klipper 真机打印、功率修复安装复验、字段覆盖及最终证据汇总；RRF 自然完成路径尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。
+- 用户更换文件后再次启动 Klipper，设备 print_stats.state=printing、virtual_sdcard.is_active=true；两次只读采样打印时长约 119→168 秒、耗材 543→779 mm、文件位置持续增长，Cloud 和手机显示新 EXTERNAL/PRINT 执行、温度与轴数据。设备 display_status.progress=0，virtual_sdcard 文件进度约 0.11%；当前 canonical 采用 DEVICE_REPORTED，手机显示 0.0%，需保留两种进度来源差异。手机首次详情与 Cloud 对上；后续一次自动界面采集未能取得空闲状态，不使用那次旧 XML 作为更新证据。
+- 用户随后取消，设备返回 cancelled、总运行约 222 秒且虚拟 SD 已停止。现场 Server 健康状态变为空闲，但 canonical 执行停在 PAUSED，Cloud 未收到终态；日志持续报告生命周期不一致。代码定位到外部执行结束仅处理 idle/standby、遗漏 Klipper cancelled/error 及 complete 分支的执行关闭，修复和现场复验进行中。
+- 待完成：Klipper 取消终态修复部署复验、功率修复安装复验、字段覆盖及最终证据汇总；RRF 自然完成路径尚未实测，自动告警规则尚未实现。真实库修改、服务重启或设备动作须按目标与影响范围确认。

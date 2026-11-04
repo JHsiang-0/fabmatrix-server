@@ -423,10 +423,10 @@ public class PrinterMonitorTask implements SmartLifecycle {
         } else if (printer.getCurrentJobId() != null) {
             // 农场任务：其他状态同步（complete/error/cancelled/paused）
             syncOutcome = syncPrintJobStatus(printer, status, taskContext.farmJob());
-            if (isIdleState(status.rawState())) {
-                closeNonFarmExecutionAfterIdle(printer, status);
-            }
-        } else if (isIdleState(status.rawState())) {
+        }
+
+        // 外部执行也需要消费 Klipper 的明确终态，不能只等待 idle/standby。
+        if (!isDeviceExecuting(deviceState)) {
             closeNonFarmExecutionAfterIdle(printer, status);
         }
 
@@ -767,21 +767,32 @@ public class PrinterMonitorTask implements SmartLifecycle {
         if (printerExecutionService == null) {
             return;
         }
+        String explicitTerminal = switch (normalizeRawState(status.rawState())) {
+            case "complete" -> "COMPLETED";
+            case "cancelled", "canceled" -> "CANCELLED";
+            case "error" -> "FAILED";
+            default -> null;
+        };
+        if (explicitTerminal == null && !isIdleState(status.rawState())) {
+            return;
+        }
         try {
             PrinterExecution execution = printerExecutionService.findActive(printer.getId());
             if (execution == null || "FARM".equals(execution.getSource())) {
                 return;
             }
             execution = printerExecutionService.observeIdle(printer.getId(), status);
-            if (execution == null || execution.getIdleObservationCount() == null
-                    || execution.getIdleObservationCount() < 2) {
+            if (execution == null || (explicitTerminal == null
+                    && (execution.getIdleObservationCount() == null || execution.getIdleObservationCount() < 2))) {
                 return;
             }
-            String terminal = Boolean.TRUE.equals(status.lastFileCancelled()) ? "CANCELLED"
+            String terminal = explicitTerminal != null ? explicitTerminal
+                    : Boolean.TRUE.equals(status.lastFileCancelled()) ? "CANCELLED"
                     : Boolean.TRUE.equals(status.lastFileAborted()) ? "FAILED" : "UNKNOWN";
             printerExecutionService.finishNonFarmExecution(execution, terminal,
                     "CANCELLED".equals(terminal) ? "设备报告最近一次文件已取消"
                             : "FAILED".equals(terminal) ? "设备报告最近一次文件已中止"
+                            : "COMPLETED".equals(terminal) ? "设备明确报告打印已完成"
                             : "设备由执行态稳定返回空闲，但没有明确的完成/取消/中止证据");
         } catch (Exception exception) {
             log.error("关闭外部设备执行会话失败，将在下次巡检重试: printerId={}",

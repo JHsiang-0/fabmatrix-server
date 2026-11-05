@@ -79,3 +79,10 @@ T7 读取迁移：协商到 `schemaVersion=3` 后，兼容快照的状态、进�
 2026-11-01 本机联调：常驻开发 Cloud 已从 V4 升至 V5，升级前数据库备份已在隔离 MySQL 中恢复验证；IDEA 开发 Server 已通过本机私有配置启用 V2。授权 API 当次返回 8 台设备的当前观测、16 个加热通道；已在连接的 Android 手机上查看在线设备的统一观测和温度。该记录只覆盖本机开发环境，不等同生产部署或所有设备/打印阶段验收。
 
 后端 `mvnw test` 验证开关、权限、白名单、受保护文件及错误隔离；云仓库的 `scripts/c1-integration.py --backend-jar …` 运行真实现场 JAR、临时 SQLite、云 MySQL 和真实 EMQX TLS，设备状态使用模拟观测，不连接真实打印机。公网双现场、真实设备、Windows 安装包和实际运维凭证轮换仍须单独验收。
+# 手机扫码配对（2026-11-05）
+
+Client「设置 → 云端连接 → 手机扫码配对」生成十分钟二维码；手机「我的 → 扫码连接现场服务器」扫码，选择组织和农场并确认。Server 安全领取凭据后，仍由本地管理员核对归属、开启上报。未配对的 Server 保持独立运行。已有绑定不被扫码自动覆盖。
+
+本地 ADMIN 接口为 `POST /api/v1/cloud/pairing/start`、`/poll`、`/cancel`，分别使用连接配置与 revision、pairingId 与 revision。临时材料保存在凭据目录旁的 `cloud-pairing.json`，完成后清除；不要将此文件提交或复制给手机。关闭弹窗停止轮询，可重新进入并生成以恢复有效会话；取消或过期后可重试。
+
+Cloud 需先升级 V18，再升级 Server、Client 和 App。首次需要部署者填写真实 Cloud API、MQTT TLS 地址及自建 CA；不能使用其他电脑的回环地址。详见 [配对协议](../../fabmatrix-cloud/docs/decisions/0012-qr-gateway-pairing.md)。本次不改变现场打印控制与 30 秒状态过期规则。

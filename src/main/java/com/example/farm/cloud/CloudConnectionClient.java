@@ -16,6 +16,28 @@ import java.util.Map;
 public class CloudConnectionClient {
     private final ObjectMapper json = new ObjectMapper();
 
+    public PairingStart startPairing(CloudGatewayProperties properties) throws Exception {
+        return post(properties, "/api/v1/gateway-pairings/start", null, Map.of(), PairingStart.class);
+    }
+    public PairingResult pollPairing(CloudGatewayProperties properties, PairingStart pairing, String credential) throws Exception {
+        return post(properties, "/api/v1/gateway-pairings/poll", null,
+                Map.of("pairingId", pairing.pairingId(), "deviceToken", pairing.deviceToken(), "credential", credential), PairingResult.class);
+    }
+    public void cancelPairing(CloudGatewayProperties properties, PairingStart pairing, String credential) throws Exception {
+        try {
+            post(properties, "/api/v1/gateway-pairings/cancel", null,
+                    Map.of("pairingId", pairing.pairingId(), "deviceToken", pairing.deviceToken(), "credential", credential), Operation.class);
+        } catch (RemoteException exception) {
+            if (exception.status != 410) { throw exception; }
+        }
+    }
+    public record PairingStart(String pairingId, String deviceToken, String approvalToken, long expiresAt) {
+        @Override public String toString() { return "PairingStart[redacted]"; }
+    }
+    public record PairingResult(String state, long expiresAt, CloudWire.Credential credential) {
+        @Override public String toString() { return "PairingResult[" + state + "]"; }
+    }
+
     public CloudWire.Credential bind(CloudGatewayProperties properties, String ticket) throws Exception {
         var credential = post(properties, "/api/v1/gateways/bind", null,
                 Map.of("bindingToken", ticket), CloudWire.Credential.class);

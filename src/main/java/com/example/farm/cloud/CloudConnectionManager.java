@@ -17,6 +17,13 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.Map;
+import java.util.UUID;
+import com.example.farm.entity.dto.CloudPairingStartRequest;
+import com.example.farm.entity.dto.CloudPairingRequest;
+import com.example.farm.entity.vo.CloudPairingVO;
 
 /** 序列化管理当前 Server 的持久化配置和单个上报实例。 */
 @Service
@@ -34,6 +41,11 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     private boolean running;
     private boolean managed;
     private String configurationError;
+    private PendingPairing pairing;
+    public record PendingPairing(CloudConnectionSettings candidate, CloudConnectionClient.PairingStart session,
+                                 String credential) {
+        @Override public String toString() { return "PendingPairing[redacted]"; }
+    }
 
     public CloudConnectionManager(CloudGatewayProperties defaults, CloudSnapshotSource source,
                                   ObjectProvider<PrinterEventOutbox> outboxes, AuditLogService audit,
@@ -63,6 +75,17 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
             }
             if (settings.credential() != null) { CloudGatewayAgent.validate(settings.credential()); }
             configurationError = null;
+            pairing = null;
+            if (settings.credential() == null && Files.exists(pairingFile())) {
+                try {
+                    var restored = json.readValue(CloudAgentFiles.read(pairingFile(), 196608), PendingPairing.class);
+                    if (restored.candidate().revision() == settings.revision() + 1
+                            && restored.session().expiresAt() > System.currentTimeMillis()) { pairing = restored; }
+                } catch (Exception ignored) {
+                    // Temporary pairing recovery must not disable the configured cloud runtime or local production.
+                    LOG.warn("Pending cloud pairing could not be restored; generate a new pairing code");
+                }
+            }
             startAgent();
         } catch (Exception exception) {
             settings = emptySettings(0);
@@ -100,6 +123,9 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
 
     @Override public synchronized CloudConnectionVO bind(CloudBindRequest request) {
         requireRevision(request.revision());
+        if (pairing != null && settings.credential() == null && pairing.session().expiresAt() > System.currentTimeMillis()) {
+            throw new BusinessException(409, "请先完成或取消扫码配对");
+        }
         if (!request.bindingToken().matches("fmc_b_[A-Za-z0-9_-]{43}")) {
             throw new BusinessException(400, "绑定码格式无效");
         }
@@ -122,6 +148,95 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
             return connection();
         } catch (BusinessException exception) { throw exception; }
         catch (Exception exception) { throw remoteFailure(exception); }
+    }
+
+    @Override public synchronized CloudPairingVO startPairing(CloudPairingStartRequest request) {
+        requireRevision(request.revision());
+        importLegacyCredential();
+        if (settings.credential() != null) { throw new BusinessException(409, "当前已绑定网关，请先核对已有绑定"); }
+        try {
+            if (pairing != null && pairing.session().expiresAt() > System.currentTimeMillis()) { return pairingView("WAITING"); }
+            String pem = request.useSystemTrust() ? "" : text(request.caCertificatePem());
+            String certificate = request.useSystemTrust() || !pem.isBlank() ? "" : settings.caCertificate();
+            if (!request.useSystemTrust() && pem.isBlank()) { pem = settings.caCertificatePem(); }
+            var candidate = new CloudConnectionSettings(settings.revision() + 1, false, request.apiUrl().trim(),
+                    request.mqttUrl().trim(), certificate, pem, true, true, null, null, null);
+            var properties = properties(candidate);
+            CloudConnectionClient.validateConfiguration(properties);
+            CloudAgentFiles.verifyWritable(settingsFile);
+            CloudAgentFiles.verifyWritable(pairingFile());
+            var session = remote.startPairing(properties);
+            UUID.fromString(session.pairingId());
+            if (session.deviceToken() == null || !session.deviceToken().matches("fmc_pd_[A-Za-z0-9_-]{43}")
+                    || session.approvalToken() == null || !session.approvalToken().matches("fmc_pa_[A-Za-z0-9_-]{43}")
+                    || session.expiresAt() <= System.currentTimeMillis()
+                    || session.expiresAt() > System.currentTimeMillis() + 660_000) {
+                throw new IllegalArgumentException("INVALID_PAIRING_RESPONSE");
+            }
+            byte[] bytes = new byte[32];
+            new SecureRandom().nextBytes(bytes);
+            var pending = new PendingPairing(candidate, session, "fmc_g_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
+            CloudAgentFiles.write(pairingFile(), json.writeValueAsString(pending));
+            pairing = pending;
+            return pairingView("WAITING");
+        } catch (Exception exception) { throw remoteFailure(exception); }
+    }
+
+    @Override public synchronized CloudPairingVO pollPairing(CloudPairingRequest request) {
+        requireAdmin();
+        requirePairing(request);
+        // Idempotent local completion after a response or pending-file cleanup failure.
+        if (settings.credential() != null && settings.credential().credential().equals(pairing.credential())) {
+            return pairingView("COMPLETED");
+        }
+        requireRevision(request.revision());
+        if (pairing.session().expiresAt() <= System.currentTimeMillis()) { return pairingView("EXPIRED"); }
+        try {
+            var result = remote.pollPairing(properties(pairing.candidate()), pairing.session(), pairing.credential());
+            if ("COMPLETED".equals(result.state())) {
+                CloudGatewayAgent.validate(result.credential());
+                if (!pairing.credential().equals(result.credential().credential())) { throw new IllegalArgumentException("PAIRING_CREDENTIAL_MISMATCH"); }
+                var c = pairing.candidate();
+                commit(new CloudConnectionSettings(c.revision(), false, c.apiUrl(), c.mqttUrl(), c.caCertificate(),
+                        c.caCertificatePem(), true, true, result.credential(), null, null), "CLOUD_PAIR");
+                // Credential is durable now; no temporary device secret needs to remain on disk.
+                try { Files.deleteIfExists(pairingFile()); }
+                catch (Exception ignored) { LOG.warn("Completed cloud pairing temporary file could not be removed"); }
+                try { refreshProfile(); } catch (Exception ignored) { /* 名称可稍后刷新，不丢弃已保存凭据。 */ }
+                return pairingView("COMPLETED");
+            }
+            if (!"WAITING".equals(result.state())) { throw new IllegalArgumentException("INVALID_PAIRING_STATE"); }
+            return pairingView("WAITING");
+        } catch (Exception exception) { throw remoteFailure(exception); }
+    }
+
+    @Override public synchronized void cancelPairing(CloudPairingRequest request) {
+        requireRevision(request.revision());
+        requirePairing(request);
+        try {
+            if (pairing.session().expiresAt() > System.currentTimeMillis()) {
+                remote.cancelPairing(properties(pairing.candidate()), pairing.session(), pairing.credential());
+            }
+            Files.deleteIfExists(pairingFile());
+            pairing = null;
+        } catch (Exception exception) { throw remoteFailure(exception); }
+    }
+    private Path pairingFile() { return settingsFile.resolveSibling("cloud-pairing.json"); }
+    private void requirePairing(CloudPairingRequest request) {
+        if (pairing == null || !pairing.session().pairingId().equals(request.pairingId().toString())) {
+            throw new BusinessException(409, "配对会话已变化，请重新生成二维码");
+        }
+    }
+    private CloudPairingVO pairingView(String state) {
+        String qr = "";
+        if ("WAITING".equals(state)) {
+            try {
+                qr = json.writeValueAsString(Map.of("type", "fabmatrix.gateway-pairing", "version", 1,
+                        "pairingId", pairing.session().pairingId(), "approvalToken", pairing.session().approvalToken(),
+                        "cloudUrl", pairing.candidate().apiUrl()));
+            } catch (Exception exception) { throw new IllegalStateException("PAIRING_ENCODING_FAILED"); }
+        }
+        return new CloudPairingVO(pairing.session().pairingId(), state, qr, pairing.session().expiresAt());
     }
 
     @Override public synchronized CloudConnectionVO reporting(CloudReportingRequest request) {
@@ -157,6 +272,8 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
         if (settings.enabled()) { reporting(new CloudReportingRequest(revision, false)); }
         try {
             remote.disconnect(properties(settings), settings.credential());
+            Files.deleteIfExists(pairingFile());
+            pairing = null;
             commit(emptySettings(settings.revision() + 1), "CLOUD_UNBIND");
             return connection();
         } catch (BusinessException exception) { throw exception; }

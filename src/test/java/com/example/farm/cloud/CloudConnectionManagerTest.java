@@ -81,6 +81,51 @@ class CloudConnectionManagerTest {
                 "fmc_b_" + "b".repeat(43), "", true);
     }
 
+    @Test void pairingSurvivesRestartAndCompletesDisabledWithoutLeakingDeviceCredential() throws Exception {
+        var session = new CloudConnectionClient.PairingStart(UUID.randomUUID().toString(), "fmc_pd_" + "d".repeat(43),
+                "fmc_pa_" + "a".repeat(43), System.currentTimeMillis() + 600000);
+        when(remote.startPairing(any())).thenReturn(session);
+        var start = manager.startPairing(new com.example.farm.entity.dto.CloudPairingStartRequest(
+                0, "https://cloud.example.test", "ssl://mqtt.example.test:8883", "", true));
+        assertThat(start.qrContent()).contains(session.approvalToken()).doesNotContain(session.deviceToken(), "fmc_g_");
+        assertThat(start.toString()).doesNotContain(session.approvalToken());
+        assertThat(manager.connection().bound()).isFalse();
+        manager.stop();
+        manager = newManager();
+        manager.start();
+        var request = new com.example.farm.entity.dto.CloudPairingRequest(0, UUID.fromString(session.pairingId()));
+        when(remote.pollPairing(any(), any(), any())).thenAnswer(invocation -> {
+            var c = new CloudWire.Credential(credential.gatewayId(), credential.organizationId(), credential.farmId(),
+                    1, invocation.getArgument(2), credential.expiresAt(), credential.mqttClientId(), credential.mqttUsername(), credential.topicPrefix());
+            return new CloudConnectionClient.PairingResult("COMPLETED", session.expiresAt(), c);
+        });
+        assertThat(manager.pollPairing(request).state()).isEqualTo("COMPLETED");
+        assertThat(manager.pollPairing(request).state()).isEqualTo("COMPLETED");
+        assertThat(manager.connection().bound()).isTrue();
+        assertThat(manager.connection().enabled()).isFalse();
+        verify(agent, never()).start();
+        verify(remote, org.mockito.Mockito.times(1)).pollPairing(any(), any(), any());
+        assertThatThrownBy(() -> manager.startPairing(new com.example.farm.entity.dto.CloudPairingStartRequest(
+                1, "https://cloud.example.test", "ssl://mqtt.example.test:8883", "", true))).isInstanceOf(BusinessException.class);
+    }
+
+    @Test void canceledPairingCannotBePolledAndViewerCannotStart() throws Exception {
+        var session = new CloudConnectionClient.PairingStart(UUID.randomUUID().toString(), "fmc_pd_" + "d".repeat(43),
+                "fmc_pa_" + "a".repeat(43), System.currentTimeMillis() + 600000);
+        when(remote.startPairing(any())).thenReturn(session);
+        var start = new com.example.farm.entity.dto.CloudPairingStartRequest(0, "https://cloud.example.test", "ssl://mqtt.example.test:8883", "", true);
+        authenticate("VIEWER");
+        assertThatThrownBy(() -> manager.startPairing(start)).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(remote);
+        authenticate("ADMIN");
+        manager.startPairing(start);
+        var request = new com.example.farm.entity.dto.CloudPairingRequest(0, UUID.fromString(session.pairingId()));
+        manager.cancelPairing(request);
+        assertThat(Files.exists(temp.resolve("config/cloud-pairing.json"))).isFalse();
+        assertThatThrownBy(() -> manager.pollPairing(request)).isInstanceOf(BusinessException.class);
+        verify(remote, never()).pollPairing(any(), any(), any());
+    }
+
     @Test void defaultIsDisabledAndDoesNotCreateNetworkOrReportingWork() {
         assertThat(manager.connection().bound()).isFalse();
         assertThat(manager.connection().enabled()).isFalse();

@@ -7,6 +7,9 @@ import com.example.farm.entity.dto.CloudBindRequest;
 import com.example.farm.entity.dto.CloudReportingRequest;
 import com.example.farm.entity.dto.CloudRevisionRequest;
 import com.example.farm.entity.vo.CloudConnectionVO;
+import com.example.farm.entity.dto.CloudPairingRequest;
+import com.example.farm.entity.dto.CloudPairingStartRequest;
+import com.example.farm.entity.vo.CloudPairingVO;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,6 +27,22 @@ public class CloudGatewayController {
     @GetMapping("/status")
     public Result<CloudGatewayAgent.Status> status() {
         return Result.success(connections.status());
+    }
+
+    @PostMapping("/pairing/start")
+    public Result<CloudPairingVO> startPairing(
+            @Valid @RequestBody CloudPairingStartRequest request) {
+        return Result.success(connections.startPairing(request));
+    }
+    @PostMapping("/pairing/poll")
+    public Result<CloudPairingVO> pollPairing(
+            @Valid @RequestBody CloudPairingRequest request) {
+        return Result.success(connections.pollPairing(request));
+    }
+    @PostMapping("/pairing/cancel")
+    public Result<Void> cancelPairing(@Valid @RequestBody CloudPairingRequest request) {
+        connections.cancelPairing(request);
+        return Result.success(null);
     }
 
     @GetMapping("/connection")

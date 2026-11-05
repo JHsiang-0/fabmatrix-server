@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.Duration;
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.io.Serializable;
 
 /** 从统一模型派生的只读摘要，供列表和实时通道使用。 */
 public record CanonicalPrinterSummary(int modelVersion, String localPrinterId, long observationRevision,
@@ -12,8 +13,16 @@ public record CanonicalPrinterSummary(int modelVersion, String localPrinterId, l
         Instant lastSeenAt, long consecutiveFailureCount, Double progress,
         Double toolTemperature, Double toolTarget, Double bedTemperature, Double bedTarget,
         Double printDuration, Double totalDuration, Double filamentUsed,
-        String filename, String taskSource, UUID executionId) {
+        String filename, String taskSource, UUID executionId) implements Serializable {
     private static final Duration MAX_AGE = Duration.ofSeconds(30);
+
+    public static CanonicalPrinterSummary unavailable(String printerId, boolean monitorEnabled, String knownHealth,
+            Instant lastSeenAt, long failures, Instant now) {
+        String health = monitorEnabled && "OFFLINE".equalsIgnoreCase(knownHealth) ? "OFFLINE" : "UNKNOWN";
+        return new CanonicalPrinterSummary(2, printerId, 0, 0, now, null, true, health, monitorEnabled,
+                health, "UNKNOWN", "UNKNOWN", lastSeenAt, Math.max(0, failures),
+                null, null, null, null, null, null, null, null, null, "UNKNOWN", null);
+    }
 
     public static CanonicalPrinterSummary from(CanonicalPrinterModel model, Instant now) {
         var observation = model.observation();

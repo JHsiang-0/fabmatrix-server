@@ -10,6 +10,7 @@ import com.example.farm.entity.User;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.mapper.UserMapper;
 import com.example.farm.service.WebSocketEventPublisher;
+import com.example.farm.service.PrinterStateSummaryService;
 import com.example.farm.service.FarmStatusSnapshotService;
 import com.example.farm.config.CommonObjectMapperConfig;
 import jakarta.websocket.RemoteEndpoint;
@@ -177,7 +178,7 @@ class WebSocketSecurityTest {
         when(snapshotService.buildSnapshot()).thenReturn(Map.of("printers", List.of()));
 
         new WebSocketServer().onOpen(session);
-        new WebSocketEventPublisher().publishPrinterOffline(403L, "");
+        new WebSocketEventPublisher(mock(PrinterStateSummaryService.class)).publishPrinterOffline(403L, "");
 
         verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
                         message.contains("\"type\":\"PRINTER_OFFLINE\"")
@@ -202,7 +203,7 @@ class WebSocketSecurityTest {
         job.setStatus("FAILED");
         job.setProgress(java.math.BigDecimal.valueOf(35));
         job.setErrorReason("喷嘴堵塞");
-        new WebSocketEventPublisher().publishJobStatus(job);
+        new WebSocketEventPublisher(mock(PrinterStateSummaryService.class)).publishJobStatus(job);
 
         verify(remote).sendText(org.mockito.ArgumentMatchers.argThat(message ->
                         message.contains("\"type\":\"JOB_STATUS\"")
@@ -233,7 +234,7 @@ class WebSocketSecurityTest {
         job.setId(1002L);
         job.setUserId(1L);
         job.setStatus("PRINTING");
-        new WebSocketEventPublisher().publishJobStatus(job);
+        new WebSocketEventPublisher(mock(PrinterStateSummaryService.class)).publishJobStatus(job);
 
         ArgumentCaptor<String> ownerMessages = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> otherMessages = ArgumentCaptor.forClass(String.class);

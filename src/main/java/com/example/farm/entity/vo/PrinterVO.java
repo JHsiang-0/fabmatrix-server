@@ -1,6 +1,7 @@
 package com.example.farm.entity.vo;
 
 import com.example.farm.entity.Printer;
+import com.example.farm.protocol.model.CanonicalPrinterSummary;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -21,6 +22,9 @@ import java.time.LocalDateTime;
 @Data
 @Schema(name = "PrinterVO", description = "打印机安全响应对象，不包含 apiKey")
 public class PrinterVO implements Serializable {
+
+    @Schema(description = "由统一设备模型派生的状态摘要，缺少采样时明确返回不可用状态")
+    private CanonicalPrinterSummary stateSummary;
 
     private static final long serialVersionUID = 1L;
 

@@ -1,6 +1,7 @@
 package com.example.farm.entity.dto;
 
 import com.example.farm.protocol.observation.PrinterObservation;
+import com.example.farm.protocol.model.CanonicalPrinterSummary;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
@@ -30,6 +31,9 @@ import lombok.Data;
 @Data
 @Schema(description = "Moonraker 打印机实时状态")
 public class MoonrakerStatusDTO {
+
+    /** 当前读取侧以统一摘要为准，旧字段保留升级兼容。 */
+    private CanonicalPrinterSummary stateSummary;
 
     /** 内部采集结果，不改变既有 LAN / WebSocket 响应格式。 */
     @JsonIgnore

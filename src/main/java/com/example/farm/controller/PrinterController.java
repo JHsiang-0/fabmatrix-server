@@ -14,6 +14,7 @@ import com.example.farm.entity.dto.PrinterStatisticsQueryDTO;
 import com.example.farm.entity.dto.PrinterMonitorUpdateDTO;
 import com.example.farm.entity.dto.PrinterMonitorBatchUpdateDTO;
 import com.example.farm.entity.vo.PrinterVO;
+import com.example.farm.service.PrinterStateSummaryService;
 import com.example.farm.entity.vo.PrinterDetailVO;
 import com.example.farm.entity.vo.PrinterModelVO;
 import com.example.farm.entity.vo.PrinterStatusHistoryVO;
@@ -54,6 +55,7 @@ public class PrinterController {
     private final PrinterStatusHistoryService printerStatusHistoryService;
     private final PrinterStatisticsService printerStatisticsService;
     private final DashboardLayoutService dashboardLayoutService;
+    private final PrinterStateSummaryService stateSummaries;
 
     /**
      * 分页查询打印机列表。
@@ -64,7 +66,10 @@ public class PrinterController {
     @Operation(summary = "分页查询打印机列表", description = "支持按名称、状态和设备协议筛选的分页查询")
     @GetMapping("/page")
     public Result<PageResult<PrinterVO>> getPrinterPage(@Valid @ParameterObject PrinterQueryDTO queryDTO) {
-        return Result.success(PageResult.from(printerService.pagePrinters(queryDTO), PrinterVO::from));
+        var page = printerService.pagePrinters(queryDTO);
+        if (page == null) { return Result.success(new PageResult<>()); }
+        return Result.success(new PageResult<>(stateSummaries.views(page.getRecords() == null ? List.of() : page.getRecords()), page.getTotal(),
+                page.getCurrent(), page.getSize(), page.getPages()));
     }
 
     @Operation(summary = "获取打印机详情", description = "返回打印机安全配置、实时状态缓存和当前任务摘要")
@@ -86,7 +91,7 @@ public class PrinterController {
         if (printer == null) {
             throw new BusinessException(404, "打印机不存在");
         }
-        return Result.success(PrinterVO.from(printer));
+        return Result.success(stateSummaries.view(printer));
     }
 
     @Operation(summary = "更新打印机监控配置", description = "管理员控制单台打印机是否纳入后台轮询")
@@ -261,7 +266,7 @@ public class PrinterController {
         if (printer == null) {
             return Result.success(null, "未找到该 MAC 地址的设备");
         }
-        return Result.success(PrinterVO.from(printer));
+        return Result.success(stateSummaries.view(printer));
     }
 
     /**
@@ -280,7 +285,7 @@ public class PrinterController {
         if (printer == null) {
             return Result.success(null, "未找到该 IP 地址的设备");
         }
-        return Result.success(PrinterVO.from(printer));
+        return Result.success(stateSummaries.view(printer));
     }
 
     /**

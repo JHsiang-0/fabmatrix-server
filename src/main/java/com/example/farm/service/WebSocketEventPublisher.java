@@ -12,13 +12,18 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.time.LocalDateTime;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import com.example.farm.entity.enums.PrintJobStatus;
 
 /**
  * 业务事件到 WebSocket 消息的唯一发布入口。
  */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class WebSocketEventPublisher {
+    private final PrinterStateSummaryService stateSummaries;
 
     /** 可选注入，便于 Local/单元测试；生产环境用于核对真实设备绑定。 */
     private PrinterService printerService;
@@ -70,7 +75,7 @@ public class WebSocketEventPublisher {
         data.put("lastSeenAt", LocalDateTime.now());
         data.put("consecutiveFailureCount", 0);
         data.put("stateSource", "DEVICE_POLL");
-        publishAfterCommit(() -> broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, data)));
+        publishAfterCommit(() -> broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, withSummary(printerId, data))));
     }
 
     public void publishPrinterOffline(Long printerId, String reason) {
@@ -79,7 +84,7 @@ public class WebSocketEventPublisher {
         }
         String safeReason = reason == null || reason.isBlank() ? "设备无法连接" : reason;
         publishAfterCommit(() -> broadcastPrinterOffline(FarmStatusMessage.printerOffline(
-                printerId, Map.of("status", "OFFLINE", "reason", safeReason))));
+                printerId, withSummary(printerId, new LinkedHashMap<>(Map.of("status", "OFFLINE", "reason", safeReason))))));
     }
 
     /** 推送通信健康变化；不改变现有设备实时状态消息契约。 */
@@ -97,7 +102,7 @@ public class WebSocketEventPublisher {
         data.put("lastCommunicationError", lastCommunicationError);
         data.put("consecutiveFailureCount", consecutiveFailureCount);
         data.put("stateSource", "COMMUNICATION_HEALTH");
-        publishAfterCommit(() -> broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, data)));
+        publishAfterCommit(() -> broadcastPrinterStatus(FarmStatusMessage.printerStatus(printerId, withSummary(printerId, data))));
     }
 
     public void publishJobStatus(PrintJob job) {
@@ -150,6 +155,15 @@ public class WebSocketEventPublisher {
 
     protected void broadcastPrinterStatus(FarmStatusMessage message) {
         WebSocketServer.broadcastPrinterStatus(message);
+    }
+
+    private Map<String, Object> withSummary(Long printerId, Map<String, Object> data) {
+        try { data.put("stateSummary", stateSummaries.get(printerId)); }
+        catch (RuntimeException failure) {
+            data.put("stateSummary", null);
+            log.warn("实时状态摘要读取失败: printerId={}, errorType={}", printerId, failure.getClass().getSimpleName());
+        }
+        return data;
     }
 
     protected void broadcastPrinterOffline(FarmStatusMessage message) {

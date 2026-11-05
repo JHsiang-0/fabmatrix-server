@@ -20,16 +20,16 @@ public class FarmStatusSnapshotService {
 
     private final PrinterService printerService;
     private final PrinterCacheService printerCacheService;
+    private final PrinterStateSummaryService stateSummaries;
 
     public Map<String, Object> buildSnapshot() {
         var printerEntities = printerService.list();
-        List<PrinterVO> printers = printerEntities.stream()
-                .map(PrinterVO::from)
-                .toList();
-        List<Map<String, Object>> printerStatuses = printerEntities.stream()
+        List<PrinterVO> printers = stateSummaries.views(printerEntities);
+        List<Map<String, Object>> printerStatuses = printers.stream()
                 .filter(printer -> printer.getId() != null)
                 .map(printer -> {
-                    MoonrakerStatusDTO status = printerCacheService.getCachedStatus(printer.getId());
+                    MoonrakerStatusDTO status = stateSummaries.realtime(printerCacheService.getCachedStatus(printer.getId()),
+                            printer.getStateSummary());
                     return status == null ? null : Map.<String, Object>of(
                             "printerId", String.valueOf(printer.getId()),
                             "data", status);

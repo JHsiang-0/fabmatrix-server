@@ -3,6 +3,8 @@ package com.example.farm.service;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import org.junit.jupiter.api.Test;
+import com.example.farm.mapper.PrinterMapper;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 import java.util.Map;
@@ -12,6 +14,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class FarmStatusSnapshotServiceTest {
+    @SuppressWarnings("unchecked")
+    private final PrinterStateSummaryService summaries = new PrinterStateSummaryService(
+            mock(PrinterMapper.class), mock(ObjectProvider.class));
 
     @Test
     void buildsSafeSnapshotWithAllPrinters() {
@@ -32,7 +37,7 @@ class FarmStatusSnapshotServiceTest {
         when(printerCacheService.getCachedStatus(403L)).thenReturn(realtimeStatus);
 
         Map<String, Object> snapshot = new FarmStatusSnapshotService(
-                printerService, printerCacheService).buildSnapshot();
+                printerService, printerCacheService, summaries).buildSnapshot();
 
         assertThat(snapshot).containsKey("printers");
         assertThat(snapshot.get("printers")).asList().hasSize(1);
@@ -47,7 +52,7 @@ class FarmStatusSnapshotServiceTest {
         when(printerService.list()).thenReturn(List.of());
 
         Map<String, Object> snapshot = new FarmStatusSnapshotService(
-                printerService, mock(PrinterCacheService.class)).buildSnapshot();
+                printerService, mock(PrinterCacheService.class), summaries).buildSnapshot();
 
         assertThat(snapshot).containsEntry("printers", List.of());
         assertThat(snapshot).containsEntry("printerStatuses", List.of());

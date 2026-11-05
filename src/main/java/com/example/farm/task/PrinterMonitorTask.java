@@ -1235,11 +1235,15 @@ public class PrinterMonitorTask implements SmartLifecycle {
         }
 
         PrinterDeviceStatus comparableStatus = result.status.withoutObservation();
-        PrinterDeviceStatus previous = lastPublishedStatuses.put(result.printerId, comparableStatus);
+        PrinterDeviceStatus previous = lastPublishedStatuses.get(result.printerId);
         TaskObservation previousObservation = result.taskObservation == null ? null
                 : lastPublishedTaskObservations.put(result.printerId, result.taskObservation);
-        if (!comparableStatus.equals(previous)
-                || !java.util.Objects.equals(result.taskObservation, previousObservation)) {
+        boolean refreshDue = result.status.observation() != null && (previous == null || previous.observation() == null
+                || Duration.between(previous.observation().observedAt(), result.status.observation().observedAt())
+                .compareTo(Duration.ofSeconds(15)) >= 0);
+        if (!comparableStatus.equals(previous == null ? null : previous.withoutObservation())
+                || !java.util.Objects.equals(result.taskObservation, previousObservation) || refreshDue) {
+            lastPublishedStatuses.put(result.printerId, result.status);
             TaskObservation observation = result.taskObservation;
             eventPublisher.publishPrinterStatus(result.printerId, result.status,
                     observation == null ? null : observation.source().name(),

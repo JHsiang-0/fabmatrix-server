@@ -240,6 +240,11 @@ class LocalEditionMapperTest {
         Map<?, ?> modelHeater = (Map<?, ?>) ((List<?>) modelObservation.get("heaters")).getFirst();
         Map<?, ?> currentTemperature = (Map<?, ?>) modelHeater.get("currentC");
         assertThat(((Number) currentTemperature.get("value")).doubleValue()).isEqualTo(205.0);
+        var batch = canonicalPrinterStateService.findLatestBatch(List.of(stored));
+        assertThat(batch).containsKey(stored.getId());
+        assertThat(batch.get(stored.getId()).identity().deviceUid().toString()).isEqualTo(stored.getDeviceUid());
+        stored.setDeviceUid(UUID.randomUUID().toString());
+        assertThat(canonicalPrinterStateService.findLatestBatch(List.of(stored))).isEmpty();
     }
 
     @Test

@@ -178,6 +178,7 @@ class WebSocketEventPublisherTest {
     }
 
     private static class RecordingPublisher extends WebSocketEventPublisher {
+        RecordingPublisher() { super(org.mockito.Mockito.mock(PrinterStateSummaryService.class)); }
         private int broadcastCount;
         private int layoutBroadcastCount;
         private FarmStatusMessage lastMessage;

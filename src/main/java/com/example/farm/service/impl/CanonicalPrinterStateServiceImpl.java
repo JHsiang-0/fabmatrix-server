@@ -21,6 +21,10 @@ import java.time.Duration;
 import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
+import java.util.List;
+import java.util.HashMap;
+import java.util.Collections;
+import org.springframework.jdbc.core.RowCallbackHandler;
 
 /** SQLite-only latest canonical state store; network/reporting is deliberately outside this class. */
 @Service
@@ -101,6 +105,40 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
     @Override
     public CanonicalPrinterModel findLatestForCloud(long printerId) {
         return findLatest(printerId, true);
+    }
+
+    @Override
+    public Map<Long, CanonicalPrinterModel> findLatestBatch(List<Printer> printers) {
+        Map<Long, Printer> byId = new HashMap<>();
+        for (Printer printer : printers) {
+            if (printer.getId() != null) { byId.put(printer.getId(), printer); }
+        }
+        var ids = List.copyOf(byId.keySet());
+        Map<Long, CanonicalPrinterModel> models = new HashMap<>();
+        for (int offset = 0; offset < ids.size(); offset += 200) {
+            var batch = ids.subList(offset, Math.min(ids.size(), offset + 200));
+            String placeholders = String.join(",", Collections.nCopies(batch.size(), "?"));
+            jdbcTemplate.query("SELECT printer_id,model_json FROM farm_printer_canonical_state WHERE printer_id IN ("
+                    + placeholders + ")", statement -> {
+                for (int index = 0; index < batch.size(); index++) { statement.setLong(index + 1, batch.get(index)); }
+            }, (RowCallbackHandler) row -> {
+                long id = row.getLong("printer_id");
+                try {
+                    var model = objectMapper.readValue(row.getString("model_json"), CanonicalPrinterModel.class);
+                    CanonicalPrinterModelValidator.validate(model);
+                    Printer printer = byId.get(id);
+                    if (!String.valueOf(id).equals(model.identity().localPrinterId())
+                            || printer.getDeviceUid() != null && !printer.getDeviceUid().equals(model.identity().deviceUid().toString())) {
+                        log.warn("设备列表模型身份不一致，已隐藏状态: printerId={}", id);
+                        return;
+                    }
+                    models.put(id, model.withConnectionHealth(currentConnection(printer)));
+                } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
+                    log.warn("设备列表模型无效，已隐藏状态: printerId={}", id);
+                }
+            });
+        }
+        return models;
     }
 
     private CanonicalPrinterModel findLatest(long printerId, boolean bounded) {

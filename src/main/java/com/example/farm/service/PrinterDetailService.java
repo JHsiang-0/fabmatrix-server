@@ -5,7 +5,6 @@ import com.example.farm.entity.PrintJob;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.vo.PrinterDetailVO;
 import com.example.farm.entity.vo.PrintJobVO;
-import com.example.farm.entity.vo.PrinterVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +18,7 @@ public class PrinterDetailService {
     private final PrinterService printerService;
     private final PrinterCacheService printerCacheService;
     private final PrintJobService printJobService;
+    private final PrinterStateSummaryService stateSummaries;
 
     public PrinterDetailVO getDetail(Long printerId) {
         if (printerId == null || printerId <= 0) {
@@ -31,9 +31,10 @@ public class PrinterDetailService {
 
         PrintJob currentJob = printer.getCurrentJobId() == null
                 ? null : printJobService.getById(printer.getCurrentJobId());
+        var view = stateSummaries.view(printer);
         return new PrinterDetailVO(
-                PrinterVO.from(printer),
-                printerCacheService.getCachedStatus(printerId),
+                view,
+                stateSummaries.realtime(printerCacheService.getCachedStatus(printerId), view.getStateSummary()),
                 PrintJobVO.from(currentJob));
     }
 }

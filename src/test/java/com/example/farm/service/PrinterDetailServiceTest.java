@@ -6,6 +6,8 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.vo.PrinterDetailVO;
 import org.junit.jupiter.api.Test;
+import com.example.farm.mapper.PrinterMapper;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.Map;
 
@@ -15,6 +17,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class PrinterDetailServiceTest {
+    @SuppressWarnings("unchecked")
+    private final PrinterStateSummaryService summaries = new PrinterStateSummaryService(
+            mock(PrinterMapper.class), mock(ObjectProvider.class));
 
     @Test
     void returnsSafePrinterAndCurrentJobSummary() {
@@ -36,7 +41,7 @@ class PrinterDetailServiceTest {
         when(jobService.getById(1001L)).thenReturn(job);
         when(cacheService.getCachedStatus(403L)).thenReturn(status);
 
-        PrinterDetailVO detail = new PrinterDetailService(printerService, cacheService, jobService)
+        PrinterDetailVO detail = new PrinterDetailService(printerService, cacheService, jobService, summaries)
                 .getDetail(403L);
 
         assertThat(detail.getPrinter().getName()).isEqualTo("Printer_C0DA");
@@ -55,10 +60,11 @@ class PrinterDetailServiceTest {
         printer.setId(403L);
         when(printerService.getById(403L)).thenReturn(printer);
 
-        PrinterDetailVO detail = new PrinterDetailService(printerService, cacheService, jobService)
+        PrinterDetailVO detail = new PrinterDetailService(printerService, cacheService, jobService, summaries)
                 .getDetail(403L);
 
-        assertThat(detail.getRealtimeStatus()).isNull();
+        assertThat(detail.getRealtimeStatus().getStateSummary().stale()).isTrue();
+        assertThat(detail.getRealtimeStatus().getStateSummary().status()).isEqualTo("UNKNOWN");
         assertThat(detail.getCurrentJob()).isNull();
     }
 
@@ -68,7 +74,7 @@ class PrinterDetailServiceTest {
         when(printerService.getById(403L)).thenReturn(null);
 
         assertThatThrownBy(() -> new PrinterDetailService(printerService,
-                mock(PrinterCacheService.class), mock(PrintJobService.class)).getDetail(403L))
+                mock(PrinterCacheService.class), mock(PrintJobService.class), summaries).getDetail(403L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("打印机不存在");
     }
@@ -76,7 +82,7 @@ class PrinterDetailServiceTest {
     @Test
     void rejectsNonPositivePrinterIdAsValidationError() {
         assertThatThrownBy(() -> new PrinterDetailService(
-                mock(PrinterService.class), mock(PrinterCacheService.class), mock(PrintJobService.class))
+                mock(PrinterService.class), mock(PrinterCacheService.class), mock(PrintJobService.class), summaries)
                 .getDetail(0L))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getCode()).isEqualTo(400));

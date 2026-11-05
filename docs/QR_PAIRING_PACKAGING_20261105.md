@@ -30,3 +30,9 @@ APK    350C37BCD4F3FA27CA6C0261870457058141C29ECAF6C680C8D19A6A3F61FCF8
 构建后现场 FabMatrixServer 仍为 Running，监听 PID 27364，健康状态 UP。未替换已安装的 Server/Client，未安装 APK，未部署 Cloud，未更改现有网关或操作打印机。
 
 升级顺序：先部署 Cloud 并应用 V18，再更新 Server、Client 与手机 App，随后另行完成相机扫码和配对验收。功能与权限边界见 [云端连接](CLOUD_GATEWAY.md)。后续文档提交只登记产物，不改变以上业务源码或产物内容。
+
+## 后续授权升级结果（2026-11-05）
+
+以上为打包时状态。用户随后明确允许四端升级并接受现场监控短暂中断，现已覆盖安装原目录 Server/Client，均退出 0；Server 服务恢复 Running、健康 UP，安装 JAR 与上方 payload 摘要一致，原网关凭据文件摘要未变化。Client ASAR 与新包一致并可打开登录页。
+
+Cloud 后续采用已验证的 T3.1 JAR 并升级 V18；手机安装含真实仪表盘/网关运行详情的新版 APK。主机 App 配对业务层与独立 Server/新验收农场完成确认、领取、显式启用、MQTT ACK 及关闭测试上报，原生产绑定未更改，真实打印机未接收控制命令。手机数字 PIN 与桌面登录后相机扫码流程仍待现场验收；完整版本与证据见 [Cloud 升级记录](../../fabmatrix-cloud/docs/CLOUD_APP_ROLLOUT_20261105.md)。

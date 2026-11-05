@@ -2,6 +2,16 @@
 
 默认关闭，不改变局域网登录、监控、手动派单和现场安全规则。云服务是同级 fabmatrix-cloud，必须先按其 C1/C2 文档准备独立数据库、HTTPS、MQTT TLS 和组织/农场；本轮不改已安装 Windows 服务。
 
+## 产品边界
+
+2026-11-05 已确认 Server + Client 作为独立本地生产系统，Cloud + Flutter 手机 App 提供远程业务。完整职责、数据所有者和通用上报端契约见 [ADR 0011](../../fabmatrix-cloud/docs/decisions/0011-local-production-and-cloud-reporting.md)。
+
+本地账号、密码、岗位、文件、任务及安全执行由 Server 管理。云端组织、农场、成员和接入身份由 Cloud 管理。Client 只连接所选 Server 的业务 API 和 WebSocket，远程管理页面由手机 App 提供。
+
+farm.cloud.enabled 默认关闭；已部署站点的显式启用配置独立保留。代理通过独立后台生命周期执行上报，网络或配置故障报告到代理状态。本地服务使用自己的 SQLite、签名密钥和持久化会话，完成离线登录及生产操作。
+
+本次通过 CloudGatewayConfigurationTest 校验默认关闭与显式开启，已有 CloudGatewayTest 验证无效云配置下本地应用生命周期可继续。独立单设备代理属于后续实现，上报模型和网关协议保留兼容。
+
 ## 配置
 
 | 环境变量 | 说明 |

@@ -2,23 +2,20 @@ package com.example.farm.service;
 
 import com.example.farm.common.exception.BusinessException;
 import com.example.farm.entity.vo.PrinterModelVO;
-import com.example.farm.protocol.model.CanonicalPrinterModel;
 import com.example.farm.protocol.model.CanonicalPrinterModelProjection;
+import com.example.farm.protocol.model.CanonicalPrinterSummary;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.Instant;
 
 /** 查询已持久化的设备模型，不在 HTTP 请求中触发设备采集。 */
 @Service
 @RequiredArgsConstructor
 public class PrinterModelService {
-    private static final Duration FRESHNESS = Duration.ofSeconds(30);
-
     private final PrinterService printerService;
     private final ObjectMapper objectMapper;
     // 统一模型持久化仅由 local profile 提供，未启用时返回无采样状态。
@@ -40,15 +37,9 @@ public class PrinterModelService {
         if (!printerId.toString().equals(model.identity().localPrinterId())) {
             throw new BusinessException(500, "设备模型身份不一致");
         }
-        var observation = model.observation();
-        var connection = observation.connection();
-        Instant observedAt = observation.observedAt();
-        boolean stale = !connection.monitorEnabled()
-                || connection.status() != CanonicalPrinterModel.ConnectionStatus.ONLINE
-                || observedAt == null || observedAt.isBefore(now.minus(FRESHNESS))
-                || observedAt.isAfter(now.plusSeconds(5));
+        var summary = CanonicalPrinterSummary.from(model, now);
         // JSON 标量边界，避免 HTTP 的 Jackson 3 把内部 Jackson 2 JsonNode 当作 Java Bean 输出。
-        return new PrinterModelVO(now, stale, objectMapper.convertValue(
-                CanonicalPrinterModelProjection.project(model), new TypeReference<>() { }));
+        return new PrinterModelVO(now, summary.stale(), objectMapper.convertValue(
+                CanonicalPrinterModelProjection.project(model), new TypeReference<>() { }), summary);
     }
 }

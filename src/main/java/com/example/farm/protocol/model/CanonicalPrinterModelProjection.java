@@ -60,7 +60,7 @@ public final class CanonicalPrinterModelProjection {
         return new Measurement<>(null, Quality.INVALID, null, MeasurementSource.NONE);
     }
 
-    private static FileSummary safeFile(FileSummary file) {
+    static FileSummary safeFile(FileSummary file) {
         if (file == null) { return null; }
         String name = file.name();
         if (name != null) {

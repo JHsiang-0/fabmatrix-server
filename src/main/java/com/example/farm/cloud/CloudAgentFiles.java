@@ -11,6 +11,9 @@ public final class CloudAgentFiles {
     private CloudAgentFiles() { }
 
     public static void verifyWritable(Path target) throws IOException {
+        if (Files.exists(target) && !Files.isRegularFile(target)) {
+            throw new IOException("Cloud agent configuration target must be a regular file");
+        }
         Path parent = target.toAbsolutePath().normalize().getParent();
         Files.createDirectories(parent);
         Path probe = Files.createTempFile(parent, ".cloud-agent-check-", ".tmp");

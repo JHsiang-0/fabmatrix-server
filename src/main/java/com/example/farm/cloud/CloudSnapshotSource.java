@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
@@ -24,7 +23,6 @@ import java.util.List;
 import java.util.Locale;
 
 @Component
-@ConditionalOnProperty(name = "farm.cloud.enabled", havingValue = "true")
 @Slf4j
 public class CloudSnapshotSource {
     private final PrinterService printers;
@@ -60,6 +58,7 @@ public class CloudSnapshotSource {
 
     public record CanonicalAsset(String localPrinterId, String deviceUid, String name, String machineNumber,
                                  String firmwareType, CanonicalPrinterModel model) { }
+    public long printerCount() { return printers.count(); }
     public record InventoryIdentity(String sourceInstanceId, String deviceUid, String localPrinterId) { }
     public record InventoryDescriptorSummary(String name, String machineNumber, String firmwareFamily) { }
     public record InventoryDevice(InventoryIdentity identity, InventoryDescriptorSummary descriptorSummary) { }

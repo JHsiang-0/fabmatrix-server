@@ -7,6 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
+import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 
 public final class CloudTls {
     private CloudTls() { }
@@ -27,15 +30,28 @@ public final class CloudTls {
         if (file == null || file.isBlank()) { return SSLContext.getDefault(); }
         Path path = Path.of(file);
         if (Files.size(path) > 131072) { throw new IllegalArgumentException("Cloud CA certificate file exceeds limit"); }
+        try (var input = Files.newInputStream(path)) {
+            return certificates(input);
+        }
+    }
+
+    public static SSLContext trustedPem(String pem) throws Exception {
+        if (pem.length() > 131072 || pem.contains("PRIVATE KEY")) {
+            throw new IllegalArgumentException("Cloud CA must contain public certificates only");
+        }
+        try (var input = new ByteArrayInputStream(pem.getBytes(StandardCharsets.UTF_8))) {
+            return certificates(input);
+        }
+    }
+
+    private static SSLContext certificates(InputStream input) throws Exception {
         var store = KeyStore.getInstance(KeyStore.getDefaultType());
         store.load(null);
-        try (var input = Files.newInputStream(path)) {
-            int count = 0;
-            for (var certificate : CertificateFactory.getInstance("X.509").generateCertificates(input)) {
-                store.setCertificateEntry("ca-" + count++, certificate);
-            }
-            if (count == 0) { throw new IllegalArgumentException("Cloud CA certificate file is empty"); }
+        int count = 0;
+        for (var certificate : CertificateFactory.getInstance("X.509").generateCertificates(input)) {
+            store.setCertificateEntry("ca-" + count++, certificate);
         }
+        if (count == 0) { throw new IllegalArgumentException("Cloud CA certificate file is empty"); }
         var managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         managers.init(store);
         var context = SSLContext.getInstance("TLS");

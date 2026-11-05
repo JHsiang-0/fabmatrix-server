@@ -17,6 +17,7 @@ public class CloudGatewayProperties {
     private String apiUrl = "";
     private String mqttUrl = "";
     private String caCertificate = "";
+    private String caCertificatePem = "";
     private String credentialFile = System.getProperty("user.home") + "/FarmData/config/cloud-gateway.json";
     private String bindingTokenFile = "";
     private String stateDirectory = System.getProperty("user.home") + "/FarmData/cloud-agent";

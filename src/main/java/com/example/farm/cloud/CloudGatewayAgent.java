@@ -12,11 +12,8 @@ import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.URI;
@@ -36,13 +33,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-@Component
-@ConditionalOnProperty(name = "farm.cloud.enabled", havingValue = "true")
 public class CloudGatewayAgent implements SmartLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(CloudGatewayAgent.class);
     private final CloudGatewayProperties properties;
     private final CloudSnapshotSource source;
     private final ObjectProvider<PrinterEventOutbox> eventOutboxes;
+    private CloudWire.Credential suppliedCredential;
     private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final String bootId = UUID.randomUUID().toString();
@@ -90,7 +86,6 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private Long lastAckAt;
     private long lastWarning;
 
-    @Autowired
     public CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
                              ObjectProvider<PrinterEventOutbox> eventOutboxes) {
         this.properties = properties;
@@ -100,6 +95,12 @@ public class CloudGatewayAgent implements SmartLifecycle {
 
     CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source) {
         this(properties, source, null);
+    }
+
+    CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
+                      ObjectProvider<PrinterEventOutbox> eventOutboxes, CloudWire.Credential suppliedCredential) {
+        this(properties, source, eventOutboxes);
+        this.suppliedCredential = suppliedCredential;
     }
 
     public record Status(String state, boolean connected, String gatewayId, Long lastAckAt, String errorCode, boolean pending) { }
@@ -119,6 +120,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
         if (!running || terminal || System.currentTimeMillis() < nextAttempt) { return; }
         try {
             prepare();
+            if (!running) { return; }
             if (credential.expiresAt() <= System.currentTimeMillis()) { throw new RemoteFailure("CREDENTIAL_EXPIRED"); }
             if (mqtt == null || !mqtt.isConnected()) { connect(); }
             if (!registered) {
@@ -189,6 +191,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 prepareCanonicalStatePending(now);
             }
             if (pending != null && now - pending.lastSentAt() >= 5000) {
+                if (!running) { return; }
                 String topic = credential.topicPrefix() + "up/" + topicSegment(pending.type());
                 byte[] bytes = pending.raw().getBytes(StandardCharsets.UTF_8);
                 if (bandwidth.tryAcquire(bytes.length, System.nanoTime())) {
@@ -202,6 +205,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
                     lastAckAt, status.errorCode(), pending != null);
         } catch (Exception error) {
+            if (!running) { closeMqtt(); return; }
             registered = false;
             String code = error instanceof RemoteFailure failure ? failure.getMessage() : error.getClass().getSimpleName();
             if ("STALE_BOOT".equals(code)) { terminal = true; }
@@ -229,13 +233,17 @@ public class CloudGatewayAgent implements SmartLifecycle {
                     || broker.getQuery() != null || (broker.getPath() != null && !broker.getPath().isEmpty())) {
                 throw new RemoteFailure("MQTT_TLS_REQUIRED");
             }
-            tls = CloudTls.trusted(properties.getCaCertificate());
+            tls = properties.getCaCertificatePem().isBlank() ? CloudTls.trusted(properties.getCaCertificate())
+                    : CloudTls.trustedPem(properties.getCaCertificatePem());
             http = HttpClient.newBuilder().sslContext(tls).followRedirects(HttpClient.Redirect.NEVER)
                     .connectTimeout(Duration.ofSeconds(5)).build();
         }
         if (credential == null) {
             Path file = Path.of(properties.getCredentialFile());
-            if (Files.exists(file)) {
+            if (suppliedCredential != null) {
+                validate(suppliedCredential);
+                credential = suppliedCredential;
+            } else if (Files.exists(file)) {
                 var loaded = json.readValue(CloudAgentFiles.read(file, 8192), CloudWire.Credential.class);
                 validate(loaded);
                 credential = loaded;
@@ -295,7 +303,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 65536, 200, 0, 0);
     }
 
-    private void validate(CloudWire.Credential value) {
+    static void validate(CloudWire.Credential value) {
         UUID.fromString(value.gatewayId());
         String prefix = "fabmatrix/v1/gateways/" + value.gatewayId() + "/bindings/" + value.bindingVersion() + "/";
         if (value.bindingVersion() < 1 || value.credential() == null || !value.credential().matches("fmc_g_[A-Za-z0-9_-]{43}")
@@ -633,6 +641,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
         running = false;
         if (executor != null) {
             executor.shutdownNow();
+            if (http != null) { http.shutdownNow(); }
             try { executor.awaitTermination(6, TimeUnit.SECONDS); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
         }

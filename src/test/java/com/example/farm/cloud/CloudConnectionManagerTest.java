@@ -210,4 +210,15 @@ class CloudConnectionManagerTest {
         assertThat(manager.connection().state()).isEqualTo("CONFIG_ERROR");
         verify(agent, never()).start();
     }
+
+    @Test void invalidCredentialPathCannotPreventLocalApplicationStartup() {
+        manager.stop();
+        properties.setCredentialFile("invalid\0path");
+        manager = newManager();
+        manager.start();
+        assertThat(manager.isRunning()).isTrue();
+        assertThat(manager.connection().state()).isEqualTo("CONFIG_ERROR");
+        assertThat(manager.connection().enabled()).isFalse();
+        verifyNoInteractions(agent, remote);
+    }
 }

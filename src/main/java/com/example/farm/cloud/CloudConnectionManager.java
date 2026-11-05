@@ -28,7 +28,7 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     private final AuditLogService audit;
     private final CloudConnectionClient remote;
     private final ObjectMapper json = new ObjectMapper();
-    private final Path settingsFile;
+    private Path settingsFile;
     private CloudConnectionSettings settings;
     private CloudGatewayAgent agent;
     private boolean running;
@@ -43,13 +43,16 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
         this.outboxes = outboxes;
         this.audit = audit;
         this.remote = remote;
-        this.settingsFile = Path.of(defaults.getCredentialFile()).toAbsolutePath().resolveSibling("cloud-connection.json");
     }
 
     @Override public synchronized void start() {
         if (running) { return; }
         running = true;
         try {
+            if (defaults.getCredentialFile() == null || defaults.getCredentialFile().isBlank()) {
+                throw new IllegalArgumentException("Cloud credential path must be configured");
+            }
+            settingsFile = Path.of(defaults.getCredentialFile()).toAbsolutePath().resolveSibling("cloud-connection.json");
             managed = Files.exists(settingsFile);
             settings = managed ? json.readValue(CloudAgentFiles.read(settingsFile, 196608), CloudConnectionSettings.class)
                     : legacySettings();
@@ -59,6 +62,7 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
                 throw new IllegalArgumentException("Invalid cloud configuration");
             }
             if (settings.credential() != null) { CloudGatewayAgent.validate(settings.credential()); }
+            configurationError = null;
             startAgent();
         } catch (Exception exception) {
             settings = emptySettings(0);

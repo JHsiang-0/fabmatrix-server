@@ -163,7 +163,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
             if (pending == null && (protocol.selectedSchemaVersion() != 3 || inventoryComplete)
                     && now - lastCapture >= 5000) {
                 boolean observationEnabled = legacySchemaVersion == 2;
-                var printers = observationEnabled ? source.captureV2() : source.capture();
+                var printers = protocol.selectedSchemaVersion() == 3 ? source.captureCanonicalSnapshot()
+                        : observationEnabled ? source.captureV2() : source.capture();
                 if (printers.size() > protocol.maxPrinters()) { throw new RemoteFailure("PRINTER_LIMIT_EXCEEDED"); }
                 if (protocol.selectedSchemaVersion() == 3 && !snapshotMatchesInventory(printers, now)) { return; }
                 lastCapture = now;

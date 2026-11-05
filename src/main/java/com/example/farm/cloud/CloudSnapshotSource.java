@@ -5,6 +5,7 @@ import com.example.farm.entity.Printer;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.entity.vo.PrinterVO;
 import com.example.farm.protocol.model.CanonicalPrinterModel;
+import com.example.farm.protocol.model.CanonicalPrinterSummary;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
 import com.example.farm.service.CanonicalPrinterStateService;
@@ -130,6 +131,29 @@ public class CloudSnapshotSource {
 
     public List<CloudWire.Printer> captureV2() {
         return capture(true);
+    }
+
+    /** V3 health/compatibility envelope: values come exclusively from the persisted canonical model. */
+    public List<CloudWire.Printer> captureCanonicalSnapshot() {
+        var states = canonicalStateServices == null ? null : canonicalStateServices.getIfAvailable();
+        Instant now = Instant.now();
+        return assets().stream().map(asset -> {
+            String id = asset.getId().toString();
+            var model = states == null ? null : readCanonical(states, asset.getId());
+            if (model != null && (!id.equals(model.identity().localPrinterId())
+                    || !model.identity().deviceUid().toString().equals(asset.getDeviceUid()))) {
+                model = null;
+            }
+            var summary = model == null ? CanonicalPrinterSummary.unavailable(id,
+                    Boolean.TRUE.equals(asset.getMonitorEnabled()), asset.getConnectionStatus(),
+                    asset.getLastSeenAt() == null ? null : asset.getLastSeenAt().atZone(ZoneId.systemDefault()).toInstant(),
+                    asset.getConsecutiveFailureCount() == null ? 0 : asset.getConsecutiveFailureCount(), now)
+                    : CanonicalPrinterSummary.from(model, now);
+            return new CloudWire.Printer(id, limited(asset.getName(), 100, "Unnamed printer"),
+                    limited(asset.getFirmwareType(), 32, "UNKNOWN"), summary.connectionStatus(), summary.status(),
+                    summary.monitorEnabled(), summary.observedAt(), summary.progress(), summary.toolTemperature(),
+                    summary.bedTemperature());
+        }).toList();
     }
 
     private List<CloudWire.Printer> capture(boolean includeObservation) {

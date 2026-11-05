@@ -1,5 +1,7 @@
 # Farm 前后端接口交接与契约文档
 
+2026-11-05 统一状态读取扩展：打印机 `/page`、`/{id}` 的 `printer`/`realtimeStatus`、`/{id}/model`、监控配置及 WebSocket 的打印机状态新增 `stateSummary`。该字段由 canonical `modelVersion=2` 派生，包含设备 ID、观测/描述版本、服务端/采样时间、新鲜度、连接、物理状态、主工具/热床测量及执行摘要；缺模型、停监、离线或过期时当前测量为空。新客户端优先读取摘要，只有字段不存在的旧服务端响应才走旧兼容路径。`currentJob`/绑定及安全确认仍表示本地业务事实；摘要不授予控制权限，也不确认物理动作。旧平铺字段暂时保留。
+
 2026-10-28 账号安全扩展：新增 VIEWER 固定查看岗位、管理员密码重置及首次强制改密、持久化登录会话及撤销。新端点和升级要求以 [ACCOUNT_SECURITY.md](docs/ACCOUNT_SECURITY.md) 为准；原 ADMIN/OPERATOR 写操作边界保持不变。
 
 版本：v2.2

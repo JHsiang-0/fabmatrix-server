@@ -3,6 +3,7 @@ package com.example.farm.cloud;
 import com.example.farm.protocol.model.CanonicalPrinterModelProjection;
 
 import com.example.farm.entity.Printer;
+import com.example.farm.entity.PrinterExecution;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
 import com.example.farm.service.PrinterCacheService;
 import com.example.farm.service.PrinterService;
@@ -72,6 +73,30 @@ class CloudGatewayTest {
             verify(mqtt).publish(endsWith("up/snapshot"), bytes.capture(), eq(1), eq(false));
             assertThat(new ObjectMapper().readTree(bytes.getValue()).path("schemaVersion").asInt()).isEqualTo(version);
         }
+    }
+
+    @Test void negotiatedV3UsesCanonicalCompatibilitySnapshotWithoutLegacyCacheSource() throws Exception {
+        var properties = new CloudGatewayProperties();
+        properties.setStateDirectory(temp.resolve("canonical-snapshot").toString());
+        var source = mock(CloudSnapshotSource.class);
+        String sourceId = UUID.randomUUID().toString();
+        when(source.sourceInstanceId()).thenReturn(sourceId);
+        when(source.captureInventoryDevices(sourceId)).thenReturn(List.of());
+        when(source.captureCanonicalSnapshot()).thenReturn(List.of());
+        var mqtt = mock(MqttClient.class);
+        var agent = connectedAgent(properties, source, mqtt, 3);
+        ReflectionTestUtils.setField(agent, "inventoryComplete", true);
+        ReflectionTestUtils.setField(agent, "canonicalSourceInstanceId", sourceId);
+        ReflectionTestUtils.setField(agent, "acknowledgedInventoryBody", "[]");
+        ReflectionTestUtils.setField(agent, "lastInventoryScan", System.currentTimeMillis());
+        ReflectionTestUtils.setField(agent, "lastDescriptorScan", System.currentTimeMillis());
+
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+
+        verify(source).captureCanonicalSnapshot();
+        verify(source, never()).capture();
+        verify(source, never()).captureV2();
+        verify(mqtt).publish(endsWith("up/snapshot"), any(byte[].class), eq(1), eq(false));
     }
 
     @Test void duplicateAcknowledgementAdvancesAnIntermediateInventoryPart() throws Exception {
@@ -583,6 +608,47 @@ class CloudGatewayTest {
         doThrow(new IllegalStateException("storage unavailable")).when(states).findLatestForCloud(2L);
         assertThatThrownBy(source::captureCanonical).isInstanceOf(IllegalStateException.class)
                 .hasMessage("storage unavailable");
+    }
+
+    @Test @SuppressWarnings("unchecked")
+    void canonicalSnapshotUsesModelZeroAndHidesMissingOrMismatchedIdentity() throws Exception {
+        var printers = mock(PrinterService.class);
+        var cache = mock(PrinterCacheService.class);
+        var states = mock(CanonicalPrinterStateService.class);
+        var provider = mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(states);
+        Printer first = asset(1L);
+        first.setDeviceUid(UUID.randomUUID().toString());
+        first.setStatus("PAUSED");
+        Printer second = asset(2L);
+        second.setConnectionStatus("OFFLINE");
+        when(printers.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(first, second));
+        var at = Instant.now();
+        var node = new ObjectMapper().readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"printing"},
+                 "extruder":{"temperature":0,"target":210},"display_status":{"progress":0}}
+                """);
+        var execution = new PrinterExecution();
+        execution.setExecutionUid(UUID.randomUUID().toString());
+        execution.setFirstObservedAt(LocalDateTime.now().minusSeconds(1));
+        execution.setState("ACTIVE");
+        execution.setSource("EXTERNAL");
+        var model = CanonicalPrinterModelMapper.map(first, UUID.randomUUID(), UUID.randomUUID(),
+                1, 1, PrinterObservationParser.klipper(node, at, at), execution, true, at);
+        when(states.findLatestForCloud(1L)).thenReturn(model);
+        var source = new CloudSnapshotSource(printers, cache, provider);
+
+        var snapshot = source.captureCanonicalSnapshot();
+        assertThat(snapshot.getFirst().printState()).isEqualTo("PRINTING");
+        assertThat(snapshot.getFirst().toolTemperature()).isZero();
+        assertThat(snapshot.getFirst().observation()).isNull();
+        assertThat(snapshot.get(1).connectionStatus()).isEqualTo("OFFLINE");
+        assertThat(snapshot.get(1).toolTemperature()).isNull();
+        first.setDeviceUid(UUID.randomUUID().toString());
+        var mismatched = source.captureCanonicalSnapshot().getFirst();
+        assertThat(mismatched.printState()).isEqualTo("UNKNOWN");
+        assertThat(mismatched.toolTemperature()).isNull();
+        verifyNoInteractions(cache);
     }
 
     @Test void inventoryCaptureUsesStableIdsAndRejectsUnknownFirmwareWithoutDroppingDevices() {

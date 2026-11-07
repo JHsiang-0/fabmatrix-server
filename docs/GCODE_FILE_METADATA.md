@@ -78,3 +78,11 @@ Cloud 完整验证123项通过，Flutter 常规测试298项通过、1项既有�
 SQLite文件缓存增加内部 `reader_revision` 字段。历史行默认为0，当前解析结果写入1。已有上传文件和当前执行的旧缓存会在后台重新解析或采集，原可用字段继续提供读取；失败按既有60秒退避重试，真正成功后再升版并触发完整资源重传。已有列通过启动迁移幂等补齐，缓存版本随轻量内存副本保存。新鲜或更高版本的缓存直接复用。
 
 本次Server完整 `mvnw.cmd -q verify` 共993项通过，包含48项设备文件读取、9项原文件温度解析、旧SQLite结构升级、旧执行与本地上传缓存重采、失败退避及未来缓存版本兼容。App总层数来源与当前层来源分别映射和展示。三端与现场验证结果在后续实际执行后追加。
+
+本次联合C1全部52项通过，使用SHA-256为 `7dac9ace7a950c9d7e7e8d9fff0b142263054627b3c97d07c1b8f1c5ad3ea7f0` 的Server JAR。隔离执行通过真实Server自动上传四项温度，再验证Cloud读取、App独立层数来源和温度行展示。32台模拟设备连续65秒检查65次，最大观测年龄25,228ms，过期阈值30秒。App31项定向与布局回归、全仓静态分析通过，Cloud脚本8项回归通过。
+
+新版Windows安装器为默认目录下的 `FabMatrix-Server-Setup-1.0.0.exe`，SHA-256为 `a719ba3a2b1413c61bd9c7a1e029d69cd7f3a2c7645e078c77f2d7b2a0865ede`。已覆盖升级现场Server，安装退出码0，Running/UP，安装JAR与上述验证产物一致，网关凭据摘要核对保留。手机正式与开发包均保留数据升级为1.0.0+17，逐包摘要匹配。
+
+真实旧缓存自动重采后，Cloud同一执行、同一fileId和网关代次下的温度由全null更新为245/245/null/45，parsedAt及元数据摘要更新，两张图片完整保留。全体网关、来源、设备身份和当前库存指纹核对一致。PJE110开发版参数页实际显示总层数来源“切片估算”、当前层数来源“未知”、喷嘴/首层“245°C / 245°C”以及热床/首层“未知 / 45°C”，CLI热重启成功。当前层和普通热床温度的缺失继续按实际来源表达。
+
+部署及现场证据分别为本仓库忽略的 `target/gcode-temperature-installed-upgrade.json`、Cloud的 `target/gcode-temperature-live-before.json` 和 `target/gcode-temperature-live-after.json`，手机截图为App的 `build/qa/gcode-temperature-phone-parameters.png`。

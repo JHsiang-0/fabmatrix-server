@@ -95,17 +95,20 @@ public class GCodeMetadataService {
                 || model.observation().currentExecution() == null) return model;
         String key = "execution:" + active.getExecutionUid();
         try {
+            var request = new Request(printer.getId(), printer.getDeviceUid(), active.getExecutionUid(), filename,
+                    model.observation().currentExecution().file() == null ? null : model.observation().currentExecution().file().sizeBytes(),
+                    missing(model.observation().currentExecution().layers().current()));
             var entry = cached.get(printer.getId());
             if (entry != null && Objects.equals(entry.printerId(), printer.getId())
                     && Objects.equals(entry.executionUid(), active.getExecutionUid())
                     && Objects.equals(entry.deviceUid(), printer.getDeviceUid())
                     && Objects.equals(entry.deviceFilename(), filename)
                     && sameSize(model.observation().currentExecution(), entry.inspection())) {
+                if (entry.readerRevision() < GCodeMetadataStore.CURRENT_READER_REVISION) {
+                    enqueue(key, () -> inspectExecution(request));
+                }
                 return GCodeExecutionEnrichment.apply(model, entry.inspection());
             }
-            var request = new Request(printer.getId(), printer.getDeviceUid(), active.getExecutionUid(), filename,
-                    model.observation().currentExecution().file() == null ? null : model.observation().currentExecution().file().sizeBytes(),
-                    missing(model.observation().currentExecution().layers().current()));
             enqueue(key, () -> inspectExecution(request));
         } catch (Exception failure) {
             // A file cache failure must not turn a successful device poll into an unavailable state.
@@ -121,7 +124,9 @@ public class GCodeMetadataService {
 
     private void inspectUpload(Long id, String safeName, String originalName, Long size) throws Exception {
         String key = "upload:" + id;
-        if (store.find(key) != null || printFiles.selectById(id) == null) return;
+        var stored = store.find(key);
+        if (stored != null && stored.readerRevision() >= GCodeMetadataStore.CURRENT_READER_REVISION
+                || printFiles.selectById(id) == null) return;
         try (var input = files.getFileStream(safeName).getInputStream()) {
             var inspection = inspector.inspect(input, originalName, size == null ? -1 : size, "SERVER_UPLOAD");
             var current = printFiles.selectById(id);
@@ -167,14 +172,16 @@ public class GCodeMetadataService {
                 && (request.expectedSize() == null || stored.inspection().metadata().sizeBytes() == null
                     || request.expectedSize().equals(stored.inspection().metadata().sizeBytes()))) {
             remember(stored);
-            return;
+            if (stored.readerRevision() >= GCodeMetadataStore.CURRENT_READER_REVISION) return;
         }
         var execution = execution(request);
         if (execution == null || !sameName(execution.getObservedFilename(), request.filename())) return;
         var endpoint = new PrinterEndpoint(printer.getId(), printer.getIpAddress(), printer.getApiKey(),
                 PrinterProtocolType.normalize(printer.getFirmwareType()));
-        GCodeFileInspection inspection = fromLocalJob(execution, request.filename());
-        boolean localFile = inspection != null;
+        var local = fromLocalJob(execution, request.filename());
+        boolean localFile = local != null;
+        GCodeFileInspection inspection = localFile ? local.inspection() : null;
+        int readerRevision = localFile ? local.readerRevision() : GCodeMetadataStore.CURRENT_READER_REVISION;
         if (!localFile) {
             if (!"ACTIVE".equals(execution.getState())) return;
             inspection = reader.read(endpoint, request.filename(), request.layerIndex());
@@ -191,7 +198,7 @@ public class GCodeMetadataService {
                 || execution.getFileSize() != null && inspection.metadata().sizeBytes() != null
                 && execution.getFileSize().compareTo(BigDecimal.valueOf(inspection.metadata().sizeBytes())) != 0) return;
         save(new GCodeMetadataStore.Entry("execution:" + request.executionUid(), request.printerId(),
-                request.executionUid(), request.deviceUid(), request.filename(), inspection));
+                request.executionUid(), request.deviceUid(), request.filename(), inspection, readerRevision));
     }
 
     private PrinterExecution execution(Request request) {
@@ -200,15 +207,19 @@ public class GCodeMetadataService {
                 .eq(PrinterExecution::getExecutionUid, request.executionUid()));
     }
 
-    private GCodeFileInspection fromLocalJob(PrinterExecution execution, String filename) throws Exception {
+    private GCodeMetadataStore.Entry fromLocalJob(PrinterExecution execution, String filename) throws Exception {
         if (!"FARM".equals(execution.getSource()) || execution.getFarmJobId() == null) return null;
         var job = jobs.selectById(execution.getFarmJobId());
         if (job == null || !Objects.equals(job.getPrinterId(), execution.getPrinterId()) || job.getFileId() == null) return null;
         var file = printFiles.selectById(job.getFileId());
         if (file == null || !sameName(filename, file.getOriginalName()) && !sameName(filename, file.getSafeName())) return null;
         var upload = store.find("upload:" + file.getId());
-        if (upload == null) {
-            inspectUpload(file.getId(), file.getSafeName(), file.getOriginalName(), file.getFileSize());
+        if (upload == null || upload.readerRevision() < GCodeMetadataStore.CURRENT_READER_REVISION) {
+            try { inspectUpload(file.getId(), file.getSafeName(), file.getOriginalName(), file.getFileSize()); }
+            catch (Exception failure) {
+                if (upload == null) throw failure;
+                warn("execution:" + execution.getExecutionUid(), execution.getPrinterId());
+            }
             upload = store.find("upload:" + file.getId());
         }
         if (upload == null) return null;
@@ -221,7 +232,8 @@ public class GCodeMetadataService {
                 metadata.layerHeightMm(), metadata.firstLayerHeightMm(), metadata.nozzleDiameterMm(), metadata.objectHeightMm(),
                 metadata.nozzleTemperatureC(), metadata.firstLayerNozzleTemperatureC(), metadata.bedTemperatureC(),
                 metadata.firstLayerBedTemperatureC(), metadata.filaments(), metadata.thumbnails());
-        return new GCodeFileInspection(renamed, store.images(upload), data.layers());
+        return new GCodeMetadataStore.Entry(upload.cacheKey(), upload.printerId(), upload.executionUid(), upload.deviceUid(),
+                upload.deviceFilename(), new GCodeFileInspection(renamed, store.images(upload), data.layers()), upload.readerRevision());
     }
 
     private void save(GCodeMetadataStore.Entry entry) {
@@ -229,7 +241,8 @@ public class GCodeMetadataService {
         files.ensureCapacity(entry.inspection().thumbnails().stream().mapToLong(image -> image.png().length).sum() + 65536);
         store.save(entry);
         remember(new GCodeMetadataStore.Entry(entry.cacheKey(), entry.printerId(), entry.executionUid(), entry.deviceUid(),
-                entry.deviceFilename(), new GCodeFileInspection(entry.inspection().metadata(), List.of(), entry.inspection().layers())));
+                entry.deviceFilename(), new GCodeFileInspection(entry.inspection().metadata(), List.of(), entry.inspection().layers()),
+                entry.readerRevision()));
     }
 
     private void remember(GCodeMetadataStore.Entry entry) {
@@ -243,7 +256,7 @@ public class GCodeMetadataService {
                 .mapToLong(item -> item.inspection().layers().size()).sum();
         if (marks + entry.inspection().layers().size() > 2_000_000) {
             entry = new GCodeMetadataStore.Entry(entry.cacheKey(), entry.printerId(), entry.executionUid(), entry.deviceUid(),
-                    entry.deviceFilename(), new GCodeFileInspection(entry.inspection().metadata(), List.of(), List.of()));
+                    entry.deviceFilename(), new GCodeFileInspection(entry.inspection().metadata(), List.of(), List.of()), entry.readerRevision());
         }
         cached.put(entry.printerId(), entry);
     }

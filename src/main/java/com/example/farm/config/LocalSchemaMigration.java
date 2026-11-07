@@ -98,9 +98,11 @@ public class LocalSchemaMigration implements CommandLineRunner {
                     metadata_sha256 VARCHAR(64) NOT NULL,
                     layers_json TEXT NOT NULL,
                     created_at BIGINT NOT NULL,
+                    reader_revision INTEGER NOT NULL DEFAULT 0,
                     UNIQUE(printer_id, execution_uid)
                 )
                 """);
+        addColumnIfMissing("farm_gcode_metadata", "reader_revision", "INTEGER NOT NULL DEFAULT 0");
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS farm_gcode_thumbnail (
                     cache_key TEXT NOT NULL,

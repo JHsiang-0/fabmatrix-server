@@ -4,6 +4,7 @@ import com.example.farm.common.storage.FileStorage;
 import com.example.farm.entity.Printer;
 import com.example.farm.entity.PrinterExecution;
 import com.example.farm.entity.PrintFile;
+import com.example.farm.entity.PrintJob;
 import com.example.farm.mapper.GCodeMetadataStore;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.mapper.PrintJobMapper;
@@ -19,15 +20,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.core.io.InputStreamResource;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.UUID;
 import java.util.Base64;
+import java.util.List;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import javax.imageio.ImageIO;
@@ -59,6 +65,7 @@ class GCodeMetadataServiceTest {
     private final PrinterExecutionMapper executions = mock(PrinterExecutionMapper.class);
     private final FileStorage files = mock(FileStorage.class);
     private final PrintFileMapper printFiles = mock(PrintFileMapper.class);
+    private final PrintJobMapper jobs = mock(PrintJobMapper.class);
     private GCodeMetadataService service;
     private GCodeFileInspection inspection;
     private CanonicalPrinterModel model;
@@ -93,19 +100,21 @@ class GCodeMetadataServiceTest {
         when(printers.selectById(1L)).thenReturn(printer);
         when(executions.selectOne(any())).thenReturn(execution);
         service = new GCodeMetadataService(store, new GCodeFileInspector(), reader, files, printers,
-                executions, mock(PrintJobMapper.class), printFiles);
+                executions, jobs, printFiles);
     }
 
     @AfterEach void stop() { service.close(); }
 
-    @Test void coldCacheDatabaseReadRunsOnTheWorkerAndThenEnrichesWithoutAnyDeviceRequest() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {GCodeMetadataStore.CURRENT_READER_REVISION, GCodeMetadataStore.CURRENT_READER_REVISION + 1})
+    void coldCacheDatabaseReadRunsOnTheWorkerAndThenEnrichesWithoutAnyDeviceRequest(int readerRevision) throws Exception {
         var readThread = new AtomicReference<Thread>();
         var seen = new CountDownLatch(1);
         when(store.find(anyString())).thenAnswer(invocation -> {
             readThread.set(Thread.currentThread());
             seen.countDown();
             return new GCodeMetadataStore.Entry("execution:" + execution.getExecutionUid(), 1L,
-                    execution.getExecutionUid(), printer.getDeviceUid(), "model.gcode", inspection);
+                    execution.getExecutionUid(), printer.getDeviceUid(), "model.gcode", inspection, readerRevision);
         });
         assertSame(model, service.enrich(printer, execution, "model.gcode", model));
         assertTrue(seen.await(5, TimeUnit.SECONDS));
@@ -140,6 +149,84 @@ class GCodeMetadataServiceTest {
         uploadFixture(0);
         verify(files, timeout(5000)).deleteFile(anyString());
         verify(files, never()).deleteFileByObjectUrl(anyString());
+    }
+
+    @Test void previousRevisionStaysAvailableWhileItsBackgroundRefreshRunsAndThenStopsRefreshing() throws Exception {
+        var old = new GCodeMetadataStore.Entry("execution:" + execution.getExecutionUid(), 1L,
+                execution.getExecutionUid(), printer.getDeviceUid(), "model.gcode", inspection, 0);
+        when(store.find(old.cacheKey())).thenReturn(old);
+        var reading = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        when(reader.read(any(), anyString(), anyBoolean())).thenAnswer(invocation -> {
+            reading.countDown();
+            if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Fixture release missing");
+            return inspection;
+        });
+        try {
+            service.enrich(printer, execution, "model.gcode", model);
+            assertTrue(reading.await(5, TimeUnit.SECONDS));
+            assertEquals(1200, service.enrich(printer, execution, "model.gcode", model)
+                    .observation().currentExecution().timing().slicerEstimatedTotalSeconds().value().intValueExact());
+            verify(store, never()).save(any());
+            release.countDown();
+            var saved = ArgumentCaptor.forClass(GCodeMetadataStore.Entry.class);
+            verify(store, timeout(5000)).save(saved.capture());
+            assertEquals(GCodeMetadataStore.CURRENT_READER_REVISION, saved.getValue().readerRevision());
+            verify(reader, after(100).times(1)).read(any(), anyString(), anyBoolean());
+            for (int index = 0; index < 3; index++) service.enrich(printer, execution, "model.gcode", model);
+            verify(reader, after(200).times(1)).read(any(), anyString(), anyBoolean());
+        } finally { release.countDown(); }
+    }
+
+    @Test void failedPreviousRevisionRefreshRetainsKnownValuesAndBacksOff() throws Exception {
+        var old = new GCodeMetadataStore.Entry("execution:" + execution.getExecutionUid(), 1L,
+                execution.getExecutionUid(), printer.getDeviceUid(), "model.gcode", inspection, 0);
+        when(store.find(old.cacheKey())).thenReturn(old);
+        when(reader.read(any(), anyString(), anyBoolean())).thenThrow(new IOException("Fixture unavailable"));
+        service.enrich(printer, execution, "model.gcode", model);
+        verify(reader, timeout(5000)).read(any(), anyString(), anyBoolean());
+        for (int index = 0; index < 3; index++) {
+            assertEquals(1200, service.enrich(printer, execution, "model.gcode", model)
+                    .observation().currentExecution().timing().slicerEstimatedTotalSeconds().value().intValueExact());
+        }
+        verify(reader, after(200).times(1)).read(any(), anyString(), anyBoolean());
+        verify(store, never()).save(any());
+    }
+
+    @Test void aFailedLocalReparseKeepsItsOldRevisionSoItCanBeRetried() throws Exception {
+        execution.setSource("FARM");
+        execution.setFarmJobId(2L);
+        var job = new PrintJob();
+        job.setId(2L);
+        job.setPrinterId(1L);
+        job.setFileId(5L);
+        var file = new PrintFile();
+        file.setId(5L);
+        file.setSafeName("safe.gcode");
+        file.setOriginalName("model.gcode");
+        var old = new GCodeMetadataStore.Entry("upload:5", null, null, null, null, inspection, 0);
+        when(jobs.selectById(2L)).thenReturn(job);
+        when(printFiles.selectById(5L)).thenReturn(file);
+        when(store.find("upload:5")).thenReturn(old);
+        when(store.images(old)).thenReturn(List.of());
+        when(files.getFileStream("safe.gcode")).thenThrow(new IllegalStateException("Fixture unavailable"));
+        service.enrich(printer, execution, "model.gcode", model);
+        var saved = ArgumentCaptor.forClass(GCodeMetadataStore.Entry.class);
+        verify(store, timeout(5000)).save(saved.capture());
+        assertEquals(0, saved.getValue().readerRevision());
+        assertEquals(inspection.metadata().fileId(), saved.getValue().inspection().metadata().fileId());
+        service.enrich(printer, execution, "model.gcode", model);
+        verify(files, after(200).times(1)).getFileStream("safe.gcode");
+        verify(reader, never()).read(any(), anyString(), anyBoolean());
+    }
+
+    @Test void reparsesAnUploadedInspectionFromThePreviousRevision() throws Exception {
+        when(store.find("upload:5")).thenReturn(new GCodeMetadataStore.Entry("upload:5", null, null, null, null, inspection, 0));
+        uploadFixture(1);
+        var saved = ArgumentCaptor.forClass(GCodeMetadataStore.Entry.class);
+        verify(store, timeout(5000)).save(saved.capture());
+        assertEquals(GCodeMetadataStore.CURRENT_READER_REVISION, saved.getValue().readerRevision());
+        assertEquals(1, saved.getValue().inspection().thumbnails().size());
     }
 
     private void uploadFixture(int updated) throws Exception {

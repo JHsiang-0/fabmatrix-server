@@ -21,6 +21,7 @@ import java.util.Objects;
 @Repository
 @Profile("local")
 public class GCodeMetadataStore {
+    public static final int CURRENT_READER_REVISION = 1;
     private static final TypeReference<List<GCodeFileInspection.LayerMark>> LAYERS = new TypeReference<>() { };
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -33,16 +34,20 @@ public class GCodeMetadataStore {
     }
 
     public record Entry(String cacheKey, Long printerId, String executionUid, String deviceUid,
-                        String deviceFilename, GCodeFileInspection inspection) {
+                        String deviceFilename, GCodeFileInspection inspection, int readerRevision) {
+        public Entry(String cacheKey, Long printerId, String executionUid, String deviceUid,
+                     String deviceFilename, GCodeFileInspection inspection) {
+            this(cacheKey, printerId, executionUid, deviceUid, deviceFilename, inspection, CURRENT_READER_REVISION);
+        }
         @Override public String toString() { return "GCodeMetadataEntry[printerId=" + printerId + "]"; }
     }
 
     public Entry find(String cacheKey) {
         var rows = jdbc.query("""
-                SELECT cache_key, printer_id, execution_uid, device_uid, device_filename, metadata_json, layers_json
+                SELECT cache_key, printer_id, execution_uid, device_uid, device_filename, metadata_json, layers_json, reader_revision
                 FROM farm_gcode_metadata WHERE cache_key = ?
                 """, (result, row) -> new Entry(result.getString(1), result.getObject(2) == null ? null : result.getLong(2), result.getString(3),
-                result.getString(4), result.getString(5), read(result.getString(6), result.getString(7))), cacheKey);
+                result.getString(4), result.getString(5), read(result.getString(6), result.getString(7)), result.getInt(8)), cacheKey);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
@@ -61,16 +66,16 @@ public class GCodeMetadataStore {
             jdbc.update("""
                     INSERT INTO farm_gcode_metadata
                         (cache_key, printer_id, execution_uid, device_uid, device_filename, metadata_json,
-                         metadata_sha256, layers_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         metadata_sha256, layers_json, created_at, reader_revision)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cache_key) DO UPDATE SET
                         printer_id=excluded.printer_id, execution_uid=excluded.execution_uid,
                         device_uid=excluded.device_uid, device_filename=excluded.device_filename,
                         metadata_json=excluded.metadata_json, metadata_sha256=excluded.metadata_sha256,
-                        layers_json=excluded.layers_json
+                        layers_json=excluded.layers_json, reader_revision=excluded.reader_revision
                     """, entry.cacheKey(), entry.printerId(), entry.executionUid(), entry.deviceUid(),
                     entry.deviceFilename(), metadata, digest(metadata.getBytes(StandardCharsets.UTF_8)),
-                    layers, Instant.now().toEpochMilli());
+                    layers, Instant.now().toEpochMilli(), entry.readerRevision());
             jdbc.update("DELETE FROM farm_gcode_thumbnail WHERE cache_key = ?", entry.cacheKey());
             for (var image : inspection.thumbnails()) {
                 if (image.png().length > 512 * 1024 || !inspection.metadata().thumbnails().contains(image.descriptor())) {
@@ -98,7 +103,7 @@ public class GCodeMetadataStore {
         String phase = activeOnly == null ? "" : activeOnly ? " AND e.state = 'ACTIVE'" : " AND e.state <> 'ACTIVE'";
         return jdbc.query("""
                 SELECT m.cache_key, m.printer_id, m.execution_uid, m.device_uid, m.device_filename,
-                       m.metadata_json
+                       m.metadata_json, m.reader_revision
                 FROM farm_gcode_metadata m
                 JOIN farm_printer p ON p.id = m.printer_id AND p.device_uid = m.device_uid
                 JOIN farm_printer_execution e ON e.printer_id = m.printer_id AND e.execution_uid = m.execution_uid
@@ -109,7 +114,7 @@ public class GCodeMetadataStore {
                 )
                 """ + phase + " ORDER BY m.cache_key LIMIT 64", (result, row) -> new Entry(result.getString(1),
                 result.getLong(2), result.getString(3), result.getString(4), result.getString(5),
-                read(result.getString(6), "[]")), afterKey, gatewayId, bindingVersion);
+                read(result.getString(6), "[]"), result.getInt(7)), afterKey, gatewayId, bindingVersion);
     }
 
     public String metadataHash(Entry entry) {

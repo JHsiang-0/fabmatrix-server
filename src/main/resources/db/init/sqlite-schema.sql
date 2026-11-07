@@ -246,6 +246,7 @@ CREATE TABLE IF NOT EXISTS farm_gcode_metadata (
     metadata_sha256 VARCHAR(64) NOT NULL,
     layers_json TEXT NOT NULL,
     created_at BIGINT NOT NULL,
+    reader_revision INTEGER NOT NULL DEFAULT 0,
     UNIQUE(printer_id, execution_uid)
 );
 CREATE TABLE IF NOT EXISTS farm_gcode_thumbnail (

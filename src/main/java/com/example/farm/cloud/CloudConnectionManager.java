@@ -12,6 +12,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.example.farm.mapper.GCodeMetadataStore;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Service;
 
@@ -34,6 +36,9 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     private final ObjectProvider<PrinterEventOutbox> outboxes;
     private final AuditLogService audit;
     private final CloudConnectionClient remote;
+    /** Local profiles persist file assets. Non-local test fixtures keep the original gateway runtime. */
+    @Autowired(required = false)
+    private GCodeMetadataStore fileMetadata;
     private final ObjectMapper json = new ObjectMapper();
     private Path settingsFile;
     private CloudConnectionSettings settings;
@@ -316,7 +321,9 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     }
 
     CloudGatewayAgent createAgent(CloudGatewayProperties properties, CloudWire.Credential credential) {
-        return new CloudGatewayAgent(properties, source, outboxes, credential);
+        var created = new CloudGatewayAgent(properties, source, outboxes, credential);
+        if (fileMetadata != null) created.setFileMetadataSync(new CloudFileMetadataSync(properties, source, fileMetadata));
+        return created;
     }
 
     private void stopAgent() {

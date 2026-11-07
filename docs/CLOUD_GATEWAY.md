@@ -86,3 +86,7 @@ Client「设置 → 云端连接 → 手机扫码配对」生成十分钟二维�
 本地 ADMIN 接口为 `POST /api/v1/cloud/pairing/start`、`/poll`、`/cancel`，分别使用连接配置与 revision、pairingId 与 revision。临时材料保存在凭据目录旁的 `cloud-pairing.json`，完成后清除；不要将此文件提交或复制给手机。关闭弹窗停止轮询，可重新进入并生成以恢复有效会话；取消或过期后可重试。
 
 Cloud 需先升级 V18，再升级 Server、Client 和 App。首次需要部署者填写真实 Cloud API、MQTT TLS 地址及自建 CA；不能使用其他电脑的回环地址。详见 [配对协议](../../fabmatrix-cloud/docs/decisions/0012-qr-gateway-pairing.md)。本次不改变现场打印控制与 30 秒状态过期规则。
+
+## G-code 文件资源（2026-11-07）
+
+新增双入口文件元数据与 PNG 采集。Cloud 升级至 V24 并协商文件能力后，Server 使用低优先级 HTTP 上传具体执行的文件资源，实时观测继续走 MQTT。采集、来源、限额、本地缓存与验证边界见 [G-code 文件信息与缩略图](GCODE_FILE_METADATA.md)。

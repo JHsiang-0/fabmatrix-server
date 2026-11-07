@@ -85,6 +85,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private int retrySeconds = 1;
     private Long lastAckAt;
     private long lastWarning;
+    private CloudFileMetadataSync fileMetadataSync;
+    private long lastFileMetadataSync;
 
     public CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
                              ObjectProvider<PrinterEventOutbox> eventOutboxes) {
@@ -108,6 +110,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
                            String localPrinterId, long descriptorRevision, String observationId,
                            UUID eventId, String raw, long lastSentAt) { }
     public Status status() { return status; }
+    void setFileMetadataSync(CloudFileMetadataSync sync) { fileMetadataSync = sync; }
 
     @Override public void start() {
         running = true;
@@ -205,6 +208,14 @@ public class CloudGatewayAgent implements SmartLifecycle {
             retrySeconds = 1;
             status = new Status(lastAckAt == null || now - lastAckAt > 45000 ? "SYNCHRONIZING" : "CONNECTED", mqtt.isConnected(), credential.gatewayId(),
                     lastAckAt, status.errorCode(), pending != null);
+            if (fileMetadataSync != null && protocol.selectedSchemaVersion() == 3 && inventoryComplete
+                    && protocol.capabilities() != null
+                    && protocol.capabilities().contains("FILE_METADATA_V1")
+                    && protocol.capabilities().contains("FILE_THUMBNAIL_PNG_V1")
+                    && now - lastFileMetadataSync >= 15000) {
+                lastFileMetadataSync = now;
+                fileMetadataSync.submit(credential, bandwidth, () -> running && status.connected() && registered && !terminal);
+            }
         } catch (Exception error) {
             if (!running) { closeMqtt(); return; }
             registered = false;
@@ -640,6 +651,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
 
     @Override public void stop() {
         running = false;
+        if (fileMetadataSync != null) fileMetadataSync.close();
         if (executor != null) {
             executor.shutdownNow();
             if (http != null) { http.shutdownNow(); }

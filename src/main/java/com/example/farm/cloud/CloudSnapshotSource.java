@@ -60,6 +60,10 @@ public class CloudSnapshotSource {
     public record CanonicalAsset(String localPrinterId, String deviceUid, String name, String machineNumber,
                                  String firmwareType, CanonicalPrinterModel model) { }
     public long printerCount() { return printers.count(); }
+    public boolean matchesCurrentIdentity(Long printerId, String deviceUid) {
+        var printer = printers.getById(printerId);
+        return printer != null && deviceUid != null && deviceUid.equals(printer.getDeviceUid());
+    }
     public record InventoryIdentity(String sourceInstanceId, String deviceUid, String localPrinterId) { }
     public record InventoryDescriptorSummary(String name, String machineNumber, String firmwareFamily) { }
     public record InventoryDevice(InventoryIdentity identity, InventoryDescriptorSummary descriptorSummary) { }

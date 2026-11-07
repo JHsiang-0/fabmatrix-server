@@ -60,3 +60,13 @@ Server 代码按 `4917323`、`1c08ba6`、`553154d`、`5e5ce9f`、`181c222`、`3b
 Cloud 完整验证123项通过，Flutter 常规测试298项通过、1项既有外部用例跳过，静态分析通过。联合 C1 共52项通过，覆盖真实 Server 进程自动上传确认、隔离 MySQL V24持久化、EMQX TLS/ACL、Cloud授权读取，以及 Flutter 实际 HTTP、PNG解码和详情展示。32台模拟设备连续65秒检查65次，最大观测年龄23,310ms，过期阈值30秒。完整证据见 [Cloud 验证记录](../../fabmatrix-cloud/docs/GCODE_FILE_METADATA.md)。
 
 当前连接的 PJE110 开发 App 已通过 CLI 热重载与热重启验证。本轮服务验证使用隔离环境，现场设备的双固件打印过程及正式安装升级验收仍待执行。开发 App 的热重载结果属于当前调试会话，持久安装需要重新打包。
+
+## 现场升级与手机核对
+
+2026-11-07后续完成实际部署。常驻Cloud从V23升级V24，手机正式包与开发包均保留数据安装为1.0.0+16。Windows安装器使用既有默认目录生成，基于提交 `e25af58`，文件为 `dist/windows-installer/FabMatrix-Server-Setup-1.0.0.exe`，SHA-256为 `24876efd787f64fa5e7883ede328ee244b2806951b6e313024b97da4316ec278`。
+
+已覆盖升级 `D:/Program Files/FabMatrix`。安装退出码0，服务Running、健康UP，安装JAR SHA-256与本轮950项验证产物一致，网关凭据文件升级前后摘要一致。脱敏结果保存在忽略的 `target/gcode-installed-server-upgrade.json`，安装日志为 `target/gcode-server-install.log`。
+
+真实Klipper设备Printer_46B6正在打印，Cloud接收1条执行文件元数据与2张PNG。PJE110开发版实际显示绿色模型预览、OrcaSlicer 2.3.1-beta、切片预计69小时17分钟及总层数1800。图片为32×32和300×300，合计33,849字节。截图保存于App仓库的 `build/qa/gcode-phone-live-preview.png`。该步骤只读取设备与页面。
+
+这台设备的当前层数仍为UNAVAILABLE。设备没有报告当前层，文件大小411,187,499字节，超过64MiB远程完整G-code索引采集上限，因此按文件位置推算当前层所需的索引暂缺。总层数、估算和图片均已采集，不能把文件字节进度当作精确层数。RRF现场执行文件采集继续等待可用真实执行验收。

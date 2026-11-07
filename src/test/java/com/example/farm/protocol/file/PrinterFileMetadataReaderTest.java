@@ -10,6 +10,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -26,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -228,6 +232,79 @@ class PrinterFileMetadataReaderTest {
         assertThatThrownBy(() -> reader.read(endpoint(PrinterProtocolType.KLIPPER), "test.gcode"))
                 .isInstanceOf(IOException.class);
         assertThat(requests).noneMatch(request -> request.contains("outside"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("temperatureValues")
+    void readsExactWholeDegreeTemperaturesWithoutTruncatingOrRounding(String value, Integer expected) throws Exception {
+        serveTemperatureMetadata("\"nozzle_temperature\":" + value + ",\"first_layer_extr_temp\":" + value
+                + ",\"bed_temperature\":" + value + ",\"first_layer_bed_temp\":" + value, "100");
+        for (var protocol : List.of(PrinterProtocolType.KLIPPER, PrinterProtocolType.RRF)) {
+            var metadata = reader.read(endpoint(protocol), "test.gcode").metadata();
+            assertThat(metadata.nozzleTemperatureC()).isEqualTo(expected);
+            assertThat(metadata.firstLayerNozzleTemperatureC()).isEqualTo(expected);
+            assertThat(metadata.bedTemperatureC()).isEqualTo(expected);
+            assertThat(metadata.firstLayerBedTemperatureC()).isEqualTo(expected);
+        }
+        assertThat(requests).noneMatch(request -> request.contains("rr_download") || request.endsWith("/gcodes/test.gcode"));
+    }
+
+    static Stream<Arguments> temperatureValues() {
+        return Stream.of(Arguments.of("245", 245), Arguments.of("245.0", 245), Arguments.of("2.45e2", 245),
+                Arguments.of("0.0", 0), Arguments.of("500.0", 500), Arguments.of("245.5", null),
+                Arguments.of("245.000000000000000001", null), Arguments.of("500.000000000000000001", null),
+                Arguments.of("-1.0", null), Arguments.of("501.0", null), Arguments.of("\"245\"", null),
+                Arguments.of("true", null), Arguments.of("null", null), Arguments.of("[245]", null));
+    }
+
+    @ParameterizedTest
+    @MethodSource("filamentTemperatures")
+    void usesOnlyAnUnambiguousCommonFilamentTemperature(String values, Integer expected) throws Exception {
+        serveTemperatureMetadata("\"filament_temps\":" + values, "100");
+        var metadata = reader.read(endpoint(PrinterProtocolType.KLIPPER), "test.gcode").metadata();
+        assertThat(metadata.nozzleTemperatureC()).isEqualTo(expected);
+        assertThat(metadata.firstLayerNozzleTemperatureC()).isNull();
+        assertThat(metadata.bedTemperatureC()).isNull();
+        assertThat(metadata.firstLayerBedTemperatureC()).isNull();
+    }
+
+    static Stream<Arguments> filamentTemperatures() {
+        return Stream.of(Arguments.of("[245]", 245), Arguments.of("[245.0,245]", 245), Arguments.of("[0]", 0),
+                Arguments.of("[245,250]", null), Arguments.of("[0,245]", null), Arguments.of("[245,null]", null),
+                Arguments.of("[245,\"245\"]", null), Arguments.of("[245,true]", null),
+                Arguments.of("[245.000000000000000001]", null), Arguments.of("[]", null),
+                Arguments.of("[245,245,245,245,245,245,245,245]", 245),
+                Arguments.of("[245,245,245,245,245,245,245,245,245]", null), Arguments.of("245", null));
+    }
+
+    @Test
+    void retainsAnExplicitNozzleTemperatureAheadOfDifferentFilamentTemperatures() throws Exception {
+        serveTemperatureMetadata("\"nozzle_temperature\":230.0,\"filament_temps\":[245,250]", "100");
+        assertThat(reader.read(endpoint(PrinterProtocolType.KLIPPER), "test.gcode").metadata().nozzleTemperatureC()).isEqualTo(230);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1700000000.125", "-0.0", "1.7e9"})
+    void preservesExistingFileIdentityEncodingWhenReadingPreciseTemperatures(String modified) throws Exception {
+        serveTemperatureMetadata("\"first_layer_extr_temp\":245.000000000000000001", modified);
+        var old = json.readTree("{\"size\":" + (PrinterFileMetadataReader.MAX_FALLBACK_BYTES + 1L)
+                + ",\"modified\":" + modified + "}");
+        String oldIdentity = "KLIPPER|1|test.gcode|" + old.path("size") + "|" + old.path("modified") + "|" + old.path("uuid");
+        var metadata = reader.read(endpoint(PrinterProtocolType.KLIPPER), "test.gcode").metadata();
+        assertThat(metadata.fileId()).isEqualTo(GCodeThumbnailCodec.sha256(oldIdentity.getBytes(StandardCharsets.UTF_8)));
+        assertThat(metadata.firstLayerNozzleTemperatureC()).isNull();
+    }
+
+    private void serveTemperatureMetadata(String fields, String modified) {
+        String info = "{\"err\":0,\"size\":" + (PrinterFileMetadataReader.MAX_FALLBACK_BYTES + 1L)
+                + ",\"modified\":" + modified + ",\"lastModified\":\"version-1\",\"estimated_time\":300,\"printTime\":300,"
+                + "\"layer_count\":25,\"numLayers\":25," + fields + "}";
+        handler = exchange -> switch (exchange.getRequestURI().getPath()) {
+            case "/server/files/metadata" -> new Reply(200, "application/json", ("{\"result\":" + info + "}").getBytes(StandardCharsets.UTF_8));
+            case "/rr_fileinfo" -> new Reply(200, "application/json", info.getBytes(StandardCharsets.UTF_8));
+            case "/rr_connect" -> reply(Map.of("err", 0));
+            default -> new Reply(404, "text/plain", new byte[0]);
+        };
     }
 
     @ParameterizedTest

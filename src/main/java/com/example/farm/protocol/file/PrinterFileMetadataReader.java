@@ -7,6 +7,8 @@ import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -38,9 +40,12 @@ public class PrinterFileMetadataReader {
     private static final int MAX_METADATA_BYTES = 256 * 1024;
     private static final int MAX_THUMBNAIL_PARTS = 512;
     private static final long READ_DEADLINE_NANOS = Duration.ofSeconds(30).toNanos();
+    private static final List<String> TEMPERATURE_FIELDS = List.of("nozzle_temperature", "first_layer_extr_temp",
+            "bed_temperature", "first_layer_bed_temp", "filament_temps");
     private final GCodeFileInspector inspector;
     private final BoundedDeviceFileHttp http;
     private final ObjectMapper mapper;
+    private final ObjectMapper temperatureMapper;
 
     @Autowired
     public PrinterFileMetadataReader(GCodeFileInspector inspector) {
@@ -54,6 +59,7 @@ public class PrinterFileMetadataReader {
         this.mapper = new ObjectMapper();
         mapper.getFactory().setStreamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(32)
                 .maxStringLength(GCodeThumbnailCodec.MAX_INPUT_BYTES * 2).build());
+        temperatureMapper = mapper.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
     }
 
     public GCodeFileInspection read(PrinterEndpoint endpoint, String filename) throws IOException {
@@ -242,6 +248,8 @@ public class PrinterFileMetadataReader {
         String identity = endpoint.protocolType() + "|" + endpoint.printerId() + "|" + file + "|"
                 + info.path("size") + "|" + info.path(rrf ? "lastModified" : "modified") + "|" + info.path("uuid");
         List<GCodeFileInspection.ThumbnailImage> selected = selectImages(images);
+        Integer nozzleTemperature = temperature(info.get("nozzle_temperature"));
+        if (!rrf && nozzleTemperature == null) nozzleTemperature = commonTemperature(info.get("filament_temps"));
         var metadata = new GCodeFileMetadata(1, GCodeThumbnailCodec.sha256(identity.getBytes(StandardCharsets.UTF_8)),
                 GCodeFileInspector.safeBasename(file), integer(info.get("size"), Long.MAX_VALUE), null,
                 rrf ? "RRF" : "MOONRAKER", Instant.now(), name, version,
@@ -251,7 +259,7 @@ public class PrinterFileMetadataReader {
                 positive(info.get(rrf ? "firstLayerHeight" : "first_layer_height"), 10),
                 positive(info.get(rrf ? "nozzleDiameter" : "nozzle_diameter"), 10),
                 positive(info.get(rrf ? "height" : "object_height"), 100_000),
-                temperature(info.get("nozzle_temperature")), temperature(info.get("first_layer_extr_temp")),
+                nozzleTemperature, temperature(info.get("first_layer_extr_temp")),
                 temperature(info.get("bed_temperature")), temperature(info.get("first_layer_bed_temp")),
                 deviceFilaments(info, rrf), selected.stream().map(GCodeFileInspection.ThumbnailImage::descriptor).toList());
         return new GCodeFileInspection(metadata, selected, List.of());
@@ -319,8 +327,18 @@ public class PrinterFileMetadataReader {
     }
     private JsonNode json(URI uri, Map<String, String> headers, long deadline) throws IOException {
         try {
-            JsonNode result = mapper.readTree(http.get(uri, headers, MAX_METADATA_BYTES, deadline));
+            byte[] content = http.get(uri, headers, MAX_METADATA_BYTES, deadline);
+            JsonNode result = mapper.readTree(content);
             if (result == null || !result.isObject()) throw new IOException("Invalid device file response");
+            var info = (ObjectNode) (result.path("result").isObject() ? result.path("result") : result);
+            if (TEMPERATURE_FIELDS.stream().anyMatch(info::has)) {
+                // Keep the existing file-version number encoding while reading temperatures without rounding.
+                JsonNode precise = temperatureMapper.readTree(content);
+                JsonNode temperatures = precise.path("result").isObject() ? precise.path("result") : precise;
+                for (String field : TEMPERATURE_FIELDS) {
+                    if (temperatures.has(field)) info.set(field, temperatures.get(field));
+                }
+            }
             return result;
         }
         catch (JacksonException invalid) { throw new IOException("Invalid device file response"); }
@@ -366,8 +384,19 @@ public class PrinterFileMetadataReader {
         return number.signum() >= 0 && number.compareTo(BigDecimal.valueOf(maximum)) <= 0 ? number : null;
     }
     private static Integer temperature(JsonNode value) {
-        Long number = integer(value, 500);
-        return number == null ? null : number.intValue();
+        BigDecimal number = nonNegative(value, 500);
+        if (number == null) return null;
+        try { return number.intValueExact(); }
+        catch (ArithmeticException fractional) { return null; }
+    }
+    private static Integer commonTemperature(JsonNode values) {
+        if (values == null || !values.isArray() || values.isEmpty() || values.size() > 8) return null;
+        Integer common = temperature(values.get(0));
+        if (common == null) return null;
+        for (JsonNode value : values) {
+            if (!common.equals(temperature(value))) return null;
+        }
+        return common;
     }
     private static String text(JsonNode node, String key, int maximum) {
         JsonNode value = node.get(key);

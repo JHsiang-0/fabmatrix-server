@@ -234,3 +234,32 @@ CREATE TABLE IF NOT EXISTS farm_login_session (
     revoked_at TIMESTAMP NULL
 );
 CREATE INDEX IF NOT EXISTS idx_login_session_user ON farm_login_session(user_id, revoked_at, expires_at);
+
+-- Versioned G-code metadata and bounded PNG assets. Runtime samples reference execution identities.
+CREATE TABLE IF NOT EXISTS farm_gcode_metadata (
+    cache_key TEXT PRIMARY KEY,
+    printer_id INTEGER,
+    execution_uid TEXT,
+    device_uid TEXT,
+    device_filename TEXT,
+    metadata_json TEXT NOT NULL,
+    metadata_sha256 VARCHAR(64) NOT NULL,
+    layers_json TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    UNIQUE(printer_id, execution_uid)
+);
+CREATE TABLE IF NOT EXISTS farm_gcode_thumbnail (
+    cache_key TEXT NOT NULL,
+    sha256 VARCHAR(64) NOT NULL,
+    image_bytes BLOB NOT NULL,
+    PRIMARY KEY(cache_key, sha256),
+    FOREIGN KEY(cache_key) REFERENCES farm_gcode_metadata(cache_key) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS farm_gcode_cloud_receipt (
+    gateway_id VARCHAR(36) NOT NULL,
+    binding_version BIGINT NOT NULL,
+    execution_uid VARCHAR(36) NOT NULL,
+    metadata_sha256 VARCHAR(64) NOT NULL,
+    uploaded_at BIGINT NOT NULL,
+    PRIMARY KEY(gateway_id, binding_version, execution_uid)
+);

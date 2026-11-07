@@ -219,7 +219,7 @@ public final class CanonicalPrinterModelMapper {
         Measurement<BigDecimal> printSeconds = requiredMeasurement(source.printSeconds());
         Measurement<BigDecimal> totalSeconds = requiredMeasurement(source.totalSeconds());
         Measurement<BigDecimal> activeSeconds = requiredMeasurement(source.activeSeconds());
-        Measurement<BigDecimal> slicerSeconds = requiredMeasurement(source.slicerEstimatedSeconds());
+        Measurement<BigDecimal> slicerSeconds = measurement(source.slicerEstimatedSeconds(), MeasurementSource.SLICER_ESTIMATE);
         MeasurementSource remainingSource = source.remainingMethod() == PrinterObservation.RemainingMethod.SLICER
                 ? MeasurementSource.SLICER_ESTIMATE
                 : source.remainingMethod() == PrinterObservation.RemainingMethod.FILE

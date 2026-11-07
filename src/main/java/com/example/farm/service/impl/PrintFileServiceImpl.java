@@ -18,6 +18,7 @@ import com.example.farm.entity.vo.PrintFilePreviewVO;
 import com.example.farm.mapper.PrintFileMapper;
 import com.example.farm.service.PrintFileService;
 import com.example.farm.service.AuditLogService;
+import com.example.farm.service.GCodeMetadataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +63,9 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
 
     @Autowired(required = false)
     private AuditLogService auditLogService;
+    /** Local-only file inspection, queued after the upload transaction commits. */
+    @Autowired(required = false)
+    private GCodeMetadataService fileMetadata;
 
     @Override
     public List<PrintFile> getFolderContent(Long parentId) {
@@ -463,6 +467,7 @@ public class PrintFileServiceImpl extends ServiceImpl<PrintFileMapper, PrintFile
             throw exception;
         }
         recordSuccess("FILE_UPLOAD", "FILE", printFile.getId(), printFile.getOriginalName());
+        if (fileMetadata != null) fileMetadata.uploaded(printFile);
         enrichCapabilities(printFile, null);
         log.info("切片文件入库成功: fileId={}, userId={}, safeName={}", printFile.getId(), userId, safeName);
         return printFile;

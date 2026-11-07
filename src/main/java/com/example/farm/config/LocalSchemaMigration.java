@@ -43,6 +43,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         createPrinterExecutionTableIfMissing();
         createCanonicalPrinterStateTableIfMissing();
         createPrinterEventOutboxTableIfMissing();
+        createGCodeMetadataTablesIfMissing();
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("farm_user", "must_change_password", "INTEGER NOT NULL DEFAULT 0");
@@ -83,6 +84,50 @@ public class LocalSchemaMigration implements CommandLineRunner {
                 + "ON farm_print_file(visibility, parent_id, user_id)");
         migratePrintFileDefaultFolders();
         validatePrintFileStructure();
+    }
+
+    void createGCodeMetadataTablesIfMissing() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_gcode_metadata (
+                    cache_key TEXT PRIMARY KEY,
+                    printer_id INTEGER,
+                    execution_uid TEXT,
+                    device_uid TEXT,
+                    device_filename TEXT,
+                    metadata_json TEXT NOT NULL,
+                    metadata_sha256 VARCHAR(64) NOT NULL,
+                    layers_json TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    UNIQUE(printer_id, execution_uid)
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_gcode_thumbnail (
+                    cache_key TEXT NOT NULL,
+                    sha256 VARCHAR(64) NOT NULL,
+                    image_bytes BLOB NOT NULL,
+                    PRIMARY KEY(cache_key, sha256),
+                    FOREIGN KEY(cache_key) REFERENCES farm_gcode_metadata(cache_key) ON DELETE CASCADE
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS farm_gcode_cloud_receipt (
+                    gateway_id VARCHAR(36) NOT NULL,
+                    binding_version BIGINT NOT NULL,
+                    execution_uid VARCHAR(36) NOT NULL,
+                    metadata_sha256 VARCHAR(64) NOT NULL,
+                    uploaded_at BIGINT NOT NULL,
+                    PRIMARY KEY(gateway_id, binding_version, execution_uid)
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TRIGGER IF NOT EXISTS cleanup_uploaded_gcode_metadata
+                AFTER DELETE ON farm_print_file
+                BEGIN
+                    DELETE FROM farm_gcode_thumbnail WHERE cache_key = 'upload:' || OLD.id;
+                    DELETE FROM farm_gcode_metadata WHERE cache_key = 'upload:' || OLD.id;
+                END
+                """);
     }
 
     /** 为本地数据库谱系和设备建立稳定 UUID；重复启动保留现有身份及业务外键。 */

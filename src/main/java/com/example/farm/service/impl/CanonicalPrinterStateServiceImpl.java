@@ -8,6 +8,8 @@ import com.example.farm.protocol.model.CanonicalPrinterModelValidator;
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.service.CanonicalPrinterStateService;
 import com.example.farm.service.PrinterExecutionService;
+import com.example.farm.service.GCodeMetadataService;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +43,9 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
     private final ObjectMapper objectMapper;
     private final UUID deviceBootId = UUID.randomUUID();
     private final Map<Long, Long> oversizedWarnings = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Local-only optional enrichment, absent in non-local test profiles. */
+    @Autowired(required = false)
+    private GCodeMetadataService fileMetadata;
 
     @Override
     public boolean persist(Printer printer, PrinterObservation observation) {
@@ -69,6 +74,8 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
         CanonicalPrinterModel model = CanonicalPrinterModelMapper.map(current, sourceInstanceId,
                 deviceBootId, observationRevision, descriptorRevision, observation, activeExecution,
                 lastFinishedExecution, continuityUnknown, Instant.now());
+        if (fileMetadata != null) model = fileMetadata.enrich(current, activeExecution,
+                observation.execution() == null ? null : observation.execution().filename(), model);
         model = preserveCapabilityTimes(model, previousDescriptor);
         String descriptorJson = serialize(model.descriptor());
         if (previous != null && !descriptorJson.equals(previous.get("descriptor_json"))) {
@@ -76,6 +83,8 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
             model = CanonicalPrinterModelMapper.map(current, sourceInstanceId, deviceBootId,
                     observationRevision, descriptorRevision, observation, activeExecution,
                     lastFinishedExecution, continuityUnknown, Instant.now());
+            if (fileMetadata != null) model = fileMetadata.enrich(current, activeExecution,
+                    observation.execution() == null ? null : observation.execution().filename(), model);
             model = preserveCapabilityTimes(model, previousDescriptor);
             descriptorJson = serialize(model.descriptor());
         }

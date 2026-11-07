@@ -20,6 +20,8 @@ public class GCodeParser {
     private static final Pattern EST_TIME_PATTERN = Pattern.compile("(?im)^\\s*;?\\s*estimated_time\\s*[:=]\\s*(\\d+)\\s*$");
     private static final Pattern EST_PRINTING_TIME_PATTERN = Pattern.compile(
             "(?im)^\\s*;?\\s*estimated printing time(?:\\s*\\([^)]*\\))?\\s*[:=]\\s*([^\\r\\n]+)");
+    private static final Pattern TOTAL_ESTIMATED_TIME_PATTERN = Pattern.compile(
+            "(?im)(?:^\\s*;?\\s*|;\\s*)total estimated time\\s*[:=]\\s*([^\\r\\n;]+)");
     private static final Pattern DURATION_TOKEN_PATTERN = Pattern.compile("(?i)(\\d+)\\s*([dhms])");
     private static final Pattern DURATION_HMS_COLON_PATTERN = Pattern.compile("^(\\d{1,2}):(\\d{1,2})(?::(\\d{1,2}))?$");
 
@@ -33,7 +35,7 @@ public class GCodeParser {
     private static final Pattern FILAMENT_COST_PATTERN = Pattern.compile(
             "(?im)^\\s*;?\\s*filament cost\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)");
     private static final Pattern TOTAL_LAYERS_PATTERN = Pattern.compile(
-            "(?im)^\\s*;?\\s*total layers count\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\s*;?\\s*(?:total layers count|total layer number|LAYER_COUNT)\\s*[:=]\\s*(\\d+)");
 
     // ==================== 耗材相关（兼容旧版）====================
     private static final Pattern FILAMENT_WEIGHT_PATTERN = Pattern.compile(
@@ -100,7 +102,7 @@ public class GCodeParser {
     private static final Pattern THUMBNAIL_START_PATTERN = Pattern.compile(
             "(?im)^\\s*;\\s*(?:thumbnail|thumbnail_JPG|thumbnail_PNG)\\s*(?:begin|start)");
     private static final Pattern THUMBNAIL_DATA_PATTERN = Pattern.compile(
-            "(?im)^\\s*;\\s*([A-Za-z0-9+/=]{50,})");
+            "(?im)^\\s*;\\s*([A-Za-z0-9+/=]+)\\s*$");
     private static final Pattern THUMBNAIL_END_PATTERN = Pattern.compile(
             "(?im)^\\s*;\\s*(?:thumbnail|thumbnail_JPG|thumbnail_PNG)\\s*(?:end|stop)");
 
@@ -321,7 +323,8 @@ public class GCodeParser {
         // 3. human-readable 格式: "estimated printing time = 14m 5s" 或 "1h 23m"
         Matcher textMatcher = EST_PRINTING_TIME_PATTERN.matcher(content);
         if (!textMatcher.find()) {
-            return 0;
+            textMatcher = TOTAL_ESTIMATED_TIME_PATTERN.matcher(content);
+            if (!textMatcher.find()) return 0;
         }
 
         String raw = textMatcher.group(1).trim();
@@ -492,6 +495,7 @@ public class GCodeParser {
 
         StringBuilder base64Builder = new StringBuilder();
         boolean inThumbnail = false;
+        boolean complete = false;
 
         String[] lines = content.split("\\r?\\n");
 
@@ -505,8 +509,9 @@ public class GCodeParser {
             }
 
             // 检测缩略图结束
-            if (THUMBNAIL_END_PATTERN.matcher(line).find()) {
+            if (inThumbnail && THUMBNAIL_END_PATTERN.matcher(line).find()) {
                 inThumbnail = false;
+                complete = true;
                 log.debug("检测到缩略图结束标记");
                 break;
             }
@@ -521,7 +526,7 @@ public class GCodeParser {
         }
 
         String base64Data = base64Builder.toString();
-        if (base64Data.isEmpty()) {
+        if (!complete || base64Data.isEmpty()) {
             return null;
         }
 

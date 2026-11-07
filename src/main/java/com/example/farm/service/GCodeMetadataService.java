@@ -263,7 +263,7 @@ public class GCodeMetadataService {
         long now = System.currentTimeMillis();
         if (retries.size() >= 512) retries.clear();
         Long previous = retries.put(key, now + RETRY_MILLIS);
-        if (previous == null || previous <= now) LOG.warn("G-code metadata will retry: printerId={}", printerId);
+        if (previous == null || previous <= now) LOG.warn("G-code metadata will retry: cacheKey={}, printerId={}", key, printerId);
     }
 
     private static boolean sameSize(CanonicalPrinterModel.Execution execution, GCodeFileInspection inspection) {

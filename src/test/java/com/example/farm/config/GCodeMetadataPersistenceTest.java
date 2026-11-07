@@ -3,6 +3,7 @@ package com.example.farm.config;
 import com.example.farm.mapper.GCodeMetadataStore;
 import com.example.farm.protocol.file.GCodeFileInspection;
 import com.example.farm.protocol.file.GCodeFileInspector;
+import com.example.farm.protocol.model.GCodeFileMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.zaxxer.hikari.HikariDataSource;
@@ -99,9 +100,9 @@ class GCodeMetadataPersistenceTest {
         var inspection = inspect();
         var clean = new GCodeMetadataStore.Entry("upload:1", null, null, null, null, inspection);
         store.save(clean);
-        var descriptor = new com.example.farm.protocol.model.GCodeFileMetadata.Thumbnail("a".repeat(64), "image/png", 1, 1, 1);
+        var descriptor = new GCodeFileMetadata.Thumbnail("a".repeat(64), "image/png", 1, 1, 1);
         var original = inspection.metadata();
-        var invalid = new com.example.farm.protocol.model.GCodeFileMetadata(original.schemaVersion(), "replacement",
+        var invalid = new GCodeFileMetadata(original.schemaVersion(), "replacement",
                 original.fileName(), original.sizeBytes(), original.sha256(), original.source(), original.parsedAt(),
                 original.slicerName(), original.slicerVersion(), original.estimatedPrintSeconds(), original.totalLayers(),
                 original.layerHeightMm(), original.firstLayerHeightMm(), original.nozzleDiameterMm(), original.objectHeightMm(),

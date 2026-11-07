@@ -32,6 +32,7 @@ import java.util.function.BooleanSupplier;
 /** Low-priority, durable HTTP synchronization independent from the MQTT status loop. */
 final class CloudFileMetadataSync implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(CloudFileMetadataSync.class);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(180);
     private final CloudGatewayProperties properties;
     private final CloudSnapshotSource source;
     private final GCodeMetadataStore store;
@@ -139,10 +140,11 @@ final class CloudFileMetadataSync implements AutoCloseable {
                       CloudBandwidthLimiter bandwidth, BooleanSupplier active) throws Exception {
         byte[] bytes = json.writeValueAsBytes(body);
         if (bytes.length > 750000) throw new IOException("FILE_UPLOAD_TOO_LARGE");
+        long deadline = System.nanoTime() + REQUEST_TIMEOUT.toNanos();
         var publisher = HttpRequest.BodyPublishers.ofInputStream(() -> new BackgroundInput(bytes, bandwidth,
-                () -> !closed && active.getAsBoolean()));
+                () -> !closed && active.getAsBoolean(), deadline));
         var request = HttpRequest.newBuilder(URI.create(CloudTls.apiUri(properties.getApiUrl()) + path))
-                .timeout(Duration.ofSeconds(180)).header("Authorization", "Bearer " + credential.credential())
+                .timeout(REQUEST_TIMEOUT).header("Authorization", "Bearer " + credential.credential())
                 .header("Content-Type", "application/json").POST(publisher).build();
         var response = http.send(request, smallResponse());
         if (response.statusCode() != 200 || !json.readTree(response.body()).path("success").asBoolean(false)) {
@@ -165,26 +167,40 @@ final class CloudFileMetadataSync implements AutoCloseable {
         private final ByteArrayInputStream input;
         private final CloudBandwidthLimiter bandwidth;
         private final BooleanSupplier active;
+        private final long deadline;
+        private volatile boolean closed;
 
         BackgroundInput(byte[] bytes, CloudBandwidthLimiter bandwidth, BooleanSupplier active) {
+            this(bytes, bandwidth, active, System.nanoTime() + REQUEST_TIMEOUT.toNanos());
+        }
+
+        BackgroundInput(byte[] bytes, CloudBandwidthLimiter bandwidth, BooleanSupplier active, long deadline) {
             input = new ByteArrayInputStream(bytes);
             this.bandwidth = bandwidth;
             this.active = active;
+            this.deadline = deadline;
         }
 
         @Override public int read(byte[] bytes, int offset, int length) throws IOException {
             if (length == 0) return 0;
-            if (!active.getAsBoolean() || Thread.currentThread().isInterrupted()) throw new InterruptedIOException("FILE_SYNC_STOPPED");
+            ensureActive();
             int chunk = Math.min(Math.min(length, 1024), input.available());
             if (chunk == 0) return -1;
             while (!bandwidth.tryAcquireBackground(chunk, System.nanoTime())) {
-                if (!active.getAsBoolean() || Thread.currentThread().isInterrupted()) throw new InterruptedIOException("FILE_SYNC_STOPPED");
+                ensureActive();
                 try { Thread.sleep(50); }
                 catch (InterruptedException stopped) { Thread.currentThread().interrupt(); throw new InterruptedIOException("FILE_SYNC_STOPPED"); }
             }
-            if (!active.getAsBoolean()) throw new InterruptedIOException("FILE_SYNC_STOPPED");
+            ensureActive();
             return input.read(bytes, offset, chunk);
         }
+
+        private void ensureActive() throws InterruptedIOException {
+            if (closed || !active.getAsBoolean() || Thread.currentThread().isInterrupted()
+                    || System.nanoTime() - deadline >= 0) throw new InterruptedIOException("FILE_SYNC_STOPPED");
+        }
+
+        @Override public void close() { closed = true; }
 
         @Override public int read() throws IOException {
             byte[] one = new byte[1];

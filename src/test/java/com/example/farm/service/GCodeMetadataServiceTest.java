@@ -43,9 +43,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -127,15 +130,15 @@ class GCodeMetadataServiceTest {
 
     @Test void uploadedPngIsPromotedToTheExistingLocalFilePreviewAfterParsing() throws Exception {
         uploadFixture(1);
-        verify(store, org.mockito.Mockito.timeout(5000)).save(any());
-        verify(files).uploadBytes(anyString(), any(byte[].class), org.mockito.ArgumentMatchers.eq("image/png"));
+        verify(store, timeout(5000)).save(any());
+        verify(files).uploadBytes(anyString(), any(byte[].class), eq("image/png"));
         verify(files).deleteFileByObjectUrl("old-preview");
         verify(files, never()).deleteFile(anyString());
     }
 
     @Test void concurrentFileDeletionCleansTheNewPreviewObject() throws Exception {
         uploadFixture(0);
-        verify(files, org.mockito.Mockito.timeout(5000)).deleteFile(anyString());
+        verify(files, timeout(5000)).deleteFile(anyString());
         verify(files, never()).deleteFileByObjectUrl(anyString());
     }
 
@@ -154,7 +157,7 @@ class GCodeMetadataServiceTest {
         when(printFiles.selectById(5L)).thenReturn(file);
         when(files.getFileStream("safe.gcode")).thenReturn(new InputStreamResource(new ByteArrayInputStream(gcode)));
         when(files.uploadBytes(anyString(), any(byte[].class), anyString())).thenReturn("new-preview");
-        when(printFiles.update(org.mockito.ArgumentMatchers.<PrintFile>isNull(), any())).thenReturn(updated);
+        when(printFiles.update(isNull(), any())).thenReturn(updated);
         service.uploaded(file);
     }
 

@@ -50,3 +50,13 @@ Cloud 先完成 V24 升级，并接收 MQTT 执行记录，再接受该执行的
 ## 验证边界
 
 本轮以合成 G-code、模拟 Klipper/RRF HTTP、临时 SQLite、隔离 Cloud MySQL/EMQX 及 Flutter 测试验证。实际执行结果另在交付记录登记。已有打印文件未包含层标记、切片估算或缩略图时，对应内容继续未知。正式安装、Cloud 服务升级及真实打印过程的端到端验收需要单独执行。
+
+## 本轮验证记录
+
+2026-11-07，Server 完整 `mvnw.cmd -q verify` 共950项通过，失败、错误及跳过均为0。包含30项文件来源测试，覆盖 Klipper、RRF、PNG/JPEG/QOI、临时图片失败重试及有界下载。缓存、删除交错、执行结束或连接变化后的丢弃、数据来源、HTTP部分失败与取消截止时间分别有回归测试。
+
+Server 代码按 `4917323`、`1c08ba6`、`553154d`、`5e5ce9f`、`181c222`、`3b8e01e` 分点提交。最终验证 JAR 为 `target/fabmatrix-server-1.0.0.jar`，SHA-256 为 `8b95e70f47344440fa9ea0da54666440f3b23cc0ac07486d9dd7e95b29c0d480`。
+
+Cloud 完整验证123项通过，Flutter 常规测试298项通过、1项既有外部用例跳过，静态分析通过。联合 C1 共52项通过，覆盖真实 Server 进程自动上传确认、隔离 MySQL V24持久化、EMQX TLS/ACL、Cloud授权读取，以及 Flutter 实际 HTTP、PNG解码和详情展示。32台模拟设备连续65秒检查65次，最大观测年龄23,310ms，过期阈值30秒。完整证据见 [Cloud 验证记录](../../fabmatrix-cloud/docs/GCODE_FILE_METADATA.md)。
+
+当前连接的 PJE110 开发 App 已通过 CLI 热重载与热重启验证。本轮服务验证使用隔离环境，现场设备的双固件打印过程及正式安装升级验收仍待执行。开发 App 的热重载结果属于当前调试会话，持久安装需要重新打包。

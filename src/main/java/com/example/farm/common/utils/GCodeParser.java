@@ -61,31 +61,31 @@ public class GCodeParser {
     // ==================== 温度解析（分开独立解析）====================
     // nozzle_temperature - 喷头温度（支持多种格式）
     private static final Pattern NOZZLE_TEMP_PATTERN = Pattern.compile(
-            "(?im)^\\s*;\\s*nozzle_temperature\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*nozzle_temperature\\h*[:=]\\h*([^\\r\\n]*)$");
     // nozzle_temperature_initial_layer - 首层喷头温度
     private static final Pattern NOZZLE_TEMP_INITIAL_LAYER_PATTERN = Pattern.compile(
-            "(?im)^\\s*;\\s*nozzle_temperature_initial_layer\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*nozzle_temperature_initial_layer\\h*[:=]\\h*([^\\r\\n]*)$");
     // nozzle_temperature_first_layer - 首层喷头温度（备用）
     private static final Pattern NOZZLE_TEMP_FIRST_LAYER_PATTERN = Pattern.compile(
-            "(?im)^\\s*;\\s*nozzle_temperature_first_layer\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*nozzle_temperature_first_layer\\h*[:=]\\h*([^\\r\\n]*)$");
     // first_layer_temperature - 首层喷头温度（OrcaSlicer 备用）
     private static final Pattern NOZZLE_TEMP_FIRST_LAYER_PATTERN2 = Pattern.compile(
-            "(?im)^\\s*;\\s*first_layer_temperature\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*first_layer_temperature\\h*[:=]\\h*([^\\r\\n]*)$");
     // bed_temperature - 热床温度（标准）
     private static final Pattern BED_TEMP_PATTERN = Pattern.compile(
-            "(?im)^\\s*;\\s*bed_temperature\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*bed_temperature\\h*[:=]\\h*([^\\r\\n]*)$");
     // hot_plate_temp - OrcaSlicer 热床温度
     private static final Pattern BED_TEMP_PATTERN_ORCA = Pattern.compile(
-            "(?im)^\\s*;\\s*hot_plate_temp\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*hot_plate_temp\\h*[:=]\\h*([^\\r\\n]*)$");
     // first_layer_bed_temperature - 首层热床温度
     private static final Pattern BED_TEMP_FIRST_LAYER_PATTERN = Pattern.compile(
-            "(?im)^\\s*;\\s*first_layer_bed_temperature\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*first_layer_bed_temperature\\h*[:=]\\h*([^\\r\\n]*)$");
     // bed_temperature_first_layer - 首层热床温度（备用）
     private static final Pattern BED_TEMP_FIRST_LAYER_PATTERN2 = Pattern.compile(
-            "(?im)^\\s*;\\s*bed_temperature_first_layer\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*bed_temperature_first_layer\\h*[:=]\\h*([^\\r\\n]*)$");
     // hot_plate_temp_initial_layer - OrcaSlicer 首层热床温度
     private static final Pattern BED_TEMP_FIRST_LAYER_PATTERN_ORCA = Pattern.compile(
-            "(?im)^\\s*;\\s*hot_plate_temp_initial_layer\\s*[:=]\\s*(\\d+)");
+            "(?im)^\\h*;\\h*hot_plate_temp_initial_layer\\h*[:=]\\h*([^\\r\\n]*)$");
 
     // ==================== 层高解析（分开独立解析）====================
     // layer_height - 标准层高
@@ -171,32 +171,32 @@ public class GCodeParser {
         meta.setLineWidth(parseDecimal(content, LINE_WIDTH_PATTERN));
 
         // 5. 解析温度（分别解析，尝试多个备用模式）
-        meta.setNozzleTemp(parseInteger(content, NOZZLE_TEMP_PATTERN));
+        meta.setNozzleTemp(parseTemperature(content, NOZZLE_TEMP_PATTERN));
 
         // 首层喷头温度：优先尝试 initial_layer，然后尝试 first_layer，最后尝试 OrcaSlicer 格式
-        Integer firstNozzleTemp = parseInteger(content, NOZZLE_TEMP_INITIAL_LAYER_PATTERN);
+        Integer firstNozzleTemp = parseTemperature(content, NOZZLE_TEMP_INITIAL_LAYER_PATTERN);
         if (firstNozzleTemp == null) {
-            firstNozzleTemp = parseInteger(content, NOZZLE_TEMP_FIRST_LAYER_PATTERN);
+            firstNozzleTemp = parseTemperature(content, NOZZLE_TEMP_FIRST_LAYER_PATTERN);
         }
         if (firstNozzleTemp == null) {
-            firstNozzleTemp = parseInteger(content, NOZZLE_TEMP_FIRST_LAYER_PATTERN2);
+            firstNozzleTemp = parseTemperature(content, NOZZLE_TEMP_FIRST_LAYER_PATTERN2);
         }
         meta.setFirstLayerNozzleTemp(firstNozzleTemp);
 
         // 热床温度：优先标准格式，然后尝试 OrcaSlicer 格式
-        Integer bedTemp = parseInteger(content, BED_TEMP_PATTERN);
+        Integer bedTemp = parseTemperature(content, BED_TEMP_PATTERN);
         if (bedTemp == null) {
-            bedTemp = parseInteger(content, BED_TEMP_PATTERN_ORCA);
+            bedTemp = parseTemperature(content, BED_TEMP_PATTERN_ORCA);
         }
         meta.setBedTemp(bedTemp);
 
         // 首层热床温度：优先 first_layer_bed_temperature，然后尝试 bed_temperature_first_layer，最后尝试 OrcaSlicer 格式
-        Integer firstBedTemp = parseInteger(content, BED_TEMP_FIRST_LAYER_PATTERN);
+        Integer firstBedTemp = parseTemperature(content, BED_TEMP_FIRST_LAYER_PATTERN);
         if (firstBedTemp == null) {
-            firstBedTemp = parseInteger(content, BED_TEMP_FIRST_LAYER_PATTERN2);
+            firstBedTemp = parseTemperature(content, BED_TEMP_FIRST_LAYER_PATTERN2);
         }
         if (firstBedTemp == null) {
-            firstBedTemp = parseInteger(content, BED_TEMP_FIRST_LAYER_PATTERN_ORCA);
+            firstBedTemp = parseTemperature(content, BED_TEMP_FIRST_LAYER_PATTERN_ORCA);
         }
         meta.setFirstLayerBedTemp(firstBedTemp);
 
@@ -367,6 +367,31 @@ public class GCodeParser {
             log.warn("Numeric parse failed: {}", matcher.group(1));
             return null;
         }
+    }
+
+    /** 单值字段仅接受有界整数温度，多个耗材必须具有相同温度。 */
+    private static Integer parseTemperature(String content, Pattern pattern) {
+        Matcher matcher = pattern.matcher(content);
+        if (!matcher.find()) return null;
+        String raw = matcher.group(1).trim();
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+            raw = raw.substring(1, raw.length() - 1).trim();
+        }
+        String[] values = raw.split("[,;]", 9);
+        if (values.length > 8) return null;
+        Integer common = null;
+        try {
+            for (String value : values) {
+                BigDecimal parsed = new BigDecimal(value.trim());
+                if (parsed.signum() < 0 || parsed.compareTo(BigDecimal.valueOf(500)) > 0) return null;
+                int temperature = parsed.intValueExact();
+                if (common != null && common != temperature) return null;
+                common = temperature;
+            }
+        } catch (NumberFormatException | ArithmeticException invalid) {
+            return null;
+        }
+        return common;
     }
 
     /**

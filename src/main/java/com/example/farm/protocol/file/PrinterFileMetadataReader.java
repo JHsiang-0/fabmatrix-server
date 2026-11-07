@@ -87,6 +87,7 @@ public class PrinterFileMetadataReader {
         if (size == null) throw new IOException("Missing Moonraker file size");
         requireRequestedFile(info, "filename", file, PrinterProtocolType.KLIPPER);
         List<GCodeFileInspection.ThumbnailImage> images = new ArrayList<>();
+        boolean hasRetryablePreviewFailure = false;
         JsonNode previews = info.path("thumbnails");
         if (previews.isArray()) {
             for (JsonNode preview : candidates(previews)) {
@@ -100,6 +101,7 @@ public class PrinterFileMetadataReader {
                     images.add(checkedImage(raw, preview));
                 } catch (IOException invalidPreview) {
                     if (System.nanoTime() >= deadline) throw invalidPreview;
+                    hasRetryablePreviewFailure |= retryablePreviewFailure(invalidPreview);
                 }
             }
         }
@@ -108,6 +110,7 @@ public class PrinterFileMetadataReader {
                 includeLayers, deadline);
         JsonNode after = json(metadataUri, headers, deadline).path("result");
         requireSameVersion(info, after, "size", "modified", "uuid", "filename");
+        requirePreviewRecovery(result, hasRetryablePreviewFailure);
         return result;
     }
 
@@ -129,6 +132,7 @@ public class PrinterFileMetadataReader {
             if (size == null) throw new IOException("Missing RRF file size");
             requireRequestedFile(info, "fileName", file, PrinterProtocolType.RRF);
             List<GCodeFileInspection.ThumbnailImage> images = new ArrayList<>();
+            boolean hasRetryablePreviewFailure = false;
             JsonNode previews = info.path("thumbnails");
             if (previews.isArray()) {
                 for (JsonNode preview : candidates(previews)) {
@@ -138,6 +142,7 @@ public class PrinterFileMetadataReader {
                         images.add(checkedImage(rrfThumbnail(base, headers, devicePath, offset, deadline), preview));
                     } catch (IOException invalidPreview) {
                         if (System.nanoTime() >= deadline) throw invalidPreview;
+                        hasRetryablePreviewFailure |= retryablePreviewFailure(invalidPreview);
                     }
                 }
             }
@@ -147,6 +152,7 @@ public class PrinterFileMetadataReader {
             JsonNode after = json(metadataUri, headers, deadline);
             requireSuccess(after);
             requireSameVersion(info, after, "size", "lastModified", "fileName");
+            requirePreviewRecovery(result, hasRetryablePreviewFailure);
             return result;
         } finally {
             // Older RRF may share a session by source IP. Release only an independently issued key.
@@ -156,6 +162,22 @@ public class PrinterFileMetadataReader {
                             Math.max(deadline, System.nanoTime() + Duration.ofSeconds(2).toNanos()));
                 } catch (IOException ignored) { }
             }
+        }
+    }
+
+    private static boolean retryablePreviewFailure(IOException failure) {
+        if (failure instanceof BoundedDeviceFileHttp.TransientReadException) return true;
+        if (failure instanceof BoundedDeviceFileHttp.StatusException response) {
+            int status = response.status();
+            return status == 408 || status == 425 || status == 429
+                    || (status >= 500 && status != 501 && status != 505);
+        }
+        return false;
+    }
+
+    private static void requirePreviewRecovery(GCodeFileInspection result, boolean retryableFailure) throws IOException {
+        if (retryableFailure && result.thumbnails().isEmpty()) {
+            throw new IOException("Device thumbnail collection is temporarily unavailable; retry required");
         }
     }
 

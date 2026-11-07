@@ -41,9 +41,14 @@ final class BoundedDeviceFileHttp {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IOException("Device file read interrupted");
-        } catch (ExecutionException | TimeoutException failed) {
+        } catch (TimeoutException timeout) {
+            throw new TransientReadException();
+        } catch (ExecutionException failed) {
             // HTTP exception chains may contain a credential-bearing connection URI.
-            throw new IOException("Device file read failed or exceeded its limits");
+            for (Throwable cause = failed.getCause(); cause != null; cause = cause.getCause()) {
+                if (cause instanceof ResponseLimitException) throw new IOException("Device file response is too large");
+            }
+            throw new TransientReadException();
         } finally {
             response.cancel(true);
         }
@@ -54,6 +59,12 @@ final class BoundedDeviceFileHttp {
         StatusException(int status) { super("Device file HTTP status " + status); this.status = status; }
         int status() { return status; }
     }
+
+    static final class TransientReadException extends IOException {
+        TransientReadException() { super("Device file transport is temporarily unavailable"); }
+    }
+
+    private static final class ResponseLimitException extends IOException { }
 
     private static final class LimitedSubscriber implements HttpResponse.BodySubscriber<byte[]> {
         private final CompletableFuture<byte[]> result = new CompletableFuture<>();
@@ -72,7 +83,7 @@ final class BoundedDeviceFileHttp {
             for (ByteBuffer item : items) {
                 if (item.remaining() > maximum - bytes.size()) {
                     subscription.cancel();
-                    result.completeExceptionally(new IOException("Device file response is too large"));
+                    result.completeExceptionally(new ResponseLimitException());
                     return;
                 }
                 byte[] part = new byte[item.remaining()];

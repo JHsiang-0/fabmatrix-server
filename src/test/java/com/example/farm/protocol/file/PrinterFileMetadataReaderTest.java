@@ -8,6 +8,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -226,6 +228,91 @@ class PrinterFileMetadataReaderTest {
         assertThatThrownBy(() -> reader.read(endpoint(PrinterProtocolType.KLIPPER), "test.gcode"))
                 .isInstanceOf(IOException.class);
         assertThat(requests).noneMatch(request -> request.contains("outside"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PrinterProtocolType.class, names = {"KLIPPER", "RRF"})
+    void retriesDeclaredThumbnailAfterTemporaryFailureAndRecovers(PrinterProtocolType protocol) throws Exception {
+        byte[] png = GCodeFileInspectorTest.png(2, 2);
+        AtomicInteger reads = new AtomicInteger();
+        serveThumbnailFixture(protocol, true, exchange -> reads.getAndIncrement() == 0
+                ? new Reply(503, "text/plain", new byte[0]) : thumbnailReply(protocol, png), null);
+
+        assertThatThrownBy(() -> reader.read(endpoint(protocol), "test.gcode"))
+                .isInstanceOf(IOException.class).hasMessageContaining("retry required")
+                .hasMessageNotContaining("fixture-key");
+        var recovered = reader.read(endpoint(protocol), "test.gcode");
+        assertThat(recovered.thumbnails()).hasSize(1);
+        assertThat(recovered.metadata().thumbnails()).containsExactly(recovered.thumbnails().getFirst().descriptor());
+        assertThat(reads).hasValue(2);
+        if (protocol == PrinterProtocolType.RRF) {
+            assertThat(requests.stream().filter(request -> request.equals("GET /rr_disconnect"))).hasSize(2);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PrinterProtocolType.class, names = {"KLIPPER", "RRF"})
+    void retainsMetadataWithoutDeclaredPreviewsEvenWhenFallbackUnavailable(PrinterProtocolType protocol) throws Exception {
+        serveThumbnailFixture(protocol, false, exchange -> {
+            throw new AssertionError("Undeclared thumbnail must not be requested");
+        }, null);
+        var result = reader.read(endpoint(protocol), "test.gcode");
+        assertThat(result.metadata().estimatedPrintSeconds()).isEqualTo(300);
+        assertThat(result.metadata().totalLayers()).isEqualTo(25);
+        assertThat(result.thumbnails()).isEmpty();
+        assertThat(result.metadata().thumbnails()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PrinterProtocolType.class, names = {"KLIPPER", "RRF"})
+    void retainsMetadataForUnsupportedOrInvalidPreviewWithoutRepeatedRetries(PrinterProtocolType protocol) throws Exception {
+        for (Reply preview : List.of(new Reply(404, "text/plain", new byte[0]),
+                new Reply(501, "text/plain", new byte[0]), thumbnailReply(protocol, new byte[]{1, 2, 3}))) {
+            serveThumbnailFixture(protocol, true, exchange -> preview, null);
+            var result = reader.read(endpoint(protocol), "test.gcode");
+            assertThat(result.metadata().estimatedPrintSeconds()).isEqualTo(300);
+            assertThat(result.thumbnails()).isEmpty();
+            assertThat(result.metadata().thumbnails()).isEmpty();
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PrinterProtocolType.class, names = {"KLIPPER", "RRF"})
+    void acceptsFallbackPreviewAfterTemporaryDeviceThumbnailFailure(PrinterProtocolType protocol) throws Exception {
+        byte[] png = GCodeFileInspectorTest.png(2, 2);
+        String encoded = Base64.getEncoder().encodeToString(png);
+        byte[] gcode = ("; thumbnail begin 2x2 " + encoded.length() + "\n; " + encoded
+                + "\n; thumbnail end\nG1 X10\n").getBytes(StandardCharsets.UTF_8);
+        serveThumbnailFixture(protocol, true, exchange -> new Reply(503, "text/plain", new byte[0]), gcode);
+        var result = reader.read(endpoint(protocol), "test.gcode");
+        assertThat(result.metadata().source()).isEqualTo("GCODE_FALLBACK");
+        assertThat(result.thumbnails()).hasSize(1);
+        assertThat(result.metadata().thumbnails()).containsExactly(result.thumbnails().getFirst().descriptor());
+    }
+
+    private void serveThumbnailFixture(PrinterProtocolType protocol, boolean declared,
+                                       Function<HttpExchange, Reply> preview, byte[] fallback) {
+        List<Map<String, Object>> thumbnails = declared ? List.of(protocol == PrinterProtocolType.KLIPPER
+                ? Map.of("width", 2, "height", 2, "relative_path", ".thumbs/test.png")
+                : Map.of("width", 2, "height", 2, "offset", 100)) : List.of();
+        int size = fallback == null ? 12345 : fallback.length;
+        handler = exchange -> switch (exchange.getRequestURI().getPath()) {
+            case "/server/files/metadata" -> reply(Map.of("result", Map.of("size", size, "modified", 100,
+                    "estimated_time", 300, "layer_count", 25, "thumbnails", thumbnails)));
+            case "/rr_connect" -> reply(Map.of("err", 0, "sessionKey", "fixture-session"));
+            case "/rr_fileinfo" -> reply(Map.of("err", 0, "size", size, "lastModified", "revision-1",
+                    "printTime", 300, "numLayers", 25, "thumbnails", thumbnails));
+            case "/server/files/gcodes/.thumbs/test.png", "/rr_thumbnail" -> preview.apply(exchange);
+            case "/server/files/gcodes/test.gcode", "/rr_download" -> fallback == null
+                    ? new Reply(503, "text/plain", new byte[0]) : new Reply(200, "application/octet-stream", fallback);
+            case "/rr_disconnect" -> reply(Map.of("err", 0));
+            default -> new Reply(404, "text/plain", new byte[0]);
+        };
+    }
+
+    private Reply thumbnailReply(PrinterProtocolType protocol, byte[] image) {
+        return protocol == PrinterProtocolType.KLIPPER ? new Reply(200, "image/png", image)
+                : reply(Map.of("err", 0, "offset", 100, "next", 0, "data", Base64.getEncoder().encodeToString(image)));
     }
 
     private PrinterEndpoint endpoint(PrinterProtocolType type) {

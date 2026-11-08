@@ -14,7 +14,7 @@ FabMatrix Server 是一个本地 3D 打印生产管理后端：一个局域网�
 
 当前仓库只包含后端代码，没有 Vue、React 或其他前端工程。实际前端仓库为 `D:\WorkSpace\Vue\fabmatrix-client`；前端改动应在该仓库进行，后端仓库维护服务实现、契约、迁移和联调证据。
 
-2026-11-05 产品边界按 [本地与云端分工](docs/CLOUD_GATEWAY.md#产品边界) 执行。Server + Client 负责独立本地生产；Cloud + 手机 App 负责远程业务。云上报可关闭；C3 远程暂停和受限温控分别需要本地管理员另行授权且默认关闭，已有暂停授权不会自动提升为温控授权。两套账号、密码、角色和业务库分别维护，具体执行边界见第16节。
+2026-11-05 产品边界按 [本地与云端分工](docs/CLOUD_GATEWAY.md#产品边界) 执行。Server + Client 负责独立本地生产；Cloud + 手机 App 负责远程业务。云上报可关闭；2026-11-08用户要求将C3合并为一个本地管理员“允许远程控制”授权，默认关闭。授权目录1固定覆盖八项生产控制，旧暂停/温控单项授权不会自动扩大，必须重新确认。两套账号、密码、角色和业务库分别维护，具体执行边界见第16节。
 
 ## 2. 技术栈与运行要求
 
@@ -40,7 +40,7 @@ src/main/java/com/example/farm/
 ├── controller/   HTTP API、WebSocket、Moonraker 模拟接口
 ├── service/      服务接口及 impl 实现
 ├── protocol/     Klipper / RRF 协议适配与设备客户端
-├── cloud/        可选云上报与独立授权的远程暂停
+├── cloud/        可选云上报与统一授权的远程生产控制
 ├── tray/         Windows 托盘
 ├── mapper/       MyBatis-Plus Mapper
 ├── entity/       数据实体、DTO、VO
@@ -295,7 +295,7 @@ v3 规划注意：控制接口的 HTTP 成功不等于设备已完成动作。�
 
 ## 16. 交付检查清单
 
-可选云代理见 `docs/CLOUD_GATEWAY.md`，默认关闭；云端凭证与本地 JWT 分开。C3 仅在本地管理员分别显式授权后允许远程暂停和白名单单加热通道目标设置，经独立命令 inbox、当前执行入口、设备锁、严格身份/通道/固件限温核验执行，并等待设备读回确认。温控确认的是目标值生效，不是实际升温完成；不得切工具或影响其他通道。不得扩展为远程启动、恢复、取消、运动或任意 G-code。云服务独立位于同级 fabmatrix-cloud。
+可选云代理见 `docs/CLOUD_GATEWAY.md`，默认关闭；云端凭证与本地 JWT 分开。C3统一授权使用`remoteEnabled + authorizationVersion:1`，覆盖PAUSE、RESUME、CANCEL、SET_HEATER_TARGET、SET_FAN_SPEED、SET_SPEED_FACTOR、SET_FLOW_FACTOR、HEATERS_OFF。Server对缺少新目录确认的旧配置有效关闭，新增未来动作不得自动继承旧同意。独立inbox、当前执行入口、设备锁、严格身份/通道/CAS/固件限温及设备读回仍必须保留；FARM/EXTERNAL分别处理，取消未确认不得释放绑定。全关热只在空闲无执行且完整受控通道可核对时提供，部分结果UNKNOWN且不重发；目标设置不等于实际温度或机械流量已达到。当前不提供远程启动、运动维护、任意G-code；急停需独立优先处理机制，不能塞进普通排队控制假称即时安全。云服务独立位于同级fabmatrix-cloud，完整范围见其`docs/REMOTE_CONTROL_CAPABILITIES.md`。
 
 - [ ] 代码和配置与当前 profile 一致
 - [ ] ADMIN/OPERATOR 权限没有被前端逻辑替代

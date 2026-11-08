@@ -1,4 +1,4 @@
-# 可选云网关（C2，只读）
+# 可选云网关（C2 上报与 C3 远程暂停）
 
 默认关闭。云服务是同级 fabmatrix-cloud，接入前按其 C1/C2 文档准备独立数据库、HTTPS、MQTT TLS 和组织/农场。
 
@@ -58,7 +58,7 @@ FarmData 根优先 FARM_DATA_DIR，未设置使用 user.home/FarmData。云端 O
 
 管理员可调用 `GET /api/v1/cloud/status` 查看 DISABLED/STARTING/SYNCHRONIZING/CONNECTED/RETRYING/SUPERSEDED、最后提交回执和脱敏错误码，其他角色拒绝。连接正常不代表打印机在线，云端仍按独立观察时间标过期。
 
-代理自己的后台线程读取现场已有设备数据，不直接调用打印机，不订阅命令。V1/V2 快照每 5 秒检查变化、至少每 30 秒发送一次，约 15 秒发送心跳。最多 200 台、单包 64 KiB；超限报错且不截断上传。V1/V2 仅上报设备状态白名单，不上传 IP/MAC/API Key、账号或文件内容。
+C2 上报线程只读取现场已有设备数据。C3 使用独立队列和线程，仅在本地管理员明确授权后支持远程暂停，详见下文。V1/V2 快照每 5 秒检查变化、至少每 30 秒发送一次，约 15 秒发送心跳。最多 200 台、单包 64 KiB；超限报错且不截断上传。V1/V2 仅上报设备状态白名单，不上传 IP/MAC/API Key、账号或文件内容。
 
 V2 可选上报统一观测的采集时间、质量、加热器、工具和不含文件名的执行摘要，仍使用完整快照与 64 KiB 限额。网关会协商协议版本；旧 Cloud 不支持协商时回退到配置的 V1/V2。
 
@@ -71,6 +71,20 @@ V3 选项启用后，代理才会协商 V3；已确认的设备描述和新鲜�
 V3 每 5 秒核对设备库存；新增、删除或身份变化时先提交完整库存，确认后再更新状态。库存版本保存在 `cloud-agent/cloud-inventory-revision.txt`，重启后继续递增；状态目录应随现场数据库一起保留。
 
 pending 文件同一时刻只保存一个待确认消息，5 秒重发；快照/观测过期后重新捕获当前状态。启动用新 bootId 登记云 epoch，丢弃上个进程待发快照。V3 事件保存在 SQLite outbox，收到 Cloud 事务提交或去重回执后才移除；未确认事件跨重启保留，失败记录每 30 秒可重新尝试。网络失败 1–30 秒退避且不阻塞局域网线程，配置错误也不阻止本地服务启动。旧 boot 被取代显示 SUPERSEDED，需排查重复运行的网关实例。
+
+## C3：管理员授权的远程暂停（2026-11-08）
+
+远程暂停默认关闭，独立于上报开关。Client 通过本地管理员接口 `GET /api/v1/cloud/remote-control` 读取 `{enabled,revision}`，通过 `PUT` 同路径提交这两个字段。沿用标准 `Result.data`，初始 revision 为 1；旧 revision 返回 409。策略受保护、原子写入配置目录的 `cloud-remote-control.json`，精确绑定 gatewayId 与 bindingVersion。同绑定重启保留授权，解绑或更换绑定必须重新授权；损坏或不可读时拒绝远程执行，不影响本地生产。关闭上报、断开 MQTT 或停止 Server 后旧会话和排队通知立即失效。
+
+手机控制使用 Cloud 账号；Server 不模拟本地管理员或接收 Cloud 用户 JWT。MQTT `down/command` 仅接收不超过 4096 字节的非 retained、QoS 1 通知，通知只含命令 ID 和会话身份。独立 worker 使用现有 Cloud TLS 与网关 Bearer 领取命令、同步策略及回传结果。旧 Cloud 不支持 HTTP 控制接口或 Broker 拒绝命令订阅时只禁用 C3，C2 状态上报继续。
+
+执行前先核对网关绑定、boot/epoch、sourceInstanceId、deviceUid、当前 executionUid、授权版本和期限（不超过 30 秒），取得有界设备锁后及协议调用前再次检查。必须启用全局与单台监控，设备在线且执行证据不超过 30 秒，并通过本次 MAC/协议/IP 身份核验；缺少 MAC 不沿用旧路径的跳过行为。文件变化、明显进度/位置/打印时长回退或设备重启会建立新的 EXTERNAL 执行身份。连续性无法确认时拒绝暂停。
+
+`farm_remote_command` 保存命令全文摘要、Cloud 操作者 UUID、会话、状态与投递结果，启动自动补表；`farm_printer_execution.max_print_seconds` 保存执行时长回退证据。命令 ID 重复只返回原结果，内容冲突拒绝执行。先持久化 EXECUTING，再获得 Cloud 的 EXECUTING 回执，最后发送一次暂停。HTTP 接受不等于成功；独立读取到同一执行的 PAUSED 才回报 CONFIRMED。读回超时或发送后通信异常保留 UNKNOWN，不自动重试物理动作。重启时遗留 EXECUTING 转 UNKNOWN、RECEIVED 转拒绝，不重放；旧 boot 的结果不借用新会话发送。
+
+结果发送与新通知分开处理。临时失败逐条退避；Cloud 永久拒绝结果时保留原状态并记录投递冲突审计（`reported=2`），不会宣称设备成功或阻塞后续命令。`reported=1` 才表示 Cloud 已接受回执。FARM 执行只更新本地 execution 关联的任务；EXTERNAL 不创建或借用 FarmJob。操作与冲突审计通过 commandId 关联独立 Cloud actor，不能将 Cloud UUID 当成本地用户 ID。
+
+本期仅支持暂停，不提供远程恢复、取消、启动、温控、运动或任意 G-code。本地现有权限和控制接口保持兼容。本轮验证使用临时数据库及协议夹具，不对真实打印任务发送控制命令。
 
 ## 验证边界
 

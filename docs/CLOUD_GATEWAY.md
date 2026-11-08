@@ -4,7 +4,9 @@
 
 ## 当前开发版本：统一生产控制授权 v1
 
-当前代码以单一 `remoteEnabled` 为权威，不再分别授权暂停与温控。下方“远程暂停”和“独立温控”段落描述此前发布版本，仅用于解释兼容边界。此次开发没有修改真实服务、现场数据库或打印机，也未部署此版本。
+当前代码以单一 `remoteEnabled` 为权威，不再分别授权暂停与温控。下方“远程暂停”和“独立温控”段落描述此前发布版本，仅用于解释兼容边界。
+
+2026-11-08已按用户授权保留数据升级原Windows Server/Client、本机Cloud V27及手机开发版28。运行JAR/ASAR与最终制品一致，服务健康、网关回执恢复，账号/设备身份/原绑定保留；统一授权与两项旧兼容字段仍关闭，命令0，没有发送真实打印机控制命令。31台设备仍为既有陈旧观测，不能因网关恢复即声称设备在线。详见[四端部署记录](../../fabmatrix-cloud/docs/REMOTE_PRODUCTION_CONTROL_ROLLOUT_20261108.md)。
 
 本地 ADMIN 的 `GET /api/v1/cloud/remote-control` 返回 `remoteEnabled`、`unifiedControlSupported:true`、`authorizationVersion:1`、`revision`、`requiresReauthorization` 和固定八项 `supportedActions`。旧 `enabled`、`temperatureEnabled` 兼容字段均从有效总授权派生，不能独立开启。新界面只提交 `PUT {remoteEnabled,authorizationVersion:1,revision}`；字段类型与授权版本严格校验。旧请求开启返回 409，旧请求关闭会撤销全部授权。
 

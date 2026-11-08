@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -45,6 +46,15 @@ public class MoonrakerApiClient {
     private final Map<String, CachedObjectList> objectLists = new ConcurrentHashMap<>();
     private static final long OBJECT_LIST_TTL_MILLIS = 60_000;
     private static final Set<String> BASE_OBJECTS = Set.of("webhooks", "print_stats", "display_status");
+    private static final long FAN_CONFIG_TTL_MILLIS = 60_000;
+    private static final long FAN_FAILURE_TTL_MILLIS = 15_000;
+    private static final long FAN_BOOT_PROBE_MILLIS = 1_000;
+    private final java.util.function.LongSupplier fanClock = System::currentTimeMillis;
+    private final Map<FanEndpointKey, NativeFanProof> nativeFanProofs = java.util.Collections.synchronizedMap(new LinkedHashMap<>() {
+        @Override protected boolean removeEldestEntry(Map.Entry<FanEndpointKey, NativeFanProof> eldest) { return size() > 256; }
+    });
+    private record FanEndpointKey(Long printerId, String ipAddress, java.util.UUID credentialDigest) { }
+    private record NativeFanProof(long processId, boolean defaults, long expiresAt, long nextBootProbe, Double eventtime) { }
 
     public MoonrakerApiClient() {
         // 核心修复点 1：设置 3 秒连接超时
@@ -76,15 +86,64 @@ public class MoonrakerApiClient {
 
     public HeaterControlChannel inspectHeater(PrinterEndpoint endpoint, String heaterId) {
         requireWritableHeater(heaterId);
+        JsonNode node = configurationSettings(endpoint).path(heaterId);
+        return new HeaterControlChannel(heaterId, "heater_bed".equals(heaterId) ? HeaterRole.BED : HeaterRole.TOOL,
+                node.path("min_temp").isNumber() ? node.path("min_temp").decimalValue() : null,
+                node.path("max_temp").isNumber() ? node.path("max_temp").decimalValue() : null, null, null);
+    }
+
+    private JsonNode configurationSettings(PrinterEndpoint endpoint) {
         String body = restClient.get().uri("http://" + endpoint.ipAddress() + ":7125/printer/objects/query?configfile=settings")
                 .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
                 .retrieve().body(String.class);
         try {
-            JsonNode node = mapper.readTree(body).path("result").path("status").path("configfile").path("settings").path(heaterId);
-            return new HeaterControlChannel(heaterId, "heater_bed".equals(heaterId) ? HeaterRole.BED : HeaterRole.TOOL,
-                    node.path("min_temp").isNumber() ? node.path("min_temp").decimalValue() : null,
-                    node.path("max_temp").isNumber() ? node.path("max_temp").decimalValue() : null, null, null);
-        } catch (IOException invalid) { throw new IllegalStateException("HEATER_LIMITS_UNAVAILABLE", invalid); }
+            if (body == null || body.length() > 1_048_576) throw new IllegalStateException("Configuration response unavailable");
+            return mapper.readTree(body).path("result").path("status").path("configfile").path("settings");
+        } catch (IOException invalid) { throw new IllegalStateException("Configuration response unavailable", invalid); }
+    }
+
+    private boolean defaultNativeFan(JsonNode settings) {
+        JsonNode fan = settings.path("fan");
+        return fan.path("max_power").isNumber() && fan.path("max_power").decimalValue().compareTo(BigDecimal.ONE) == 0
+                && fan.path("off_below").isNumber() && fan.path("off_below").decimalValue().signum() == 0;
+    }
+
+    private long klippyProcess(PrinterEndpoint endpoint) {
+        String body = restClient.get().uri("http://" + endpoint.ipAddress() + ":7125/printer/info")
+                .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
+                .retrieve().body(String.class);
+        try {
+            if (body == null || body.length() > 8192) throw new IllegalArgumentException("Boot evidence unavailable");
+            JsonNode info = mapper.readTree(body).path("result");
+            if (!"ready".equals(info.path("state").asText()) || !info.path("process_id").isIntegralNumber()
+                    || !info.path("process_id").canConvertToLong() || info.path("process_id").longValue() < 1) throw new IllegalArgumentException("Boot evidence unavailable");
+            return info.path("process_id").longValue();
+        } catch (IOException invalid) { throw new IllegalArgumentException("Boot evidence unavailable", invalid); }
+    }
+
+    /** Only bounded extracted evidence is cached; errors disable this optional feature, never the device observation. */
+    private boolean nativeFanDefaults(PrinterEndpoint endpoint, JsonNode root, boolean force) {
+        var key = new FanEndpointKey(endpoint.printerId(), endpoint.ipAddress(), java.util.UUID.nameUUIDFromBytes(
+                Objects.toString(endpoint.apiKey(), "").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        long now = fanClock.getAsLong(); var cached = nativeFanProofs.get(key);
+        JsonNode status = root == null ? null : root.path("result").path("status");
+        Double eventtime = root != null && root.path("result").path("eventtime").isNumber() ? root.path("result").path("eventtime").doubleValue() : null;
+        if (status != null && (!status.path("fan").isObject() || !"ready".equals(status.path("webhooks").path("state").asText()))) {
+            nativeFanProofs.remove(key); return false;
+        }
+        boolean eventReset = cached != null && eventtime != null && cached.eventtime() != null && eventtime < cached.eventtime();
+        if (!force && !eventReset && cached != null && cached.expiresAt() > now && cached.nextBootProbe() > now) return cached.defaults();
+        try {
+            long process = klippyProcess(endpoint);
+            boolean recheck = force || eventReset || cached == null || cached.processId() != process || cached.expiresAt() <= now;
+            boolean defaults = recheck ? defaultNativeFan(configurationSettings(endpoint)) : cached.defaults();
+            long expires = recheck ? now + FAN_CONFIG_TTL_MILLIS : cached.expiresAt();
+            nativeFanProofs.put(key, new NativeFanProof(process, defaults, expires, now + FAN_BOOT_PROBE_MILLIS, eventtime));
+            return defaults;
+        } catch (RuntimeException unavailable) {
+            nativeFanProofs.put(key, new NativeFanProof(-1, false, now + FAN_FAILURE_TTL_MILLIS, now + FAN_FAILURE_TTL_MILLIS, eventtime));
+            return false;
+        }
     }
 
     public void setHeaterTarget(PrinterEndpoint endpoint, HeaterControlChannel channel, int targetC) {
@@ -107,6 +166,7 @@ public class MoonrakerApiClient {
         try {
             JsonNode status = mapper.readTree(body).path("result").path("status");
             if ("SET_FAN_SPEED".equals(action) && "fan".equals(id) && status.path("fan").path("speed").isNumber()) {
+                if (!nativeFanDefaults(endpoint, null, true)) throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
                 return new RuntimeControlChannel(action, id, null, null);
             }
             if ("SET_SPEED_FACTOR".equals(action) && status.path("gcode_move").path("speed_factor").isNumber()) {
@@ -140,8 +200,12 @@ public class MoonrakerApiClient {
     }
 
     public MoonrakerStatusDTO getPrinterStatus(String ipAddress) {
+        return getPrinterStatus(new PrinterEndpoint(null, ipAddress, null, PrinterProtocolType.KLIPPER));
+    }
+
+    public MoonrakerStatusDTO getPrinterStatus(PrinterEndpoint endpoint) {
         for (int attempt = 1; attempt <= STATUS_MAX_ATTEMPTS; attempt++) {
-            MoonrakerStatusDTO status = getPrinterStatusOnce(ipAddress);
+            MoonrakerStatusDTO status = getPrinterStatusOnce(endpoint);
             if (status != null || attempt == STATUS_MAX_ATTEMPTS) {
                 return status;
             }
@@ -153,10 +217,11 @@ public class MoonrakerApiClient {
     /**
      * 单次状态查询。状态查询是幂等的，允许一次短暂重连；控制命令不自动重试，避免重复执行。
      */
-    private MoonrakerStatusDTO getPrinterStatusOnce(String ipAddress) {
+    private MoonrakerStatusDTO getPrinterStatusOnce(PrinterEndpoint endpoint) {
+        String ipAddress = endpoint.ipAddress();
         Instant captureStartedAt = Instant.now();
         try {
-            String jsonResponse = queryObservedObjects(ipAddress);
+            String jsonResponse = queryObservedObjects(endpoint);
 
             if (jsonResponse != null) {
                 JsonNode rootNode = mapper.readTree(jsonResponse);
@@ -203,7 +268,8 @@ public class MoonrakerApiClient {
                     dto.setProgress(Math.round(rawProgress * 10000.0) / 100.0);
 
                     try {
-                        dto.setObservation(PrinterObservationParser.klipper(statusNode, captureStartedAt, Instant.now()));
+                        boolean fanDefaults = nativeFanDefaults(endpoint, rootNode, false);
+                        dto.setObservation(PrinterObservationParser.klipper(statusNode, captureStartedAt, Instant.now(), fanDefaults));
                     } catch (RuntimeException exception) {
                         log.warn("统一设备观测解析失败，不影响既有状态读取: errorType={}",
                                 exception.getClass().getSimpleName());
@@ -222,36 +288,40 @@ public class MoonrakerApiClient {
         return null;
     }
 
-    private String queryObservedObjects(String ipAddress) {
-        Set<String> loaded = loadedObservationObjects(ipAddress);
+    private String queryObservedObjects(PrinterEndpoint endpoint) {
+        String ipAddress = endpoint.ipAddress();
+        Set<String> loaded = loadedObservationObjects(endpoint);
         if (loaded.isEmpty() || !loaded.containsAll(BASE_OBJECTS)) {
-            return fixedStatusQuery(ipAddress);
+            return fixedStatusQuery(endpoint);
         }
         Map<String, Object> objects = new LinkedHashMap<>();
         loaded.forEach(name -> objects.put(name, null));
         try {
             return restClient.post()
                     .uri("http://" + ipAddress + ":7125/printer/objects/query")
+                    .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                     .body(Map.of("objects", objects))
                     .retrieve()
                     .body(String.class);
         } catch (RuntimeException unavailable) {
-            return fixedStatusQuery(ipAddress);
+            return fixedStatusQuery(endpoint);
         }
     }
 
-    private String fixedStatusQuery(String ipAddress) {
-        String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&display_status", ipAddress);
-        return restClient.get().uri(url).retrieve().body(String.class);
+    private String fixedStatusQuery(PrinterEndpoint endpoint) {
+        String url = String.format("http://%s:7125/printer/objects/query?webhooks&print_stats&display_status", endpoint.ipAddress());
+        return restClient.get().uri(url).headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); }).retrieve().body(String.class);
     }
 
-    private Set<String> loadedObservationObjects(String ipAddress) {
+    private Set<String> loadedObservationObjects(PrinterEndpoint endpoint) {
+        String ipAddress = endpoint.ipAddress();
         long now = System.currentTimeMillis();
         CachedObjectList cached = objectLists.get(ipAddress);
         if (cached != null && cached.expiresAt() > now) return cached.names();
         try {
             String body = restClient.get().uri("http://" + ipAddress + ":7125/printer/objects/list")
+                    .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
                     .retrieve().body(String.class);
             JsonNode root = mapper.readTree(body);
             JsonNode values = root.path("result").path("objects");

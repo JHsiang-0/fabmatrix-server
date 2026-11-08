@@ -36,6 +36,11 @@ public final class PrinterObservationParser {
     private PrinterObservationParser() { }
 
     public static PrinterObservation klipper(JsonNode status, Instant start, Instant end) {
+        return klipper(status, start, end, false);
+    }
+
+    /** The native fan's status speed is an unscaled setpoint only with independently verified default settings. */
+    public static PrinterObservation klipper(JsonNode status, Instant start, Instant end, boolean nativeFanDefaultsVerified) {
         String system = text(status.path("webhooks"), "state");
         String raw = text(status.path("print_stats"), "state");
         SystemState systemState = switch (normalize(system)) {
@@ -79,7 +84,8 @@ public final class PrinterObservationParser {
             fans.add(new Fan(safeId(name), role,
                     number(entry.getValue(), "speed", end, ZERO, BigDecimal.ONE),
                     number(entry.getValue(), "rpm", end, ZERO, BigDecimal.valueOf(100_000)),
-                    name.equals("fan") ? number(entry.getValue(), "speed", end, ZERO, BigDecimal.ONE) : null));
+                    name.equals("fan") ? nativeFanDefaultsVerified
+                            ? number(entry.getValue(), "speed", end, ZERO, BigDecimal.ONE) : unknown(end) : null));
         });
         Motion motion = klipperMotion(status, end);
         List<Sensor> sensors = new ArrayList<>();

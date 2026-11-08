@@ -30,7 +30,7 @@ class PrinterObservationParserTest {
         var observation = PrinterObservationParser.klipper(mapper.readTree("""
                 {"webhooks":{"state":"ready"},"print_stats":{"state":"standby"},"fan":{"speed":0.5},
                  "heater_fan hotend":{"speed":1},"fan_generic custom":{"speed":0.25},"extruder":{"temperature":20}}
-                """), START, END);
+                """), START, END, true);
         assertThat(observation.tools().getFirst().extruderIds()).containsExactly("extruder");
         assertThat(observation.fans().stream().filter(fan -> fan.requestedPwmRatio() != null).map(PrinterObservation.Fan::id)).containsExactly("fan");
     }

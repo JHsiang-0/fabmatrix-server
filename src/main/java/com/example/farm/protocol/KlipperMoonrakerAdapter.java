@@ -30,7 +30,7 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
     public PrinterDeviceStatus getStatus(PrinterEndpoint endpoint) {
         validateEndpoint(endpoint, PrinterOperation.GET_STATUS);
         try {
-            MoonrakerStatusDTO source = moonrakerApiClient.getPrinterStatus(endpoint.ipAddress());
+            MoonrakerStatusDTO source = moonrakerApiClient.getPrinterStatus(endpoint);
             if (source == null) {
                 throw failure(PrinterOperation.GET_STATUS, FailureCategory.OFFLINE, "无法获取打印机状态", null);
             }

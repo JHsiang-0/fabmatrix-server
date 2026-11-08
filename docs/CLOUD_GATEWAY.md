@@ -23,6 +23,8 @@
 
 统一授权与设备能力分开。`supportedActions` 表示当前 Server 实现的目录，具体设备仍要通过 Cloud 能力判断和现场新鲜探测；显示了温度、风扇或轴位置不代表可写。Klipper 风扇首版仅原生 `fan`，RRF 风扇要求工具关联且明确未启用恒温控制。RRF 流量必须映射当前工具的唯一驱动并显式发送 D 参数，不能默认驱动 0。多驱动、共享映射和未知通道均拒绝。
 
+Klipper 原生风扇还须确认固件配置 `max_power=1` 且 `off_below=0`；否则 `fan.speed` 已经被固件缩放或阈值处理，不能冒充原始设定值。非默认或未知配置仅保留实际 PWM，`requestedPwmRatio` 为 UNAVAILABLE，不下发风扇控制。私有证据按设备端点、凭据摘要和可观察 Klippy 进程/启动变化隔离，提取布尔证据缓存最多 256 项、有效 60 秒，失败负缓存 15 秒；不缓存或上报原始配置。写前与确认时重新读取配置，配置探测失败只禁用该可选能力，不中断设备状态读取。相同 PID 且漏掉软重载过渡时不能绝对识别配置变化，定时到期与写前强制复核共同兜底，不推断固件未提供的启动身份。
+
 协议仍使用通知 MQTT + HTTPS 领取/回执，命令锁、持久 inbox、Cloud EXECUTING 栅栏、30 秒新鲜度/发送期限、精确会话与绑定检查均保留。PAUSE 保持命令 schema 1，单通道温控保持 schema 2；其余六项使用 schema 3，携带设备 boot、描述版本、操作状态和执行上下文。倍率/风扇 `expectedPercent` 为比例乘 100 的精确 CAS，回读容差与 CAS 分离。新 Server 向旧 Cloud 回退时发送关闭策略并禁用控制，只读 C2 上报继续。
 
 本地 `PrinterControlService` 的恢复/取消仅面向绑定农场任务，且旧取消接口接受后可能提前解绑；远程不会转发这两个 HTTP 入口。`RemoteProductionControlService` 直接核验本地 ACTIVE 执行：FARM 只更新其真实本地任务，EXTERNAL 不构造 FarmJob。RRF 取消必要时只发一次 M25，等待真正暂停，再在授权/期限仍有效时只发一次 M0；CANCELLING 不能作为完成证据。standalone RRF 不依赖 DWC 才提供的 `lastFileCancelled`，其取消结果使用服务端核对证据 `RECONCILED`，不能伪称设备明确报告。

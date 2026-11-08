@@ -29,7 +29,7 @@ class KlipperMoonrakerAdapterTest {
         source.setProgress(35.5);
         source.setToolTemperature(210.0);
         source.setBedTemperature(60.0);
-        when(moonrakerApiClient.getPrinterStatus("192.168.1.80")).thenReturn(source);
+        when(moonrakerApiClient.getPrinterStatus(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class))).thenReturn(source);
 
         PrinterDeviceStatus result = adapter().getStatus(endpoint());
 
@@ -43,7 +43,7 @@ class KlipperMoonrakerAdapterTest {
         MoonrakerStatusDTO source = new MoonrakerStatusDTO();
         source.setSystemState("shutdown");
         source.setState("standby");
-        when(moonrakerApiClient.getPrinterStatus("192.168.1.80")).thenReturn(source);
+        when(moonrakerApiClient.getPrinterStatus(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class))).thenReturn(source);
 
         assertThat(adapter().getStatus(endpoint()).status()).isEqualTo(PrinterStatus.ERROR);
     }
@@ -56,7 +56,7 @@ class KlipperMoonrakerAdapterTest {
                 {"webhooks":{"state":"ready"},"print_stats":{"state":"printing","filename":"part.gcode"},
                  "virtual_sdcard":{"file_position":1200,"file_size":10000,"progress":0.12}}
                 """), now, now));
-        when(moonrakerApiClient.getPrinterStatus("192.168.1.80")).thenReturn(source);
+        when(moonrakerApiClient.getPrinterStatus(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class))).thenReturn(source);
         assertThat(adapter().getStatus(endpoint()).filePosition()).isEqualByComparingTo("1200");
         assertThat(adapter().getStatus(endpoint()).fileSize()).isEqualByComparingTo("10000");
         source.setObservation(PrinterObservationParser.klipper(new ObjectMapper().readTree("""
@@ -69,7 +69,7 @@ class KlipperMoonrakerAdapterTest {
 
     @Test
     void convertsEmptyResponseToOfflineProtocolFailure() {
-        when(moonrakerApiClient.getPrinterStatus("192.168.1.80")).thenReturn(null);
+        when(moonrakerApiClient.getPrinterStatus(org.mockito.ArgumentMatchers.any(PrinterEndpoint.class))).thenReturn(null);
 
         assertThatThrownBy(() -> adapter().getStatus(endpoint()))
                 .isInstanceOf(PrinterProtocolException.class)

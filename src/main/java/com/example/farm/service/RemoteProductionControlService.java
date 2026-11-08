@@ -96,6 +96,7 @@ public class RemoteProductionControlService {
                         requireActionState(command, observed);
                         requireFlowRoute(command, observed, currentRoute);
                         if (value(command, observed).subtract(BigDecimal.valueOf(command.targetPercent())).abs().compareTo(new BigDecimal("0.5")) <= 0) {
+                            if ("SET_FAN_SPEED".equals(command.action()) && !currentRoute.equals(resolve(adapter, endpoint, command))) throw reject("CONTROL_UNSUPPORTED");
                             return outcome("CONFIRMED", already ? "ALREADY_AT_TARGET" : switch (command.action()) {
                                 case "SET_FAN_SPEED" -> "FAN_TARGET_CONFIRMED";
                                 case "SET_SPEED_FACTOR" -> "SPEED_FACTOR_CONFIRMED";

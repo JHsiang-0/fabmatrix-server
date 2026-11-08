@@ -2,6 +2,35 @@
 
 默认关闭。云服务是同级 fabmatrix-cloud，接入前按其 C1/C2 文档准备独立数据库、HTTPS、MQTT TLS 和组织/农场。
 
+## 当前开发版本：统一生产控制授权 v1
+
+当前代码以单一 `remoteEnabled` 为权威，不再分别授权暂停与温控。下方“远程暂停”和“独立温控”段落描述此前发布版本，仅用于解释兼容边界。此次开发没有修改真实服务、现场数据库或打印机，也未部署此版本。
+
+本地 ADMIN 的 `GET /api/v1/cloud/remote-control` 返回 `remoteEnabled`、`unifiedControlSupported:true`、`authorizationVersion:1`、`revision`、`requiresReauthorization` 和固定八项 `supportedActions`。旧 `enabled`、`temperatureEnabled` 兼容字段均从有效总授权派生，不能独立开启。新界面只提交 `PUT {remoteEnabled,authorizationVersion:1,revision}`；字段类型与授权版本严格校验。旧请求开启返回 409，旧请求关闭会撤销全部授权。
+
+配置仍为受保护的 `cloud-remote-control.json`。旧文件没有授权版本 1 时一律关闭远控，原先开启过任一旧开关则提示重新确认；不会扩大旧授权。同绑定重启保留显式新授权，换绑或解绑撤销授权。目录 v1 只包含下列八项，新增动作必须重新定义授权版本，不能默默扩大范围。
+
+| 动作 | 当前允许状态 | 设备确认 |
+|---|---|---|
+| PAUSE | 当前打印执行 | 真正 PAUSED；PAUSING 只等待 |
+| RESUME | 同一暂停执行 | 同一执行恢复 PRINTING；RESUMING 只等待 |
+| CANCEL | 同一 PRINTING / PAUSED 执行 | 固件明确取消，或 RRF 命令链关联的两帧一致 IDLE |
+| SET_HEATER_TARGET | IDLE / PRINTING / PAUSED | 单通道目标值已应用；不表示实际温度达到目标 |
+| SET_FAN_SPEED | IDLE / PRINTING / PAUSED | 可靠人工料冷风扇设定值，0–100% |
+| SET_SPEED_FACTOR | PRINTING / PAUSED | 任务速度倍率设定值，10–200% |
+| SET_FLOW_FACTOR | PRINTING / PAUSED | 当前唯一工具/挤出驱动的倍率，10–200% |
+| HEATERS_OFF | IDLE 且无执行/农场任务绑定 | 完整受控 TOOL/BED 通道集合全部确认关闭 |
+
+统一授权与设备能力分开。`supportedActions` 表示当前 Server 实现的目录，具体设备仍要通过 Cloud 能力判断和现场新鲜探测；显示了温度、风扇或轴位置不代表可写。Klipper 风扇首版仅原生 `fan`，RRF 风扇要求工具关联且明确未启用恒温控制。RRF 流量必须映射当前工具的唯一驱动并显式发送 D 参数，不能默认驱动 0。多驱动、共享映射和未知通道均拒绝。
+
+协议仍使用通知 MQTT + HTTPS 领取/回执，命令锁、持久 inbox、Cloud EXECUTING 栅栏、30 秒新鲜度/发送期限、精确会话与绑定检查均保留。PAUSE 保持命令 schema 1，单通道温控保持 schema 2；其余六项使用 schema 3，携带设备 boot、描述版本、操作状态和执行上下文。倍率/风扇 `expectedPercent` 为比例乘 100 的精确 CAS，回读容差与 CAS 分离。新 Server 向旧 Cloud 回退时发送关闭策略并禁用控制，只读 C2 上报继续。
+
+本地 `PrinterControlService` 的恢复/取消仅面向绑定农场任务，且旧取消接口接受后可能提前解绑；远程不会转发这两个 HTTP 入口。`RemoteProductionControlService` 直接核验本地 ACTIVE 执行：FARM 只更新其真实本地任务，EXTERNAL 不构造 FarmJob。RRF 取消必要时只发一次 M25，等待真正暂停，再在授权/期限仍有效时只发一次 M0；CANCELLING 不能作为完成证据。standalone RRF 不依赖 DWC 才提供的 `lastFileCancelled`，其取消结果使用服务端核对证据 `RECONCILED`，不能伪称设备明确报告。
+
+动作前不一致采样拒绝执行；动作后有限重采只读状态，任何 `INCONSISTENT` 帧均不能用于确认或触发重发。明确换任务、换文件路径或重启时返回未知。全部关热先完整预检 1–16 个通道，存在未知/CHAMBER 或不可靠映射则整体拒绝；开始后逐通道写 0 并回读，已确认通道独立留审计，后续失败为 `UNKNOWN/PARTIAL_APPLIED`，不回滚、不重放，也不假称全关成功。
+
+急停不进入普通排队控制目录；回零、点动、挤出、远程开打分别需要独立的优先级、维护安全、文件与现场确认流程，当前接口不会开放任意 G-code。
+
 ## 2026-11-08 温控版本本机升级
 
 用户追加部署授权后，已在原`D:\Program Files\FabMatrix`保留数据覆盖升级至508c97c对应制品，安装器退出0、服务Running/Auto、28081健康UP；安装JAR摘要与交付包一致。31台设备、2个账号、2个文件/目录及设备/安装来源标识、网关凭据和云连接配置均保留，SQLite完整性正常。已启动普通用户托盘，暂停及温控授权升级前后均关闭。

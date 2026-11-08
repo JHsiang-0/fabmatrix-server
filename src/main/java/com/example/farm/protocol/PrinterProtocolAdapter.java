@@ -25,6 +25,17 @@ public interface PrinterProtocolAdapter {
 
     void resume(PrinterEndpoint endpoint);
 
+    default RuntimeControlChannel inspectRuntimeControl(PrinterEndpoint endpoint, String action, String channelId, String toolId) {
+        throw new UnsupportedOperationException("CONTROL_UNSUPPORTED");
+    }
+
+    default void setRuntimeControl(PrinterEndpoint endpoint, RuntimeControlChannel channel, int targetPercent) {
+        throw new UnsupportedOperationException("CONTROL_UNSUPPORTED");
+    }
+
+    /** One final cancel write. Orchestration and terminal confirmation belong to the execution service. */
+    default void requestCancel(PrinterEndpoint endpoint) { cancel(endpoint); }
+
     void cancel(PrinterEndpoint endpoint);
 
     void emergencyStop(PrinterEndpoint endpoint);

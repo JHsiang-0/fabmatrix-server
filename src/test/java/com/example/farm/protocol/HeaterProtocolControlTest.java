@@ -26,6 +26,48 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 /** Spring mock transports only; no loopback listener, production address, or printer is contacted. */
 class HeaterProtocolControlTest {
+    @Test void klipperRuntimeWritesAreTypedBoundedAndNeverAcceptFirmwareNamesFromTheCaller() {
+        var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
+        var client = new MoonrakerApiClient(); ReflectionTestUtils.setField(client, "restClient", builder.build());
+        var endpoint = new PrinterEndpoint(1L, "192.0.2.10", "", PrinterProtocolType.KLIPPER);
+        String[] scripts = {"M106 S127.5", "M220 S150", "M221 S95"};
+        for (String script : scripts) server.expect(requestTo("http://192.0.2.10:7125/printer/gcode/script"))
+                .andExpect(content().json("{\"script\":\"" + script + "\"}"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        client.setRuntimeControl(endpoint, new RuntimeControlChannel("SET_FAN_SPEED", "fan", null, null), 50);
+        client.setRuntimeControl(endpoint, new RuntimeControlChannel("SET_SPEED_FACTOR", "speed", null, null), 150);
+        client.setRuntimeControl(endpoint, new RuntimeControlChannel("SET_FLOW_FACTOR", "extruder", "extruder", null), 95);
+        assertThatThrownBy(() -> client.setRuntimeControl(endpoint, new RuntimeControlChannel("SET_FAN_SPEED", "heater_fan x", null, null), 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.setRuntimeControl(endpoint, new RuntimeControlChannel("SET_SPEED_FACTOR", "speed", null, null), 0)).isInstanceOf(IllegalArgumentException.class);
+        server.verify();
+    }
+
+    @Test void rrfRuntimeWritesAddressTheExplicitFanAndDriveAndNeverRetryARejectedWrite() {
+        var f = new RrfFixture();
+        f.connect(); f.gcode("M106 P2 S0.5", false); f.disconnect();
+        f.connect(); f.gcode("M221 D3 S95", false); f.disconnect();
+        f.connect(); f.gcode("M220 S150", true); f.disconnect();
+        f.client.setRuntimeControl(f.endpoint, new RuntimeControlChannel("SET_FAN_SPEED", "fan-2", null, 2), 50);
+        f.client.setRuntimeControl(f.endpoint, new RuntimeControlChannel("SET_FLOW_FACTOR", "extruder-3", "tool-7", 3), 95);
+        assertThatThrownBy(() -> f.client.setRuntimeControl(f.endpoint, new RuntimeControlChannel("SET_SPEED_FACTOR", "speed", null, null), 150)).isInstanceOf(PrinterProtocolException.class);
+        f.server.verify();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"[]", "[1]"})
+    void rrfOnlyExplicitlyManualToolFanCanBeResolved(String sensors) {
+        var f = new RrfFixture(); f.connect(); f.model("tools", "[{\"number\":0,\"fans\":[1]}]");
+        f.model("fans", "[{}, {\"requestedValue\":0.5,\"thermostatic\":{\"sensors\":" + sensors + "}}]"); f.disconnect();
+        if ("[]".equals(sensors)) assertThat(f.client.inspectRuntimeControl(f.endpoint, "SET_FAN_SPEED", "fan-1", null).driveIndex()).isEqualTo(1);
+        else assertThatThrownBy(() -> f.client.inspectRuntimeControl(f.endpoint, "SET_FAN_SPEED", "fan-1", null)).isInstanceOf(IllegalArgumentException.class);
+        f.server.verify();
+    }
+
+    @Test void rrfFlowResolvesOnlyTheUniqueCurrentToolDrive() {
+        var f = new RrfFixture(); f.connect(); f.model("tools", "[{\"number\":7,\"extruders\":[3]}]");
+        f.model("state", "{\"currentTool\":7}"); f.model("move", "{\"extruders\":[{}, {}, {}, {\"factor\":0.95}]}"); f.disconnect();
+        assertThat(f.client.inspectRuntimeControl(f.endpoint, "SET_FLOW_FACTOR", null, "tool-7").driveIndex()).isEqualTo(3);
+        f.server.verify();
+    }
     @Test void klipperProbesLimitsOnDemandAndWritesOnlyTheWhitelistedHeater() {
         var builder = RestClient.builder(); var server = MockRestServiceServer.bindTo(builder).build();
         var client = new MoonrakerApiClient(); ReflectionTestUtils.setField(client, "restClient", builder.build());

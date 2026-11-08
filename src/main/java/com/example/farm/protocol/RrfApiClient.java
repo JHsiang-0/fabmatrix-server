@@ -335,6 +335,68 @@ public class RrfApiClient {
         executeGcode(endpoint, gcode, PrinterOperation.SET_HEATER_TARGET);
     }
 
+    public RuntimeControlChannel inspectRuntimeControl(PrinterEndpoint endpoint, String action, String id, String toolId) {
+        PrinterOperation operation = PrinterOperation.valueOf(action);
+        requireEndpoint(endpoint, operation);
+        Session session = connect(endpoint, operation);
+        try {
+            JsonNode tools = resultNode(getModel(endpoint, session, "tools"));
+            if ("SET_FAN_SPEED".equals(action) && id != null && id.matches("fan-([0-9]|1[0-5])")) {
+                int index = Integer.parseInt(id.substring(4));
+                JsonNode fan = resultNode(getModel(endpoint, session, "fans")).path(index);
+                boolean mapped = false;
+                for (JsonNode tool : tools) for (JsonNode fanIndex : tool.path("fans")) {
+                    if (fanIndex.isIntegralNumber() && fanIndex.intValue() == index) mapped = true;
+                }
+                if (mapped && fan.path("thermostatic").path("sensors").isArray()
+                        && fan.path("thermostatic").path("sensors").isEmpty() && fan.path("requestedValue").isNumber()) {
+                    return new RuntimeControlChannel(action, id, null, index);
+                }
+            } else if ("SET_SPEED_FACTOR".equals(action)) {
+                if (resultNode(getModel(endpoint, session, "move")).path("speedFactor").isNumber()) {
+                    return new RuntimeControlChannel(action, "speed", null, null);
+                }
+            } else if ("SET_FLOW_FACTOR".equals(action) && toolId != null && toolId.matches("tool-[0-9]{1,3}")) {
+                int toolNumber = Integer.parseInt(toolId.substring(5));
+                JsonNode state = resultNode(getModel(endpoint, session, "state", "f"));
+                JsonNode selected = null;
+                for (JsonNode tool : tools) if (tool.path("number").isIntegralNumber() && tool.path("number").intValue() == toolNumber) selected = tool;
+                if (selected != null && state.path("currentTool").isIntegralNumber() && state.path("currentTool").intValue() == toolNumber
+                        && selected.path("extruders").size() == 1 && selected.path("extruders").path(0).isIntegralNumber()) {
+                    int drive = selected.path("extruders").path(0).intValue();
+                    int mappings = 0;
+                    for (JsonNode tool : tools) for (JsonNode member : tool.path("extruders")) if (member.isIntegralNumber() && member.intValue() == drive) mappings++;
+                    if (drive >= 0 && drive < 16 && mappings == 1
+                            && resultNode(getModel(endpoint, session, "move")).path("extruders").path(drive).path("factor").isNumber()) {
+                        return new RuntimeControlChannel(action, "extruder-" + drive, toolId, drive);
+                    }
+                }
+            }
+            throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+        } finally { disconnect(endpoint, session); }
+    }
+
+    public void setRuntimeControl(PrinterEndpoint endpoint, RuntimeControlChannel channel, int targetPercent) {
+        String gcode = switch (channel.action()) {
+            case "SET_FAN_SPEED" -> {
+                if (targetPercent < 0 || targetPercent > 100 || channel.driveIndex() == null || channel.driveIndex() < 0
+                        || channel.driveIndex() >= 16 || !("fan-" + channel.driveIndex()).equals(channel.id())) throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+                yield "M106 P" + channel.driveIndex() + " S" + BigDecimal.valueOf(targetPercent).movePointLeft(2).stripTrailingZeros().toPlainString();
+            }
+            case "SET_SPEED_FACTOR", "SET_FLOW_FACTOR" -> {
+                if (targetPercent < 10 || targetPercent > 200) throw new IllegalArgumentException("VALUE_OUT_OF_RANGE");
+                if ("SET_FLOW_FACTOR".equals(channel.action())) {
+                    if (channel.driveIndex() == null || channel.driveIndex() < 0 || channel.driveIndex() >= 16
+                            || channel.toolId() == null || !channel.toolId().matches("tool-[0-9]{1,3}")) throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+                    yield "M221 D" + channel.driveIndex() + " S" + targetPercent;
+                }
+                yield "M220 S" + targetPercent;
+            }
+            default -> throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+        };
+        executeGcode(endpoint, gcode, PrinterOperation.valueOf(channel.action()));
+    }
+
     public void uploadFile(PrinterEndpoint endpoint, Resource file, String filename, boolean startPrint) {
         PrinterOperation operation = startPrint ? PrinterOperation.START_PRINT : PrinterOperation.UPLOAD_FILE;
         requireEndpoint(endpoint, operation);

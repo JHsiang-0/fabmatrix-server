@@ -66,6 +66,16 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
                 () -> moonrakerApiClient.resumePrint(endpoint.ipAddress()), "恢复打印失败");
     }
 
+    @Override public RuntimeControlChannel inspectRuntimeControl(PrinterEndpoint endpoint, String action, String id, String toolId) {
+        validateEndpoint(endpoint, PrinterOperation.valueOf(action));
+        return moonrakerApiClient.inspectRuntimeControl(endpoint, action, id, toolId);
+    }
+
+    @Override public void setRuntimeControl(PrinterEndpoint endpoint, RuntimeControlChannel channel, int targetPercent) {
+        validateEndpoint(endpoint, PrinterOperation.valueOf(channel.action()));
+        moonrakerApiClient.setRuntimeControl(endpoint, channel, targetPercent);
+    }
+
     @Override
     public void cancel(PrinterEndpoint endpoint) {
         validateEndpoint(endpoint, PrinterOperation.CANCEL);

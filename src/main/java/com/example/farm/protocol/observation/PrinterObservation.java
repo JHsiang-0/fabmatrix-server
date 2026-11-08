@@ -17,13 +17,22 @@ public record PrinterObservation(
         Execution execution,
         List<Fan> fans,
         Motion motion,
-        List<Sensor> sensors
+        List<Sensor> sensors,
+        TerminalEvidence terminalEvidence
 ) {
     public PrinterObservation {
         heaters = List.copyOf(heaters);
         tools = List.copyOf(tools);
         fans = List.copyOf(fans);
         sensors = List.copyOf(sensors);
+    }
+
+    public PrinterObservation(Instant captureStartedAt, Instant observedAt, Completeness completeness,
+            SystemState systemState, OperationState operationState, List<Heater> heaters,
+            List<Tool> tools, String currentToolId, Execution execution, List<Fan> fans,
+            Motion motion, List<Sensor> sensors) {
+        this(captureStartedAt, observedAt, completeness, systemState, operationState, heaters, tools,
+                currentToolId, execution, fans, motion, sensors, null);
     }
 
     public PrinterObservation(Instant captureStartedAt, Instant observedAt, Completeness completeness,
@@ -60,13 +69,18 @@ public record PrinterObservation(
         }
     }
 
-    public record Tool(String id, List<String> heaterIds, List<String> fanIds) {
-        public Tool { heaterIds = List.copyOf(heaterIds); fanIds = List.copyOf(fanIds); }
+    public record Tool(String id, List<String> heaterIds, List<String> fanIds, List<String> extruderIds) {
+        public Tool { heaterIds = List.copyOf(heaterIds); fanIds = List.copyOf(fanIds); extruderIds = List.copyOf(extruderIds); }
+        public Tool(String id, List<String> heaterIds, List<String> fanIds) { this(id, heaterIds, fanIds, List.of()); }
         public Tool(String id, List<String> heaterIds) { this(id, heaterIds, List.of()); }
     }
 
     public enum FanRole { PART, HOTEND, CHAMBER, OTHER, UNKNOWN }
-    public record Fan(String id, FanRole role, Measurement pwmRatio, Measurement rpm) { }
+    public record Fan(String id, FanRole role, Measurement pwmRatio, Measurement rpm, Measurement requestedPwmRatio) {
+        public Fan(String id, FanRole role, Measurement pwmRatio, Measurement rpm) { this(id, role, pwmRatio, rpm, null); }
+    }
+    /** Private protocol evidence: never copied into the public canonical descriptor/observation. */
+    public record TerminalEvidence(String lastFilename, BigDecimal lastDuration, boolean currentFilePresent) { }
     public enum CoordinateSpace { GCODE, MACHINE, UNKNOWN }
     public record Motion(CoordinateSpace coordinateSpace, List<Axis> axes, Measurement speedFactor, Measurement flowFactor) {
         public Motion { axes = List.copyOf(axes); }

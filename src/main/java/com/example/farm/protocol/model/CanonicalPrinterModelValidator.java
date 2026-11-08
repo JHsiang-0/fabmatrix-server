@@ -81,6 +81,7 @@ public final class CanonicalPrinterModelValidator {
         observation.fans().forEach(fan -> {
             validateDecimal(fan.pwmRatio());
             validateDecimal(fan.rpm());
+            if (fan.requestedPwmRatio() != null) validateDecimal(fan.requestedPwmRatio());
         });
         observation.sensors().forEach(sensor -> {
             validateJson(sensor.enabled());

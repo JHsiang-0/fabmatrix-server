@@ -14,7 +14,7 @@ public final class CanonicalPrinterModelProjection {
                 required(h.effectiveTargetC()), required(h.activeTargetC()), required(h.standbyTargetC()),
                 required(h.pwmRatio()), h.mode())).toList();
         var fans = original.fans().stream().map(f -> new FanState(f.id(), required(f.pwmRatio()),
-                required(f.rpm()))).toList();
+                required(f.rpm()), f.requestedPwmRatio() == null ? null : required(f.requestedPwmRatio()))).toList();
         var motion = original.motion();
         var axes = motion.axes().stream().map(a -> new AxisState(a.id(), required(a.positionMm()),
                 required(a.homed()))).toList();

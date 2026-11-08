@@ -60,7 +60,7 @@ public final class PrinterObservationParser {
             HeaterRole role = "heater_bed".equals(rawId) ? HeaterRole.BED
                     : rawId.startsWith("extruder") ? HeaterRole.TOOL : HeaterRole.UNKNOWN;
             heaters.add(klipperHeater(id, role, node, end));
-            if (role == HeaterRole.TOOL) tools.add(new Tool(id, List.of(id)));
+            if (role == HeaterRole.TOOL) tools.add(new Tool(id, List.of(id), List.of(), List.of(id)));
         });
         String activeExtruder = text(status.path("toolhead"), "extruder");
         String currentTool = null;
@@ -78,7 +78,8 @@ public final class PrinterObservationParser {
                     : name.startsWith("controller_fan ") ? FanRole.OTHER : FanRole.UNKNOWN;
             fans.add(new Fan(safeId(name), role,
                     number(entry.getValue(), "speed", end, ZERO, BigDecimal.ONE),
-                    number(entry.getValue(), "rpm", end, ZERO, BigDecimal.valueOf(100_000))));
+                    number(entry.getValue(), "rpm", end, ZERO, BigDecimal.valueOf(100_000)),
+                    name.equals("fan") ? number(entry.getValue(), "speed", end, ZERO, BigDecimal.ONE) : null));
         });
         Motion motion = klipperMotion(status, end);
         List<Sensor> sensors = new ArrayList<>();
@@ -161,7 +162,11 @@ public final class PrinterObservationParser {
                 for (JsonNode id : tool.path("fans")) {
                     if (id.canConvertToInt() && id.intValue() >= 0) fanIds.add("fan-" + id.intValue());
                 }
-                tools.add(new Tool("tool-" + tool.path("number").intValue(), ids, fanIds));
+                List<String> extruderIds = new ArrayList<>();
+                for (JsonNode id : tool.path("extruders")) {
+                    if (id.isIntegralNumber() && id.intValue() >= 0 && id.intValue() < 16) extruderIds.add("extruder-" + id.intValue());
+                }
+                tools.add(new Tool("tool-" + tool.path("number").intValue(), ids, fanIds, extruderIds));
             }
         }
         List<Heater> heaters = new ArrayList<>();
@@ -213,13 +218,18 @@ public final class PrinterObservationParser {
                 if (!fan.isObject()) continue;
                 BigDecimal actual = decimal(fan, "actualValue");
                 BigDecimal rpm = decimal(fan, "rpm");
-                fans.add(new Fan("fan-" + i, FanRole.OTHER,
+                String fanId = "fan-" + i;
+                boolean manualPart = fan.path("thermostatic").path("sensors").isArray()
+                        && fan.path("thermostatic").path("sensors").isEmpty()
+                        && tools.stream().anyMatch(tool -> tool.fanIds().contains(fanId));
+                fans.add(new Fan(fanId, manualPart ? FanRole.PART : FanRole.OTHER,
                         actual == null || actual.signum() < 0 ? unknown(end) : ratio(actual, end),
                         rpm == null || rpm.signum() < 0 ? unknown(end)
-                                : Measurement.of(rpm, end, ZERO, BigDecimal.valueOf(100_000))));
+                                : Measurement.of(rpm, end, ZERO, BigDecimal.valueOf(100_000)),
+                        manualPart ? number(fan, "requestedValue", end, ZERO, BigDecimal.ONE) : null));
             }
         }
-        Motion motion = rrfMotion(state.path("move"), end);
+        Motion motion = rrfMotion(state.path("move"), tools, currentTool, end);
         List<Sensor> sensors = new ArrayList<>();
         JsonNode monitors = state.path("sensors").path("filamentMonitors");
         if (monitors.isArray()) {
@@ -275,10 +285,12 @@ public final class PrinterObservationParser {
                 || end.isBefore(heatObservedAt);
         return new PrinterObservation(start, end, inconsistent ? Completeness.INCONSISTENT : Completeness.PARTIAL,
                 system, inconsistent ? OperationState.UNKNOWN : operation, heaters, tools, currentTool,
-                inconsistent ? null : execution, fans, motion, sensors);
+                inconsistent ? null : execution, fans, motion, sensors,
+                new PrinterObservation.TerminalEvidence(text(job, "lastFileName"), decimal(job, "lastDuration"),
+                        text(job.path("file"), "fileName") != null));
     }
 
-    private static Motion rrfMotion(JsonNode move, Instant at) {
+    private static Motion rrfMotion(JsonNode move, List<Tool> tools, String currentTool, Instant at) {
         JsonNode axesNode = move.path("axes");
         if (!axesNode.isArray()) return null;
         if (axesNode.size() > 10) throw new IllegalArgumentException("Observation axis limit exceeded");
@@ -295,7 +307,16 @@ public final class PrinterObservationParser {
                     homed == null ? PrinterObservation.Quality.UNAVAILABLE : PrinterObservation.Quality.GOOD,
                     homed == null ? null : at)));
         }
-        return new Motion(PrinterObservation.CoordinateSpace.MACHINE, axes, unknown(at), unknown(at));
+        Measurement flow = unknown(at);
+        Tool tool = tools.stream().filter(candidate -> candidate.id().equals(currentTool)).findFirst().orElse(null);
+        if (tool != null && tool.extruderIds().size() == 1) {
+            String id = tool.extruderIds().getFirst();
+            if (tools.stream().filter(candidate -> candidate.extruderIds().contains(id)).count() == 1) {
+                flow = number(move.path("extruders").path(Integer.parseInt(id.substring(9))), "factor", at, ZERO, BigDecimal.TEN);
+            }
+        }
+        return new Motion(PrinterObservation.CoordinateSpace.MACHINE, axes,
+                number(move, "speedFactor", at, ZERO, BigDecimal.TEN), flow);
     }
 
     private static Heater klipperHeater(String id, HeaterRole role, JsonNode node, Instant at) {

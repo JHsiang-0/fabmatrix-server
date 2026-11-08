@@ -11,6 +11,29 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PrinterObservationParserTest {
+    @Test void rrfSeparatesFanRequestedValueFromActualAndMapsOnlyCurrentUniqueFlowDrive() throws Exception {
+        var observation = PrinterObservationParser.rrf(mapper.readTree("""
+                {"status":"processing","currentTool":2,"move":{"axes":[],"speedFactor":1.5,"extruders":[{}, {"factor":0.95}]},
+                 "fans":[{"actualValue":0.4,"requestedValue":0.25,"thermostatic":{"sensors":[]}},{"actualValue":1,"requestedValue":0,"thermostatic":{"sensors":[1]}}]}
+                """), mapper.readTree("{\"lastFileName\":\"old.gcode\",\"lastDuration\":20}"), mapper.readTree("{}"),
+                mapper.readTree("[{\"number\":2,\"heaters\":[],\"extruders\":[1],\"fans\":[0,1]}]"), START, END);
+        assertThat(observation.tools().getFirst().extruderIds()).containsExactly("extruder-1");
+        assertThat(observation.motion().speedFactor().value()).isEqualByComparingTo("1.5");
+        assertThat(observation.motion().flowFactor().value()).isEqualByComparingTo("0.95");
+        assertThat(observation.fans().getFirst().pwmRatio().value()).isEqualByComparingTo("0.4");
+        assertThat(observation.fans().getFirst().requestedPwmRatio().value()).isEqualByComparingTo("0.25");
+        assertThat(observation.fans().get(1).requestedPwmRatio()).isNull();
+        assertThat(observation.terminalEvidence().lastFilename()).isEqualTo("old.gcode");
+    }
+
+    @Test void klipperOnlyNativePartFanHasControllableRequestedValue() throws Exception {
+        var observation = PrinterObservationParser.klipper(mapper.readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"standby"},"fan":{"speed":0.5},
+                 "heater_fan hotend":{"speed":1},"fan_generic custom":{"speed":0.25},"extruder":{"temperature":20}}
+                """), START, END);
+        assertThat(observation.tools().getFirst().extruderIds()).containsExactly("extruder");
+        assertThat(observation.fans().stream().filter(fan -> fan.requestedPwmRatio() != null).map(PrinterObservation.Fan::id)).containsExactly("fan");
+    }
     private static final Instant START = Instant.parse("2026-11-01T04:00:00Z");
     private static final Instant END = Instant.parse("2026-11-01T04:00:01Z");
     private final ObjectMapper mapper = new ObjectMapper();

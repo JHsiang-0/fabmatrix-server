@@ -7,6 +7,7 @@ import com.example.farm.protocol.PrinterProtocolException;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterEndpoint;
 import com.example.farm.protocol.HeaterControlChannel;
+import com.example.farm.protocol.RuntimeControlChannel;
 import com.example.farm.protocol.observation.PrinterObservation.HeaterRole;
 import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -97,6 +98,45 @@ public class MoonrakerApiClient {
 
     private void requireWritableHeater(String id) {
         if (id == null || !(id.equals("heater_bed") || id.matches("extruder[0-9]*"))) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+    }
+
+    public RuntimeControlChannel inspectRuntimeControl(PrinterEndpoint endpoint, String action, String id, String toolId) {
+        String body = restClient.get().uri("http://" + endpoint.ipAddress() + ":7125/printer/objects/query?gcode_move&toolhead&fan")
+                .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
+                .retrieve().body(String.class);
+        try {
+            JsonNode status = mapper.readTree(body).path("result").path("status");
+            if ("SET_FAN_SPEED".equals(action) && "fan".equals(id) && status.path("fan").path("speed").isNumber()) {
+                return new RuntimeControlChannel(action, id, null, null);
+            }
+            if ("SET_SPEED_FACTOR".equals(action) && status.path("gcode_move").path("speed_factor").isNumber()) {
+                return new RuntimeControlChannel(action, "speed", null, null);
+            }
+            if ("SET_FLOW_FACTOR".equals(action) && toolId != null && toolId.matches("extruder[0-9]*")
+                    && toolId.equals(status.path("toolhead").path("extruder").asText())
+                    && status.path("gcode_move").path("extrude_factor").isNumber()) {
+                return new RuntimeControlChannel(action, toolId, toolId, null);
+            }
+        } catch (IOException invalid) { throw new IllegalArgumentException("CONTROL_UNSUPPORTED", invalid); }
+        throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+    }
+
+    public void setRuntimeControl(PrinterEndpoint endpoint, RuntimeControlChannel channel, int targetPercent) {
+        String script = switch (channel.action()) {
+            case "SET_FAN_SPEED" -> {
+                if (!"fan".equals(channel.id()) || targetPercent < 0 || targetPercent > 100) throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+                yield "M106 S" + BigDecimal.valueOf(targetPercent).multiply(BigDecimal.valueOf(255)).movePointLeft(2).stripTrailingZeros().toPlainString();
+            }
+            case "SET_SPEED_FACTOR", "SET_FLOW_FACTOR" -> {
+                if (targetPercent < 10 || targetPercent > 200 || "SET_FLOW_FACTOR".equals(channel.action())
+                        && (channel.toolId() == null || !channel.toolId().matches("extruder[0-9]*"))) throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+                yield ("SET_SPEED_FACTOR".equals(channel.action()) ? "M220 S" : "M221 S") + targetPercent;
+            }
+            default -> throw new IllegalArgumentException("CONTROL_UNSUPPORTED");
+        };
+        restClient.post().uri("http://" + endpoint.ipAddress() + ":7125/printer/gcode/script")
+                .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
+                .body(Map.of("script", script)).retrieve().toBodilessEntity();
     }
 
     public MoonrakerStatusDTO getPrinterStatus(String ipAddress) {

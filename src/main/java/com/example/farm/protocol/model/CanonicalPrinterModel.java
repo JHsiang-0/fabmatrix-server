@@ -103,7 +103,10 @@ public record CanonicalPrinterModel(int modelVersion, Identity identity, Descrip
                               Measurement<BigDecimal> pwmRatio, HeaterMode mode) { }
 
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    public record FanState(String id, Measurement<BigDecimal> pwmRatio, Measurement<BigDecimal> rpm) { }
+    public record FanState(String id, Measurement<BigDecimal> pwmRatio, Measurement<BigDecimal> rpm,
+                           @JsonInclude(JsonInclude.Include.NON_NULL) Measurement<BigDecimal> requestedPwmRatio) {
+        public FanState(String id, Measurement<BigDecimal> pwmRatio, Measurement<BigDecimal> rpm) { this(id, pwmRatio, rpm, null); }
+    }
 
     @JsonInclude(JsonInclude.Include.ALWAYS)
     public record AxisState(String id, Measurement<BigDecimal> positionMm, Measurement<Boolean> homed) { }

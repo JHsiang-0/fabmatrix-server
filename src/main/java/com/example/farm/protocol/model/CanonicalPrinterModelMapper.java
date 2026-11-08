@@ -61,7 +61,7 @@ public final class CanonicalPrinterModelMapper {
         List<ToolDescriptor> tools = observation == null ? List.of() : observation.tools().stream()
                 .map(tool -> new ToolDescriptor(tool.id(), tool.id(),
                         tool.heaterIds().stream().filter(heaterIds::contains).toList(),
-                        tool.fanIds().stream().filter(fanIds::contains).toList(), List.of())).toList();
+                        tool.fanIds().stream().filter(fanIds::contains).toList(), tool.extruderIds())).toList();
         List<AxisDescriptor> axes = observation == null || observation.motion() == null ? List.of()
                 : observation.motion().axes().stream().map(axis -> new AxisDescriptor(axis.id(), axis.id())).toList();
         List<SensorDescriptor> sensors = observation == null ? List.of() : observation.sensors().stream()
@@ -129,7 +129,8 @@ public final class CanonicalPrinterModelMapper {
                         measurement(heater.standbyTargetC()), measurement(heater.pwmRatio()),
                         HeaterMode.valueOf(heater.mode().name()))).toList();
         List<FanState> fans = source == null ? List.of() : source.fans().stream()
-                .map(fan -> new FanState(fan.id(), measurement(fan.pwmRatio()), measurement(fan.rpm()))).toList();
+                .map(fan -> new FanState(fan.id(), measurement(fan.pwmRatio()), measurement(fan.rpm()),
+                        fan.requestedPwmRatio() == null ? null : measurement(fan.requestedPwmRatio()))).toList();
         List<AxisState> axes = source == null || source.motion() == null ? List.of() : source.motion().axes().stream()
                 .map(axis -> new AxisState(axis.id(), measurement(axis.positionMm()), booleanMeasurement(axis.homed()))).toList();
         Motion motion = source == null || source.motion() == null

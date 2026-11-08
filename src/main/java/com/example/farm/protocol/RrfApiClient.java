@@ -2,6 +2,7 @@ package com.example.farm.protocol;
 
 import com.example.farm.protocol.observation.PrinterObservation;
 import com.example.farm.protocol.observation.PrinterObservationParser;
+import com.example.farm.protocol.observation.PrinterObservation.HeaterRole;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -274,6 +275,56 @@ public class RrfApiClient {
         } finally {
             disconnect(endpoint, session);
         }
+    }
+
+    public HeaterControlChannel inspectHeater(PrinterEndpoint endpoint, String heaterId) {
+        requireEndpoint(endpoint, PrinterOperation.SET_HEATER_TARGET);
+        if (heaterId == null || !heaterId.matches("heater-(0|[1-9][0-9]?)")) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+        int index = Integer.parseInt(heaterId.substring(7));
+        Session session = connect(endpoint, PrinterOperation.SET_HEATER_TARGET);
+        try {
+            JsonNode heat = resultNode(getModel(endpoint, session, "heat"));
+            JsonNode tools = resultNode(getModel(endpoint, session, "tools"));
+            JsonNode heater = heat.path("heaters").path(index);
+            if (index >= 16 || !heater.isObject()) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+            JsonNode beds = heat.path("bedHeaterMapping").isArray() ? heat.path("bedHeaterMapping") : heat.path("bedHeaters");
+            if (!tools.isArray() || tools.size() > 8 || beds.size() > 16) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+            Integer bedSlot = null, toolNumber = null;
+            for (int slot = 0; slot < beds.size(); slot++) {
+                if (beds.path(slot).isIntegralNumber() && beds.path(slot).intValue() == index) {
+                    if (bedSlot != null) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+                    bedSlot = slot;
+                }
+            }
+            for (JsonNode tool : tools) {
+                boolean contains = false;
+                for (JsonNode mapped : tool.path("heaters")) if (mapped.isIntegralNumber() && mapped.intValue() == index) contains = true;
+                if (contains) {
+                    if (toolNumber != null || tool.path("heaters").size() != 1 || !tool.path("number").canConvertToInt()
+                            || tool.path("number").intValue() < 0) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+                    toolNumber = tool.path("number").intValue();
+                }
+            }
+            if ((bedSlot == null) == (toolNumber == null)) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+            return new HeaterControlChannel(heaterId, bedSlot != null
+                    ? HeaterRole.BED : HeaterRole.TOOL,
+                    heater.path("min").isNumber() ? heater.path("min").decimalValue() : null,
+                    heater.path("max").isNumber() ? heater.path("max").decimalValue() : null, toolNumber, bedSlot);
+        } finally { disconnect(endpoint, session); }
+    }
+
+    public void setHeaterTarget(PrinterEndpoint endpoint, HeaterControlChannel channel, int targetC) {
+        if (channel == null || channel.id() == null || !channel.id().matches("heater-(0|[1-9][0-9]?)")
+                || targetC < 0 || targetC > (channel.bedSlot() != null ? 120 : 300)) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+        String gcode;
+        if (channel.role() == HeaterRole.BED
+                && channel.bedSlot() != null && channel.bedSlot() >= 0 && channel.toolNumber() == null) {
+            gcode = "M140 P" + channel.bedSlot() + " S" + targetC;
+        } else if (channel.role() == HeaterRole.TOOL
+                && channel.toolNumber() != null && channel.toolNumber() >= 0 && channel.bedSlot() == null) {
+            gcode = "M568 P" + channel.toolNumber() + " S" + targetC + " A" + (targetC == 0 ? 0 : 2);
+        } else throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+        executeGcode(endpoint, gcode, PrinterOperation.SET_HEATER_TARGET);
     }
 
     public void uploadFile(PrinterEndpoint endpoint, Resource file, String filename, boolean startPrint) {

@@ -15,6 +15,14 @@ public interface PrinterProtocolAdapter {
 
     void pause(PrinterEndpoint endpoint);
 
+    default HeaterControlChannel inspectHeater(PrinterEndpoint endpoint, String heaterId) {
+        throw new UnsupportedOperationException("HEATER_UNSUPPORTED");
+    }
+
+    default void setHeaterTarget(PrinterEndpoint endpoint, HeaterControlChannel channel, int targetC) {
+        throw new UnsupportedOperationException("HEATER_UNSUPPORTED");
+    }
+
     void resume(PrinterEndpoint endpoint);
 
     void cancel(PrinterEndpoint endpoint);

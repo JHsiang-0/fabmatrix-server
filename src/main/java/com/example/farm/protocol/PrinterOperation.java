@@ -6,6 +6,7 @@ package com.example.farm.protocol;
 public enum PrinterOperation {
     GET_STATUS,
     PAUSE,
+    SET_HEATER_TARGET,
     RESUME,
     CANCEL,
     EMERGENCY_STOP,

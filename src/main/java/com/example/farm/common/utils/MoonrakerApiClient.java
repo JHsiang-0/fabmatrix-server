@@ -5,6 +5,9 @@ import com.example.farm.protocol.FailureCategory;
 import com.example.farm.protocol.PrinterOperation;
 import com.example.farm.protocol.PrinterProtocolException;
 import com.example.farm.protocol.PrinterProtocolType;
+import com.example.farm.protocol.PrinterEndpoint;
+import com.example.farm.protocol.HeaterControlChannel;
+import com.example.farm.protocol.observation.PrinterObservation.HeaterRole;
 import com.example.farm.protocol.observation.PrinterObservationParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,8 +18,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.http.HttpClient;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -67,6 +72,32 @@ public class MoonrakerApiClient {
     }
 
     // ... 下面的所有业务方法 (getPrinterStatus, emergencyStop 等) 完全保持不变 ...
+
+    public HeaterControlChannel inspectHeater(PrinterEndpoint endpoint, String heaterId) {
+        requireWritableHeater(heaterId);
+        String body = restClient.get().uri("http://" + endpoint.ipAddress() + ":7125/printer/objects/query?configfile=settings")
+                .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
+                .retrieve().body(String.class);
+        try {
+            JsonNode node = mapper.readTree(body).path("result").path("status").path("configfile").path("settings").path(heaterId);
+            return new HeaterControlChannel(heaterId, "heater_bed".equals(heaterId) ? HeaterRole.BED : HeaterRole.TOOL,
+                    node.path("min_temp").isNumber() ? node.path("min_temp").decimalValue() : null,
+                    node.path("max_temp").isNumber() ? node.path("max_temp").decimalValue() : null, null, null);
+        } catch (IOException invalid) { throw new IllegalStateException("HEATER_LIMITS_UNAVAILABLE", invalid); }
+    }
+
+    public void setHeaterTarget(PrinterEndpoint endpoint, HeaterControlChannel channel, int targetC) {
+        requireWritableHeater(channel.id());
+        if (targetC < 0 || targetC > ("heater_bed".equals(channel.id()) ? 120 : 300)) throw new IllegalArgumentException("TEMPERATURE_OUT_OF_RANGE");
+        restClient.post().uri("http://" + endpoint.ipAddress() + ":7125/printer/gcode/script")
+                .headers(headers -> { if (endpoint.apiKey() != null && !endpoint.apiKey().isBlank()) headers.set("X-Api-Key", endpoint.apiKey()); })
+                .body(Map.of("script", "SET_HEATER_TEMPERATURE HEATER=" + channel.id() + " TARGET=" + targetC))
+                .retrieve().toBodilessEntity();
+    }
+
+    private void requireWritableHeater(String id) {
+        if (id == null || !(id.equals("heater_bed") || id.matches("extruder[0-9]*"))) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+    }
 
     public MoonrakerStatusDTO getPrinterStatus(String ipAddress) {
         for (int attempt = 1; attempt <= STATUS_MAX_ATTEMPTS; attempt++) {

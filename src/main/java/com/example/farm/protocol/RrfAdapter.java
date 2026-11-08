@@ -41,6 +41,16 @@ public class RrfAdapter implements PrinterProtocolAdapter {
         executeGcode(endpoint, PrinterOperation.PAUSE, "M25");
     }
 
+    @Override public HeaterControlChannel inspectHeater(PrinterEndpoint endpoint, String heaterId) {
+        validateEndpoint(endpoint, PrinterOperation.SET_HEATER_TARGET);
+        return rrfApiClient.inspectHeater(endpoint, heaterId);
+    }
+
+    @Override public void setHeaterTarget(PrinterEndpoint endpoint, HeaterControlChannel channel, int targetC) {
+        validateEndpoint(endpoint, PrinterOperation.SET_HEATER_TARGET);
+        rrfApiClient.setHeaterTarget(endpoint, channel, targetC);
+    }
+
     @Override
     public void resume(PrinterEndpoint endpoint) {
         executeGcode(endpoint, PrinterOperation.RESUME, "M24");

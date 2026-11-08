@@ -49,6 +49,16 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
                 () -> moonrakerApiClient.pausePrint(endpoint.ipAddress()), "暂停打印失败");
     }
 
+    @Override public HeaterControlChannel inspectHeater(PrinterEndpoint endpoint, String heaterId) {
+        validateEndpoint(endpoint, PrinterOperation.SET_HEATER_TARGET);
+        return moonrakerApiClient.inspectHeater(endpoint, heaterId);
+    }
+
+    @Override public void setHeaterTarget(PrinterEndpoint endpoint, HeaterControlChannel channel, int targetC) {
+        validateEndpoint(endpoint, PrinterOperation.SET_HEATER_TARGET);
+        moonrakerApiClient.setHeaterTarget(endpoint, channel, targetC);
+    }
+
     @Override
     public void resume(PrinterEndpoint endpoint) {
         validateEndpoint(endpoint, PrinterOperation.RESUME);

@@ -82,8 +82,9 @@ public class CloudRemoteCommandInbox {
         if (changed == 1) {
             jdbc.update("""
                     INSERT INTO farm_audit_log(actor_id,actor_username,actor_role,action,target_type,target_id,target_label,result,error_code,occurred_at)
-                    VALUES(NULL,?,'CLOUD_ACTOR','REMOTE_PAUSE','REMOTE_COMMAND',?,?,?, ?,CURRENT_TIMESTAMP)
-                    """, command.actorUsername(), command.commandId(), "云端暂停设备 #" + command.localPrinterId(),
+                    VALUES(NULL,?,'CLOUD_ACTOR',?,'REMOTE_COMMAND',?,?,?, ?,CURRENT_TIMESTAMP)
+                    """, command.actorUsername(), "SET_HEATER_TARGET".equals(command.action()) ? "REMOTE_SET_HEATER_TARGET" : "REMOTE_PAUSE", command.commandId(),
+                    "SET_HEATER_TARGET".equals(command.action()) ? "云端温控设备 #" + command.localPrinterId() + " / " + command.heaterId() + " / " + command.targetC() + "°C" : "云端暂停设备 #" + command.localPrinterId(),
                     "CONFIRMED".equals(outcome.status()) ? "SUCCESS" : "FAILURE", outcome.code());
         }
     }

@@ -11,7 +11,10 @@ import com.example.farm.entity.vo.CloudPairingVO;
 
 public interface CloudConnectionService {
     CloudRemoteControlPolicyStore.View remoteControlPolicy();
-    CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(boolean enabled, long revision);
+    default CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(boolean enabled, long revision) {
+        return updateRemoteControlPolicy(enabled, null, revision);
+    }
+    CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(Boolean enabled, Boolean temperatureEnabled, long revision);
     CloudPairingVO startPairing(CloudPairingStartRequest request);
     CloudPairingVO pollPairing(CloudPairingRequest request);
     void cancelPairing(CloudPairingRequest request);

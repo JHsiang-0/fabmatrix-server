@@ -1,6 +1,7 @@
 package com.example.farm.cloud;
 
 import com.example.farm.service.CurrentExecutionPauseService;
+import com.example.farm.service.HeaterTargetControlService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -143,11 +144,54 @@ class CloudRemoteControlWorkerTest {
         }
     }
 
+    @Test void temperatureUsesSchemaTwoAndItsIndependentGrantWithoutCallingPause() throws Exception {
+        try (var fixture = new Fixture()) {
+            fixture.temperatureCommand();
+            fixture.worker.notice(fixture.notice(), false); fixture.tick();
+            verify(fixture.heaters).apply(any(), any(), any()); verify(fixture.pause, never()).pause(any(), any(), any());
+            assertThat(fixture.statuses).containsExactly("EXECUTING", "CONFIRMED");
+            assertThat(fixture.codes).containsExactly("OK", "HEATER_TARGET_CONFIRMED");
+        }
+    }
+
+    @Test void temperatureWireRejectsFractionalAndStringIntegerCoercion() throws Exception {
+        for (String invalid : new String[] {"205.5", "\"205\""}) {
+            try (var fixture = new Fixture()) {
+                fixture.temperatureCommand();
+                fixture.claimBody = json.writeValueAsString(fixture.command).replace("\"targetC\":205", "\"targetC\":" + invalid);
+                fixture.worker.notice(fixture.notice(), false); fixture.tick();
+                verify(fixture.heaters, never()).apply(any(), any(), any()); assertThat(fixture.statuses).isEmpty();
+            }
+        }
+    }
+
+    @Test void legacyPolicyFallbackIsProbedOnceAndCannotSilentlyAuthorizeTemperature() throws Exception {
+        try (var fixture = new Fixture()) {
+            fixture.rejectTemperaturePolicy = true;
+            fixture.tick();
+            ReflectionTestUtils.setField(fixture.worker, "nextPolicy", 0L); fixture.tick();
+            assertThat(fixture.temperaturePolicyProbes).isEqualTo(1);
+            fixture.temperatureCommand(); fixture.worker.policyChanged();
+            fixture.worker.notice(fixture.notice(), false); fixture.tick();
+            assertThat(fixture.temperaturePolicyProbes).isEqualTo(2);
+            verify(fixture.heaters, never()).apply(any(), any(), any());
+        }
+    }
+
+    @Test void pauseWireRetainsItsExactSchemaOneShape() throws Exception {
+        var serialized = json.readTree(json.writeValueAsString(CloudRemoteCommandInboxTest.command()));
+        assertThat(serialized.path("schemaVersion").asInt()).isEqualTo(1);
+        for (String field : new String[] {"heaterId", "targetC", "expectedTargetC", "expectedDeviceBootId", "expectedDescriptorRevision", "expectedOperationState"}) {
+            assertThat(serialized.has(field)).isFalse();
+        }
+    }
+
     private final class Fixture implements AutoCloseable {
         final HttpServer server;
         final CloudRemoteControlPolicyStore policy;
         final CloudRemoteCommandInbox inbox = mock(CloudRemoteCommandInbox.class);
         final CurrentExecutionPauseService pause = mock(CurrentExecutionPauseService.class);
+        final HeaterTargetControlService heaters = mock(HeaterTargetControlService.class);
         final CloudRemoteControlWorker worker;
         final CloudWire.Credential credential;
         final AtomicInteger physicalAttempts = new AtomicInteger();
@@ -155,6 +199,9 @@ class CloudRemoteControlWorkerTest {
         CloudControlWire.Command command = CloudRemoteCommandInboxTest.command();
         int policyHttpStatus = 200;
         String rejectedCommand, failedReceipt, invalidClaim;
+        String claimBody;
+        boolean rejectTemperaturePolicy;
+        int temperaturePolicyProbes;
         Fixture() throws Exception {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/api/v1/gateway/", exchange -> {
@@ -162,6 +209,10 @@ class CloudRemoteControlWorkerTest {
                 authorizations.add(exchange.getRequestHeaders().getFirst("Authorization"));
                 byte[] body = exchange.getRequestBody().readAllBytes();
                 int responseStatus = path.endsWith("control-policy") ? policyHttpStatus : 200;
+                if (path.endsWith("control-policy") && json.readTree(body).has("temperatureControlVersion")) {
+                    temperaturePolicyProbes++;
+                    if (rejectTemperaturePolicy) responseStatus = 400;
+                }
                 if (path.endsWith("/claim") && json.readValue(body, CloudControlWire.Claim.class).commandId().equals(invalidClaim)) {
                     responseStatus = 404;
                 }
@@ -171,7 +222,7 @@ class CloudRemoteControlWorkerTest {
                     if (result.commandId().equals(rejectedCommand)) responseStatus = "EXECUTING".equals(result.status()) ? 403 : 409;
                     if (result.commandId().equals(failedReceipt) && !"EXECUTING".equals(result.status())) responseStatus = 503;
                 }
-                byte[] response = path.endsWith("/claim") ? json.writeValueAsBytes(command)
+                byte[] response = path.endsWith("/claim") ? claimBody == null ? json.writeValueAsBytes(command) : claimBody.getBytes(StandardCharsets.UTF_8)
                         : "{\"success\":true}".getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(responseStatus, response.length);
                 exchange.getResponseBody().write(response); exchange.close();
@@ -209,13 +260,27 @@ class CloudRemoteControlWorkerTest {
                 checkpoint.check(); physicalAttempts.incrementAndGet();
                 return new CloudControlWire.Outcome("CONFIRMED", "DEVICE_PAUSED");
             });
-            worker = new CloudRemoteControlWorker(properties, source, policy, inbox, pause);
+            when(heaters.apply(any(), any(), any())).thenAnswer(invocation -> {
+                CurrentExecutionPauseService.Checkpoint checkpoint = invocation.getArgument(1);
+                CurrentExecutionPauseService.BeforeAction before = invocation.getArgument(2);
+                checkpoint.check(); before.executing(); checkpoint.check();
+                return new CloudControlWire.Outcome("CONFIRMED", "HEATER_TARGET_CONFIRMED");
+            });
+            worker = new CloudRemoteControlWorker(properties, source, policy, inbox, pause, heaters);
             ReflectionTestUtils.setField(worker, "running", true);
             worker.connected(credential, command.bootId(), command.epoch(), () -> true);
         }
         byte[] notice() throws Exception { return json.writeValueAsBytes(new CloudControlWire.Notice(1, "COMMAND_AVAILABLE",
                 command.commandId(), command.gatewayId(), command.bindingVersion(), command.bootId(), command.epoch())); }
         void tick() { ReflectionTestUtils.invokeMethod(worker, "tick"); }
+        void temperatureCommand() {
+            var view = policy.update(credential, null, true, policy.view(credential).revision());
+            var old = command;
+            command = new CloudControlWire.Command(2, old.commandId(), "SET_HEATER_TARGET", old.gatewayId(), old.bindingVersion(),
+                    old.bootId(), old.epoch(), old.sourceInstanceId(), old.deviceUid(), old.localPrinterId(), null,
+                    null, null, null, view.revision(), old.actorUserId(), old.actorUsername(), old.issuedAt(), old.expiresAt(),
+                    "extruder", 205, java.math.BigDecimal.valueOf(200), UUID.randomUUID().toString(), 1L, "IDLE");
+        }
         void nextCommand() {
             var old = command; long now = System.currentTimeMillis();
             command = new CloudControlWire.Command(1, UUID.randomUUID().toString(), old.action(), old.gatewayId(),

@@ -167,15 +167,17 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
         return controlPolicy.view(settings == null ? null : settings.credential());
     }
 
-    @Override public synchronized CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(boolean enabled, long revision) {
+    @Override public synchronized CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(Boolean enabled, Boolean temperatureEnabled, long revision) {
         requireAdmin();
         importLegacyCredential();
-        if (enabled) requireBinding();
+        if (Boolean.TRUE.equals(enabled) || Boolean.TRUE.equals(temperatureEnabled)) requireBinding();
         var credential = settings == null ? null : settings.credential();
-        var result = controlPolicy.update(credential, enabled, revision);
+        var result = controlPolicy.update(credential, enabled, temperatureEnabled, revision);
         if (agent != null) agent.remotePolicyChanged();
-        audit.recordSuccess(enabled ? "REMOTE_CONTROL_ENABLE" : "REMOTE_CONTROL_DISABLE", "CLOUD_GATEWAY",
+        if (enabled != null) audit.recordSuccess(enabled ? "REMOTE_CONTROL_ENABLE" : "REMOTE_CONTROL_DISABLE", "CLOUD_GATEWAY",
                 credential == null ? null : credential.gatewayId(), "当前绑定的远程暂停授权");
+        if (temperatureEnabled != null) audit.recordSuccess(temperatureEnabled ? "REMOTE_TEMPERATURE_ENABLE" : "REMOTE_TEMPERATURE_DISABLE", "CLOUD_GATEWAY",
+                credential == null ? null : credential.gatewayId(), "当前绑定的远程温控授权");
         return result;
     }
 

@@ -44,6 +44,27 @@ class CloudRemoteControlPolicyStoreTest {
                 UUID.randomUUID().toString(), 1, UUID.randomUUID().toString()), 1)).isFalse();
     }
 
+    @Test void temperatureGrantIsIndependentAndPartialUpdatesPreserveTheOtherGrant() {
+        var store = new CloudRemoteControlPolicyStore(properties()); var binding = credential(1);
+        var pause = store.update(binding, true, null, 1);
+        assertThat(pause.enabled()).isTrue(); assertThat(pause.temperatureEnabled()).isFalse();
+        var temperature = store.update(binding, null, true, pause.revision());
+        assertThat(temperature.enabled()).isTrue(); assertThat(temperature.temperatureEnabled()).isTrue();
+        var pauseOff = store.update(binding, false, null, temperature.revision());
+        assertThat(pauseOff.enabled()).isFalse(); assertThat(pauseOff.temperatureEnabled()).isTrue();
+        store.bindingChanged(binding, null);
+        assertThat(store.view(null).enabled()).isFalse(); assertThat(store.view(null).temperatureEnabled()).isFalse();
+        assertThatThrownBy(() -> store.update(null, null, null, store.view(null).revision())).isInstanceOf(BusinessException.class);
+    }
+
+    @Test void legacyPauseAuthorizationDoesNotAuthorizeTemperatureAfterUpgrade() throws Exception {
+        var binding = credential(1);
+        Files.writeString(temporary.resolve("cloud-remote-control.json"), "{\"enabled\":true,\"revision\":2,\"gatewayId\":\""
+                + binding.gatewayId() + "\",\"bindingVersion\":1}");
+        var view = new CloudRemoteControlPolicyStore(properties()).view(binding);
+        assertThat(view.enabled()).isTrue(); assertThat(view.temperatureEnabled()).isFalse(); assertThat(view.temperatureSupported()).isTrue();
+    }
+
     private CloudGatewayProperties properties() {
         var properties = new CloudGatewayProperties();
         properties.setCredentialFile(temporary.resolve("gateway.json").toString());

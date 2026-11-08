@@ -80,7 +80,8 @@ class CloudGatewayTest {
         var source = mock(CloudSnapshotSource.class); when(source.capture()).thenReturn(List.of());
         var mqtt = mock(MqttClient.class); var agent = connectedAgent(properties, source, mqtt, 1);
         var worker = new CloudRemoteControlWorker(properties, source, mock(CloudRemoteControlPolicyStore.class),
-                mock(CloudRemoteCommandInbox.class), mock(com.example.farm.service.CurrentExecutionPauseService.class));
+                mock(CloudRemoteCommandInbox.class), mock(com.example.farm.service.CurrentExecutionPauseService.class),
+                mock(com.example.farm.service.HeaterTargetControlService.class));
         worker.connected((CloudWire.Credential) ReflectionTestUtils.getField(agent, "credential"), UUID.randomUUID().toString(), 1, () -> true);
         agent.setRemoteControlWorker(worker);
         doThrow(new org.eclipse.paho.client.mqttv3.MqttException(128)).when(mqtt).subscribeWithResponse("fixture/down/command", 1);

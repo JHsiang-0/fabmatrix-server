@@ -74,6 +74,13 @@ class CloudConnectionControllerSecurityTest {
                 .contentType("application/json").content("{\"revision\":1,\"enabled\":true}"))
                 .andExpect(status().isOk());
         verify(connections).remoteControlPolicy();
-        verify(connections).updateRemoteControlPolicy(true, 1);
+        verify(connections).updateRemoteControlPolicy(true, null, 1);
+        mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                .contentType("application/json").content("{\"revision\":2,\"temperatureEnabled\":true}"))
+                .andExpect(status().isOk());
+        verify(connections).updateRemoteControlPolicy(null, true, 2);
+        mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                .contentType("application/json").content("{\"revision\":3}"))
+                .andExpect(status().isBadRequest());
     }
 }

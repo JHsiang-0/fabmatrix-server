@@ -104,9 +104,11 @@ RRF 的 `pausing` 表示暂停过渡态，旧 PAUSED 枚举不能作为完成证
 
 `SET_HEATER_TARGET` 领取使用 schemaVersion 2，新增 heaterId、整数 targetC、数值 expectedTargetC、expectedDeviceBootId、expectedDescriptorRevision 和 expectedOperationState。旧 PAUSE 保持 schemaVersion 1 且不增加新字段。温控只允许 IDLE、PRINTING、PAUSED，IDLE 要求 expectedExecutionId 为 null 且现场也没有 ACTIVE 执行，打印或暂停时必须匹配本地执行身份。设备 boot、描述版本、完整本地文件路径、通道映射或有效目标值变化时拒绝陈旧指令。
 
-Klipper 只支持 extruder、extruderN、heater_bed 的固定 `SET_HEATER_TEMPERATURE`；按动作专门查询 configfile.settings 中的 min_temp/max_temp，不在常规轮询中拉取大配置。RRF 从 heat.heaters 的 min/max 及可靠的床/工具映射解析，使用固定 M568 或 M140，禁止切工具、共享加热器、多加热器工具、UNKNOWN 和通用 generic 通道。beta 固件缺失床映射时不能沿用旧温度展示的猜测回退。
+Klipper 只支持 extruder、extruderN、heater_bed 的固定 `SET_HEATER_TEMPERATURE`；按动作专门查询 configfile.settings 中的 min_temp/max_temp，不在常规轮询中拉取大配置。RRF 从 heat.heaters 的 min/max 及可靠的床/工具映射解析，兼容旧版扁平 bedHeaters 与新版二维 bedHeaterMapping。读取可展示同床多成员，写入仅允许唯一单加热器槽，拒绝多成员、同加热器跨槽或与工具共享；使用固定 M568 或 M140，禁止切工具、共享加热器、多加热器工具、UNKNOWN 和通用 generic 通道。beta 固件缺失床映射时不能沿用旧温度展示的猜测回退。
 
 首版软件上限 TOOL 300°C、BED 120°C，并同时遵守固件实际范围；不覆盖或修改固件保护。未知有效上限时禁止非零目标；0°C 仅关闭所选通道，不使用全机关闭命令。发送前按 BigDecimal 数值精确比较 expectedTargetC，微小现场变化也需要刷新重试。目标已经精确相同才不发送动作；读回则允许同一通道 GOOD effectiveTarget 与请求值相差不超过 0.5°C。
+
+RRF 外部目标 0°C 内部固定映射为床 `M140 P槽位 S-273.1` 或工具 `M568 P工具 S0 A0`；该负值是受控关闭常量，不接受用户负温度。0°C 的确认还要求 RRF 同通道模式 OFF、有效目标为 0；原目标虽为 0 但仍 ACTIVE 时仍需实际关闭，不能直接返回 ALREADY_AT_TARGET。
 
 仍先持久化 EXECUTING 并取得 Cloud 回执再发送一次固定动作，之后只读确认，不自动重发物理命令。CONFIRMED/HEATER_TARGET_CONFIRMED 表示目标值生效，ALREADY_AT_TARGET 表示目标原已相同；两者都不代表实际温度已达到目标。超时、错误通道或不一致采样保留 UNKNOWN。审计记录 REMOTE_SET_HEATER_TARGET、设备、通道和目标数值，不记录协议原文或密钥。
 

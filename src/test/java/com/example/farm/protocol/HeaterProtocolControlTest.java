@@ -54,6 +54,34 @@ class HeaterProtocolControlTest {
         f.client.setHeaterTarget(f.endpoint, channel, 60); f.server.verify();
     }
 
+    @ParameterizedTest @ValueSource(ints = {60, 0})
+    void rrfNewTwoDimensionalMappingUsesSingleHeaterBedAndRealOffConstant(int target) {
+        var f = new RrfFixture(); f.connect();
+        f.model("heat", "{\"bedHeaterMapping\":[[1]],\"heaters\":[{}, {\"min\":0,\"max\":125}]}");
+        f.model("tools", "[]"); f.disconnect();
+        f.connect(); f.gcode("M140 P0 S" + (target == 0 ? "-273.1" : "60"), false); f.disconnect();
+        var channel = f.client.inspectHeater(f.endpoint, "heater-1");
+        assertThat(channel.bedSlot()).isEqualTo(0);
+        f.client.setHeaterTarget(f.endpoint, channel, target); f.server.verify();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"[[1,2]]", "[[1],[1]]"})
+    void rrfGroupedBedCannotAffectMultipleHeatersOrShareOneHeaterAcrossSlots(String mapping) {
+        var f = new RrfFixture(); f.connect();
+        f.model("heat", "{\"bedHeaterMapping\":" + mapping + ",\"heaters\":[{}, {\"min\":0,\"max\":120},{}]}");
+        f.model("tools", "[]"); f.disconnect();
+        assertThatThrownBy(() -> f.client.inspectHeater(f.endpoint, "heater-1")).isInstanceOf(IllegalArgumentException.class);
+        f.server.verify();
+    }
+
+    @Test void bedMappingSharedWithToolCannotBeWritten() {
+        var f = new RrfFixture(); f.connect();
+        f.model("heat", "{\"bedHeaterMapping\":[[1]],\"heaters\":[{}, {\"min\":0,\"max\":120}]}");
+        f.model("tools", "[{\"number\":0,\"heaters\":[1]}]"); f.disconnect();
+        assertThatThrownBy(() -> f.client.inspectHeater(f.endpoint, "heater-1")).isInstanceOf(IllegalArgumentException.class);
+        f.server.verify();
+    }
+
     @ParameterizedTest @ValueSource(ints = {205, 0})
     void rrfUsesTheUniqueToolWithoutSelectingItOrChangingOtherChannels(int target) {
         var f = new RrfFixture(); f.connect();

@@ -291,7 +291,15 @@ public class RrfApiClient {
             if (!tools.isArray() || tools.size() > 8 || beds.size() > 16) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
             Integer bedSlot = null, toolNumber = null;
             for (int slot = 0; slot < beds.size(); slot++) {
-                if (beds.path(slot).isIntegralNumber() && beds.path(slot).intValue() == index) {
+                JsonNode mapping = beds.path(slot);
+                boolean contains = mapping.isIntegralNumber() && mapping.intValue() == index;
+                if (mapping.isArray()) {
+                    for (JsonNode member : mapping) {
+                        if (member.isIntegralNumber() && member.intValue() == index) contains = true;
+                    }
+                    if (contains && mapping.size() != 1) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
+                }
+                if (contains) {
                     if (bedSlot != null) throw new IllegalArgumentException("HEATER_UNSUPPORTED");
                     bedSlot = slot;
                 }
@@ -319,7 +327,7 @@ public class RrfApiClient {
         String gcode;
         if (channel.role() == HeaterRole.BED
                 && channel.bedSlot() != null && channel.bedSlot() >= 0 && channel.toolNumber() == null) {
-            gcode = "M140 P" + channel.bedSlot() + " S" + targetC;
+            gcode = "M140 P" + channel.bedSlot() + " S" + (targetC == 0 ? "-273.1" : Integer.toString(targetC));
         } else if (channel.role() == HeaterRole.TOOL
                 && channel.toolNumber() != null && channel.toolNumber() >= 0 && channel.bedSlot() == null) {
             gcode = "M568 P" + channel.toolNumber() + " S" + targetC + " A" + (targetC == 0 ? 0 : 2);

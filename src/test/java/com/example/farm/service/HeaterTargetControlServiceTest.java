@@ -66,6 +66,23 @@ class HeaterTargetControlServiceTest {
         verify(f.adapter).setHeaterTarget(any(), eq(f.route), eq(0));
     }
 
+    @Test void rrfZeroActiveTargetMustActuallySwitchOffBeforeConfirmation() {
+        var f = new Fixture(PrinterProtocolType.RRF, true);
+        f.modeOverride = PrinterObservation.HeaterMode.ACTIVE;
+        var activeZero = f.status(0, false); f.modeOverride = null;
+        when(f.adapter.getStatus(any())).thenReturn(activeZero, activeZero, f.status(0, false));
+        assertThat(f.apply(0, 0).code()).isEqualTo("HEATER_TARGET_CONFIRMED");
+        verify(f.adapter).setHeaterTarget(any(), any(), eq(0));
+    }
+
+    @Test void rrfZeroTargetWithoutOffReadbackCannotBeConfirmed() {
+        var f = new Fixture(PrinterProtocolType.RRF, true);
+        f.modeOverride = PrinterObservation.HeaterMode.ACTIVE;
+        when(f.adapter.getStatus(any())).thenReturn(f.status(0, false));
+        assertThat(f.apply(0, 0)).isEqualTo(new CloudControlWire.Outcome("UNKNOWN", "DEVICE_CONFIRMATION_TIMEOUT"));
+        verify(f.adapter).setHeaterTarget(any(), any(), eq(0));
+    }
+
     @Test void unchangedTargetRequiresFreshReadbackAndDoesNotSendACommand() {
         var f = new Fixture(PrinterProtocolType.KLIPPER, false);
         assertThat(f.apply(200, 200).code()).isEqualTo("ALREADY_AT_TARGET");
@@ -161,6 +178,7 @@ class HeaterTargetControlServiceTest {
         HeaterControlChannel route;
         PrinterExecution active;
         boolean shared;
+        PrinterObservation.HeaterMode modeOverride;
 
         Fixture(PrinterProtocolType protocol, boolean bed) {
             this.bed = bed; id = protocol == PrinterProtocolType.KLIPPER ? bed ? "heater_bed" : "extruder" : bed ? "heater-0" : "heater-1";
@@ -205,7 +223,7 @@ class HeaterTargetControlServiceTest {
             Instant at = Instant.now();
             var value = new PrinterObservation.Measurement(target, PrinterObservation.Quality.GOOD, at);
             var heater = new PrinterObservation.Heater(id, bed ? PrinterObservation.HeaterRole.BED : PrinterObservation.HeaterRole.TOOL,
-                    target.signum() == 0 ? PrinterObservation.HeaterMode.OFF : PrinterObservation.HeaterMode.ACTIVE,
+                    modeOverride != null ? modeOverride : target.signum() == 0 ? PrinterObservation.HeaterMode.OFF : PrinterObservation.HeaterMode.ACTIVE,
                     new PrinterObservation.Measurement(BigDecimal.valueOf(21), PrinterObservation.Quality.GOOD, at), value, value, value);
             var tools = bed ? List.<PrinterObservation.Tool>of() : shared ? List.of(new PrinterObservation.Tool(toolId, List.of(id)),
                     new PrinterObservation.Tool("tool-99", List.of(id))) : List.of(new PrinterObservation.Tool(toolId, List.of(id)));

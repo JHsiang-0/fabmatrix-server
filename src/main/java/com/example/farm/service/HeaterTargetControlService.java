@@ -84,7 +84,9 @@ public class HeaterTargetControlService {
             if (!route.sameRoute(currentRoute)) throw reject("HEATER_UNSUPPORTED");
             validateRoute(latest.observation(), currentHeater, currentRoute);
             limits(currentRoute, command.targetC()); compareTarget(currentHeater, command.expectedTargetC());
-            boolean already = currentHeater.effectiveTargetC().value().compareTo(BigDecimal.valueOf(command.targetC())) == 0;
+            boolean already = currentHeater.effectiveTargetC().value().compareTo(BigDecimal.valueOf(command.targetC())) == 0
+                    && (command.targetC() != 0 || endpoint.protocolType() != PrinterProtocolType.RRF
+                        || currentHeater.mode() == PrinterObservation.HeaterMode.OFF);
             checkpoint.check(); context(id, command); PrinterLock.ensureValid(id);
             if (!already) adapter.setHeaterTarget(endpoint, currentRoute, command.targetC());
             for (int attempt = 0; attempt < 10; attempt++) {
@@ -92,7 +94,10 @@ public class HeaterTargetControlService {
                 var observed = adapter.getStatus(endpoint);
                 var target = observation(id, command, observed);
                 validateRoute(observed.observation(), target, currentRoute);
-                if (same(target.effectiveTargetC().value(), BigDecimal.valueOf(command.targetC()))) {
+                boolean reached = command.targetC() == 0 ? target.effectiveTargetC().value().signum() == 0
+                        && (endpoint.protocolType() != PrinterProtocolType.RRF || target.mode() == PrinterObservation.HeaterMode.OFF)
+                        : same(target.effectiveTargetC().value(), BigDecimal.valueOf(command.targetC()));
+                if (reached) {
                     return outcome("CONFIRMED", already ? "ALREADY_AT_TARGET" : "HEATER_TARGET_CONFIRMED");
                 }
                 Thread.sleep(500);

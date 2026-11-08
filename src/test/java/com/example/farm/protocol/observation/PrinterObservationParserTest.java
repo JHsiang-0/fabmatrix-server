@@ -16,6 +16,15 @@ class PrinterObservationParserTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    void rrfGroupedBedMappingIdentifiesEveryObservedMemberWithoutInventingSingleHeaterControl() throws Exception {
+        var observation = PrinterObservationParser.rrf(mapper.readTree("{\"status\":\"idle\"}"), mapper.readTree("{}"),
+                mapper.readTree("{\"bedHeaterMapping\":[[1,2]],\"heaters\":[{}, {}, {}]}"), mapper.readTree("[]"), START, END);
+        assertThat(observation.heaters().get(0).role()).isEqualTo(PrinterObservation.HeaterRole.UNKNOWN);
+        assertThat(observation.heaters().get(1).role()).isEqualTo(PrinterObservation.HeaterRole.BED);
+        assertThat(observation.heaters().get(2).role()).isEqualTo(PrinterObservation.HeaterRole.BED);
+    }
+
+    @Test
     void klipperMapsFileCountersAndReportedLayersWithoutGuessingTimeParts() throws Exception {
         var status = mapper.readTree("""
                 {"webhooks":{"state":"ready"},"print_stats":{"state":"printing",

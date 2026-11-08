@@ -71,7 +71,9 @@ class CloudConnectionManagerTest {
     }
 
     private CloudConnectionManager newManager() {
-        var result = spy(new CloudConnectionManager(properties, source, outboxes, audit, remote));
+        ObjectProvider<CloudRemoteControlWorkerFactory> workers = mock(ObjectProvider.class);
+        var result = spy(new CloudConnectionManager(properties, source, outboxes, audit, remote,
+                new CloudRemoteControlPolicyStore(properties), workers));
         doReturn(agent).when(result).createAgent(any(), any());
         return result;
     }

@@ -75,6 +75,30 @@ class CloudGatewayTest {
         }
     }
 
+    @Test void oldBrokerDenyingCommandSubscriptionStillPublishesAndAcknowledgesLegacySnapshot() throws Exception {
+        var properties = new CloudGatewayProperties(); properties.setStateDirectory(temp.resolve("old-acl").toString());
+        var source = mock(CloudSnapshotSource.class); when(source.capture()).thenReturn(List.of());
+        var mqtt = mock(MqttClient.class); var agent = connectedAgent(properties, source, mqtt, 1);
+        var worker = new CloudRemoteControlWorker(properties, source, mock(CloudRemoteControlPolicyStore.class),
+                mock(CloudRemoteCommandInbox.class), mock(com.example.farm.service.CurrentExecutionPauseService.class));
+        worker.connected((CloudWire.Credential) ReflectionTestUtils.getField(agent, "credential"), UUID.randomUUID().toString(), 1, () -> true);
+        agent.setRemoteControlWorker(worker);
+        doThrow(new org.eclipse.paho.client.mqttv3.MqttException(128)).when(mqtt).subscribeWithResponse("fixture/down/command", 1);
+        ReflectionTestUtils.invokeMethod(agent, "subscribeGatewayTopics");
+        verify(mqtt).subscribe("fixture/down/state-ack", 1);
+        assertThat(ReflectionTestUtils.getField(worker, "current")).isNull();
+        assertThat(ReflectionTestUtils.getField(agent, "controlSubscribed")).isEqualTo(false);
+        ReflectionTestUtils.invokeMethod(agent, "tick");
+        var bytes = ArgumentCaptor.forClass(byte[].class);
+        verify(mqtt).publish(endsWith("up/snapshot"), bytes.capture(), eq(1), eq(false));
+        var packet = new ObjectMapper().readTree(bytes.getValue());
+        ReflectionTestUtils.setField(agent, "receivedAck", new CloudWire.Ack(packet.path("messageId").asText(),
+                packet.path("epoch").asLong(), packet.path("sequence").asLong(), "ACCEPTED", "OK"));
+        ReflectionTestUtils.invokeMethod(agent, "handleAck");
+        assertThat(agent.status().state()).isEqualTo("CONNECTED");
+        assertThat(ReflectionTestUtils.getField(worker, "current")).isNull();
+    }
+
     @Test void negotiatedV3UsesCanonicalCompatibilitySnapshotWithoutLegacyCacheSource() throws Exception {
         var properties = new CloudGatewayProperties();
         properties.setStateDirectory(temp.resolve("canonical-snapshot").toString());

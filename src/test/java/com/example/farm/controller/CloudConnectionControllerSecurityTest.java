@@ -30,7 +30,12 @@ class CloudConnectionControllerSecurityTest {
 
     @Test void everyManagementEndpointRequiresLocalAdministrator() throws Exception {
         mvc.perform(get("/api/v1/cloud/connection")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/cloud/remote-control")).andExpect(status().isUnauthorized());
         for (String role : new String[]{"OPERATOR", "VIEWER"}) {
+            mvc.perform(get("/api/v1/cloud/remote-control").with(user("staff").roles(role))).andExpect(status().isForbidden());
+            mvc.perform(put("/api/v1/cloud/remote-control").with(user("staff").roles(role))
+                    .contentType("application/json").content("{\"revision\":1,\"enabled\":true}"))
+                    .andExpect(status().isForbidden());
             mvc.perform(get("/api/v1/cloud/connection").with(user("staff").roles(role))).andExpect(status().isForbidden());
             for (String action : new String[]{"bind", "unbind", "refresh-binding"}) {
                 mvc.perform(post("/api/v1/cloud/" + action).with(user("staff").roles(role))
@@ -58,5 +63,17 @@ class CloudConnectionControllerSecurityTest {
                 .andExpect(status().isOk());
         verify(connections).bind(any(CloudBindRequest.class));
         verify(connections).reporting(any(CloudReportingRequest.class));
+    }
+
+    @Test void remoteControlUsesExplicitRevisionAndOnlyAdministratorMayChangeIt() throws Exception {
+        mvc.perform(get("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))).andExpect(status().isOk());
+        mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                .contentType("application/json").content("{\"revision\":0,\"enabled\":true}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                .contentType("application/json").content("{\"revision\":1,\"enabled\":true}"))
+                .andExpect(status().isOk());
+        verify(connections).remoteControlPolicy();
+        verify(connections).updateRemoteControlPolicy(true, 1);
     }
 }

@@ -265,3 +265,23 @@ CREATE TABLE IF NOT EXISTS farm_gcode_cloud_receipt (
     uploaded_at BIGINT NOT NULL,
     PRIMARY KEY(gateway_id, binding_version, execution_uid)
 );
+
+-- Durable remote pause inbox; interrupted physical attempts are never replayed.
+CREATE TABLE IF NOT EXISTS farm_remote_command (
+    command_id VARCHAR(36) PRIMARY KEY,
+    payload_sha256 VARCHAR(64) NOT NULL,
+    gateway_id VARCHAR(36) NOT NULL,
+    binding_version BIGINT NOT NULL,
+    boot_id VARCHAR(36) NOT NULL,
+    epoch BIGINT NOT NULL,
+    actor_user_id VARCHAR(36) NOT NULL,
+    actor_username VARCHAR(100) NOT NULL,
+    command_json TEXT NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    result_code VARCHAR(64) NOT NULL,
+    reported INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_remote_command_receipts
+    ON farm_remote_command(reported, gateway_id, binding_version, boot_id, epoch);

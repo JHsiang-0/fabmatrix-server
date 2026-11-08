@@ -1,5 +1,6 @@
 package com.example.farm.config;
 
+import com.example.farm.cloud.CloudRemoteCommandInbox;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -44,6 +45,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         createCanonicalPrinterStateTableIfMissing();
         createPrinterEventOutboxTableIfMissing();
         createGCodeMetadataTablesIfMissing();
+        CloudRemoteCommandInbox.createSchema(jdbcTemplate);
         addColumnIfMissing("farm_user", "enabled", "INTEGER NOT NULL DEFAULT 1");
         addColumnIfMissing("farm_user", "token_version", "INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing("farm_user", "must_change_password", "INTEGER NOT NULL DEFAULT 0");

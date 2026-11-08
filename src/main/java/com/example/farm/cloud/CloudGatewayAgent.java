@@ -8,7 +8,12 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.example.farm.service.PrinterEventOutbox;
 import com.example.farm.protocol.model.CanonicalPrinterModel;
-import org.eclipse.paho.client.mqttv3.*;
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,12 +54,12 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private CloudWire.Credential credential;
     private HttpClient http;
     private URI api;
-    private MqttClient mqtt;
+    private volatile MqttClient mqtt;
     private javax.net.ssl.SSLContext tls;
     private CloudBandwidthLimiter bandwidth;
-    private long epoch;
+    private volatile long epoch;
     private long sequence;
-    private boolean registered;
+    private volatile boolean registered;
     private boolean protocolNegotiated;
     private CloudWire.Protocol protocol;
     private List<CloudWire.CanonicalPacket> inventoryPlan;
@@ -76,7 +81,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private int canonicalCursor;
     private String canonicalSourceInstanceId;
     private long lastEventPoll;
-    private boolean terminal;
+    private volatile boolean terminal;
     private Pending pending;
     private long lastCapture;
     private long lastSnapshot;
@@ -87,6 +92,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private long lastWarning;
     private CloudFileMetadataSync fileMetadataSync;
     private long lastFileMetadataSync;
+    private CloudRemoteControlWorker remoteControl;
+    private boolean controlSubscribed;
 
     public CloudGatewayAgent(CloudGatewayProperties properties, CloudSnapshotSource source,
                              ObjectProvider<PrinterEventOutbox> eventOutboxes) {
@@ -111,9 +118,12 @@ public class CloudGatewayAgent implements SmartLifecycle {
                            UUID eventId, String raw, long lastSentAt) { }
     public Status status() { return status; }
     void setFileMetadataSync(CloudFileMetadataSync sync) { fileMetadataSync = sync; }
+    void setRemoteControlWorker(CloudRemoteControlWorker worker) { remoteControl = worker; }
+    void remotePolicyChanged() { if (remoteControl != null) remoteControl.policyChanged(); }
 
     @Override public void start() {
         running = true;
+        if (remoteControl != null) remoteControl.start();
         executor = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("farm-cloud-gateway").factory());
         long intervalMillis = properties.isObservationV3Enabled() ? 100 : 1000;
         executor.scheduleWithFixedDelay(this::tick, 1000, intervalMillis, TimeUnit.MILLISECONDS);
@@ -132,6 +142,13 @@ public class CloudGatewayAgent implements SmartLifecycle {
                 epoch = session.epoch();
                 sequence = Math.max(sequence, session.lastSequence());
                 registered = true;
+                if (remoteControl != null && controlSubscribed) {
+                    long activeEpoch = epoch;
+                    try { remoteControl.connected(credential, bootId, activeEpoch,
+                            () -> running && registered && !terminal && epoch == activeEpoch
+                                    && mqtt != null && mqtt.isConnected()); }
+                    catch (RuntimeException unavailable) { LOG.warn("Remote control session unavailable; observations continue"); }
+                }
             }
             handleAck();
             if (terminal || !registered) { return; }
@@ -349,9 +366,16 @@ public class CloudGatewayAgent implements SmartLifecycle {
         mqtt = new MqttClient(properties.getMqttUrl(), credential.mqttClientId(), new MemoryPersistence());
         mqtt.setTimeToWait(5000);
         mqtt.setCallback(new MqttCallback() {
-            public void connectionLost(Throwable cause) { }
+            public void connectionLost(Throwable cause) {
+                registered = false;
+                if (remoteControl != null) remoteControl.disconnect();
+            }
             public void deliveryComplete(IMqttDeliveryToken token) { }
             public void messageArrived(String topic, MqttMessage message) {
+                if (remoteControl != null && topic.equals(credential.topicPrefix() + "down/command")) {
+                    remoteControl.notice(message.getPayload(), message.isRetained());
+                    return;
+                }
                 if (!topic.equals(credential.topicPrefix() + "down/state-ack") || message.getPayload().length > 4096) { return; }
                 try { receivedAck = json.readValue(message.getPayload(), CloudWire.Ack.class); }
                 catch (IOException ignored) { }
@@ -367,9 +391,23 @@ public class CloudGatewayAgent implements SmartLifecycle {
         options.setCleanSession(true);
         options.setAutomaticReconnect(false);
         mqtt.connect(options);
-        mqtt.subscribe(credential.topicPrefix() + "down/state-ack", 1);
+        subscribeGatewayTopics();
         registered = false;
         lastSnapshotBody = null;
+    }
+
+    private void subscribeGatewayTopics() throws MqttException {
+        mqtt.subscribe(credential.topicPrefix() + "down/state-ack", 1);
+        controlSubscribed = false;
+        if (remoteControl == null) return;
+        try {
+            var result = mqtt.subscribeWithResponse(credential.topicPrefix() + "down/command", 1);
+            int[] granted = result.getGrantedQos();
+            controlSubscribed = granted != null && granted.length == 1 && granted[0] == 1;
+        } catch (MqttException unsupported) {
+            LOG.warn("Cloud remote command subscription unavailable; observation upload continues");
+        }
+        if (!controlSubscribed) remoteControl.disconnect();
     }
 
     private void handleAck() throws IOException {
@@ -643,6 +681,8 @@ public class CloudGatewayAgent implements SmartLifecycle {
     private Path pendingFile() { return Path.of(properties.getStateDirectory()).resolve("cloud-snapshot-pending.json"); }
     private void clearPending() throws IOException { Files.deleteIfExists(pendingFile()); pending = null; }
     private void closeMqtt() {
+        registered = false;
+        if (remoteControl != null) remoteControl.disconnect();
         if (mqtt == null) { return; }
         try { if (mqtt.isConnected()) { mqtt.disconnectForcibly(1000, 1000); } } catch (Exception ignored) { }
         try { mqtt.close(true); } catch (Exception ignored) { }
@@ -651,6 +691,7 @@ public class CloudGatewayAgent implements SmartLifecycle {
 
     @Override public void stop() {
         running = false;
+        if (remoteControl != null) remoteControl.close();
         if (fileMetadataSync != null) fileMetadataSync.close();
         if (executor != null) {
             executor.shutdownNow();

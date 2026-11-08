@@ -67,6 +67,23 @@ class PrinterIdentityVerifierTest {
     }
 
     @Test
+    void remoteControlCannotBypassIdentityProofWhenRediscoveryIsDisabled() {
+        properties.setEnabled(false);
+        when(discovery.identify(any())).thenReturn(matchingIdentity());
+        verifier.verifyRemoteFresh(printer);
+        verifier.verifyRemoteFresh(printer);
+        verify(discovery, times(2)).identify(any());
+    }
+
+    @Test
+    void remoteControlRejectsMissingMacInsteadOfUsingLegacySkip() {
+        printer.setMacAddress(null);
+        assertThatThrownBy(() -> verifier.verifyRemoteFresh(printer))
+                .isInstanceOf(BusinessException.class).hasMessage("IDENTITY_UNVERIFIED");
+        verifyNoInteractions(discovery);
+    }
+
+    @Test
     void legacyMissingOrInvalidMacKeepsItsExistingMonitoringBehavior() {
         printer.setFirmwareType("legacy-unknown");
         for (String mac : new String[] {null, "", "unavailable", "00:00:00:00:00:00"}) {

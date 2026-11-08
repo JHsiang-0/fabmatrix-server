@@ -34,8 +34,21 @@ public class PrinterIdentityVerifier {
         verify(printer, true);
     }
 
+    /** Remote actions require evidence even when automatic rediscovery is disabled. */
+    public void verifyRemoteFresh(Printer printer) {
+        if (printer == null || printer.getId() == null
+                || macAddressUtil.normalizeMacAddress(printer.getMacAddress()) == null) {
+            throw new BusinessException(409, "IDENTITY_UNVERIFIED");
+        }
+        verify(printer, true, true);
+    }
+
     private void verify(Printer printer, boolean force) {
-        if (!properties.isEnabled() || printer == null || printer.getId() == null) {
+        verify(printer, force, false);
+    }
+
+    private void verify(Printer printer, boolean force, boolean required) {
+        if (!required && !properties.isEnabled() || printer == null || printer.getId() == null) {
             return;
         }
         String expectedMac = macAddressUtil.normalizeMacAddress(printer.getMacAddress());

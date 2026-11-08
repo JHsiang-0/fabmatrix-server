@@ -39,6 +39,9 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     /** Local profiles persist file assets. Non-local test fixtures keep the original gateway runtime. */
     @Autowired(required = false)
     private GCodeMetadataStore fileMetadata;
+    private final CloudRemoteControlPolicyStore controlPolicy;
+    /** Only the local SQLite runtime supplies an action worker; other profiles remain observation-only. */
+    private final ObjectProvider<CloudRemoteControlWorkerFactory> controlWorkers;
     private final ObjectMapper json = new ObjectMapper();
     private Path settingsFile;
     private CloudConnectionSettings settings;
@@ -54,12 +57,15 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
 
     public CloudConnectionManager(CloudGatewayProperties defaults, CloudSnapshotSource source,
                                   ObjectProvider<PrinterEventOutbox> outboxes, AuditLogService audit,
-                                  CloudConnectionClient remote) {
+                                  CloudConnectionClient remote, CloudRemoteControlPolicyStore controlPolicy,
+                                  ObjectProvider<CloudRemoteControlWorkerFactory> controlWorkers) {
         this.defaults = defaults;
         this.source = source;
         this.outboxes = outboxes;
         this.audit = audit;
         this.remote = remote;
+        this.controlPolicy = controlPolicy;
+        this.controlWorkers = controlWorkers;
     }
 
     @Override public synchronized void start() {
@@ -153,6 +159,24 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
             return connection();
         } catch (BusinessException exception) { throw exception; }
         catch (Exception exception) { throw remoteFailure(exception); }
+    }
+
+    @Override public synchronized CloudRemoteControlPolicyStore.View remoteControlPolicy() {
+        requireAdmin();
+        importLegacyCredential();
+        return controlPolicy.view(settings == null ? null : settings.credential());
+    }
+
+    @Override public synchronized CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(boolean enabled, long revision) {
+        requireAdmin();
+        importLegacyCredential();
+        if (enabled) requireBinding();
+        var credential = settings == null ? null : settings.credential();
+        var result = controlPolicy.update(credential, enabled, revision);
+        if (agent != null) agent.remotePolicyChanged();
+        audit.recordSuccess(enabled ? "REMOTE_CONTROL_ENABLE" : "REMOTE_CONTROL_DISABLE", "CLOUD_GATEWAY",
+                credential == null ? null : credential.gatewayId(), "当前绑定的远程暂停授权");
+        return result;
     }
 
     @Override public synchronized CloudPairingVO startPairing(CloudPairingStartRequest request) {
@@ -306,6 +330,8 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
         // Write first so a failed save leaves the existing runtime and configuration intact.
         CloudAgentFiles.write(settingsFile, json.writeValueAsString(next));
         stopAgent();
+        try { controlPolicy.bindingChanged(settings.credential(), next.credential()); }
+        catch (RuntimeException unavailable) { LOG.warn("Remote control policy unavailable; control remains fail-closed"); }
         settings = next;
         managed = true;
         configurationError = null;
@@ -323,6 +349,8 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     CloudGatewayAgent createAgent(CloudGatewayProperties properties, CloudWire.Credential credential) {
         var created = new CloudGatewayAgent(properties, source, outboxes, credential);
         if (fileMetadata != null) created.setFileMetadataSync(new CloudFileMetadataSync(properties, source, fileMetadata));
+        var workers = controlWorkers.getIfAvailable();
+        if (workers != null) created.setRemoteControlWorker(workers.create(properties));
         return created;
     }
 

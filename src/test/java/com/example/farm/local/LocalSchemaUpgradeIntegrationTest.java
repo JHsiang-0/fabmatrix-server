@@ -162,7 +162,10 @@ class LocalSchemaUpgradeIntegrationTest {
         assertThat(jdbcTemplate.queryForList("PRAGMA table_info(farm_printer_execution)").stream()
                 .map(column -> String.valueOf(column.get("name"))))
                 .contains("printer_id", "farm_job_id", "source", "state", "has_seen_processing",
-                        "idle_observation_count", "device_uptime_at_start", "ended_at", "end_reason");
+                        "idle_observation_count", "device_uptime_at_start", "ended_at", "end_reason", "max_print_seconds");
+        assertThat(jdbcTemplate.queryForList("PRAGMA table_info(farm_remote_command)").stream()
+                .map(column -> String.valueOf(column.get("name"))))
+                .contains("command_id", "payload_sha256", "boot_id", "epoch", "actor_user_id", "status", "reported");
         assertThat(jdbcTemplate.queryForList("PRAGMA index_list(farm_printer_execution)").stream()
                 .map(row -> String.valueOf(row.get("name"))))
                 .contains("uk_printer_execution_active", "idx_printer_execution_printer_state",

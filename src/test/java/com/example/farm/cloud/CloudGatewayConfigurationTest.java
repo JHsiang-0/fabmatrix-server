@@ -15,7 +15,7 @@ class CloudGatewayConfigurationTest {
     private final CloudSnapshotSource source = mock(CloudSnapshotSource.class);
 
     private ApplicationContextRunner runner(boolean enabled) {
-        return new ApplicationContextRunner().withUserConfiguration(CloudConnectionManager.class)
+        return new ApplicationContextRunner().withUserConfiguration(CloudConnectionManager.class, CloudRemoteControlPolicyStore.class)
                 .withBean(CloudGatewayProperties.class, () -> {
                     var properties = new CloudGatewayProperties();
                     properties.setEnabled(enabled);

@@ -63,7 +63,7 @@ class CurrentExecutionPauseServiceTest {
         printer.setConnectionStatus("ONLINE"); printer.setMonitorEnabled(true);
         execution = new PrinterExecution(); execution.setId(1L); execution.setPrinterId(9321L);
         execution.setExecutionUid(command.expectedExecutionId()); execution.setState("ACTIVE");
-        execution.setSource("EXTERNAL"); execution.setObservedFilename("0:/gcodes/part.gcode");
+        execution.setSource("EXTERNAL"); execution.setObservedFilename("part.gcode");
         execution.setLastSeenAt(LocalDateTime.now());
         when(printers.getById(9321L)).thenReturn(printer);
         when(executions.findActive(9321L)).thenReturn(execution);
@@ -142,6 +142,17 @@ class CurrentExecutionPauseServiceTest {
         doThrow(new BusinessException(409, "IDENTITY_UNVERIFIED"))
                 .when(identities).verifyRemoteFresh(printer);
         assertThat(service(true).pause(command, () -> { }, () -> { }).code()).isEqualTo("IDENTITY_UNVERIFIED");
+        verify(adapter, never()).pause(any());
+    }
+
+    @Test void samePublicFilenameInAnotherDirectoryDoesNotProveExecutionContinuity() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.KLIPPER);
+        execution.setObservedFilename("folder-a/part.gcode");
+        var current = status(PrinterStatus.PRINTING);
+        when(adapter.getStatus(any())).thenReturn(new PrinterDeviceStatus(current.status(), current.rawState(), null,
+                "folder-b/part.gcode", current.progress(), null, null, null, null, current.printDuration(), null, null,
+                current.filePosition(), current.fileSize(), null, false, false));
+        assertThat(service(true).pause(command, () -> { }, () -> { }).code()).isEqualTo("EXECUTION_CONTINUITY_UNKNOWN");
         verify(adapter, never()).pause(any());
     }
 

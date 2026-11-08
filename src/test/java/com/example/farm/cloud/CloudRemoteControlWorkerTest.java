@@ -114,6 +114,35 @@ class CloudRemoteControlWorkerTest {
         }
     }
 
+    @Test void invalidClaimDoesNotDropTheNextValidQueuedNotification() throws Exception {
+        try (var fixture = new Fixture()) {
+            fixture.invalidClaim = UUID.randomUUID().toString();
+            var command = fixture.command;
+            fixture.worker.notice(json.writeValueAsBytes(new CloudControlWire.Notice(1, "COMMAND_AVAILABLE",
+                    fixture.invalidClaim, command.gatewayId(), command.bindingVersion(), command.bootId(), command.epoch())), false);
+            fixture.worker.notice(fixture.notice(), false);
+            fixture.tick(); fixture.tick();
+            assertThat(fixture.physicalAttempts.get()).isEqualTo(1);
+            assertThat(fixture.paths.stream().filter(path -> path.endsWith("control-policy")).count()).isEqualTo(1);
+            assertThat(fixture.statuses).containsExactly("EXECUTING", "CONFIRMED");
+        }
+    }
+
+    @Test void nonPositiveIssuedTimestampCannotOverflowTheThirtySecondDeadline() throws Exception {
+        for (long issuedAt : new long[] {0, -1, Long.MIN_VALUE}) {
+            try (var fixture = new Fixture()) {
+                var old = fixture.command;
+                fixture.command = new CloudControlWire.Command(old.schemaVersion(), old.commandId(), old.action(), old.gatewayId(),
+                        old.bindingVersion(), old.bootId(), old.epoch(), old.sourceInstanceId(), old.deviceUid(), old.localPrinterId(),
+                        old.expectedExecutionId(), old.expectedFileName(), old.expectedFileSizeBytes(), old.expectedFilePositionBytes(),
+                        old.policyRevision(), old.actorUserId(), old.actorUsername(), issuedAt, Long.MAX_VALUE);
+                fixture.worker.notice(fixture.notice(), false); fixture.tick();
+                assertThat(fixture.codes).containsExactly("COMMAND_EXPIRED");
+                assertThat(fixture.physicalAttempts.get()).isZero();
+            }
+        }
+    }
+
     private final class Fixture implements AutoCloseable {
         final HttpServer server;
         final CloudRemoteControlPolicyStore policy;
@@ -125,7 +154,7 @@ class CloudRemoteControlWorkerTest {
         final List<String> paths = new ArrayList<>(), statuses = new ArrayList<>(), codes = new ArrayList<>(), authorizations = new ArrayList<>();
         CloudControlWire.Command command = CloudRemoteCommandInboxTest.command();
         int policyHttpStatus = 200;
-        String rejectedCommand, failedReceipt;
+        String rejectedCommand, failedReceipt, invalidClaim;
         Fixture() throws Exception {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/api/v1/gateway/", exchange -> {
@@ -133,6 +162,9 @@ class CloudRemoteControlWorkerTest {
                 authorizations.add(exchange.getRequestHeaders().getFirst("Authorization"));
                 byte[] body = exchange.getRequestBody().readAllBytes();
                 int responseStatus = path.endsWith("control-policy") ? policyHttpStatus : 200;
+                if (path.endsWith("/claim") && json.readValue(body, CloudControlWire.Claim.class).commandId().equals(invalidClaim)) {
+                    responseStatus = 404;
+                }
                 if (path.endsWith("/result")) {
                     var result = json.readValue(body, CloudControlWire.Result.class);
                     statuses.add(result.status()); codes.add(result.code());

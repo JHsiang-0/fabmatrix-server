@@ -163,7 +163,7 @@ public class CurrentExecutionPauseService {
                 || command.expectedFileName() == null || current.filename() == null
                 || !name(command.expectedFileName()).equals(name(current.filename()))
                 || execution.getObservedFilename() == null
-                || !name(execution.getObservedFilename()).equals(name(current.filename()))
+                || !path(execution.getObservedFilename()).equals(path(current.filename()))
                 || command.expectedFileSizeBytes() != null && (current.fileSize() == null
                     || current.fileSize().compareTo(java.math.BigDecimal.valueOf(command.expectedFileSizeBytes())) != 0)
                 || command.expectedFilePositionBytes() != null && (current.filePosition() == null
@@ -182,6 +182,7 @@ public class CurrentExecutionPauseService {
         normalized = normalized.substring(normalized.lastIndexOf('/') + 1).replaceAll("[/\\\\:\\p{Cntrl}]", "_");
         return normalized.length() > 128 ? normalized.substring(0, 128) : normalized;
     }
+    private String path(String input) { return input.replace('\\', '/').replaceAll("/+", "/"); }
     public static class Rejected extends RuntimeException {
         final String status, code;
         public Rejected(String status, String code) { super(code); this.status = status; this.code = code; }

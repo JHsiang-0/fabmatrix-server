@@ -153,7 +153,7 @@ class PrinterExecutionServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"filename", "position", "progress", "duration", "restart"})
+    @ValueSource(strings = {"filename", "directory", "position", "progress", "duration", "restart"})
     void externalTaskDiscontinuityCreatesNewIdentityEvenWhenIdleFrameWasMissed(String changed) {
         var service = new PrinterExecutionServiceImpl(executionMapper, printJobMapper, printerMapper);
         var previous = new PrinterExecution(); previous.setId(80L); previous.setPrinterId(4L);
@@ -161,6 +161,7 @@ class PrinterExecutionServiceTest {
         previous.setSource("EXTERNAL"); previous.setState("ACTIVE"); previous.setObservedFilename("part.gcode");
         switch (changed) {
             case "filename" -> previous.setObservedFilename("previous.gcode");
+            case "directory" -> previous.setObservedFilename("folder-a/part.gcode");
             case "position" -> previous.setMaxFilePosition(BigDecimal.valueOf(10000));
             case "progress" -> previous.setMaxProgress(BigDecimal.valueOf(70));
             case "duration" -> previous.setMaxPrintSeconds(BigDecimal.valueOf(600));
@@ -170,7 +171,8 @@ class PrinterExecutionServiceTest {
         when(executionMapper.selectOne(any())).thenReturn(previous);
         when(executionMapper.updateById(previous)).thenReturn(1);
         when(executionMapper.insert(any(PrinterExecution.class))).thenReturn(1);
-        var status = new PrinterDeviceStatus(PrinterStatus.PRINTING, "printing", null, "part.gcode", BigDecimal.TEN,
+        String filename = "directory".equals(changed) ? "folder-b/part.gcode" : "part.gcode";
+        var status = new PrinterDeviceStatus(PrinterStatus.PRINTING, "printing", null, filename, BigDecimal.TEN,
                 null, null, null, null, BigDecimal.TEN, null, null, BigDecimal.valueOf(200),
                 BigDecimal.valueOf(1000), null, false, false, null, BigDecimal.valueOf(500));
         var current = service.observeExecuting(4L, null, "EXTERNAL", "part.gcode", status);
@@ -234,7 +236,7 @@ class PrinterExecutionServiceTest {
 
     private PrinterDeviceStatus status(String state) {
         PrinterStatus status = "paused".equals(state) ? PrinterStatus.PAUSED : PrinterStatus.PRINTING;
-        return new PrinterDeviceStatus(status, state, null, "part.gcode", null,
+        return new PrinterDeviceStatus(status, state, null, "0:/gcodes/part.gcode", null,
                 null, null, null, null, null, null, null);
     }
 }

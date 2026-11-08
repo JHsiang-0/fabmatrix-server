@@ -96,7 +96,13 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
             if (policySynced != context) return;
             var notice = notices.poll();
             if (notice != null && same(context.session(), notice.gatewayId(), notice.bindingVersion(),
-                    notice.bootId(), notice.epoch())) process(context, notice);
+                    notice.bootId(), notice.epoch())) {
+                try { process(context, notice); }
+                catch (RemoteHttp failure) {
+                    // Policy support is already established. A rejected claim belongs to this notice only.
+                    if (failure.status < 400 || failure.status >= 500 || failure.status == 401 || failure.status == 429) throw failure;
+                }
+            }
             // A receipt cannot starve a new command. Retry at most one eligible receipt per tick.
             for (var entry : inbox.pendingResults(context.session())) {
                 if (!active(context)) return;
@@ -175,7 +181,8 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
         if (currentPolicy.revision() != command.policyRevision()
                 || !policy.allows(context.session(), command.policyRevision())) reject("REJECTED", "POLICY_CHANGED");
         long now = System.currentTimeMillis();
-        if (command.expiresAt() <= now || command.issuedAt() > now + 5000
+        if (command.issuedAt() <= 0 || command.expiresAt() <= 0
+                || command.expiresAt() <= now || command.issuedAt() > now + 5000
                 || command.expiresAt() <= command.issuedAt()
                 || command.expiresAt() - command.issuedAt() > 30000) reject("EXPIRED", "COMMAND_EXPIRED");
         if (!source.sourceInstanceId().equals(command.sourceInstanceId())) reject("REJECTED", "IDENTITY_MISMATCH");

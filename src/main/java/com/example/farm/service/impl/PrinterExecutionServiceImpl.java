@@ -347,7 +347,7 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
 
     private String filename(String value) {
         if (value == null || value.isBlank()) return null;
-        return value.replace('\\', '/').substring(value.replace('\\', '/').lastIndexOf('/') + 1);
+        return value.replace('\\', '/').replaceAll("/+", "/");
     }
 
     private void close(PrinterExecution execution, String state, String reason) {

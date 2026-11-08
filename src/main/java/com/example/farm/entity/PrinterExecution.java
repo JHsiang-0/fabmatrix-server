@@ -62,6 +62,9 @@ public class PrinterExecution implements Serializable {
     @TableField("max_file_position")
     private BigDecimal maxFilePosition;
 
+    @TableField("max_print_seconds")
+    private BigDecimal maxPrintSeconds;
+
     @TableField("file_size")
     private BigDecimal fileSize;
 

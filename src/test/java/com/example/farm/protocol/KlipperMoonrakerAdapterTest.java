@@ -2,10 +2,14 @@ package com.example.farm.protocol;
 
 import com.example.farm.common.utils.MoonrakerApiClient;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.protocol.observation.PrinterObservationParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,6 +46,25 @@ class KlipperMoonrakerAdapterTest {
         when(moonrakerApiClient.getPrinterStatus("192.168.1.80")).thenReturn(source);
 
         assertThat(adapter().getStatus(endpoint()).status()).isEqualTo(PrinterStatus.ERROR);
+    }
+
+    @Test
+    void exposesOnlyGoodFileCountersFromTheSameKlipperObservationForExecutionChecks() throws Exception {
+        var source = new MoonrakerStatusDTO(); source.setSystemState("ready"); source.setState("printing");
+        var now = Instant.now();
+        source.setObservation(PrinterObservationParser.klipper(new ObjectMapper().readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"printing","filename":"part.gcode"},
+                 "virtual_sdcard":{"file_position":1200,"file_size":10000,"progress":0.12}}
+                """), now, now));
+        when(moonrakerApiClient.getPrinterStatus("192.168.1.80")).thenReturn(source);
+        assertThat(adapter().getStatus(endpoint()).filePosition()).isEqualByComparingTo("1200");
+        assertThat(adapter().getStatus(endpoint()).fileSize()).isEqualByComparingTo("10000");
+        source.setObservation(PrinterObservationParser.klipper(new ObjectMapper().readTree("""
+                {"webhooks":{"state":"ready"},"print_stats":{"state":"printing"},
+                 "virtual_sdcard":{"file_position":-1,"file_size":-1}}
+                """), now, now));
+        assertThat(adapter().getStatus(endpoint()).filePosition()).isNull();
+        assertThat(adapter().getStatus(endpoint()).fileSize()).isNull();
     }
 
     @Test

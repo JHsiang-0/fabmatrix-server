@@ -2,6 +2,7 @@ package com.example.farm.protocol;
 
 import com.example.farm.common.utils.MoonrakerApiClient;
 import com.example.farm.entity.dto.MoonrakerStatusDTO;
+import com.example.farm.protocol.observation.PrinterObservation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -96,6 +97,7 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
         String systemState = normalize(source.getSystemState());
         String rawState = normalize(source.getState());
         PrinterStatus status = mapStatus(systemState, rawState);
+        var execution = source.getObservation() == null ? null : source.getObservation().execution();
         return new PrinterDeviceStatus(
                 status,
                 source.getState(),
@@ -109,8 +111,15 @@ public class KlipperMoonrakerAdapter implements PrinterProtocolAdapter {
                 decimal(source.getPrintDuration()),
                 decimal(source.getTotalDuration()),
                 decimal(source.getFilamentUsed()),
-                null, null, null, null, null, null, null, source.getObservation()
+                execution == null ? null : good(execution.filePositionBytes()),
+                execution == null ? null : good(execution.fileSizeBytes()),
+                null, null, null, null, null, source.getObservation()
         );
+    }
+
+    private BigDecimal good(PrinterObservation.Measurement measurement) {
+        return measurement != null && measurement.quality() == PrinterObservation.Quality.GOOD
+                ? measurement.value() : null;
     }
 
     private PrinterStatus mapStatus(String systemState, String rawState) {

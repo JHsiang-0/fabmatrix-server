@@ -100,7 +100,8 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         PrinterExecution active = findActive(printerId);
         PrinterExecution replaced = null;
         if (active != null && (!Objects.equals(active.getFarmJobId(), farmJobId)
-                || !Objects.equals(active.getSource(), normalizedSource))) {
+                || !Objects.equals(active.getSource(), normalizedSource)
+                || !"FARM".equals(normalizedSource) && continuityChanged(active, status))) {
             replaced = active;
             close(active, "UNKNOWN", "设备执行来源或任务发生变化");
             active = null;
@@ -314,6 +315,7 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
                 || "paused".equals(rawState) || "pausing".equals(rawState));
         execution.setMaxProgress(max(execution.getMaxProgress(), status.progress()));
         execution.setMaxFilePosition(max(execution.getMaxFilePosition(), status.filePosition()));
+        execution.setMaxPrintSeconds(max(execution.getMaxPrintSeconds(), status.printDuration()));
         if (status.fileSize() != null && status.fileSize().signum() > 0) {
             execution.setFileSize(status.fileSize());
         }
@@ -326,6 +328,26 @@ public class PrinterExecutionServiceImpl implements PrinterExecutionService {
         }
         execution.setLastSeenAt(LocalDateTime.now());
         execution.setUpdatedAt(LocalDateTime.now());
+    }
+
+    /** Missing an idle frame must not make a new external print inherit an old command target. */
+    private boolean continuityChanged(PrinterExecution active, PrinterDeviceStatus status) {
+        if (status == null) return false;
+        if (deviceRestarted(active, status)) return true;
+        String previous = filename(active.getObservedFilename());
+        String current = filename(status.filename());
+        if (previous != null && current != null && !previous.equals(current)) return true;
+        return status.filePosition() != null && active.getMaxFilePosition() != null
+                && active.getMaxFilePosition().subtract(status.filePosition()).compareTo(BigDecimal.valueOf(4096)) > 0
+                || status.progress() != null && active.getMaxProgress() != null
+                && active.getMaxProgress().subtract(status.progress()).compareTo(BigDecimal.valueOf(5)) > 0
+                || status.printDuration() != null && active.getMaxPrintSeconds() != null
+                && active.getMaxPrintSeconds().subtract(status.printDuration()).compareTo(BigDecimal.valueOf(5)) > 0;
+    }
+
+    private String filename(String value) {
+        if (value == null || value.isBlank()) return null;
+        return value.replace('\\', '/').substring(value.replace('\\', '/').lastIndexOf('/') + 1);
     }
 
     private void close(PrinterExecution execution, String state, String reason) {

@@ -198,6 +198,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
                     last_raw_state VARCHAR(50),
                     max_progress NUMERIC(5,2),
                     max_file_position NUMERIC(20,2),
+                    max_print_seconds NUMERIC(20,2),
                     file_size NUMERIC(20,2),
                     device_uptime_at_start INTEGER,
                     device_uptime_last INTEGER,
@@ -214,6 +215,7 @@ public class LocalSchemaMigration implements CommandLineRunner {
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_printer_execution_job "
                 + "ON farm_printer_execution(farm_job_id, state)");
         addColumnIfMissing("farm_printer_execution", "execution_uid", "VARCHAR(36)");
+        addColumnIfMissing("farm_printer_execution", "max_print_seconds", "NUMERIC(20,2)");
         addColumnIfMissing("farm_printer_execution", "first_observed_at", "TIMESTAMP");
         List<Long> executionsWithoutIdentity = jdbcTemplate.queryForList(
                 "SELECT id FROM farm_printer_execution WHERE execution_uid IS NULL OR TRIM(execution_uid) = ''", Long.class);

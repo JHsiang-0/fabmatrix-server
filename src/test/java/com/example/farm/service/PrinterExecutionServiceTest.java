@@ -13,6 +13,8 @@ import com.example.farm.protocol.PrinterStatus;
 import com.example.farm.service.impl.PrinterExecutionServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -148,6 +150,33 @@ class PrinterExecutionServiceTest {
         assertThat(current.getSource()).isEqualTo("FARM");
         assertThat(current.getFarmJobId()).isEqualTo(9L);
         assertThat(current.getExecutionUid()).isNotEqualTo(previous.getExecutionUid());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"filename", "position", "progress", "duration", "restart"})
+    void externalTaskDiscontinuityCreatesNewIdentityEvenWhenIdleFrameWasMissed(String changed) {
+        var service = new PrinterExecutionServiceImpl(executionMapper, printJobMapper, printerMapper);
+        var previous = new PrinterExecution(); previous.setId(80L); previous.setPrinterId(4L);
+        previous.setExecutionUid(java.util.UUID.randomUUID().toString());
+        previous.setSource("EXTERNAL"); previous.setState("ACTIVE"); previous.setObservedFilename("part.gcode");
+        switch (changed) {
+            case "filename" -> previous.setObservedFilename("previous.gcode");
+            case "position" -> previous.setMaxFilePosition(BigDecimal.valueOf(10000));
+            case "progress" -> previous.setMaxProgress(BigDecimal.valueOf(70));
+            case "duration" -> previous.setMaxPrintSeconds(BigDecimal.valueOf(600));
+            case "restart" -> previous.setDeviceUptimeLast(1000L);
+            default -> throw new IllegalArgumentException();
+        }
+        when(executionMapper.selectOne(any())).thenReturn(previous);
+        when(executionMapper.updateById(previous)).thenReturn(1);
+        when(executionMapper.insert(any(PrinterExecution.class))).thenReturn(1);
+        var status = new PrinterDeviceStatus(PrinterStatus.PRINTING, "printing", null, "part.gcode", BigDecimal.TEN,
+                null, null, null, null, BigDecimal.TEN, null, null, BigDecimal.valueOf(200),
+                BigDecimal.valueOf(1000), null, false, false, null, BigDecimal.valueOf(500));
+        var current = service.observeExecuting(4L, null, "EXTERNAL", "part.gcode", status);
+        assertThat(current.getExecutionUid()).isNotEqualTo(previous.getExecutionUid());
+        assertThat(previous.getState()).isEqualTo("UNKNOWN");
+        assertThat(current.getMaxPrintSeconds()).isEqualByComparingTo("10");
     }
 
     @Test

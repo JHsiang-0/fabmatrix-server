@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS farm_printer_execution (
     last_raw_state VARCHAR(50),
     max_progress NUMERIC(5,2),
     max_file_position NUMERIC(20,2),
+    max_print_seconds NUMERIC(20,2),
     file_size NUMERIC(20,2),
     device_uptime_at_start INTEGER,
     device_uptime_last INTEGER,

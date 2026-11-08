@@ -72,13 +72,25 @@ class CloudConnectionControllerSecurityTest {
                 .andExpect(status().isBadRequest());
         mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
                 .contentType("application/json").content("{\"revision\":1,\"enabled\":true}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
         verify(connections).remoteControlPolicy();
-        verify(connections).updateRemoteControlPolicy(true, null, 1);
         mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
                 .contentType("application/json").content("{\"revision\":2,\"temperatureEnabled\":true}"))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                .contentType("application/json").content("{\"revision\":1,\"remoteEnabled\":true,\"authorizationVersion\":1}"))
                 .andExpect(status().isOk());
-        verify(connections).updateRemoteControlPolicy(null, true, 2);
+        verify(connections).updateUnifiedRemoteControlPolicy(true, 1, 1);
+        mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                .contentType("application/json").content("{\"revision\":2,\"enabled\":false}"))
+                .andExpect(status().isOk());
+        verify(connections).updateRemoteControlPolicy(false, null, 2);
+        for (String body : java.util.List.of("{\"revision\":1,\"remoteEnabled\":true}",
+                "{\"revision\":1,\"remoteEnabled\":\"true\",\"authorizationVersion\":1}",
+                "{\"revision\":1,\"remoteEnabled\":true,\"authorizationVersion\":1,\"enabled\":true}")) {
+            mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
+                    .contentType("application/json").content(body)).andExpect(status().isBadRequest());
+        }
         mvc.perform(put("/api/v1/cloud/remote-control").with(user("admin").roles("ADMIN"))
                 .contentType("application/json").content("{\"revision\":3}"))
                 .andExpect(status().isBadRequest());

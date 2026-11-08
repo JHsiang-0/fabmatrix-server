@@ -83,10 +83,20 @@ public class CloudRemoteCommandInbox {
             jdbc.update("""
                     INSERT INTO farm_audit_log(actor_id,actor_username,actor_role,action,target_type,target_id,target_label,result,error_code,occurred_at)
                     VALUES(NULL,?,'CLOUD_ACTOR',?,'REMOTE_COMMAND',?,?,?, ?,CURRENT_TIMESTAMP)
-                    """, command.actorUsername(), "SET_HEATER_TARGET".equals(command.action()) ? "REMOTE_SET_HEATER_TARGET" : "REMOTE_PAUSE", command.commandId(),
-                    "SET_HEATER_TARGET".equals(command.action()) ? "云端温控设备 #" + command.localPrinterId() + " / " + command.heaterId() + " / " + command.targetC() + "°C" : "云端暂停设备 #" + command.localPrinterId(),
+                    """, command.actorUsername(), "REMOTE_" + command.action(), command.commandId(),
+                    "云端控制设备 #" + command.localPrinterId() + " / " + command.action()
+                            + (command.heaterId() == null ? "" : " / " + command.heaterId() + " / " + command.targetC() + "°C")
+                            + (command.targetPercent() == null ? "" : " / " + (command.fanId() == null ? "" : command.fanId()) + " / " + command.targetPercent() + "%"),
                     "CONFIRMED".equals(outcome.status()) ? "SUCCESS" : "FAILURE", outcome.code());
         }
+    }
+
+    /** Persist each confirmed heater shutdown before moving on; a partial result never loses this audit evidence. */
+    public synchronized void channelApplied(CloudControlWire.Command command, String heaterId) {
+        jdbc.update("""
+                INSERT INTO farm_audit_log(actor_id,actor_username,actor_role,action,target_type,target_id,target_label,result,error_code,occurred_at)
+                VALUES(NULL,?,'CLOUD_ACTOR','REMOTE_HEATERS_OFF','REMOTE_COMMAND',?,?,'SUCCESS','OK',CURRENT_TIMESTAMP)
+                """, command.actorUsername(), command.commandId(), "设备 #" + command.localPrinterId() + " / " + heaterId + " / 已确认关闭");
     }
 
     public synchronized Entry find(String id) {

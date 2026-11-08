@@ -15,6 +15,7 @@ public interface CloudConnectionService {
         return updateRemoteControlPolicy(enabled, null, revision);
     }
     CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(Boolean enabled, Boolean temperatureEnabled, long revision);
+    CloudRemoteControlPolicyStore.View updateUnifiedRemoteControlPolicy(boolean remoteEnabled, int authorizationVersion, long revision);
     CloudPairingVO startPairing(CloudPairingStartRequest request);
     CloudPairingVO pollPairing(CloudPairingRequest request);
     void cancelPairing(CloudPairingRequest request);

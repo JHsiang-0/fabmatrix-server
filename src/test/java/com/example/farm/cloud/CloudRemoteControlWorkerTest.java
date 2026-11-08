@@ -2,6 +2,7 @@ package com.example.farm.cloud;
 
 import com.example.farm.service.CurrentExecutionPauseService;
 import com.example.farm.service.HeaterTargetControlService;
+import com.example.farm.service.RemoteProductionControlService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,32 @@ import static org.mockito.Mockito.when;
 class CloudRemoteControlWorkerTest {
     @TempDir Path temporary;
     private final ObjectMapper json = new ObjectMapper();
+
+    @Test void schemaThreeDispatchesAllSixNewActionsThroughTheSameInboxAndAuthorization() throws Exception {
+        for (String action : List.of("RESUME", "CANCEL", "SET_FAN_SPEED", "SET_SPEED_FACTOR", "SET_FLOW_FACTOR", "HEATERS_OFF")) {
+            try (var fixture = new Fixture()) {
+                fixture.productionCommand(action);
+                fixture.worker.notice(fixture.notice(), false); fixture.tick();
+                verify(fixture.production).apply(any(), any(), any());
+                assertThat(fixture.statuses).containsExactly("EXECUTING", "CONFIRMED");
+            }
+        }
+    }
+
+    @Test void runtimeIntegerCoercionAndParametersFromOtherActionsAreRejectedBeforeAnyAttempt() throws Exception {
+        for (String invalid : List.of("75.0", "75.1", "\"75\"", "-1", "201")) {
+            try (var f = new Fixture()) {
+                f.productionCommand("SET_SPEED_FACTOR");
+                f.claimBody = json.writeValueAsString(f.command).replace("\"targetPercent\":75", "\"targetPercent\":" + invalid);
+                f.worker.notice(f.notice(), false); f.tick(); verify(f.production, never()).apply(any(), any(), any());
+                assertThat(f.statuses).isEmpty();
+            }
+        }
+        try (var f = new Fixture()) {
+            f.claimBody = json.writeValueAsString(f.command).replace("\"schemaVersion\":1", "\"fanId\":null,\"schemaVersion\":1");
+            f.worker.notice(f.notice(), false); f.tick(); verify(f.pause, never()).pause(any(), any(), any()); assertThat(f.statuses).isEmpty();
+        }
+    }
 
     @Test void mqttCallbackOnlyQueuesAndDuplicateCommandNeverRepeatsDeviceAttempt() throws Exception {
         try (var fixture = new Fixture()) {
@@ -144,7 +171,7 @@ class CloudRemoteControlWorkerTest {
         }
     }
 
-    @Test void temperatureUsesSchemaTwoAndItsIndependentGrantWithoutCallingPause() throws Exception {
+    @Test void temperatureRetainsSchemaTwoUnderTheUnifiedGrantWithoutCallingPause() throws Exception {
         try (var fixture = new Fixture()) {
             fixture.temperatureCommand();
             fixture.worker.notice(fixture.notice(), false); fixture.tick();
@@ -216,6 +243,7 @@ class CloudRemoteControlWorkerTest {
         final CloudRemoteCommandInbox inbox = mock(CloudRemoteCommandInbox.class);
         final CurrentExecutionPauseService pause = mock(CurrentExecutionPauseService.class);
         final HeaterTargetControlService heaters = mock(HeaterTargetControlService.class);
+        final RemoteProductionControlService production = mock(RemoteProductionControlService.class);
         final CloudRemoteControlWorker worker;
         final CloudWire.Credential credential;
         final AtomicInteger physicalAttempts = new AtomicInteger();
@@ -257,7 +285,7 @@ class CloudRemoteControlWorkerTest {
             properties.setCredentialFile(temporary.resolve(UUID.randomUUID().toString()).resolve("gateway.json").toString());
             credential = new CloudWire.Credential(command.gatewayId(), UUID.randomUUID().toString(), UUID.randomUUID().toString(),
                     1, "isolated-fixture-only", System.currentTimeMillis() + 3600000, "fixture", "fixture", "fixture");
-            policy = new CloudRemoteControlPolicyStore(properties); policy.update(credential, true, 1);
+            policy = new CloudRemoteControlPolicyStore(properties); policy.updateUnified(credential, true, 1, 1);
             var source = mock(CloudSnapshotSource.class); when(source.sourceInstanceId()).thenReturn(command.sourceInstanceId());
             Map<String, CloudRemoteCommandInbox.Entry> entries = new HashMap<>();
             Set<String> reported = new HashSet<>();
@@ -290,7 +318,12 @@ class CloudRemoteControlWorkerTest {
                 checkpoint.check(); before.executing(); checkpoint.check();
                 return new CloudControlWire.Outcome("CONFIRMED", "HEATER_TARGET_CONFIRMED");
             });
-            worker = new CloudRemoteControlWorker(properties, source, policy, inbox, pause, heaters);
+            when(production.apply(any(), any(), any())).thenAnswer(invocation -> {
+                CurrentExecutionPauseService.Checkpoint check = invocation.getArgument(1);
+                CurrentExecutionPauseService.BeforeAction before = invocation.getArgument(2);
+                check.check(); before.executing(); check.check(); return new CloudControlWire.Outcome("CONFIRMED", "ALREADY_AT_TARGET");
+            });
+            worker = new CloudRemoteControlWorker(properties, source, policy, inbox, pause, heaters, production);
             ReflectionTestUtils.setField(worker, "running", true);
             worker.connected(credential, command.bootId(), command.epoch(), () -> true);
         }
@@ -298,12 +331,23 @@ class CloudRemoteControlWorkerTest {
                 command.commandId(), command.gatewayId(), command.bindingVersion(), command.bootId(), command.epoch())); }
         void tick() { ReflectionTestUtils.invokeMethod(worker, "tick"); }
         void temperatureCommand() {
-            var view = policy.update(credential, null, true, policy.view(credential).revision());
+            var view = policy.view(credential);
             var old = command;
             command = new CloudControlWire.Command(2, old.commandId(), "SET_HEATER_TARGET", old.gatewayId(), old.bindingVersion(),
                     old.bootId(), old.epoch(), old.sourceInstanceId(), old.deviceUid(), old.localPrinterId(), null,
                     null, null, null, view.revision(), old.actorUserId(), old.actorUsername(), old.issuedAt(), old.expiresAt(),
                     "extruder", 205, java.math.BigDecimal.valueOf(200), UUID.randomUUID().toString(), 1L, "IDLE");
+        }
+        void productionCommand(String action) {
+            var old = command;
+            boolean idle = "HEATERS_OFF".equals(action); boolean factor = action.startsWith("SET_");
+            command = new CloudControlWire.Command(3, old.commandId(), action, old.gatewayId(), old.bindingVersion(), old.bootId(), old.epoch(),
+                    old.sourceInstanceId(), old.deviceUid(), old.localPrinterId(), idle ? null : old.expectedExecutionId(),
+                    old.expectedFileName(), old.expectedFileSizeBytes(), old.expectedFilePositionBytes(), old.policyRevision(), old.actorUserId(), old.actorUsername(),
+                    old.issuedAt(), old.expiresAt(), null, null, null, UUID.randomUUID().toString(), 1L,
+                    idle ? "IDLE" : "RESUME".equals(action) ? "PAUSED" : "PRINTING", "SET_FAN_SPEED".equals(action) ? "fan" : null,
+                    factor ? 75 : null, factor ? java.math.BigDecimal.valueOf(50) : null, "SET_FLOW_FACTOR".equals(action) ? "extruder" : null,
+                    idle ? List.of(new CloudControlWire.HeaterTarget("extruder", java.math.BigDecimal.valueOf(200))) : null);
         }
         void nextCommand() {
             var old = command; long now = System.currentTimeMillis();

@@ -123,9 +123,15 @@ public class CurrentExecutionPauseService {
                 if (beforePhase != PausePhase.PRINTING) return unknown("DEVICE_STATE_CHANGED");
                 adapter.pause(endpoint);
             }
+            boolean inconsistentRead = false;
             for (int attempt = 0; attempt < 10; attempt++) {
                 PrinterDeviceStatus observed = adapter.getStatus(endpoint);
                 requireExecution(executions.findActive(id), command);
+                if (observed != null && observed.observation() != null
+                        && observed.observation().completeness() == PrinterObservation.Completeness.INCONSISTENT) {
+                    requireContinuity(execution, observed, command, true);
+                    inconsistentRead = true; Thread.sleep(500); continue;
+                }
                 requireContinuity(execution, observed, command);
                 PausePhase observedPhase = phase(observed);
                 if (observedPhase == PausePhase.PAUSED) {
@@ -151,7 +157,7 @@ public class CurrentExecutionPauseService {
                 if (observedPhase == PausePhase.OTHER) return unknown("DEVICE_STATE_CHANGED");
                 Thread.sleep(500);
             }
-            return unknown("DEVICE_CONFIRMATION_TIMEOUT");
+            return unknown(inconsistentRead ? "EXECUTION_CONTINUITY_UNKNOWN" : "DEVICE_CONFIRMATION_TIMEOUT");
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return unknown("RESULT_UNKNOWN");
@@ -185,7 +191,10 @@ public class CurrentExecutionPauseService {
         }
     }
     private void requireContinuity(PrinterExecution execution, PrinterDeviceStatus current, CloudControlWire.Command command) {
-        if (current == null || current.observation() != null
+        requireContinuity(execution, current, command, false);
+    }
+    private void requireContinuity(PrinterExecution execution, PrinterDeviceStatus current, CloudControlWire.Command command, boolean allowInconsistent) {
+        if (current == null || !allowInconsistent && current.observation() != null
                 && current.observation().completeness() == PrinterObservation.Completeness.INCONSISTENT
                 || executions.deviceRestarted(execution, current)
                 || command.expectedFileName() == null || current.filename() == null

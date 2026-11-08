@@ -180,13 +180,13 @@ public final class CanonicalPrinterModelMapper {
             default -> ExecutionOutcome.UNKNOWN;
         };
         ExecutionEvidence evidence = outcome == ExecutionOutcome.UNKNOWN ? ExecutionEvidence.UNCONFIRMED
-                : outcome == ExecutionOutcome.COMPLETED && !"complete".equals(rawState)
+                : "remote_cancel_confirmed".equals(rawState) || outcome == ExecutionOutcome.COMPLETED && !"complete".equals(rawState)
                 ? ExecutionEvidence.RECONCILED : ExecutionEvidence.DEVICE_EXPLICIT;
         ExecutionKind kind = Boolean.TRUE.equals(execution.getHasSeenProcessing())
                 ? ExecutionKind.PRINT : ExecutionKind.UNKNOWN;
         String reasonCode = switch (outcome) {
             case COMPLETED -> "complete".equals(rawState) ? "DEVICE_REPORTED_COMPLETE" : "STABLE_IDLE_AFTER_EXECUTION";
-            case CANCELLED -> "DEVICE_REPORTED_CANCELLED";
+            case CANCELLED -> "remote_cancel_confirmed".equals(rawState) ? "REMOTE_CANCEL_CONFIRMED" : "DEVICE_REPORTED_CANCELLED";
             case FAILED -> "DEVICE_REPORTED_FAILED";
             case UNKNOWN -> "TERMINAL_UNCONFIRMED";
         };

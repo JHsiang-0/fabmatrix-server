@@ -170,14 +170,22 @@ public class CloudConnectionManager implements CloudConnectionService, SmartLife
     @Override public synchronized CloudRemoteControlPolicyStore.View updateRemoteControlPolicy(Boolean enabled, Boolean temperatureEnabled, long revision) {
         requireAdmin();
         importLegacyCredential();
-        if (Boolean.TRUE.equals(enabled) || Boolean.TRUE.equals(temperatureEnabled)) requireBinding();
         var credential = settings == null ? null : settings.credential();
         var result = controlPolicy.update(credential, enabled, temperatureEnabled, revision);
         if (agent != null) agent.remotePolicyChanged();
-        if (enabled != null) audit.recordSuccess(enabled ? "REMOTE_CONTROL_ENABLE" : "REMOTE_CONTROL_DISABLE", "CLOUD_GATEWAY",
-                credential == null ? null : credential.gatewayId(), "当前绑定的远程暂停授权");
-        if (temperatureEnabled != null) audit.recordSuccess(temperatureEnabled ? "REMOTE_TEMPERATURE_ENABLE" : "REMOTE_TEMPERATURE_DISABLE", "CLOUD_GATEWAY",
-                credential == null ? null : credential.gatewayId(), "当前绑定的远程温控授权");
+        audit.recordSuccess("REMOTE_UNIFIED_CONTROL_DISABLE", "CLOUD_GATEWAY",
+                credential == null ? null : credential.gatewayId(), "旧客户端撤销全部远程控制授权");
+        return result;
+    }
+
+    @Override public synchronized CloudRemoteControlPolicyStore.View updateUnifiedRemoteControlPolicy(boolean remoteEnabled, int authorizationVersion, long revision) {
+        requireAdmin(); importLegacyCredential();
+        if (remoteEnabled) requireBinding();
+        var credential = settings == null ? null : settings.credential();
+        var result = controlPolicy.updateUnified(credential, remoteEnabled, authorizationVersion, revision);
+        if (agent != null) agent.remotePolicyChanged();
+        audit.recordSuccess(remoteEnabled ? "REMOTE_UNIFIED_CONTROL_ENABLE" : "REMOTE_UNIFIED_CONTROL_DISABLE", "CLOUD_GATEWAY",
+                credential == null ? null : credential.gatewayId(), "当前绑定的统一远程控制授权 v1");
         return result;
     }
 

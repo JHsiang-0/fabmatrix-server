@@ -2,6 +2,7 @@ package com.example.farm.cloud;
 
 import com.example.farm.service.CurrentExecutionPauseService;
 import com.example.farm.service.HeaterTargetControlService;
+import com.example.farm.service.RemoteProductionControlService;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.type.LogicalType;
@@ -33,6 +34,7 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
     private final CloudRemoteCommandInbox inbox;
     private final CurrentExecutionPauseService pause;
     private final HeaterTargetControlService heaters;
+    private final RemoteProductionControlService production;
     private final ObjectMapper json = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final ArrayBlockingQueue<CloudControlWire.Notice> notices = new ArrayBlockingQueue<>(32);
     private volatile Context current;
@@ -50,8 +52,14 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
     public CloudRemoteControlWorker(CloudGatewayProperties properties, CloudSnapshotSource source,
             CloudRemoteControlPolicyStore policy, CloudRemoteCommandInbox inbox, CurrentExecutionPauseService pause,
             HeaterTargetControlService heaters) {
+        this(properties, source, policy, inbox, pause, heaters, null);
+    }
+    public CloudRemoteControlWorker(CloudGatewayProperties properties, CloudSnapshotSource source,
+            CloudRemoteControlPolicyStore policy, CloudRemoteCommandInbox inbox, CurrentExecutionPauseService pause,
+            HeaterTargetControlService heaters, RemoteProductionControlService production) {
         this.properties = properties; this.source = source; this.policy = policy; this.inbox = inbox; this.pause = pause;
         this.heaters = Objects.requireNonNull(heaters);
+        this.production = production;
         json.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
         json.coercionConfigFor(LogicalType.Integer).setCoercion(CoercionInputShape.String, CoercionAction.Fail);
         json.coercionConfigFor(LogicalType.Float).setCoercion(CoercionInputShape.String, CoercionAction.Fail);
@@ -101,18 +109,17 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
                 var s = context.session();
                 CloudControlWire.Success result;
                 if (Boolean.FALSE.equals(temperatureProtocolSupported)) {
-                    if (view.temperatureEnabled()) throw new RemoteHttp(400);
                     result = legacyPolicy(context, view);
                 } else {
                     try {
                         result = post(context, "/api/v1/gateway/control-policy",
                                 new CloudControlWire.Policy(s.gatewayId(), s.bindingVersion(), s.bootId(), s.epoch(),
-                                        s.sourceInstanceId(), view.enabled(), view.revision(), view.temperatureEnabled(), 1), CloudControlWire.Success.class);
+                                        s.sourceInstanceId(), view.remoteEnabled(), view.revision(), view.remoteEnabled(), 1,
+                                        view.remoteEnabled(), 1, 3, CloudControlWire.ACTIONS), CloudControlWire.Success.class);
                         if (result.success()) temperatureProtocolSupported = true;
                     } catch (RemoteHttp unsupported) {
                         if (unsupported.status != 400) throw unsupported;
                         temperatureProtocolSupported = false;
-                        if (view.temperatureEnabled()) throw unsupported;
                         result = legacyPolicy(context, view);
                     }
                 }
@@ -171,7 +178,13 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
         CloudControlWire.Outcome outcome;
         try {
             checkpoint(context, command);
-            CurrentExecutionPauseService.Checkpoint check = () -> checkpoint(context, command);
+            CurrentExecutionPauseService.Checkpoint check = () -> {
+                checkpoint(context, command);
+                if (command.schemaVersion() == 3) {
+                    if (production == null) reject("REJECTED", "CONTROL_UNSUPPORTED");
+                    production.validateContext(command);
+                }
+            };
             CurrentExecutionPauseService.BeforeAction before = () -> {
                 checkpoint(context, command);
                 if (!inbox.executing(command.commandId())) throw new IllegalStateException("Command already attempted");
@@ -180,8 +193,11 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
                 }
                 checkpoint(context, command);
             };
-            outcome = "SET_HEATER_TARGET".equals(command.action())
-                    ? heaters.apply(command, check, before) : pause.pause(command, check, before);
+            outcome = switch (command.action()) {
+                case "SET_HEATER_TARGET" -> heaters.apply(command, check, before);
+                case "PAUSE" -> pause.pause(command, check, before);
+                default -> production == null ? new CloudControlWire.Outcome("REJECTED", "CONTROL_UNSUPPORTED") : production.apply(command, check, before);
+            };
         } catch (CurrentExecutionPauseService.Rejected rejected) {
             outcome = new CloudControlWire.Outcome(rejected.getStatus(), rejected.getCode());
         }
@@ -204,13 +220,12 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
 
     private void checkpoint(Context context, CloudControlWire.Command command) {
         if (!active(context)) reject("REJECTED", "STALE_SESSION");
-        if (!"PAUSE".equals(command.action()) && !"SET_HEATER_TARGET".equals(command.action())) reject("REJECTED", "UNSUPPORTED_ACTION");
+        if (!CloudControlWire.ACTIONS.contains(command.action())) reject("REJECTED", "UNSUPPORTED_ACTION");
         CloudRemoteControlPolicyStore.View currentPolicy;
         try { currentPolicy = policy.view(context.credential()); }
         catch (RuntimeException unreadable) { reject("REJECTED", "LOCAL_STORAGE_FAILED"); return; }
-        boolean temperature = "SET_HEATER_TARGET".equals(command.action());
-        if (!(temperature ? currentPolicy.temperatureEnabled() : currentPolicy.enabled())) reject("REJECTED", "CONTROL_DISABLED");
-        if (temperature && !Boolean.TRUE.equals(temperatureProtocolSupported)) reject("REJECTED", "HEATER_UNSUPPORTED");
+        if (!currentPolicy.remoteEnabled()) reject("REJECTED", "CONTROL_DISABLED");
+        if (!Boolean.TRUE.equals(temperatureProtocolSupported)) reject("REJECTED", "CONTROL_UNSUPPORTED");
         if (currentPolicy.revision() != command.policyRevision()
                 || !policy.allows(context.session(), command.policyRevision(), command.action())) reject("REJECTED", "POLICY_CHANGED");
         long now = System.currentTimeMillis();
@@ -223,10 +238,12 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
 
     private void validateShape(CloudControlWire.Command command) {
         boolean temperature = command != null && "SET_HEATER_TARGET".equals(command.action());
-        if (command == null || command.schemaVersion() != (temperature ? 2 : 1) || !validUuid(command.commandId())
+        boolean modern = command != null && command.schemaVersion() == 3;
+        if (command == null || !CloudControlWire.ACTIONS.contains(command.action())
+                || !modern && command.schemaVersion() != (temperature ? 2 : 1) || !validUuid(command.commandId())
                 || !validUuid(command.gatewayId()) || !validUuid(command.bootId())
                 || !validUuid(command.sourceInstanceId()) || !validUuid(command.deviceUid())
-                || (!temperature || !"IDLE".equals(command.expectedOperationState())) && !validUuid(command.expectedExecutionId())
+                || ((!modern && !temperature) || !"IDLE".equals(command.expectedOperationState())) && !validUuid(command.expectedExecutionId())
                 || !validUuid(command.actorUserId())
                 || command.localPrinterId() == null || !command.localPrinterId().matches("[1-9][0-9]{0,18}")
                 || command.actorUsername() == null || command.actorUsername().isBlank()
@@ -238,6 +255,9 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
                 || command.bindingVersion() < 1 || command.epoch() < 1 || command.policyRevision() < 1) {
             throw new IllegalArgumentException("Invalid control contract");
         }
+        if (modern && (!validUuid(command.expectedDeviceBootId()) || command.expectedDescriptorRevision() == null
+                || command.expectedDescriptorRevision() < 1 || !Set.of("IDLE", "PRINTING", "PAUSED").contains(command.expectedOperationState())
+                || "IDLE".equals(command.expectedOperationState()) && command.expectedExecutionId() != null)) throw new IllegalArgumentException("Invalid control context");
         if (temperature && (command.heaterId() == null || command.heaterId().isBlank() || command.heaterId().length() > 64
                 || command.heaterId().chars().anyMatch(Character::isISOControl) || command.targetC() == null
                 || command.expectedTargetC() == null || command.expectedTargetC().signum() < 0
@@ -246,13 +266,31 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
                 || !validUuid(command.expectedDeviceBootId()) || command.expectedDescriptorRevision() == null || command.expectedDescriptorRevision() < 1
                 || !Set.of("IDLE", "PRINTING", "PAUSED").contains(command.expectedOperationState())
                 || "IDLE".equals(command.expectedOperationState()) && command.expectedExecutionId() != null)) throw new IllegalArgumentException("Invalid heater contract");
+        if (Set.of("SET_FAN_SPEED", "SET_SPEED_FACTOR", "SET_FLOW_FACTOR").contains(command.action())) {
+            boolean fan = "SET_FAN_SPEED".equals(command.action());
+            if (!modern || command.targetPercent() == null || command.targetPercent() < (fan ? 0 : 10) || command.targetPercent() > (fan ? 100 : 200)
+                    || !decimal(command.expectedPercent()) || command.expectedPercent().compareTo(BigDecimal.valueOf(fan ? 100 : 1000)) > 0
+                    || fan && !identifier(command.fanId()) || "SET_FLOW_FACTOR".equals(command.action()) && !identifier(command.toolId())
+                    || !fan && "IDLE".equals(command.expectedOperationState())) throw new IllegalArgumentException("Invalid runtime control");
+        }
+        if (Set.of("RESUME", "CANCEL").contains(command.action()) && (!modern || command.expectedExecutionId() == null
+                || "IDLE".equals(command.expectedOperationState()) || "RESUME".equals(command.action()) && !"PAUSED".equals(command.expectedOperationState()))) throw new IllegalArgumentException("Invalid execution control");
+        if ("HEATERS_OFF".equals(command.action())) {
+            var expected = command.expectedHeaterTargets();
+            if (!modern || !"IDLE".equals(command.expectedOperationState()) || expected == null || expected.isEmpty() || expected.size() > 16
+                    || expected.stream().anyMatch(value -> value == null || !identifier(value.heaterId()) || !decimal(value.expectedTargetC()))
+                    || expected.stream().map(CloudControlWire.HeaterTarget::heaterId).distinct().count() != expected.size()) throw new IllegalArgumentException("Invalid heaters-off control");
+        }
     }
+
+    private boolean identifier(String value) { return value != null && value.matches("[A-Za-z0-9._:-]{1,64}"); }
+    private boolean decimal(BigDecimal value) { return value != null && value.signum() >= 0 && value.compareTo(BigDecimal.valueOf(1000)) <= 0 && value.stripTrailingZeros().scale() <= 15; }
 
     private CloudControlWire.Success legacyPolicy(Context context, CloudRemoteControlPolicyStore.View view) throws Exception {
         var s = context.session();
         return post(context, "/api/v1/gateway/control-policy", Map.of("gatewayId", s.gatewayId(), "bindingVersion", s.bindingVersion(),
                 "bootId", s.bootId(), "epoch", s.epoch(), "sourceInstanceId", s.sourceInstanceId(),
-                "enabled", view.enabled(), "policyRevision", view.revision()), CloudControlWire.Success.class);
+                "enabled", false, "policyRevision", view.revision()), CloudControlWire.Success.class);
     }
 
     private boolean sendResult(Context context, String id, String status, String code) throws Exception {
@@ -293,7 +331,24 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
         try (var input = response.body()) {
             byte[] bytes = input.readNBytes(8193);
             if (bytes.length > 8192 || response.statusCode() != 200) throw new RemoteHttp(response.statusCode());
+            if (type == CloudControlWire.Command.class) validateRawCommand(json.readTree(bytes));
             return json.readValue(bytes, type);
+        }
+    }
+
+    private void validateRawCommand(com.fasterxml.jackson.databind.JsonNode command) {
+        String action = command.path("action").asText();
+        var allowed = new java.util.HashSet<String>();
+        if ("SET_HEATER_TARGET".equals(action)) allowed.addAll(Set.of("heaterId", "targetC", "expectedTargetC"));
+        if ("SET_FAN_SPEED".equals(action)) allowed.addAll(Set.of("fanId", "targetPercent", "expectedPercent"));
+        if ("SET_SPEED_FACTOR".equals(action)) allowed.addAll(Set.of("targetPercent", "expectedPercent"));
+        if ("SET_FLOW_FACTOR".equals(action)) allowed.addAll(Set.of("toolId", "targetPercent", "expectedPercent"));
+        if ("HEATERS_OFF".equals(action)) allowed.add("expectedHeaterTargets");
+        for (String field : Set.of("heaterId", "targetC", "expectedTargetC", "fanId", "targetPercent", "expectedPercent", "toolId", "expectedHeaterTargets")) {
+            if (command.has(field) && !allowed.contains(field)) throw new IllegalArgumentException("Unexpected action parameter");
+        }
+        if (command.path("schemaVersion").asInt() == 1) for (String field : Set.of("expectedDeviceBootId", "expectedDescriptorRevision", "expectedOperationState")) {
+            if (command.has(field)) throw new IllegalArgumentException("Unexpected legacy parameter");
         }
     }
     private static final class RemoteHttp extends Exception {

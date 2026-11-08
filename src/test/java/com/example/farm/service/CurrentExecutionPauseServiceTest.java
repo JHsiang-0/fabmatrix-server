@@ -164,6 +164,14 @@ class CurrentExecutionPauseServiceTest {
         verify(executions, never()).observeExecuting(anyLong(), any(), any(), any(), any());
     }
 
+    @Test void aTransitionFrameMayOnlyBeDiscardedUntilAConsistentPausedReadbackArrives() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF); printer.setFirmwareType("RRF");
+        when(adapter.getStatus(any())).thenReturn(status(PrinterStatus.PRINTING), status(PrinterStatus.PRINTING),
+                inconsistent(PrinterStatus.PAUSED), status(PrinterStatus.PAUSED));
+        assertThat(service(true).pause(command, () -> { }, () -> { }).status()).isEqualTo("CONFIRMED");
+        verify(adapter).pause(any());
+    }
+
     @ParameterizedTest @ValueSource(strings = {"busy", "resuming", "starting"})
     void preparingOrAnotherTransitionNeverTriggersABlindPause(String rawState) {
         when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);

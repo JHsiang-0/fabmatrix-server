@@ -109,7 +109,7 @@ public class HeaterTargetControlService {
         } catch (RuntimeException uncertain) { return outcome("UNKNOWN", "HEATER_TARGET_FAILED"); }
     }
 
-    private Printer context(long id, CloudControlWire.Command command) {
+    Printer context(long id, CloudControlWire.Command command) {
         if (!monitoring) throw reject("MONITOR_DISABLED");
         var printer = printers.getById(id);
         if (printer == null || !Objects.equals(printer.getDeviceUid(), command.deviceUid())) throw reject("IDENTITY_MISMATCH");
@@ -164,7 +164,7 @@ public class HeaterTargetControlService {
         return heater;
     }
 
-    private void validateRoute(PrinterObservation sample, PrinterObservation.Heater heater, HeaterControlChannel route) {
+    void validateRoute(PrinterObservation sample, PrinterObservation.Heater heater, HeaterControlChannel route) {
         if (route == null || !route.id().equals(heater.id()) || route.role() != heater.role()) throw reject("HEATER_UNSUPPORTED");
         var tools = sample.tools().stream().filter(tool -> tool.heaterIds().contains(heater.id())).toList();
         if (heater.role() == PrinterObservation.HeaterRole.TOOL && (tools.size() != 1 || tools.getFirst().heaterIds().size() != 1)) throw reject("HEATER_UNSUPPORTED");
@@ -182,7 +182,7 @@ public class HeaterTargetControlService {
     private void compareTarget(PrinterObservation.Heater heater, BigDecimal expected) {
         if (expected == null || heater.effectiveTargetC().value().compareTo(expected) != 0) throw reject("HEATER_TARGET_CHANGED");
     }
-    private void verifyIdentity(Printer printer) {
+    void verifyIdentity(Printer printer) {
         try { identities.verifyRemoteFresh(printer); }
         catch (BusinessException invalid) { throw reject("IDENTITY_UNVERIFIED".equals(invalid.getMessage()) ? "IDENTITY_UNVERIFIED" : "IDENTITY_MISMATCH"); }
     }

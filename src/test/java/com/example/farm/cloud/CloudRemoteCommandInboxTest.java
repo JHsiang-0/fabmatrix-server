@@ -14,6 +14,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CloudRemoteCommandInboxTest {
     @TempDir Path temporary;
 
+    @Test void schemaThreeRuntimeParametersArePartOfTheDurableIdentityAndRestartCannotReplayThem() throws Exception {
+        var jdbc = database(); var inbox = new CloudRemoteCommandInbox(jdbc); var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var base = json.valueToTree(command()); var node = (com.fasterxml.jackson.databind.node.ObjectNode) base;
+        node.put("schemaVersion", 3); node.put("action", "SET_SPEED_FACTOR"); node.put("expectedDeviceBootId", UUID.randomUUID().toString());
+        node.put("expectedDescriptorRevision", 1); node.put("expectedOperationState", "PRINTING"); node.put("targetPercent", 150); node.put("expectedPercent", 100);
+        var command = json.treeToValue(node, CloudControlWire.Command.class);
+        inbox.accept(command); inbox.executing(command.commandId());
+        var restarted = new CloudRemoteCommandInbox(jdbc);
+        assertThat(restarted.accept(command).status()).isEqualTo("UNKNOWN");
+        node.put("targetPercent", 151);
+        var changed = json.treeToValue(node, CloudControlWire.Command.class);
+        assertThatThrownBy(() -> restarted.accept(changed)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test void sqliteRestartNeverReplaysAnInterruptedAttemptAndKeepsBootScopedReceipt() {
         var jdbc = database();
         var inbox = new CloudRemoteCommandInbox(jdbc);

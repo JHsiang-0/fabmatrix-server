@@ -13,6 +13,7 @@ import com.example.farm.protocol.PrinterProtocolAdapter;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterStatus;
+import com.example.farm.protocol.observation.PrinterObservation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,6 +24,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -140,6 +142,28 @@ class CurrentExecutionPauseServiceTest {
         verify(adapter, never()).pause(any());
     }
 
+    @Test void inconsistentFreshObservationRefusesTheActionBeforeExecutionAcknowledgement() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
+        printer.setFirmwareType("RRF");
+        when(adapter.getStatus(any())).thenReturn(inconsistent(PrinterStatus.PRINTING));
+        var acknowledged = new AtomicBoolean();
+        assertThat(service(true).pause(command, () -> { }, () -> acknowledged.set(true)))
+                .isEqualTo(new CloudControlWire.Outcome("REJECTED", "EXECUTION_CONTINUITY_UNKNOWN"));
+        assertThat(acknowledged).isFalse();
+        verify(adapter, never()).pause(any()); verify(printers, never()).updateById(any(Printer.class));
+    }
+
+    @Test void inconsistentPausedReadbackCannotConfirmOrPersistThePause() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
+        printer.setFirmwareType("RRF");
+        when(adapter.getStatus(any())).thenReturn(status(PrinterStatus.PRINTING), status(PrinterStatus.PRINTING),
+                inconsistent(PrinterStatus.PAUSED));
+        assertThat(service(true).pause(command, () -> { }, () -> { }))
+                .isEqualTo(new CloudControlWire.Outcome("UNKNOWN", "EXECUTION_CONTINUITY_UNKNOWN"));
+        verify(adapter).pause(any()); verify(printers, never()).updateById(any(Printer.class));
+        verify(executions, never()).observeExecuting(anyLong(), any(), any(), any(), any());
+    }
+
     @ParameterizedTest @ValueSource(strings = {"busy", "resuming", "starting"})
     void preparingOrAnotherTransitionNeverTriggersABlindPause(String rawState) {
         when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
@@ -239,6 +263,19 @@ class CurrentExecutionPauseServiceTest {
         return new PrinterDeviceStatus(state, rawState, null, "part.gcode",
                 BigDecimal.TEN, null, null, null, null, BigDecimal.valueOf(10), null, null,
                 BigDecimal.valueOf(1000), BigDecimal.valueOf(10000), null, false, false);
+    }
+    private PrinterDeviceStatus inconsistent(PrinterStatus state) {
+        var source = status(state);
+        var at = Instant.now();
+        var observation = new PrinterObservation(at, at, PrinterObservation.Completeness.INCONSISTENT,
+                PrinterObservation.SystemState.READY,
+                state == PrinterStatus.PAUSED ? PrinterObservation.OperationState.PAUSED : PrinterObservation.OperationState.PRINTING,
+                List.of(), List.of(), null, null);
+        return new PrinterDeviceStatus(source.status(), source.rawState(), source.systemMessage(), source.filename(),
+                source.progress(), source.toolTemperature(), source.toolTarget(), source.bedTemperature(), source.bedTarget(),
+                source.printDuration(), source.totalDuration(), source.filamentUsed(), source.filePosition(), source.fileSize(),
+                source.timesLeft(), source.lastFileCancelled(), source.lastFileAborted(), source.lastDuration(),
+                source.deviceUptime(), observation);
     }
     private String uuid() { return UUID.randomUUID().toString(); }
 }

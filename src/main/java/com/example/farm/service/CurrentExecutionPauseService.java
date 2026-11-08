@@ -155,6 +155,8 @@ public class CurrentExecutionPauseService {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return unknown("RESULT_UNKNOWN");
+        } catch (Rejected uncertain) {
+            return unknown(uncertain.getCode());
         } catch (RuntimeException uncertain) { return unknown("RESULT_UNKNOWN"); }
     }
 
@@ -183,7 +185,9 @@ public class CurrentExecutionPauseService {
         }
     }
     private void requireContinuity(PrinterExecution execution, PrinterDeviceStatus current, CloudControlWire.Command command) {
-        if (current == null || executions.deviceRestarted(execution, current)
+        if (current == null || current.observation() != null
+                && current.observation().completeness() == PrinterObservation.Completeness.INCONSISTENT
+                || executions.deviceRestarted(execution, current)
                 || command.expectedFileName() == null || current.filename() == null
                 || !name(command.expectedFileName()).equals(name(current.filename()))
                 || execution.getObservedFilename() == null

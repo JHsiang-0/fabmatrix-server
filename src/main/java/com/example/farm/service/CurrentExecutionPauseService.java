@@ -12,6 +12,7 @@ import com.example.farm.protocol.PrinterEndpoint;
 import com.example.farm.protocol.PrinterProtocolAdapterFactory;
 import com.example.farm.protocol.PrinterProtocolType;
 import com.example.farm.protocol.PrinterStatus;
+import com.example.farm.protocol.observation.PrinterObservation;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.Locale;
 
 /** Shared execution-level pause, independent of a local login or a fabricated FarmJob. */
 @Service
@@ -99,8 +101,8 @@ public class CurrentExecutionPauseService {
         var adapter = adapters.getAdapter(printer.getFirmwareType());
         PrinterDeviceStatus before = adapter.getStatus(endpoint);
         requireContinuity(execution, before, command);
-        if (before.status() != PrinterStatus.PRINTING && before.status() != PrinterStatus.PAUSED
-                && before.status() != PrinterStatus.PREPARING) return rejected("DEVICE_STATE_CHANGED");
+        PausePhase beforePhase = phase(before);
+        if (beforePhase == PausePhase.OTHER) return rejected("DEVICE_STATE_CHANGED");
         checkpoint.check();
         requireExecution(executions.findActive(id), command);
         try { beforeAction.executing(); }
@@ -110,20 +112,23 @@ public class CurrentExecutionPauseService {
             requireExecution(executions.findActive(id), command);
             PrinterLock.ensureValid(id);
         } catch (RuntimeException noLongerAllowed) { return unknown("RESULT_UNKNOWN"); }
-        boolean alreadyPaused = before.status() == PrinterStatus.PAUSED;
         try {
             PrinterDeviceStatus latest = adapter.getStatus(endpoint);
             requireContinuity(execution, latest, command);
-            if (latest.status() != PrinterStatus.PRINTING && latest.status() != PrinterStatus.PREPARING
-                    && latest.status() != PrinterStatus.PAUSED) return unknown("DEVICE_STATE_CHANGED");
+            PausePhase latestPhase = phase(latest);
+            if (latestPhase == PausePhase.OTHER) return unknown("DEVICE_STATE_CHANGED");
             checkpoint.check();
-            alreadyPaused = latest.status() == PrinterStatus.PAUSED;
-            if (!alreadyPaused) adapter.pause(endpoint);
+            boolean alreadyPaused = latestPhase == PausePhase.PAUSED;
+            if (latestPhase == PausePhase.PRINTING) {
+                if (beforePhase != PausePhase.PRINTING) return unknown("DEVICE_STATE_CHANGED");
+                adapter.pause(endpoint);
+            }
             for (int attempt = 0; attempt < 10; attempt++) {
                 PrinterDeviceStatus observed = adapter.getStatus(endpoint);
                 requireExecution(executions.findActive(id), command);
                 requireContinuity(execution, observed, command);
-                if (observed.status() == PrinterStatus.PAUSED) {
+                PausePhase observedPhase = phase(observed);
+                if (observedPhase == PausePhase.PAUSED) {
                     new TransactionTemplate(transactions).executeWithoutResult(status -> {
                         Printer update = new Printer(); update.setId(id); update.setStatus("PAUSED");
                         update.setIsSafeToPrint(false);
@@ -143,6 +148,7 @@ public class CurrentExecutionPauseService {
                     });
                     return new CloudControlWire.Outcome("CONFIRMED", alreadyPaused ? "ALREADY_PAUSED" : "DEVICE_PAUSED");
                 }
+                if (observedPhase == PausePhase.OTHER) return unknown("DEVICE_STATE_CHANGED");
                 Thread.sleep(500);
             }
             return unknown("DEVICE_CONFIRMATION_TIMEOUT");
@@ -150,6 +156,24 @@ public class CurrentExecutionPauseService {
             Thread.currentThread().interrupt();
             return unknown("RESULT_UNKNOWN");
         } catch (RuntimeException uncertain) { return unknown("RESULT_UNKNOWN"); }
+    }
+
+    private enum PausePhase { PRINTING, PAUSING, PAUSED, OTHER }
+
+    /** Legacy PAUSED includes RRF pausing; only a final, fresh protocol state proves completion. */
+    private PausePhase phase(PrinterDeviceStatus status) {
+        String raw = status.rawState() == null ? "" : status.rawState().trim().toLowerCase(Locale.ROOT);
+        if ("pausing".equals(raw)) return PausePhase.PAUSING;
+        if ("paused".equals(raw) && status.status() == PrinterStatus.PAUSED) return PausePhase.PAUSED;
+        if (("printing".equals(raw) || "processing".equals(raw)) && status.status() == PrinterStatus.PRINTING) {
+            return PausePhase.PRINTING;
+        }
+        if ((raw.isEmpty() || "unknown".equals(raw)) && status.observation() != null) {
+            PrinterObservation.OperationState operation = status.observation().operationState();
+            if (operation == PrinterObservation.OperationState.PAUSED && status.status() == PrinterStatus.PAUSED) return PausePhase.PAUSED;
+            if (operation == PrinterObservation.OperationState.PAUSING) return PausePhase.PAUSING;
+        }
+        return PausePhase.OTHER;
     }
 
     private void requireExecution(PrinterExecution execution, CloudControlWire.Command command) {

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
@@ -99,6 +100,54 @@ class CurrentExecutionPauseServiceTest {
         when(adapter.getStatus(any())).thenReturn(status(PrinterStatus.PAUSED));
         assertThat(service(true).pause(command, () -> { }, () -> { }).code()).isEqualTo("ALREADY_PAUSED");
         verify(identities).verifyRemoteFresh(printer); verify(adapter, never()).pause(any());
+    }
+
+    @Test void rrfPausingDoesNotConfirmUntilTheDeviceReportsFinalPaused() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
+        printer.setFirmwareType("RRF");
+        var reads = new AtomicInteger();
+        when(adapter.getStatus(any())).thenAnswer(invocation -> {
+            int read = reads.incrementAndGet();
+            if (read <= 2) return status(PrinterStatus.PRINTING);
+            if (read == 3) {
+                verify(printers, never()).updateById(any(Printer.class));
+                return status(PrinterStatus.PAUSED, "pausing");
+            }
+            return status(PrinterStatus.PAUSED);
+        });
+        assertThat(service(true).pause(command, () -> { }, () -> { }))
+                .isEqualTo(new CloudControlWire.Outcome("CONFIRMED", "DEVICE_PAUSED"));
+        assertThat(reads.get()).isEqualTo(4);
+        verify(adapter).pause(any());
+    }
+
+    @Test void rrfRemainingInPausingTimesOutWithoutConfirmingOrRepeatingPause() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
+        printer.setFirmwareType("RRF");
+        when(adapter.getStatus(any())).thenReturn(status(PrinterStatus.PRINTING), status(PrinterStatus.PRINTING),
+                status(PrinterStatus.PAUSED, "pausing"));
+        assertThat(service(true).pause(command, () -> { }, () -> { }))
+                .isEqualTo(new CloudControlWire.Outcome("UNKNOWN", "DEVICE_CONFIRMATION_TIMEOUT"));
+        verify(adapter).pause(any()); verify(printers, never()).updateById(any(Printer.class));
+    }
+
+    @Test void alreadyPausingWaitsForFinalPauseAndNeverSendsAnotherM25() {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
+        printer.setFirmwareType("RRF");
+        when(adapter.getStatus(any())).thenReturn(status(PrinterStatus.PAUSED, "pausing"),
+                status(PrinterStatus.PAUSED, "pausing"), status(PrinterStatus.PAUSED, "pausing"), status(PrinterStatus.PAUSED));
+        assertThat(service(true).pause(command, () -> { }, () -> { }).status()).isEqualTo("CONFIRMED");
+        verify(adapter, never()).pause(any());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"busy", "resuming", "starting"})
+    void preparingOrAnotherTransitionNeverTriggersABlindPause(String rawState) {
+        when(adapter.protocolType()).thenReturn(PrinterProtocolType.RRF);
+        printer.setFirmwareType("RRF");
+        when(adapter.getStatus(any())).thenReturn(status(PrinterStatus.PREPARING, rawState));
+        assertThat(service(true).pause(command, () -> { }, () -> { }))
+                .isEqualTo(new CloudControlWire.Outcome("REJECTED", "DEVICE_STATE_CHANGED"));
+        verify(adapter, never()).pause(any()); verify(printers, never()).updateById(any(Printer.class));
     }
 
     @Test void noActionWhenExecutingReceiptFailsOrAuthorizationIsRevokedImmediatelyAfterIt() {
@@ -184,7 +233,10 @@ class CurrentExecutionPauseServiceTest {
                 identities, cache, events, transactions, monitoring);
     }
     private PrinterDeviceStatus status(PrinterStatus state) {
-        return new PrinterDeviceStatus(state, state == PrinterStatus.PAUSED ? "paused" : "printing", null, "part.gcode",
+        return status(state, state == PrinterStatus.PAUSED ? "paused" : "printing");
+    }
+    private PrinterDeviceStatus status(PrinterStatus state, String rawState) {
+        return new PrinterDeviceStatus(state, rawState, null, "part.gcode",
                 BigDecimal.TEN, null, null, null, null, BigDecimal.valueOf(10), null, null,
                 BigDecimal.valueOf(1000), BigDecimal.valueOf(10000), null, false, false);
     }

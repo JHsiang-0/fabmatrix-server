@@ -1,4 +1,4 @@
-# 可选云网关（C2 上报与 C3 远程暂停）
+# 可选云网关（C2 上报与 C3 受限远程控制）
 
 默认关闭。云服务是同级 fabmatrix-cloud，接入前按其 C1/C2 文档准备独立数据库、HTTPS、MQTT TLS 和组织/农场。
 
@@ -94,7 +94,21 @@ RRF 的 `pausing` 表示暂停过渡态，旧 PAUSED 枚举不能作为完成证
 
 本地执行连续性保留完整规范化文件路径，同名不同目录会建立新执行身份，公开上报仍仅含基本文件名。同一完整路径重打而未观察到结束、计数回退或重启时，现有协议不能绝对辨认新执行；执行 UUID 代表已观察到的会话，不能据此宣称固件提供了不可混淆的任务标识。无法确认时拒绝远程动作，后续需结合固件事件或原生任务身份提升证据。
 
-本期仅支持暂停，不提供远程恢复、取消、启动、温控、运动或任意 G-code。本地现有权限和控制接口保持兼容。本轮验证使用临时数据库及协议夹具，不对真实打印任务发送控制命令。
+当前支持暂停及下述独立授权的单通道目标温度设置，不提供远程恢复、取消、启动、运动或任意 G-code。本地现有权限和控制接口保持兼容。开发验证使用临时数据库及协议夹具，不对真实打印任务发送控制命令。
+
+## C3 温控：独立授权与单通道目标值
+
+`GET /api/v1/cloud/remote-control` 返回 `{enabled,temperatureEnabled,temperatureSupported:true,revision}`。`enabled` 仅授权暂停；`temperatureEnabled` 默认 false，旧配置升级后保持 false。`PUT` 接受可选的两项 Boolean 和 revision，至少提供一项，省略的项目保持原值。绑定变化时两项都关闭。启停温控写入独立本地审计，授权支持表示当前 Server 软件能力，不表示 Cloud 或现场当前必然满足执行条件。
+
+网关策略额外发送 `temperatureEnabled` 和 `temperatureControlVersion:1`。旧 Cloud 拒绝新字段时，只有温控关闭才退回原策略格式，当前连接不反复试探 400；重连或管理员配置变化后重新探测。温控开启时不能退回并声称成功。C2 上报线程继续独立运行。
+
+`SET_HEATER_TARGET` 领取使用 schemaVersion 2，新增 heaterId、整数 targetC、数值 expectedTargetC、expectedDeviceBootId、expectedDescriptorRevision 和 expectedOperationState。旧 PAUSE 保持 schemaVersion 1 且不增加新字段。温控只允许 IDLE、PRINTING、PAUSED，IDLE 要求 expectedExecutionId 为 null 且现场也没有 ACTIVE 执行，打印或暂停时必须匹配本地执行身份。设备 boot、描述版本、完整本地文件路径、通道映射或有效目标值变化时拒绝陈旧指令。
+
+Klipper 只支持 extruder、extruderN、heater_bed 的固定 `SET_HEATER_TEMPERATURE`；按动作专门查询 configfile.settings 中的 min_temp/max_temp，不在常规轮询中拉取大配置。RRF 从 heat.heaters 的 min/max 及可靠的床/工具映射解析，使用固定 M568 或 M140，禁止切工具、共享加热器、多加热器工具、UNKNOWN 和通用 generic 通道。beta 固件缺失床映射时不能沿用旧温度展示的猜测回退。
+
+首版软件上限 TOOL 300°C、BED 120°C，并同时遵守固件实际范围；不覆盖或修改固件保护。未知有效上限时禁止非零目标；0°C 仅关闭所选通道，不使用全机关闭命令。发送前按 BigDecimal 数值精确比较 expectedTargetC，微小现场变化也需要刷新重试。目标已经精确相同才不发送动作；读回则允许同一通道 GOOD effectiveTarget 与请求值相差不超过 0.5°C。
+
+仍先持久化 EXECUTING 并取得 Cloud 回执再发送一次固定动作，之后只读确认，不自动重发物理命令。CONFIRMED/HEATER_TARGET_CONFIRMED 表示目标值生效，ALREADY_AT_TARGET 表示目标原已相同；两者都不代表实际温度已达到目标。超时、错误通道或不一致采样保留 UNKNOWN。审计记录 REMOTE_SET_HEATER_TARGET、设备、通道和目标数值，不记录协议原文或密钥。
 
 ## 验证边界
 

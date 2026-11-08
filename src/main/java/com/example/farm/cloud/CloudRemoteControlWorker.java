@@ -240,8 +240,9 @@ public final class CloudRemoteControlWorker implements AutoCloseable {
         }
         if (temperature && (command.heaterId() == null || command.heaterId().isBlank() || command.heaterId().length() > 64
                 || command.heaterId().chars().anyMatch(Character::isISOControl) || command.targetC() == null
-                || command.expectedTargetC() == null || command.expectedTargetC().scale() > 4 || command.expectedTargetC().scale() < -3
-                || command.expectedTargetC().precision() > 9 || command.expectedTargetC().abs().compareTo(BigDecimal.valueOf(1000)) > 0
+                || command.expectedTargetC() == null || command.expectedTargetC().signum() < 0
+                || command.expectedTargetC().compareTo(BigDecimal.valueOf(1000)) > 0
+                || command.expectedTargetC().stripTrailingZeros().scale() > 15
                 || !validUuid(command.expectedDeviceBootId()) || command.expectedDescriptorRevision() == null || command.expectedDescriptorRevision() < 1
                 || !Set.of("IDLE", "PRINTING", "PAUSED").contains(command.expectedOperationState())
                 || "IDLE".equals(command.expectedOperationState()) && command.expectedExecutionId() != null)) throw new IllegalArgumentException("Invalid heater contract");

@@ -155,12 +155,36 @@ class CloudRemoteControlWorkerTest {
     }
 
     @Test void temperatureWireRejectsFractionalAndStringIntegerCoercion() throws Exception {
-        for (String invalid : new String[] {"205.5", "\"205\""}) {
+        for (String invalid : new String[] {"205.5", "205.0", "\"205\""}) {
             try (var fixture = new Fixture()) {
                 fixture.temperatureCommand();
                 fixture.claimBody = json.writeValueAsString(fixture.command).replace("\"targetC\":205", "\"targetC\":" + invalid);
                 fixture.worker.notice(fixture.notice(), false); fixture.tick();
                 verify(fixture.heaters, never()).apply(any(), any(), any()); assertThat(fixture.statuses).isEmpty();
+            }
+        }
+    }
+
+    @Test void expectedTargetAcceptsTheSameDecimalPrecisionAndScientificEquivalenceAsCloud() throws Exception {
+        for (String valid : new String[] {"205.12345", "205.00000000000000000000", "2.05000000000000000000e2"}) {
+            try (var fixture = new Fixture()) {
+                fixture.temperatureCommand();
+                fixture.claimBody = json.writeValueAsString(fixture.command).replace("\"expectedTargetC\":200", "\"expectedTargetC\":" + valid);
+                fixture.worker.notice(fixture.notice(), false); fixture.tick();
+                verify(fixture.heaters).apply(any(), any(), any());
+                assertThat(fixture.statuses).containsExactly("EXECUTING", "CONFIRMED");
+            }
+        }
+    }
+
+    @Test void expectedTargetRejectsTextOutOfBoundsAndMoreThanFifteenFractionalPlaces() throws Exception {
+        for (String invalid : new String[] {"\"200\"", "0.0000000000000001", "-0.1", "1000.00000000000001"}) {
+            try (var fixture = new Fixture()) {
+                fixture.temperatureCommand();
+                fixture.claimBody = json.writeValueAsString(fixture.command).replace("\"expectedTargetC\":200", "\"expectedTargetC\":" + invalid);
+                fixture.worker.notice(fixture.notice(), false); fixture.tick();
+                verify(fixture.heaters, never()).apply(any(), any(), any());
+                assertThat(fixture.statuses).isEmpty();
             }
         }
     }

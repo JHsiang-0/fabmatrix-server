@@ -14,7 +14,7 @@ FabMatrix Server 是一个本地 3D 打印生产管理后端：一个局域网�
 
 当前仓库只包含后端代码，没有 Vue、React 或其他前端工程。实际前端仓库为 `D:\WorkSpace\Vue\fabmatrix-client`；前端改动应在该仓库进行，后端仓库维护服务实现、契约、迁移和联调证据。
 
-2026-11-05 产品边界按 [本地与云端分工](docs/CLOUD_GATEWAY.md#产品边界) 执行。Server + Client 负责独立本地生产；Cloud + 手机 App 负责远程业务。Server 的云能力是可关闭的数据上报模块，两套账号、密码、角色和业务库分别维护。
+2026-11-05 产品边界按 [本地与云端分工](docs/CLOUD_GATEWAY.md#产品边界) 执行。Server + Client 负责独立本地生产；Cloud + 手机 App 负责远程业务。云上报可关闭；C3 远程暂停需要本地管理员另行授权且默认关闭。两套账号、密码、角色和业务库分别维护，具体执行边界见第16节。
 
 ## 2. 技术栈与运行要求
 
@@ -40,7 +40,7 @@ src/main/java/com/example/farm/
 ├── controller/   HTTP API、WebSocket、Moonraker 模拟接口
 ├── service/      服务接口及 impl 实现
 ├── protocol/     Klipper / RRF 协议适配与设备客户端
-├── cloud/        默认关闭的只读云代理
+├── cloud/        可选云上报与独立授权的远程暂停
 ├── tray/         Windows 托盘
 ├── mapper/       MyBatis-Plus Mapper
 ├── entity/       数据实体、DTO、VO

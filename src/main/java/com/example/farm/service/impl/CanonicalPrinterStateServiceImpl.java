@@ -71,9 +71,11 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
         var lastFinishedExecution = executionService.findLastFinished(current.getId());
         CanonicalPrinterModel.Descriptor previousDescriptor = previous == null ? null
                 : readDescriptor((String) previous.get("descriptor_json"));
+        CanonicalPrinterModel previousModel = previous == null ? null
+                : readPreviousModel((String) previous.get("model_json"));
         CanonicalPrinterModel model = CanonicalPrinterModelMapper.map(current, sourceInstanceId,
                 deviceBootId, observationRevision, descriptorRevision, observation, activeExecution,
-                lastFinishedExecution, continuityUnknown, Instant.now());
+                lastFinishedExecution, previousModel, continuityUnknown, Instant.now());
         if (fileMetadata != null) model = fileMetadata.enrich(current, activeExecution,
                 observation.execution() == null ? null : observation.execution().filename(), model);
         model = preserveCapabilityTimes(model, previousDescriptor);
@@ -82,7 +84,7 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
             descriptorRevision++;
             model = CanonicalPrinterModelMapper.map(current, sourceInstanceId, deviceBootId,
                     observationRevision, descriptorRevision, observation, activeExecution,
-                    lastFinishedExecution, continuityUnknown, Instant.now());
+                    lastFinishedExecution, previousModel, continuityUnknown, Instant.now());
             if (fileMetadata != null) model = fileMetadata.enrich(current, activeExecution,
                     observation.execution() == null ? null : observation.execution().filename(), model);
             model = preserveCapabilityTimes(model, previousDescriptor);
@@ -212,7 +214,7 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
     private Map<String, Object> previous(Long printerId) {
         try {
             return jdbcTemplate.queryForMap("SELECT device_boot_id, observation_revision, descriptor_revision, "
-                    + "descriptor_json FROM farm_printer_canonical_state WHERE printer_id = ?", printerId);
+                    + "descriptor_json, model_json FROM farm_printer_canonical_state WHERE printer_id = ?", printerId);
         } catch (EmptyResultDataAccessException missing) {
             return null;
         }
@@ -229,6 +231,15 @@ public class CanonicalPrinterStateServiceImpl implements CanonicalPrinterStateSe
     private CanonicalPrinterModel.Descriptor readDescriptor(String json) {
         try {
             return objectMapper.readValue(json, CanonicalPrinterModel.Descriptor.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
+    private CanonicalPrinterModel readPreviousModel(String json) {
+        if (json == null) return null;
+        try {
+            return objectMapper.readValue(json, CanonicalPrinterModel.class);
         } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException invalid) {
             return null;
         }

@@ -101,6 +101,8 @@ FarmData 根优先 FARM_DATA_DIR，未设置使用 user.home/FarmData。云端 O
 
 ## 行为与诊断
 
+2026-11-12修复完整模型的执行类型延续：终态类型复用已持久化模型中同一来源、设备、本地设备ID及执行ID的已知 `PRINT/SIMULATION`，不再仅用“曾看到processing”判断。首次只看到暂停、连续空闲和服务重启均保留可靠类型；旧证据缺失、损坏或冲突时保持UNKNOWN，outcome/evidence不被改成成功。该修复复用已有模型JSON，无数据库结构变更；已丢失的历史类型由Cloud按其已有执行证据兼容合并，不能在现场凭空补造。
+
 管理员可调用 `GET /api/v1/cloud/status` 查看 DISABLED/STARTING/SYNCHRONIZING/CONNECTED/RETRYING/SUPERSEDED、最后提交回执和脱敏错误码，其他角色拒绝。连接正常不代表打印机在线，云端仍按独立观察时间标过期。
 
 C2 上报线程只读取现场已有设备数据。C3 使用独立队列和线程，仅在本地管理员明确授权后支持远程暂停，详见下文。V1/V2 快照每 5 秒检查变化、至少每 30 秒发送一次，约 15 秒发送心跳。最多 200 台、单包 64 KiB；超限报错且不截断上传。V1/V2 仅上报设备状态白名单，不上传 IP/MAC/API Key、账号或文件内容。

@@ -30,6 +30,16 @@ public final class CanonicalPrinterModelMapper {
                                             PrinterObservation observation, PrinterExecution activeExecution,
                                             PrinterExecution lastFinishedExecution,
                                             boolean continuityUnknown, Instant capturedAt) {
+        return map(printer, sourceInstanceId, deviceBootId, observationRevision, descriptorRevision,
+                observation, activeExecution, lastFinishedExecution, null, continuityUnknown, capturedAt);
+    }
+
+    /** Preserves known execution kind from matching persisted evidence without inferring a terminal outcome. */
+    public static CanonicalPrinterModel map(Printer printer, UUID sourceInstanceId,
+                                            UUID deviceBootId, long observationRevision, long descriptorRevision,
+                                            PrinterObservation observation, PrinterExecution activeExecution,
+                                            PrinterExecution lastFinishedExecution, CanonicalPrinterModel previousModel,
+                                            boolean continuityUnknown, Instant capturedAt) {
         if (printer == null || printer.getId() == null || printer.getDeviceUid() == null
                 || sourceInstanceId == null || deviceBootId == null || observationRevision < 1
                 || descriptorRevision < 1 || capturedAt == null) {
@@ -42,8 +52,10 @@ public final class CanonicalPrinterModelMapper {
             throw new IllegalArgumentException("Printer deviceUid must be a UUID", invalidUid);
         }
         Descriptor descriptor = descriptor(printer, observation, descriptorRevision);
+        ExecutionKind lastFinishedKind = previousExecutionKind(previousModel,
+                new Identity(sourceInstanceId, deviceUid, printer.getId().toString()), lastFinishedExecution);
         Observation mappedObservation = observation(printer, observation, activeExecution, lastFinishedExecution,
-                capturedAt, deviceBootId, observationRevision, descriptor.revision(), continuityUnknown);
+                lastFinishedKind, capturedAt, deviceBootId, observationRevision, descriptor.revision(), continuityUnknown);
         CanonicalPrinterModel result = new CanonicalPrinterModel(CURRENT_MODEL_VERSION,
                 new Identity(sourceInstanceId, deviceUid, printer.getId().toString()), descriptor, mappedObservation);
         CanonicalPrinterModelValidator.validate(result);
@@ -118,6 +130,7 @@ public final class CanonicalPrinterModelMapper {
 
     private static Observation observation(Printer printer, PrinterObservation source,
                                            PrinterExecution activeExecution, PrinterExecution lastFinishedExecution,
+                                           ExecutionKind lastFinishedKind,
                                            Instant capturedAt,
                                            UUID deviceBootId, long observationRevision, long descriptorRevision,
                                            boolean continuityUnknown) {
@@ -161,10 +174,38 @@ public final class CanonicalPrinterModelMapper {
                 source == null ? SystemState.UNKNOWN : SystemState.valueOf(source.systemState().name()),
                 source == null ? OperationState.UNKNOWN : OperationState.valueOf(source.operationState().name()),
                 source == null ? null : source.currentToolId(), heaters, fans, motion, sensors, execution,
-                lastExecutionResult(lastFinishedExecution), issues);
+                lastExecutionResult(lastFinishedExecution, lastFinishedKind), issues);
     }
 
-    private static LastExecutionResult lastExecutionResult(PrinterExecution execution) {
+    private static ExecutionKind previousExecutionKind(CanonicalPrinterModel previous, Identity identity,
+                                                       PrinterExecution execution) {
+        if (previous == null || !identity.equals(previous.identity())
+                || execution == null || execution.getExecutionUid() == null) {
+            return ExecutionKind.UNKNOWN;
+        }
+        try {
+            CanonicalPrinterModelValidator.validate(previous);
+        } catch (IllegalArgumentException invalidPreviousModel) {
+            return ExecutionKind.UNKNOWN;
+        }
+        UUID executionId = UUID.fromString(execution.getExecutionUid());
+        var current = previous.observation().currentExecution();
+        var result = previous.observation().lastExecutionResult();
+        ExecutionKind currentKind = current != null && executionId.equals(current.id())
+                ? knownExecutionKind(current.kind()) : ExecutionKind.UNKNOWN;
+        ExecutionKind resultKind = result != null && executionId.equals(result.executionId())
+                ? knownExecutionKind(result.kind()) : ExecutionKind.UNKNOWN;
+        if (currentKind != ExecutionKind.UNKNOWN && resultKind != ExecutionKind.UNKNOWN && currentKind != resultKind) {
+            return ExecutionKind.UNKNOWN;
+        }
+        return currentKind != ExecutionKind.UNKNOWN ? currentKind : resultKind;
+    }
+
+    private static ExecutionKind knownExecutionKind(ExecutionKind kind) {
+        return kind == ExecutionKind.PRINT || kind == ExecutionKind.SIMULATION ? kind : ExecutionKind.UNKNOWN;
+    }
+
+    private static LastExecutionResult lastExecutionResult(PrinterExecution execution, ExecutionKind kind) {
         if (execution == null || execution.getExecutionUid() == null || execution.getEndedAt() == null
                 || "ACTIVE".equalsIgnoreCase(execution.getState())) {
             return null;
@@ -182,8 +223,6 @@ public final class CanonicalPrinterModelMapper {
         ExecutionEvidence evidence = outcome == ExecutionOutcome.UNKNOWN ? ExecutionEvidence.UNCONFIRMED
                 : "remote_cancel_confirmed".equals(rawState) || outcome == ExecutionOutcome.COMPLETED && !"complete".equals(rawState)
                 ? ExecutionEvidence.RECONCILED : ExecutionEvidence.DEVICE_EXPLICIT;
-        ExecutionKind kind = Boolean.TRUE.equals(execution.getHasSeenProcessing())
-                ? ExecutionKind.PRINT : ExecutionKind.UNKNOWN;
         String reasonCode = switch (outcome) {
             case COMPLETED -> "complete".equals(rawState) ? "DEVICE_REPORTED_COMPLETE" : "STABLE_IDLE_AFTER_EXECUTION";
             case CANCELLED -> "remote_cancel_confirmed".equals(rawState) ? "REMOTE_CANCEL_CONFIRMED" : "DEVICE_REPORTED_CANCELLED";

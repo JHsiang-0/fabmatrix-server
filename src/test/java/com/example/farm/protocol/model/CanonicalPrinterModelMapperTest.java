@@ -150,6 +150,8 @@ class CanonicalPrinterModelMapperTest {
                 completedModel.observation().lastExecutionResult().outcome());
         assertEquals(CanonicalPrinterModel.ExecutionEvidence.DEVICE_EXPLICIT,
                 completedModel.observation().lastExecutionResult().evidence());
+        assertEquals(CanonicalPrinterModel.ExecutionKind.UNKNOWN,
+                completedModel.observation().lastExecutionResult().kind());
 
         completed.setState("UNKNOWN");
         completed.setLastRawState("idle");
